@@ -33,6 +33,10 @@ exclude_re = [
   # Equivalent: picking a harness is refused only as `no_harness`, short
   # of the database failing, which no scenario can make it do.
   'replace match guard r.code == "no_harness" with true in App::ensure_watch',
+  # Usage windows are never read: nothing submits ReadWindows, so an
+  # account's windows are always empty.
+  'kit.rs:48:.* in Account::left$',
+  'kit.rs:49:.*replace - with \+ in Account::left$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
