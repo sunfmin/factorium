@@ -18,14 +18,14 @@ impl Projection for Tracker {
     }
 
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     fn tables(&self) -> Vec<Table> {
         vec![
             Table::new(CHECKOUTS, &["name", "listed"]).index(&["name"]),
             Table::new(ISSUES, &["checkout", "number", "status", "taken"]).index(&["checkout", "status", "number"]),
-            Table::new(WORKERS, &["checkout", "number", "status", "since"]).index(&["status"]),
+            Table::new(WORKERS, &["checkout", "number", "status", "since", "started_at"]).index(&["status"]),
         ]
     }
 
@@ -64,6 +64,7 @@ impl Projection for Tracker {
                     "worker": key, "checkout": d["checkout"], "number": d["number"], "attempt": d["attempt"],
                     "harness": d["harness"], "account": d["account"], "terminal": d["terminal"],
                     "worktree": d["worktree"], "branch": d["branch"], "status": "working", "since": d["at"],
+                    "started_at": d["at"],
                 }),
             ),
             ("worker", "LandingAsked") => status("landing", &Value::Null),
