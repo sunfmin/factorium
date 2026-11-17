@@ -6,7 +6,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
 use factorium_domain::issue::{ReleaseIssue, Take};
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
@@ -14,6 +13,8 @@ use factorium_host::Git;
 use factum::Uuid;
 use serde_json::json;
 
+use crate::gate::At;
+use crate::heavy::{Job, Turn};
 use crate::{Answer, App, Refusal, fail};
 
 impl App {
@@ -31,30 +32,13 @@ impl App {
     /// on that tree.
     pub async fn worker_gate(&self, worker: Uuid) -> Answer {
         let (_, st) = self.started(worker).await?;
-        let git = Git::at(&st.worktree);
-        let declared = self.declared(&git, "HEAD")?;
-        let (cmd, limit) = declared.gate.of(Kind::Fast).expect("a fast gate");
-        let dirty = git.dirty().map_err(fail("git"))?;
-        let tree = git.tree("HEAD").map_err(fail("git"))?;
-        if !dirty && self.state::<Gates>(record_id(&st.checkout, &tree, Kind::Fast)).await?.green {
-            return Ok(json!({ "green": true, "tree": tree, "recorded": true, "ran": false }));
-        }
-        let what = format!("fast gate of {}#{}", st.checkout, st.number);
-        let ran =
-            self.heavy(&what, Some(worker), Path::new(&st.worktree), cmd, &[], Duration::from_secs(limit)).await?;
-        if !dirty {
-            let record = GateRan {
-                checkout: st.checkout.clone(),
-                tree: tree.clone(),
-                kind: Kind::Fast,
-                green: ran.ok,
-                took_ms: ran.took_ms,
-                tail: ran.tail.clone(),
-            };
-            self.submit::<RecordGate>(record).await?;
-        }
+        let at = At::Worktree { worker, number: st.number };
+        let g = self.gate(&st.checkout, &Git::at(&st.worktree), at, Kind::Fast).await?.expect("a waited turn");
+        let Some(ran) = g.ran else {
+            return Ok(json!({ "green": g.green, "tree": g.tree, "recorded": g.recorded, "ran": false }));
+        };
         Ok(
-            json!({ "green": ran.ok, "tree": tree, "recorded": !dirty, "took_ms": ran.took_ms, "tail": ran.tail, "timed_out": ran.timed_out }),
+            json!({ "green": ran.ok, "tree": g.tree, "recorded": g.recorded, "took_ms": ran.took_ms, "tail": ran.tail, "timed_out": ran.timed_out }),
         )
     }
 
@@ -93,7 +77,9 @@ impl App {
     /// Runs a command through the heavy-command queue.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
         let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
-        let ran = self.heavy(cmd, worker, dir, cmd, &[], limit).await?;
+        let steps = [cmd.to_string()];
+        let job = Job { what: cmd.into(), worker, dir, steps: &steps, env: &[], limit };
+        let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
     }
 

@@ -11,8 +11,8 @@ use crate::{GIB, World, id, worker};
 async fn ready(w: &World) {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
 }
 
 #[tokio::test]
@@ -56,8 +56,8 @@ async fn memory_disk_and_the_workers_share_each_hold_admission() {
 async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     assert!(w.tick().await.held.unwrap().starts_with("kit"));
     w.kit().await;
     assert!(w.tick().await.started.is_some());
@@ -194,7 +194,7 @@ impl World {
 async fn one_working(w: &World) -> String {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     worker(&w.app).await["terminal"].as_str().unwrap().to_string()
 }

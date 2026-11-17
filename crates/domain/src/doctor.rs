@@ -28,6 +28,9 @@ pub struct Seen {
     /// The daemon: what it could not find at start, its failing ticks.
     #[serde(default)]
     pub daemon: Daemon,
+    /// Orca terminals titled as factorium's that no live worker or the
+    /// watch holds: (handle, title).
+    pub orphans: Vec<(String, String)>,
 }
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
@@ -83,6 +86,13 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     for (p, n) in &seen.dead_letters {
         add(format!("dead:{p}"), format!("projection {p} has {n} dead letters"), "a code fix, then retry them");
+    }
+    for (handle, title) in &seen.orphans {
+        add(
+            format!("orphan:{handle}"),
+            format!("Orca terminal {handle} ({title}) is factorium's, but no live worker or the watch holds it"),
+            &format!("close it: `orca terminal close --terminal {handle}`"),
+        );
     }
     f
 }

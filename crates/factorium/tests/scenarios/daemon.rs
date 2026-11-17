@@ -18,7 +18,7 @@ async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
@@ -69,7 +69,7 @@ async fn a_program_missing_at_start_is_a_finding() {
 #[tokio::test]
 async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     let w = World::new();
-    assert_eq!(w.app.stop().unwrap()["stopped"], false);
+    assert_eq!(w.app.stop().await.unwrap()["stopped"], false);
     let installed = w.app.service_install().unwrap();
     let file = std::path::PathBuf::from(installed["installed"].as_str().unwrap());
     assert!(file.starts_with(w.dir.join("home/Library/LaunchAgents")), "{}", file.display());
@@ -81,7 +81,7 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     w.app.service_install().unwrap();
     assert!(*w.host.service.lock().unwrap());
 
-    let stopped = w.app.stop().unwrap();
+    let stopped = w.app.stop().await.unwrap();
     assert_eq!(stopped["service"], "com.github.sunfmin.factorium", "{stopped}");
     assert!(!*w.host.service.lock().unwrap(), "launchd will not start it again");
 
