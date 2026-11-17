@@ -6,11 +6,13 @@ use factorium_domain::issue::Author;
 use factorium_domain::outbox::{Outcome, Sender};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
-use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, Watches, watch_id};
+use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, StartWatch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factum::{Uuid, Value};
 use serde_json::json;
 
+use crate::life::End;
+use crate::session::{Opened, Role};
 use crate::{Answer, App, Refusal};
 
 impl App {
@@ -25,6 +27,36 @@ impl App {
             return Ok(None);
         }
         self.look(settings).await.map(Some)
+    }
+
+    /// Starts the watch's session if the kit has a harness and none runs:
+    /// answers its terminal, or `None` when it cannot run.
+    pub(crate) async fn ensure_watch(&self, before: &watch::Watch) -> Answer<Option<String>> {
+        if let Some(s) = self.watch_session(before) {
+            match self.gone(&s) {
+                Ok(false) => return Ok(Some(s.terminal().into())),
+                // Not known to be gone: no second session; none to type at now.
+                Err(_) => return Ok(None),
+                Ok(true) => {}
+            }
+        }
+        let pick = match self.pick("").await {
+            Ok(pick) => pick,
+            Err(r) if r.code == "no_harness" => return Ok(None),
+            Err(r) => return Err(r),
+        };
+        let Opened { terminal, typed, .. } = self.open_session(Role::Watch, &pick)?;
+        self.submit::<StartWatch>(watch::Started {
+            terminal: terminal.clone(),
+            harness: pick.harness.key().into(),
+            account: pick.account.clone(),
+        })
+        .await?;
+        let started = self.state::<Watches>(watch_id()).await?;
+        if let (Some(s), Some(typed)) = (self.watch_session(&started), typed) {
+            self.hand_brief(&s, &typed).await?;
+        }
+        Ok(Some(terminal))
     }
 
     /// Whether a worker started waiting for the watch after `last_look`, or
@@ -115,7 +147,7 @@ impl App {
             Ok(false) => {}
             Err(why) => return Err(Refusal::new("orca", why)),
             Ok(true) => {
-                self.end_worker(worker, "restarted by the watch: its session was gone", false).await?;
+                self.end_worker(worker, End::because("restarted by the watch: its session was gone", true)).await?;
                 return Ok(
                     json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
                 );

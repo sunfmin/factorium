@@ -112,6 +112,36 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     assert!(closed(&w, &rows[0]).await, "{rows:?}");
 }
 
+/// A start that fails once its session opened is undone: its terminal is
+/// closed and its issue is free again, so the next tick starts it anew.
+/// Each event the start records after the session opened is refused in
+/// turn: the worker's start (Claude Code, briefed by its launch line), and
+/// its brief given to its outbox (Codex, briefed by typing).
+#[tokio::test]
+async fn a_start_that_fails_after_its_session_opened_closes_it_and_frees_its_issue() {
+    for (kit, kind) in [("claude-code=claude", "WorkerStarted"), ("codex=codex", "Given")] {
+        let w = World::new();
+        w.checkout("web").await;
+        w.app.kit_set(&[kit.into()]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.db_refuses(kind, true);
+        assert!(w.app.tick().await.is_err(), "{kind}");
+        let opened: Vec<(String, Terminal)> = w.host.orca.terminals.lock().unwrap().clone().into_iter().collect();
+        let opened: Vec<_> = opened.into_iter().filter(|(_, t)| t.title == "web#1").collect();
+        assert_eq!(opened.len(), 1, "{kind}: {opened:?}");
+        assert!(opened[0].1.closed, "{kind}: what the start opened is closed");
+        let issue = w.app.issue_show("web", 1).await.unwrap();
+        assert_eq!((&issue["status"], &issue["worker"]), (&json!("ready"), &Value::Null), "{kind}: {issue}");
+        assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "{kind}");
+
+        w.db_refuses(kind, false);
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        assert_eq!((&wk["checkout"], &wk["number"]), (&json!("web"), &json!(1)), "{kind}: started anew");
+        assert_ne!(handle(&wk), opened[0].0, "{kind}");
+    }
+}
+
 #[tokio::test]
 async fn stop_closes_the_watch_s_terminal_and_the_next_tick_starts_a_new_session() {
     let w = World::new();

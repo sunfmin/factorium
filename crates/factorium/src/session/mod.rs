@@ -160,16 +160,16 @@ impl App {
         Err(refused.map_or(still.clone(), |r| format!("Orca refused to close it ({r}); {still}")))
     }
 
-    /// Closes a worker's terminal and records how that went. Run before the
-    /// worker is recorded ended: Orca lists a terminal until its close
-    /// returns (seconds, for an agent's), and an ended worker's listed
-    /// terminal is an orphan, which the watch would close in its stead.
-    pub(crate) async fn close_worker_session(&self, worker: Uuid, st: &w::Started) -> Answer<()> {
+    /// Closes a worker's terminal and records how that went; answers why it
+    /// is not closed, if it is not. Run before the worker is recorded
+    /// ended ([`App::finish`]).
+    pub(crate) async fn close_worker_session(&self, worker: Uuid, st: &w::Started) -> Answer<Option<String>> {
         let failed = self.close_terminal(&st.terminal).err();
-        match self.submit::<w::NoteClosed>(w::Closed { worker, failed }).await {
-            // An ended worker's record stays as it was; Orca's list shows the rest.
-            Err(r) if r.code == "ended" => Ok(()),
-            other => other,
+        match self.submit::<w::NoteClosed>(w::Closed { worker, failed: failed.clone() }).await {
+            // An ended worker's record stays as it was, and one never
+            // recorded started has none: Orca's list shows the rest.
+            Err(r) if r.code == "ended" || r.code == "no_worker" => Ok(failed),
+            other => other.map(|()| failed),
         }
     }
 
