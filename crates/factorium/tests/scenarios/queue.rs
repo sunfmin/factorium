@@ -85,7 +85,7 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
     let (t, after) =
         tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), others) }).await.expect("the gate is ended");
     let red = t.landed[0]["red"].as_str().unwrap();
-    assert!(red.contains("held others up past the hold bound"), "{red}");
+    assert!(red.contains("held others up past the hold bound of 1800s"), "{red}");
     assert_eq!(after.unwrap()["ok"], true, "the waiting command runs once the gate is ended");
 }
 

@@ -95,7 +95,7 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     let web = w.checkout("web").await;
     w.kit().await;
     // The repo now declares a cut whose step fails.
-    let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"exit 7\"]\n";
+    let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"true\", \"exit 7\"]\n";
     let clone = w.dir.join("edit");
     w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
     w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();

@@ -22,6 +22,11 @@ exclude_re = [
   'replace Queue::overheld -> bool with',
   # Equivalent: starting a heavy command is refused only with "wait".
   'replace match guard r.code == "wait" with true in App::take_turn',
+  # A dead process's entry under the very id being asked for is met only by
+  # a daemon that crashed and came back as a new pid, its gate still
+  # queued: two daemon processes and a gate, which the binary tests' daemon
+  # (no Orca, so no worker to land) cannot be given.
+  'heavy.rs:106:.*replace && with \|\| in App::take_turn$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
