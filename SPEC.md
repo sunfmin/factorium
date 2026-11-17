@@ -54,7 +54,9 @@ watch's look and the operator's view.
    no worker holds; admission admits one start per reading.
 3. The worker's worktree is branched from the proving tip; its harness and
    account are chosen; the guard is installed; its brief is sent; the
-   session file says when its turn starts and ends.
+   session file says when its turn starts and ends. Text is typed at a
+   session only once its harness's own screen is up there: typed at a
+   shell, a line is a command it runs.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
    likes, then `factorium worker done`.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
@@ -64,7 +66,7 @@ watch's look and the operator's view.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
-whose session died or went silent past its bound, a hot worker, a red
+whose session died, never came up or went silent past its bound, a hot worker, a red
 promotion, a failed cut, admission held for one reason past the host's
 span. The watch fixes, restarts, re-briefs, parks or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,

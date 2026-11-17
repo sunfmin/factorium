@@ -53,6 +53,8 @@ fn account_quota(output: &[String]) -> Option<String> {
 }
 
 const KEY: &str = "codex";
+/// What a bare program is started with: no approval prompts, no sandbox.
+const STOCK_ARGUMENTS: &str = "--dangerously-bypass-approvals-and-sandbox";
 
 const ADD_DIR: &str = "--add-dir";
 /// One configuration key, `key=value` with the value in TOML.
@@ -340,9 +342,11 @@ pub(super) struct Codex;
 
 impl Kind for Codex {
     const KEY: &'static str = KEY;
-    const LOGIN: Login = Login::Machine;
+    const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
 

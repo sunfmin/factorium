@@ -30,13 +30,24 @@ const SESSIONS: &str = "SESSIONS";
 /// The field that names the machine a refreshing login is bound to.
 const MACHINE: &str = "MACHINE";
 
-/// What an account is read from: mytokens, or what stands for it in a test.
-pub trait Source {
-    /// What `mytokens list` printed.
-    fn list(&self) -> Result<String, String>;
-    /// What `mytokens get <service> --json` printed. Its error never holds
-    /// what it printed.
-    fn get(&self, service: &str) -> Result<String, String>;
+/// mytokens run with these arguments: what it printed, or why it failed.
+/// The why never holds what it printed.
+pub type Mytokens<'a> = &'a dyn Fn(&[&str]) -> Result<String, String>;
+
+/// The accounts mytokens holds, as this machine can use them now: those a
+/// session can start on, and every other with why it cannot.
+pub struct Here {
+    pub usable: Vec<Usable>,
+    pub skipped: Vec<Skipped>,
+}
+
+/// An account no session can start on here now, and why — what a person
+/// does about it, when it is theirs to do. Its why never holds a credential.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Skipped {
+    /// Its mytokens secret; `mytokens` when mytokens could list none.
+    pub secret: String,
+    pub why: String,
 }
 
 /// An account a session can start on here now: its name, its harness, and
@@ -67,21 +78,32 @@ struct Account {
     credential: Credential,
 }
 
-/// The accounts in `source` a session can start on on this machine, under
+/// The accounts `mytokens` holds, as this machine can use them now under
 /// the user's home `user_home`: a token anywhere, a login on its
-/// own machine once it is logged in there. A secret that is no account, or
-/// mytokens failing, is no account.
-pub fn usable(source: &dyn Source, user_home: &Path) -> Vec<Usable> {
-    let Ok(listed) = source.list() else { return Vec::new() };
-    let here = this_machine().unwrap_or_default();
-    services(&listed)
-        .into_iter()
-        .filter_map(|service| source.get(&service).ok().and_then(|json| parse(&service, &json).ok()))
-        .filter_map(|account| {
-            let env = account.env(&here, user_home)?;
-            Some(Usable { name: account.name, harness: account.harness, env })
-        })
-        .collect()
+/// own machine once it is logged in there. Every secret named as an account
+/// is one or the other.
+pub fn here(mytokens: Mytokens, user_home: &Path) -> Here {
+    let mut here = Here { usable: Vec::new(), skipped: Vec::new() };
+    let listed = match mytokens(&["list"]) {
+        Ok(listed) => listed,
+        Err(e) => {
+            here.skipped.push(Skipped { secret: "mytokens".into(), why: e });
+            return here;
+        }
+    };
+    let machine = this_machine();
+    for service in services(&listed) {
+        let usable =
+            mytokens(&["get", &service, "--json"]).and_then(|json| parse(&service, &json)).and_then(|account| {
+                let env = account.env(machine.as_deref().map_err(String::as_str), user_home)?;
+                Ok(Usable { name: account.name, harness: account.harness, env })
+            });
+        match usable {
+            Ok(usable) => here.usable.push(usable),
+            Err(why) => here.skipped.push(Skipped { secret: service, why }),
+        }
+    }
+    here
 }
 
 /// The account secrets `mytokens list` printed, each once, in its order: a
@@ -154,8 +176,8 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
         (Login::Token(_), Some(_), Some(_)) => {
             return Err(format!("a {key} account's token is bound to no machine: it names no `{MACHINE}`"));
         }
-        (Login::Machine, None, Some(machine)) => Credential::Login { machine },
-        (Login::Machine, ..) => {
+        (Login::Machine { .. }, None, Some(machine)) => Credential::Login { machine },
+        (Login::Machine { .. }, ..) => {
             return Err(format!("a {key} account names the one `{MACHINE}` its login is on, and holds no token"));
         }
         (Login::Unused, ..) => return Err(format!("{key} takes no account")),
@@ -164,21 +186,31 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
 }
 
 impl Account {
-    /// The environment a session on it starts with on the machine `here`,
-    /// the user's home being `user_home`; `None`: it cannot start here now.
-    /// A token goes in alone; a login, on its machine, needs
-    /// nothing: it is its home ([`login_home`]), found logged in by its
-    /// login file there, which the session's home is (`Harness::home`).
-    fn env(&self, here: &str, user_home: &Path) -> Option<Vec<(&'static str, String)>> {
-        match &self.credential {
-            Credential::Token { field, token } => Some(vec![(*field, token.clone())]),
-            Credential::Login { machine } if !machine.eq_ignore_ascii_case(here) => None,
-            Credential::Login { .. } => {
-                let home = login_home(user_home, &self.name);
-                let logged_in = self.harness.login_file().is_some_and(|login| home.join(login).exists());
-                logged_in.then(Vec::new)
-            }
+    /// The environment a session on it starts with on the machine `here`
+    /// (`Err`: this machine's name is unknown), the user's home being
+    /// `user_home`; `Err`: why it cannot start here now. A token
+    /// goes in alone; a login, on its machine, needs nothing: it is its home
+    /// ([`login_home`]), found logged in by its login file there, which the
+    /// session's home is (`Harness::home`).
+    fn env(&self, here: Result<&str, &str>, user_home: &Path) -> Result<Vec<(&'static str, String)>, String> {
+        let machine = match &self.credential {
+            Credential::Token { field, token } => return Ok(vec![(*field, token.clone())]),
+            Credential::Login { machine } => machine,
+        };
+        let here = here.map_err(|e| format!("its login is on `{machine}`, and {e}"))?;
+        if !machine.eq_ignore_ascii_case(here) {
+            return Err(format!("its login is on `{machine}`, not this machine `{here}`"));
         }
+        let home = login_home(user_home, &self.name);
+        let login = self.harness.login_file().unwrap_or_default();
+        if home.join(login).exists() {
+            return Ok(Vec::new());
+        }
+        Err(format!(
+            "it is not logged in here: no `{login}` in {}; log in once with `{}`",
+            home.display(),
+            self.harness.login_line(&home)
+        ))
     }
 }
 

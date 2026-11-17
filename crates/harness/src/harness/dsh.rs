@@ -11,10 +11,15 @@ use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
 const KEY: &str = "dsh";
+/// What a bare program is started with: nothing.
+const STOCK_ARGUMENTS: &str = "";
 /// The variable that names DSH's user directory.
 const USER_DIR: &str = "DSH_HOME";
 
 const REFUSED: u8 = 2;
+/// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
+/// program having exited and been started again): typed text answers it.
+const ASKS_FIRST: &str = "进入安全模式";
 const KEPT_LINKS: &[Link] = &[
     Link { home: ".dsh/.credentials.yaml", kept: ".credentials.yaml" },
     // Only dependency resolution is shared; neither the user's profile
@@ -88,6 +93,8 @@ fn added(line: Line, start: &Start) -> Line {
         .word(start.worktree)
         .fixed(" ")
         .word("kept")
+        .fixed(" ")
+        .word(&crate::brief::brief_pointer(start.brief))
 }
 
 #[derive(Deserialize)]
@@ -171,6 +178,8 @@ impl Kind for Dsh {
     const LOGIN: Login = Login::Unused;
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = Some(ASKS_FIRST);
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
 
@@ -190,8 +199,9 @@ impl Kind for Dsh {
         added(line, start)
     }
 
-    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
-        (line, Some(crate::brief::brief_pointer(brief)))
+    /// Its start script hands it the brief as its first prompt.
+    fn briefed(line: String, _brief: &str) -> (String, Option<String>) {
+        (line, None)
     }
 
     fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {

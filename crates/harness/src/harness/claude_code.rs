@@ -17,6 +17,8 @@ use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
 
 const KEY: &str = "claude-code";
+/// What a bare program is started with: no permission prompts.
+const STOCK_ARGUMENTS: &str = "--dangerously-skip-permissions";
 
 /// The field holding an account's token, which `claude setup-token` made:
 /// also the variable a session is given it in.
@@ -380,6 +382,8 @@ impl Kind for ClaudeCode {
     const LOGIN: Login = Login::Token(TOKEN);
     const USER_HOME: Option<&'static str> = Some(HOME);
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
     const REFUSED: u8 = REFUSED;
 

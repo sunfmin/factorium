@@ -20,6 +20,8 @@ use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
 const KEY: &str = "pi";
+/// What a bare program is started with: nothing; `APPROVE` is always added.
+const STOCK_ARGUMENTS: &str = "";
 
 /// pi's flag that answers, for one run, the question it asks before it loads
 /// what the directory it starts in holds of pi's own: a start directory's limits in pi's
@@ -251,6 +253,8 @@ impl Kind for Pi {
     const LOGIN: Login = Login::Unused;
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
 

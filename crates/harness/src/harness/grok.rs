@@ -18,6 +18,8 @@ use crate::turn::{Marker, Note, Turn};
 use toml::Value as Toml;
 
 const KEY: &str = "grok";
+/// What a bare program is started with: no approval prompts (its `auto-review` mode denies `factorium worker done`).
+const STOCK_ARGUMENTS: &str = "--always-approve";
 
 const MODEL: &str = "--model";
 /// On the launch line. Grok 1.0.70 accepts it and `--help` does not name it,
@@ -276,9 +278,11 @@ pub(super) struct Grok;
 
 impl Kind for Grok {
     const KEY: &'static str = KEY;
-    const LOGIN: Login = Login::Machine;
+    const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
     const REFUSED: u8 = REFUSED;
 

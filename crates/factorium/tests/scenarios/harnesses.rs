@@ -4,13 +4,14 @@
 
 use factorium_harness::Harness;
 
-use crate::{World, worker};
+use crate::{SHELL, UP, World, id, refused, worker};
+use factorium::host::Host;
 
 /// Writes the session files a harness's stand-in describes for `cwd`, in
 /// the home of its sessions on `account`.
 pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, open: bool, at: u64) {
     let kept = w.dir.join("data").join("kept").join(h.key());
-    h.write_session(&h.home(&w.host.home, account, &kept), cwd, open, at).unwrap();
+    h.write_session(&h.home(&w.host.home(), account, &kept), cwd, open, at).unwrap();
 }
 
 /// The harnesses that work only in their cwd, so start in the worktree.
@@ -108,7 +109,7 @@ async fn an_account_is_usable_only_by_the_way_its_harness_logs_in() {
         ("nowhere", r#"{"HARNESS":"codex"}"#.to_string()),
     ];
     for (name, fields) in &accounts {
-        let home = w.host.home.join(".agent-accounts").join(name);
+        let home = w.host.home().join(".agent-accounts").join(name);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(home.join("auth.json"), "{}").unwrap();
         w.host.tokens.lock().unwrap().insert(format!("agent-account-{name}"), format!(r#"{{"fields":{fields}}}"#));
@@ -162,9 +163,63 @@ fn this_machine() -> String {
 }
 
 #[tokio::test]
+async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_the_rest() {
+    let w = World::new();
+    let codex = |machine: &str| format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{machine}"}}}}"#);
+    {
+        let mut tokens = w.host.tokens.lock().unwrap();
+        tokens.insert("agent-account-away".into(), codex("some-other-mac"));
+        tokens.insert("agent-account-out".into(), codex(&this_machine()));
+        tokens.insert("agent-account-odd".into(), r#"{"fields":{"HARNESS":"codex"}}"#.into());
+        tokens.insert(
+            "agent-account-team".into(),
+            r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+        );
+    }
+
+    let doctor = w.app.doctor().await.unwrap();
+    let skipped = doctor["accounts_skipped"].as_array().unwrap();
+    let why = |secret: &str| {
+        let s = skipped.iter().find(|s| s["secret"] == secret).unwrap_or_else(|| panic!("{secret}: {doctor}"));
+        s["why"].as_str().unwrap().to_string()
+    };
+    assert_eq!(skipped.len(), 3, "the token account is usable: {doctor}");
+    assert!(why("agent-account-away").contains("its login is on `some-other-mac`"), "{doctor}");
+    let home = w.host.home().join(".agent-accounts").join("out");
+    let out = why("agent-account-out");
+    assert!(out.contains("not logged in here"), "{out}");
+    assert!(out.contains(&format!("CODEX_HOME='{}' codex", home.display())), "a login line for a person: {out}");
+    assert!(why("agent-account-odd").contains("MACHINE"), "{doctor}");
+    assert!(!doctor.to_string().contains("sk-ant-very-secret"));
+    assert_eq!(doctor["findings"], serde_json::json!([]), "an account here or not is no finding for the watch");
+    let accounts = w.app.accounts().await.unwrap();
+    let names: Vec<&str> = accounts.as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["team"]);
+
+    // Logged in, it is usable here and a session starts on it.
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("auth.json"), "{}").unwrap();
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["accounts_skipped"].as_array().unwrap().iter().all(|s| s["secret"] != "agent-account-out"));
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["account"], "out");
+}
+
+#[tokio::test]
+async fn doctor_says_when_mytokens_lists_no_account() {
+    let w = World::new();
+    w.host.missing.lock().unwrap().push("mytokens".into());
+    let doctor = w.app.doctor().await.unwrap();
+    assert_eq!(doctor["accounts_skipped"][0]["secret"], "mytokens", "{doctor}");
+}
+
+#[tokio::test]
 async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_there() {
     let w = World::new();
-    let account = w.host.home.join(".agent-accounts").join("night");
+    let account = w.host.home().join(".agent-accounts").join("night");
     std::fs::create_dir_all(&account).unwrap();
     std::fs::write(account.join("auth.json"), "{}").unwrap();
     let fields = format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{}"}}}}"#, this_machine());
@@ -203,8 +258,8 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
 async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_directory() {
     let w = World::new();
     let repo = w.repo("web");
-    crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
-    crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+    w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+    w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
     w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
@@ -232,11 +287,11 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
     for key in ["pi", "dsh", "kimi", "grok"] {
         let w = World::new();
         let repo = w.repo("web");
-        crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
-        crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+        w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+        w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
         // The host user's own Kimi config: its model routing is kept, the rest is not.
-        let user = w.host.home.join(".kimi-code");
+        let user = w.host.home().join(".kimi-code");
         std::fs::create_dir_all(&user).unwrap();
         std::fs::write(user.join("config.toml"), "default_model = \"k2\"\nmerge_all_available_skills = true\n")
             .unwrap();
@@ -288,25 +343,67 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
 }
 
 #[tokio::test]
-async fn dsh_starts_only_through_its_guard_files() {
+async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_program_s_directory_on_path() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
+    // The kit names DSH's TUI by path; its launcher runs `dsh` by name.
+    let tools = w.dir.join("tools");
+    std::fs::create_dir_all(&tools).unwrap();
+    let ran = w.dir.join("ran");
+    let tui = format!("#!/bin/sh\n{{ printf '%s\\n' \"$@\"; command -v dsh; }} > '{}'\n", ran.display());
+    for (name, text) in [("dsh-tui", tui.as_str()), ("dsh", "#!/bin/sh\n")] {
+        std::fs::write(tools.join(name), text).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(tools.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    w.app.kit_set(&[format!("dsh={}", tools.join("dsh-tui").display())]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
+    let wk = worker(&w.app).await;
+    let term = w.terminal(wk["terminal"].as_str().unwrap());
+    assert!(term.sent.is_empty(), "nothing is typed at it: {:?}", term.sent);
+
+    // Its kept files are written, every placeholder filled with its kept file.
     let home = w.dir.join("data").join("kept").join("dsh");
-    let start = home.join("start.sh");
-    let (role, home_text) = (w.dir.join("data").join("role").join("worker"), home.to_string_lossy());
-    let run = || {
-        let args = [&start.to_string_lossy(), "echo", &home_text, &role.to_string_lossy(), "/the/worktree", "kept"];
-        std::process::Command::new("sh").args(args).output().unwrap()
-    };
-    let out = run();
-    let said = String::from_utf8_lossy(&out.stdout);
+    for file in
+        ["start.sh", "factorium.patch.yml", "factorium.mjs", "sandbox.patch.yml", "profiles/dsh-tui/package.json"]
+    {
+        let text = std::fs::read_to_string(home.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert!(!text.contains("@FACTORIUM_DSH"), "{file} keeps a placeholder:\n{text}");
+    }
+    let overlay = std::fs::read_to_string(home.join("factorium.patch.yml")).unwrap();
+    assert!(overlay.contains(&format!("name: '{}/factorium.mjs'", home.display())), "{overlay}");
+
+    // The line runs: the program is started with the guard's patch, the
+    // worktree as its workspace and the brief as its first prompt, which
+    // answers its first run; `dsh` is found beside it.
+    let out = std::process::Command::new("sh").args(["-c", &term.line]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert!(said.contains(&format!("--patch {home_text}/factorium.patch.yml /the/worktree")), "{said}");
+    let said = std::fs::read_to_string(&ran).unwrap();
+    let said: Vec<&str> = said.lines().collect();
+    let worktree = wk["worktree"].as_str().unwrap();
+    let patch = format!("{}/factorium.patch.yml", home.display());
+    let brief = wk_brief(&w, &wk);
+    let at = said.iter().position(|a| *a == patch).unwrap_or_else(|| panic!("{said:?}"));
+    assert_eq!(&said[at - 1..at + 3], ["--patch", patch.as_str(), worktree, brief.as_str()], "{said:?}");
+    assert_eq!(said.last(), Some(&tools.join("dsh").to_string_lossy().as_ref()), "{said:?}");
+
+    // Without its guard plugin, no session.
     std::fs::remove_file(home.join("factorium.mjs")).unwrap();
-    assert!(!run().status.success(), "no guard plugin, no session");
+    std::fs::remove_file(&ran).unwrap();
+    assert!(!std::process::Command::new("sh").args(["-c", &term.line]).status().unwrap().success());
+    assert!(!ran.exists(), "no guard plugin, no session");
+}
+
+/// The first prompt a worker's session is handed: the pointer to its brief.
+fn wk_brief(w: &World, wk: &serde_json::Value) -> String {
+    let brief = w.dir.join("data").join("briefs").join("web-1-1.md");
+    assert!(brief.exists(), "{wk}");
+    format!(
+        "Your task brief is the file {} — read it now and carry it out end to end. It is my instruction to you; \
+         do not ask me to confirm.",
+        brief.display()
+    )
 }
 
 /// What the harness crate offers, item by item: what factorium uses of it
@@ -335,16 +432,20 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     }
     offered.sort();
     let expected = [
-        "account.rs: fn usable",
+        "account.rs: fn here",
+        "account.rs: struct Here",
+        "account.rs: struct Skipped",
         "account.rs: struct Usable",
-        "account.rs: trait Source",
+        "account.rs: type Mytokens",
         "harness.rs: const fn key",
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
         "harness.rs: enum Stop",
         "harness.rs: fn all",
+        "harness.rs: fn command",
         "harness.rs: fn home",
         "harness.rs: fn launch",
+        "harness.rs: fn not_up",
         "harness.rs: fn read",
         "harness.rs: fn shell_call",
         "harness.rs: fn stopped",
@@ -363,4 +464,112 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "turn.rs: enum Turn",
     ];
     assert_eq!(offered, expected);
+}
+
+#[tokio::test]
+async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_arguments() {
+    for (key, program, stock) in
+        [("grok", "/opt/grok/bin/grok", "--always-approve"), ("kimi", "/opt/kimi/kimi", "--auto")]
+    {
+        let w = World::new();
+        w.checkout("web").await;
+        let kit = w.app.kit_set(&[format!("{key}={program}")]).await.unwrap();
+        let runs = format!("{program} {stock}");
+        assert_eq!(kit["entries"][0]["command"], runs.as_str(), "{key}: kit set answers what will run");
+        assert_eq!(w.app.kit().await.unwrap()["entries"][0]["command"], runs.as_str(), "{key}: so does kit show");
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
+        assert!(term.line.contains(&format!("&& {runs} ")), "{key}: {}", term.line);
+
+        // A command with arguments of its own is taken as given.
+        let given = format!("{program} --model-picker");
+        let kit = w.app.kit_set(&[format!("{key}={given}")]).await.unwrap();
+        assert_eq!(kit["entries"][0]["command"], given.as_str(), "{key}");
+    }
+}
+
+/// A kimi worker whose terminal opens at its shell's prompt.
+async fn at_shell(w: &World) -> serde_json::Value {
+    w.checkout("web").await;
+    w.app.kit_set(&["kimi=kimi".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    *w.host.orca.opens_at_shell.lock().unwrap() = true;
+    w.tick().await;
+    worker(&w.app).await
+}
+
+#[tokio::test]
+async fn a_brief_is_typed_once_the_harness_is_up_never_at_its_shell() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    assert!(w.terminal(handle).sent.is_empty(), "the shell's prompt is not typed at");
+    w.advance(1);
+    w.tick().await;
+    assert!(w.terminal(handle).sent.is_empty(), "still the shell's");
+    let told = w.app.watch_tell(id(&wk), "hello").await;
+    refused(told, "not_up");
+    assert!(w.terminal(handle).sent.is_empty(), "nor is the watch's word");
+
+    w.set_screen(handle, &[SHELL, "Welcome to Kimi Code!", UP]);
+    w.advance(1);
+    w.tick().await;
+    let sent = w.terminal(handle).sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains("web-1-1.md"), "{sent:?}");
+    w.advance(1);
+    w.tick().await;
+    assert_eq!(w.terminal(handle).sent.len(), 1, "handed once");
+    assert_eq!(worker(&w.app).await["status"], "working");
+}
+
+#[tokio::test]
+async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.advance(4);
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "it may yet come up");
+    w.advance(2);
+    w.tick().await;
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    let why = waiting["why"].as_str().unwrap();
+    assert!(why.contains("not up") && why.contains("shell's"), "{why}");
+    assert!(w.terminal(handle).sent.is_empty());
+
+    // Up, handed its brief, then its program exits back to the shell.
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.set_screen(handle, &[UP]);
+    w.tick().await;
+    assert_eq!(w.terminal(handle).sent.len(), 1);
+    w.set_screen(handle, &[UP, "zsh: parse error near `do'", SHELL]);
+    w.advance(6);
+    w.tick().await;
+    assert!(worker(&w.app).await["why"].as_str().unwrap().contains("not up"));
+    refused(w.app.watch_restart(id(&wk), "go on").await, "not_up");
+    assert_eq!(w.terminal(handle).sent.len(), 1, "nothing more is typed at its shell");
+    assert_eq!(worker(&w.app).await["status"], "waiting");
+}
+
+/// DSH's question before its screen is up (seen 2026-11): typed text would answer it.
+#[tokio::test]
+async fn a_harness_s_question_before_its_screen_is_up_is_not_typed_at() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.set_screen(handle, &["是否进入安全模式？(y/n)"]);
+    refused(w.app.watch_tell(id(&wk), "hello").await, "not_up");
+    assert!(w.terminal(handle).sent.is_empty(), "the question is not answered");
+    w.set_screen(handle, &[UP]);
+    w.app.watch_tell(id(&wk), "hello").await.unwrap();
+    assert_eq!(w.terminal(handle).sent.len(), 1);
 }

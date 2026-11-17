@@ -25,6 +25,11 @@ trait Kind {
     const USER_HOME: Option<&'static str>;
     /// The host user's files its home links to; a login's file first.
     const KEPT_LINKS: &'static [Link];
+    /// What a bare program is started with (`Harness::command`).
+    const STOCK_ARGUMENTS: &'static str;
+    /// Words of a question it asks before its screen is up, which typed
+    /// text would answer.
+    const ASKS_FIRST: Option<&'static str>;
     /// The variables that switch it, each set to 1.
     const ENVIRONMENT: &'static [&'static str];
     /// The hook exit code that refuses a call: it is not made, and the
@@ -127,8 +132,9 @@ pub(crate) enum Login {
     /// machines at once; a session is given it in the variable of that name.
     Token(&'static str),
     /// By a refreshing login in the account's own home, bound to the one
-    /// machine it was made on: that home is its sessions' home.
-    Machine,
+    /// machine it was made on: that home is its sessions' home, which the
+    /// variable `user_dir` names.
+    Machine { user_dir: &'static str },
     /// It takes no account.
     Unused,
 }
@@ -158,6 +164,22 @@ impl Harness {
         ALL
     }
 
+    /// The launch command a kit entry's `given` command runs as. A bare
+    /// program (a path or a name, no arguments) gets this harness's stock
+    /// arguments, as its stock command would: naming where a program is must
+    /// not drop the flags a worker relies on. A command with arguments of its
+    /// own is taken as given.
+    pub fn command(self, given: &str) -> String {
+        each!(self, |K| command::<K>(given))
+    }
+
+    /// The line a person runs on a login account's machine to log it in
+    /// once, its home being `home`: the harness, told that home.
+    pub(crate) fn login_line(self, home: &Path) -> String {
+        let Login::Machine { user_dir } = self.login() else { return String::new() };
+        format!("{user_dir}={} {}", crate::line::quoted(&home.to_string_lossy()), self.key())
+    }
+
     /// How an account of it is logged in.
     pub(crate) const fn login(self) -> Login {
         each!(self, |K| K::LOGIN)
@@ -176,7 +198,7 @@ impl Harness {
     /// user's home where it has one, else the kept directory.
     pub fn home(self, user_home: &Path, account: Option<&str>, kept: &Path) -> Home {
         Home::new(match (account, self.login(), each!(self, |K| K::USER_HOME)) {
-            (Some(name), Login::Machine, _) => crate::account::login_home(user_home, name),
+            (Some(name), Login::Machine { .. }, _) => crate::account::login_home(user_home, name),
             (_, _, Some(dir)) => user_home.join(dir),
             _ => kept.to_path_buf(),
         })
@@ -210,6 +232,20 @@ impl Harness {
         each!(self, |K| K::REFUSED)
     }
 
+    /// own screen up, ready to be typed at: blank, a shell's prompt (its
+    /// program not started yet, or exited), or a question it asks before its
+    /// screen is up. `None`: it is up.
+    pub fn not_up(self, screen: &[String]) -> Option<String> {
+        let Some(row) = crate::screen::last_row(screen) else { return Some("its screen is blank".into()) };
+        if crate::screen::shell_prompt(row) {
+            return Some(format!("its screen is a shell's: {row}"));
+        }
+        match each!(self, |K| K::ASKS_FIRST) {
+            Some(words) if row.contains(words) => Some(format!("it asks before it starts: {row}")),
+            _ => None,
+        }
+    }
+
     /// What `screen`, the end of a session's terminal, says stopped it.
     pub fn stopped(self, screen: &[String]) -> Option<Stop> {
         each!(self, |K| K::stopped(screen))
@@ -235,7 +271,16 @@ fn launch<K: Kind>(start: &Start) -> Result<Launch, String> {
     for (name, value) in &start.env {
         line = line.fixed(" ").fixed(name).fixed("=").word(value);
     }
-    let line = K::added(line.fixed(" && ").launch(start.command), start).done();
+    let line = K::added(line.fixed(" && ").launch(&command::<K>(start.command)), start).done();
     let (line, typed) = K::briefed(line, start.brief);
     Ok(Launch { kept, line, typed })
+}
+
+fn command<K: Kind>(given: &str) -> String {
+    let given = given.trim();
+    if K::STOCK_ARGUMENTS.is_empty() || given.contains(char::is_whitespace) {
+        given.to_string()
+    } else {
+        format!("{given} {}", K::STOCK_ARGUMENTS)
+    }
 }
