@@ -22,7 +22,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let w = World::new();
         w.checkout("web").await;
         w.app.kit_set(&[format!("{key}={command}")]).await.unwrap();
-        w.app.issue_add("web", "t", "", false).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = worker(&w.app).await;
         assert_eq!(wk["harness"], key);
@@ -75,7 +75,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     );
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     let secrets = w.dir.join("data").join("secrets");
     *w.host.orca.refuse_open.lock().unwrap() = true;
     let _ = w.app.tick().await;
@@ -118,7 +118,7 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
     w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields);
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!(wk["account"], "night");
@@ -154,7 +154,7 @@ async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_
     crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
     w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;

@@ -8,7 +8,7 @@ use factorium_domain::hot;
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
-use factorium_domain::watch::{Held, NoteAdmission};
+use factorium_domain::watch::{EndWatch, Held, NoteAdmission, Watches, watch_id};
 use factorium_domain::worker::Status as WorkerStatus;
 use factum::Value;
 use serde::Serialize;
@@ -105,6 +105,7 @@ impl App {
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
+        self.heavy_forget_unasked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = t.lines.iter().find_map(|l| l["restart"].as_str().map(String::from));
         Ok(t)
@@ -174,18 +175,25 @@ impl App {
         Ok(json!({ "stopped": true, "ticks": ticks }))
     }
 
-    /// `factorium stop`: ends the running daemon.
-    pub fn stop(&self) -> Answer {
+    /// `factorium stop`: ends the running daemon, then closes the watch's
+    /// terminal and records it has no session, so the next daemon starts a
+    /// fresh one. Workers' sessions go on; the next daemon watches them.
+    pub async fn stop(&self) -> Answer {
         let pid = self.dir(&["daemon.pid"]);
-        let Ok(said) = std::fs::read_to_string(&pid) else {
-            return Ok(json!({ "stopped": false, "why": "no daemon runs" }));
-        };
-        let n: u32 = said.trim().parse().unwrap_or(0);
-        if n == 0 || !self.host.alive(n) {
+        let n: u32 = std::fs::read_to_string(&pid).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+        let mut answer = if n != 0 && self.host.alive(n) {
+            let _ = std::process::Command::new("kill").arg(n.to_string()).status();
+            json!({ "stopped": true, "pid": n })
+        } else {
             let _ = std::fs::remove_file(&pid);
-            return Ok(json!({ "stopped": false, "why": "no daemon runs" }));
+            json!({ "stopped": false, "why": "no daemon runs" })
+        };
+        let watch = self.state::<Watches>(watch_id()).await?;
+        if let Some(t) = &watch.terminal {
+            self.host.orca().close(t);
+            self.submit::<EndWatch>(()).await?;
         }
-        let _ = std::process::Command::new("kill").arg(n.to_string()).status();
-        Ok(json!({ "stopped": true, "pid": n }))
+        answer["watch_closed"] = json!(watch.terminal);
+        Ok(answer)
     }
 }

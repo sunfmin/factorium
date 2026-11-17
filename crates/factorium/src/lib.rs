@@ -4,6 +4,7 @@
 //! so what they see is what the CLI prints.
 
 mod daemon;
+mod gate;
 mod heavy;
 mod line;
 mod owner;
@@ -73,6 +74,14 @@ pub fn default_db() -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
+/// What the daemon keeps between ticks and nowhere else: which of its heavy
+/// jobs wait in the queue, and which this tick asked for.
+#[derive(Default)]
+struct Memory {
+    queued: std::collections::BTreeSet<Uuid>,
+    asked: std::collections::BTreeSet<Uuid>,
+}
+
 pub struct App {
     engine: Engine<SqliteStore>,
     host: Arc<dyn Host>,
@@ -80,6 +89,7 @@ pub struct App {
     /// worktrees of the lines, the watch's home, evidence.
     db: PathBuf,
     by: By,
+    memory: std::sync::Mutex<Memory>,
 }
 
 impl App {
@@ -95,7 +105,7 @@ impl App {
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, db, by: By::Principal(by.into()) })
+        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
     }
 
     fn now(&self) -> i64 {
