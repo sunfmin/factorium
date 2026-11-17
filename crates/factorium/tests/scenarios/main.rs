@@ -6,6 +6,7 @@
 //! the scenario moves it.
 
 mod admission;
+mod daemon;
 mod harnesses;
 mod line;
 mod path;
@@ -253,6 +254,10 @@ pub struct FakeHost {
     pub procs: Mutex<Vec<Proc>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
+    /// Programs not found on PATH.
+    pub missing: Mutex<Vec<String>>,
+    /// Whether launchd has the service loaded.
+    pub service: Mutex<bool>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
     pub home: PathBuf,
@@ -282,8 +287,22 @@ impl Programs for FakeHost {
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
             }
             "sleep" => Said { ok: true, ..Default::default() },
+            "launchctl" => {
+                let mut loaded = self.service.lock().unwrap();
+                let ok = match args[0] {
+                    "print" => *loaded,
+                    "bootstrap" => !std::mem::replace(&mut *loaded, true),
+                    "bootout" => std::mem::replace(&mut *loaded, false),
+                    _ => false,
+                };
+                Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }
+            }
             _ => Said { ok: false, out: String::new(), err: format!("{program}: not found") },
         }
+    }
+
+    fn found(&self, program: &str) -> bool {
+        !self.missing.lock().unwrap().iter().any(|m| m == program)
     }
 }
 
@@ -378,6 +397,8 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             ran: Mutex::default(),
+            missing: Mutex::default(),
+            service: Mutex::default(),
             home: dir.join("home"),
             root: dir.clone(),
         });
