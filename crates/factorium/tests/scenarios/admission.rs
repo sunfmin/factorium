@@ -162,3 +162,35 @@ impl World {
         self.clock.now().0
     }
 }
+
+#[tokio::test]
+async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_their_unit() {
+    let w = World::new();
+    let all = w.app.settings_set(None, None).await.unwrap();
+    let all = all.as_array().unwrap();
+    assert_eq!(all.len(), 16, "every setting is listed");
+    let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
+    assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
+    let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();
+    assert_eq!(cpu["unit"], "percent");
+
+    for (name, value) in [("held_fr", None), ("held_fr", Some(1))] {
+        let no = w.app.settings_set(Some(name), value).await.unwrap_err();
+        assert_eq!(no.code, "no_setting", "a typo is refused, not a panic");
+    }
+
+    // A time set in seconds bounds in seconds; a share in percent.
+    ready(&w).await;
+    w.app.settings_set(Some("held_for"), Some(120)).await.unwrap();
+    w.host.reading.lock().unwrap().cpu_busy = 90;
+    assert!(w.tick().await.started.is_none());
+    w.advance(1);
+    w.tick().await;
+    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "held 60 of 120 seconds");
+    w.advance(1);
+    w.tick().await;
+    let found = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    assert!(found.contains("admission held"), "{found}");
+    w.app.settings_set(Some("cpu_busy_max"), Some(95)).await.unwrap();
+    assert!(w.tick().await.started.is_some(), "90% is under 95%");
+}
