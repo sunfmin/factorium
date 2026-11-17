@@ -18,6 +18,8 @@ how to fix it. Then:
      for new work (`--blocked-by N` for each issue it waits for), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`
+   - `factorium unqueue <entry>` — take an entry of the heavy queue
+     (doctor's `heavy`) that does not move off it, so the rest can start
 3. Report: `factorium watch report --text "what you found and did"`; add
    `--human "…"` only for what needs the owner.
 
