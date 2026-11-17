@@ -164,6 +164,15 @@ impl Orca<'_> {
         }
     }
 
+    /// The live terminals Orca manages, as (handle, title).
+    pub fn terminals(&self) -> Result<Vec<(String, String)>, String> {
+        let listed = self.call(&["terminal", "list"])?;
+        let rows =
+            listed["terminals"].as_array().ok_or_else(|| format!("orca terminal list gave no rows: {listed}"))?;
+        let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
+        Ok(rows.iter().map(|t| (text(&t["handle"]), text(&t["title"]))).collect())
+    }
+
     /// Ends a terminal.
     pub fn close(&self, terminal: &str) {
         let _ = self.call(&["terminal", "close", "--terminal", terminal]);

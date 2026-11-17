@@ -67,6 +67,7 @@ const KEPT: usize = 50;
 #[serde(tag = "type", content = "data")]
 pub enum WatchEvent {
     WatchStarted { terminal: String, harness: String },
+    WatchEnded,
     Looked { at: i64 },
     EpisodeOpened { key: String, what: String, fix: String, at: i64 },
     EpisodeClosed { key: String },
@@ -89,6 +90,7 @@ impl Aggregate for Watches {
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
             WatchEvent::WatchStarted { terminal, harness } => (s.terminal, s.harness) = (Some(terminal), Some(harness)),
+            WatchEvent::WatchEnded => (s.terminal, s.harness) = (None, None),
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
@@ -132,6 +134,20 @@ command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, no
         harness: p.harness.clone(),
     }])
 });
+
+command!(
+    /// The watch's session was closed: the next look starts a fresh one.
+    EndWatch,
+    "watch.end",
+    Watches,
+    (),
+    |_p| watch_id(),
+    |s, _p, _now| Ok::<_, factum_core::Rejection>(if s.terminal.is_some() {
+        vec![WatchEvent::WatchEnded]
+    } else {
+        Vec::new()
+    })
+);
 
 /// One finding, as a look hands it on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
