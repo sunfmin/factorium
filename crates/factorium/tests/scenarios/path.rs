@@ -11,7 +11,7 @@ use crate::{World, id, refused, worker};
 #[tokio::test]
 async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let w = World::new();
-    w.checkout("web").await;
+    let web = w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "Add a greeting", "Say hello.", false, &[]).await.unwrap();
     let base = w.remote_tip("web", "proving");
@@ -22,6 +22,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
     assert_eq!(w.git(&tree, &["rev-parse", "HEAD"]).unwrap(), base, "branched from the proving tip");
+    let branch = w.git(&tree, &["branch", "--show-current"]).unwrap();
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], wk["worker"]);
     let term = w.terminal(wk["terminal"].as_str().unwrap());
     assert_eq!(term.worktree, tree);
@@ -52,6 +53,8 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     assert!(!w.terminal("term-1").alive, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
+    let left = w.git(&web, &["branch", "--list", &branch]).unwrap();
+    assert!(left.trim().is_empty(), "its branch goes: {branch}");
 
     // Idle, the same tick promoted and cut.
     assert_eq!(w.remote_tip("web", "main"), landed);
