@@ -3,6 +3,7 @@
 
 use factorium_domain::doctor;
 use factorium_domain::settings::{Settings, Time};
+use factorium_domain::tracker;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_host::Term;
@@ -14,13 +15,22 @@ use crate::{Answer, App, Refusal};
 
 impl App {
     /// The look, if one is due: doctor's findings become episodes, and a new
-    /// round is sent to the watch's session.
+    /// round is sent to the watch's session. It is due every `look_every`,
+    /// the heartbeat for what nothing announces, and at once when a worker
+    /// has started waiting for the watch since the last look: however many
+    /// started, one look.
     pub(crate) async fn look_if_due(&self, settings: &Settings) -> Answer<Option<Value>> {
         let before = self.state::<Watches>(watch_id()).await?;
-        if self.now() - before.last_look < settings.ms(Time::LookEvery) {
+        if self.now() - before.last_look < settings.ms(Time::LookEvery) && !self.waits_unseen(before.last_look).await? {
             return Ok(None);
         }
         self.look(settings).await.map(Some)
+    }
+
+    /// Whether a worker started waiting for the watch after `last_look`.
+    async fn waits_unseen(&self, last_look: i64) -> Answer<bool> {
+        let waiting = self.rows(tracker::workers(Some(Status::Waiting), false)).await?;
+        Ok(waiting.iter().any(|w| w.state.since > last_look))
     }
 
     /// `factorium watch look`: looks now.
