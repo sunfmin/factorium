@@ -9,7 +9,7 @@ deals with everything that goes wrong.
 
 It succeeds afkconvoy and is built on factum. Guild depends on its crates.
 
-Status: draft for the owner's review. Nothing is built.
+Status: approved 2026-11-17. Building phase 1.
 
 ## 1. Concepts
 
@@ -75,7 +75,7 @@ a factum submission or a query, so the CLI needs no socket to the daemon.
 What a repo declares about itself — its gate commands and limits, its
 cut steps, its heavy commands, its proving branch — is a file committed
 in the repo, `factorium.toml`, because it changes with the code and is
-reviewed with it. (Open question 1.)
+reviewed with it. It is the one exception to "everything in the database".
 
 ## 4. Commands
 
@@ -169,14 +169,13 @@ here or dropped on purpose, listed in `docs/dropped.md` with why.
 | 6 | Cut and self-upgrade through Homebrew | factorium cuts its own version |
 | 7 | Move repos from afkconvoy one at a time (a repo belongs to one); Guild moves its dependencies from afkconvoy's crates to factorium's | First repo landed by factorium; Guild builds against it |
 
-## 9. Open questions
+## 9. Decisions, and why
 
-1. **Repo declarations in the repo.** Gate commands, limits, cut steps
-   and heavy commands in a committed `factorium.toml` (proposed), or in
-   the database like everything else?
-2. **Every checkout has a proving branch.** Proposed: yes, always — one
-   path. A repo with no slow gate promotes as soon as it lands.
-3. **Red twice goes to the watch**, rather than to a new worker in a new
-   worktree. Proposed: yes.
-4. **Flux.** Not in v1 (proposed): scenarios and mutation hold the rules;
-   afkconvoy's fast gate spent 65 of its 138 seconds in Flux.
+1. **Repo declarations live in the repo** (`factorium.toml`): they change
+   with the code and are reviewed with it.
+2. **Every checkout has a proving branch**: one path. A repo with no slow
+   gate promotes as soon as it lands.
+3. **A landing red twice in a row goes to the watch**; no second worker in
+   a new worktree.
+4. **No Flux.** Scenarios and mutation hold the rules; afkconvoy's fast gate
+   spent 65 of its 138 seconds in Flux.
