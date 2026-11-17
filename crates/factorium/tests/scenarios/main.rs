@@ -60,6 +60,9 @@ pub const ESCAPE: &str = "\x1b";
 /// the words a harness that names some shows once up (Kimi Code's).
 pub const UP: &str = "› Ask anything · ? for shortcuts · context: 0% (0/1M)";
 
+/// What runs while a terminal closes, given its handle.
+pub type Closing = Box<dyn FnMut(&str) + Send>;
+
 /// Orca as `orca … --json` answers: its envelopes are shaped as Orca 1.4
 /// answered them (`{"ok":true,"result":…}`, `{"ok":false,"error":{"code",
 /// "message"}}`, `terminal read` giving `terminal.status` and `terminal.tail`).
@@ -88,7 +91,7 @@ pub struct FakeOrca {
     /// for dsh's) and lists it, connected, until the close returns. While
     /// set, this runs with the handle when one terminal's close is asked,
     /// before it takes: what another process sees in that time.
-    pub while_closing: Mutex<Option<Box<dyn FnMut(&str) + Send>>>,
+    pub while_closing: Mutex<Option<Closing>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
