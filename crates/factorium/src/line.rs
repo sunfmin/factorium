@@ -42,10 +42,19 @@ fn fresh(git: &Git, path: &Path, rev: &str) -> Result<Git, String> {
     Ok(here)
 }
 
+/// The queue entry of `worker`'s landing: one per landing, whatever the
+/// tick merged.
+fn landing_queued(worker: Uuid) -> Uuid {
+    id(&format!("landing:{worker}"))
+}
+
 impl App {
     /// Runs the `kind` gate on `rev` in `here`, unless that tree is green
     /// already; answers whether it is green and the tail of a red run.
     /// `Ok(None)`: the queue has no room yet; ask again next tick.
+    /// `queued` names the move (a worker's landing, a checkout's promotion),
+    /// never what this tick made for it: the daemon asks the same entry
+    /// again each tick, so none it would not ask for again stays waiting.
     pub(crate) async fn gate_tree(
         &self,
         checkout: &Checkout,
@@ -114,7 +123,7 @@ impl App {
             return self.red(worker, &st.terminal, why).await.map(Some);
         }
         let merged = here.sha("HEAD").map_err(fail("git"))?;
-        let queued = id(&format!("landing:{worker}:{merged}"));
+        let queued = landing_queued(worker);
         let Some((green, tail)) = self.gate_tree(&c, &here, &merged, Kind::Fast, queued).await? else {
             return Ok(None);
         };
@@ -156,6 +165,8 @@ impl App {
     pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
+        // Its landing is asked for no more.
+        self.heavy_end(landing_queued(worker)).await?;
         self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
         let git = Git::at(&c.path);
@@ -185,7 +196,7 @@ impl App {
         }
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = fresh(&git, &self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
-        let queued = id(&format!("promotion:{}:{tip}", c.name));
+        let queued = id(&format!("promotion:{}", c.name));
         let Some((green, tail)) = self.gate_tree(c, &here, &tip, Kind::Slow, queued).await? else { return Ok(None) };
         let red = |why: String| line::Tip { checkout: c.name.clone(), tip: tip.clone(), why };
         if !green {

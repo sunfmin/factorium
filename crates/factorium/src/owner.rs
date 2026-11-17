@@ -304,8 +304,8 @@ impl App {
         Ok(seen)
     }
 
-    /// The findings, each with its fix; the reading; and the owner's part of
-    /// the watch's reports, which this marks seen.
+    /// The findings, each with its fix; the reading; the heavy queue; and
+    /// the owner's part of the watch's reports, which this marks seen.
     pub async fn doctor(&self) -> Answer {
         let seen = self.seen().await?;
         let settings = self.settings().await?;
@@ -315,10 +315,14 @@ impl App {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
         let reading = self.host.reading();
+        let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
+        let queue: Vec<_> =
+            q.entries.iter().map(|e| json!({ "what": e.what, "worker": e.worker, "started": e.started_at })).collect();
         Ok(json!({
             "findings": findings,
             "human": seen.human,
             "holds": seen.holds,
+            "queue": queue,
             "reading": reading,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))

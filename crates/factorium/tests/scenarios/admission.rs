@@ -257,3 +257,72 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     w.app.settings_set(Some("cpu_busy_max"), Some(95)).await.unwrap();
     assert!(w.tick().await.started.is_some(), "90% is under 95%");
 }
+
+/// The daemon's entries in the queue, and how many of them run.
+async fn daemon_entries(w: &World) -> (usize, usize) {
+    let q = w.app.doctor().await.unwrap()["queue"].as_array().unwrap().clone();
+    let mine: Vec<_> = q.iter().filter(|e| e["what"] == "fast gate of web").collect();
+    (mine.len(), mine.iter().filter(|e| !e["started"].is_null()).count())
+}
+
+/// Ends the holding command when dropped, so a failed assertion fails the
+/// test instead of leaving it waiting on that command.
+struct Release(PathBuf);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.0, "");
+    }
+}
+
+#[tokio::test]
+async fn a_landing_waits_behind_a_long_heavy_command_as_one_entry_and_starts_once_it_ends() {
+    use std::time::Duration;
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    crate::commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    // No room: the heavy command, once running, holds the queue.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let go = w.dir.join("go");
+    let hold = format!("while [ ! -e '{}' ]; do sleep 0.05; done", go.display());
+    let dir = w.dir.clone();
+    let held = w.app.worker_exclusive(None, &dir, &hold);
+    let ticks = async {
+        let release = Release(go.clone());
+        let running = async {
+            while !w.app.doctor().await.unwrap()["queue"][0]["started"].is_i64() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), running).await.expect("the heavy command never started");
+        for _ in 0..3 {
+            assert!(w.tick().await.landed.is_empty(), "the landing waits");
+            assert_eq!(daemon_entries(&w).await, (1, 0), "one waiting entry for the landing");
+            // A new second: the landing's merge commit is a new commit each tick.
+            tokio::time::sleep(Duration::from_millis(1100)).await;
+        }
+        drop(release);
+    };
+    let (ran, ()) = tokio::join!(held, ticks);
+    assert_eq!(ran.unwrap()["ok"], true);
+    let landing = async {
+        let mut ticks = 0;
+        loop {
+            ticks += 1;
+            if let Some(l) = w.tick().await.landed.first() {
+                return (ticks, l["landed"].clone());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    let landed = tokio::time::timeout(Duration::from_secs(10), landing)
+        .await
+        .expect("the landing never started: orphan queue entries");
+    assert_eq!(landed, (1, json!("web#1")), "its gate starts on the next tick");
+    assert_eq!(w.app.doctor().await.unwrap()["queue"], json!([]), "and leaves the queue empty");
+}
