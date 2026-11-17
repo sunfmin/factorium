@@ -9,7 +9,6 @@ use factorium_domain::declared::Kind;
 use factorium_domain::issue::{ReleaseIssue, Take};
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
-use factorium_host::Git;
 use factum::Uuid;
 use serde_json::json;
 
@@ -33,7 +32,7 @@ impl App {
     pub async fn worker_gate(&self, worker: Uuid) -> Answer {
         let (_, st) = self.started(worker).await?;
         let at = At::Worktree { worker, number: st.number };
-        let g = self.gate(&st.checkout, &Git::at(&st.worktree), at, Kind::Fast).await?.expect("a waited turn");
+        let g = self.gate(&st.checkout, &self.host.git(&st.worktree), at, Kind::Fast).await?.expect("a waited turn");
         let Some(ran) = g.ran else {
             return Ok(json!({ "green": g.green, "tree": g.tree, "recorded": g.recorded, "ran": false }));
         };
@@ -45,7 +44,7 @@ impl App {
     /// Asks to land: the worktree must be committed, with commits of its own.
     pub async fn worker_done(&self, worker: Uuid) -> Answer {
         let (_, st) = self.started(worker).await?;
-        let git = Git::at(&st.worktree);
+        let git = self.host.git(&st.worktree);
         if git.dirty().map_err(fail("git"))? {
             return Err(Refusal::new("dirty", "commit or remove your changes first: landing takes only commits"));
         }

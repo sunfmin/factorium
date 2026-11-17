@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{World, commit, git, id, refused, worker};
+use crate::{World, id, refused, worker};
 
 #[tokio::test]
 async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
@@ -21,7 +21,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!(started["issue"], "web#1");
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
-    assert_eq!(git(&tree, &["rev-parse", "HEAD"]).unwrap(), base, "branched from the proving tip");
+    assert_eq!(w.git(&tree, &["rev-parse", "HEAD"]).unwrap(), base, "branched from the proving tip");
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], wk["worker"]);
     let term = w.terminal(wk["terminal"].as_str().unwrap());
     assert_eq!(term.worktree, tree);
@@ -35,7 +35,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     // A second tick starts nothing more: the issue is held.
     assert!(w.tick().await.started.is_none());
 
-    commit(&tree, "hello.txt", "hello\n");
+    w.commit(&tree, "hello.txt", "hello\n");
     let gate = w.app.worker_gate(id(&wk)).await.unwrap();
     assert_eq!((gate["green"].clone(), gate["ran"].clone()), (json!(true), json!(null)));
     assert_eq!(w.app.worker_gate(id(&wk)).await.unwrap()["ran"], false, "a green tree is not gated twice");
@@ -58,7 +58,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"));
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut");
     assert_eq!(cut["version"], "v0.1.0");
-    assert!(git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
+    assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
     // The first cut installs it, and Homebrew is asked what it has once done.
     let installs = ["--prefix web", "update --quiet", "list --formula web", "install web", "list --versions web"];
     assert_eq!(w.host.brewed(), installs);
@@ -76,8 +76,8 @@ async fn done_takes_only_committed_work_of_its_own() {
     refused(w.app.worker_done(id(&wk)).await, "nothing");
     std::fs::write(tree.join("loose"), "x").unwrap();
     refused(w.app.worker_done(id(&wk)).await, "dirty");
-    git(&tree, &["add", "-A"]).unwrap();
-    git(&tree, &["commit", "-qm", "x"]).unwrap();
+    w.git(&tree, &["add", "-A"]).unwrap();
+    w.git(&tree, &["commit", "-qm", "x"]).unwrap();
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
@@ -92,7 +92,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
     let proving = w.remote_tip("web", "proving");
 
-    commit(&tree, "RED", "x");
+    w.commit(&tree, "RED", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"));
@@ -121,11 +121,11 @@ async fn a_red_landing_then_a_fix_lands() {
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
-    commit(&tree, "RED", "x");
+    w.commit(&tree, "RED", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     w.tick().await;
-    git(&tree, &["rm", "-q", "RED"]).unwrap();
-    git(&tree, &["commit", "-qm", "fix"]).unwrap();
+    w.git(&tree, &["rm", "-q", "RED"]).unwrap();
+    w.git(&tree, &["commit", "-qm", "fix"]).unwrap();
     w.app.worker_done(id(&wk)).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
@@ -139,13 +139,13 @@ async fn a_branch_that_does_not_merge_is_red() {
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
-    commit(&tree, "README", "mine\n");
+    w.commit(&tree, "README", "mine\n");
     // The proving branch moves under it, the same file changed.
     let other = w.dir.join("other");
     let remote = w.dir.join("remotes/web.git");
-    git(&w.dir, &["clone", "-q", "-b", "proving", &remote.to_string_lossy(), &other.to_string_lossy()]).unwrap();
-    commit(&other, "README", "theirs\n");
-    git(&other, &["push", "-q", "origin", "HEAD:proving"]).unwrap();
+    w.git(&w.dir, &["clone", "-q", "-b", "proving", &remote.to_string_lossy(), &other.to_string_lossy()]).unwrap();
+    w.commit(&other, "README", "theirs\n");
+    w.git(&other, &["push", "-q", "origin", "HEAD:proving"]).unwrap();
 
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
@@ -217,7 +217,7 @@ async fn held_landings_wait_until_released() {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
     w.app.hold("web", Some("the proving branch is being repaired")).await.unwrap();
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(w.tick().await.landed.is_empty());
@@ -255,7 +255,7 @@ async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
     assert_eq!((wk["started_at"].clone(), wk["since"].clone()), (json!(start), json!(start)));
 
     w.advance(5);
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     let landing = worker(&w.app).await;
     assert_eq!(landing["status"], "landing");

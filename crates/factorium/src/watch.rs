@@ -28,13 +28,17 @@ impl App {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
+        if terminal.is_some() {
+            self.hand_watch_brief(false).await?;
+        }
         let started = self.state::<Watches>(watch_id()).await?;
-        let ready = self.watch_ready(&started, terminal.as_deref());
+        let session = terminal.as_ref().and_then(|_| self.watch_ready(&started));
+        let ready = session.is_some();
         self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
         let mut after = self.state::<Watches>(watch_id()).await?;
         // The running round, typed once at each watch session, when it can take it.
-        let unsent = after.round.as_ref().filter(|r| ready && r.sent != terminal);
-        if let (Some(r), Some(t)) = (unsent, &terminal)
+        let unsent = after.round.as_ref().filter(|r| r.sent != terminal);
+        if let (Some(r), Some(t), Some(s)) = (unsent, &terminal, &session)
             && let Some(e) = after.episodes.get(&r.episode)
         {
             let line = format!(
@@ -43,7 +47,7 @@ impl App {
                  only for what needs the owner: spending money). `factorium watch next` shows this round again.",
                 r.n, e.what, e.fix
             );
-            self.host.orca().send(t, &one_line(&line)).map_err(crate::fail("orca"))?;
+            self.type_at(s, &one_line(&line))?;
             self.submit::<SendRound>(watch::Sent { n: r.n, terminal: t.clone() }).await?;
             after = self.state::<Watches>(watch_id()).await?;
         }
@@ -92,11 +96,13 @@ impl App {
                 );
             }
         }
-        self.submit::<w::Resume>(w::Of { worker }).await?;
         let line = format!(
             "factorium (the watch): {text} Then go on, and run `factorium worker done` when the work is committed."
         );
-        self.host.orca().send(&st.terminal, &one_line(&line)).map_err(crate::fail("orca"))?;
+        // A brief never handed goes first: the word is about its work.
+        self.hand_worker_brief(worker, false).await?;
+        self.type_at(&Self::worker_session(&st), &one_line(&line))?;
+        self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true }))
     }
 
@@ -104,10 +110,7 @@ impl App {
     pub async fn watch_tell(&self, worker: Uuid, text: &str) -> Answer {
         let st =
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
-        self.host
-            .orca()
-            .send(&st.terminal, &one_line(&format!("factorium (the watch): {text}")))
-            .map_err(crate::fail("orca"))?;
+        self.type_at(&Self::worker_session(&st), &one_line(&format!("factorium (the watch): {text}")))?;
         Ok(json!({ "worker": worker, "told": text }))
     }
 
