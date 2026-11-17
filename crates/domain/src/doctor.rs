@@ -34,6 +34,10 @@ pub struct Seen {
     /// Orca terminals titled as factorium's that no live worker or the
     /// watch holds: (handle, title).
     pub orphans: Vec<(String, String)>,
+    /// Terminals factorium closed that Orca refused to close or lists
+    /// still: (handle, title, why).
+    #[serde(default)]
+    pub unclosed: Vec<(String, String, String)>,
 }
 
 /// A checkout's proving line as doctor reads it.
@@ -109,6 +113,13 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             format!("orphan:{handle}"),
             format!("Orca terminal {handle} ({title}) is factorium's, but no live worker or the watch holds it"),
+            &format!("close it: `orca terminal close --terminal {handle}`"),
+        );
+    }
+    for (handle, title, why) in &seen.unclosed {
+        add(
+            format!("unclosed:{handle}"),
+            format!("factorium closed Orca terminal {handle} ({title}), and it is not closed: {why}"),
             &format!("close it: `orca terminal close --terminal {handle}`"),
         );
     }

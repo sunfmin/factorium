@@ -11,7 +11,7 @@ use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Move;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
-use factorium_domain::watch::{EndWatch, Held, NoteAdmission, Watches, watch_id};
+use factorium_domain::watch::{Held, NoteAdmission};
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
@@ -249,12 +249,7 @@ impl App {
             let _ = std::fs::remove_file(self.dir(&["daemon.pid"]));
             json!({ "stopped": false, "why": "no daemon runs" })
         };
-        let watch = self.state::<Watches>(watch_id()).await?;
-        if let Some(t) = &watch.terminal {
-            self.host.orca().close(t);
-            self.submit::<EndWatch>(()).await?;
-        }
-        answer["watch_closed"] = json!(watch.terminal);
+        answer["watch_closed"] = json!(self.close_watch_session().await?);
         Ok(answer)
     }
 }

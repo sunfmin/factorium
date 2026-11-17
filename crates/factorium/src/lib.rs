@@ -6,7 +6,6 @@
 mod daemon;
 mod gate;
 mod heavy;
-mod launch;
 mod line;
 mod owner;
 mod service;
@@ -31,7 +30,7 @@ use serde::de::DeserializeOwned;
 
 pub use daemon::Tick;
 pub use factorium_host as host;
-pub use launch::{Caller, DB_ENV};
+pub use session::{Caller, DB_ENV};
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.

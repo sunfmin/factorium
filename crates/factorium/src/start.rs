@@ -10,10 +10,9 @@ use factorium_domain::issue::{Take, TakeIssue};
 use factorium_domain::watch::{self, StartWatch};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
-use factorium_host::Term;
 use serde_json::json;
 
-use crate::launch::{Opened, Pick, Role};
+use crate::session::{Opened, Pick, Role};
 use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
@@ -97,12 +96,12 @@ impl App {
     /// Starts the watch's session if the kit has a harness and none runs:
     /// answers its terminal, or `None` when it cannot run.
     pub(crate) async fn ensure_watch(&self, before: &watch::Watch) -> Answer<Option<String>> {
-        if let Some(t) = &before.terminal {
-            match self.host.orca().screen(t) {
-                Term::Running(_) => return Ok(Some(t.clone())),
+        if let Some(s) = self.watch_session(before) {
+            match self.gone(&s) {
+                Ok(false) => return Ok(Some(s.terminal().into())),
                 // Not known to be gone: no second session; none to type at now.
-                Term::Unreadable(_) => return Ok(None),
-                Term::Exited => {}
+                Err(_) => return Ok(None),
+                Ok(true) => {}
             }
         }
         let pick = match self.pick("").await {

@@ -238,7 +238,7 @@ impl App {
             keep(kept).map_err(io)?;
         }
         let (line, secret) = self.secrets_first(&pick.secrets, launched.line)?;
-        let opened = self.host.orca().open(&worktree, &title, &line);
+        let opened = self.open_terminal(&worktree, &title, &line);
         if let (Err(_), Some(file)) = (&opened, &secret) {
             let _ = std::fs::remove_file(file);
         }

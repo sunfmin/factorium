@@ -44,6 +44,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::Hear>()
         .command::<worker::EndWorker>()
+        .command::<worker::NoteClosed>()
         .command::<worker::NoteLoad>()
         .command::<worker::NoteQuiet>()
         .command::<worker::HandBrief>()
@@ -407,30 +408,12 @@ impl App {
         seen.held = w.held.clone();
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
-        seen.orphans = self.orphans(&w).await?;
+        (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             seen.dead_letters.push((factorium_domain::tracker::TRACKER.into(), dead.len()));
         }
         Ok(seen)
-    }
-
-    /// Orca's terminals this database's factorium opened (a worker's, ended
-    /// or not, or a watch session's) that neither a live worker nor the
-    /// watch's session now holds. A terminal another daemon, on another
-    /// database, opened is never this one's, whatever its title. Orca
-    /// unreadable: none known.
-    async fn orphans(&self, watch: &watch::Watch) -> Answer<Vec<(String, String)>> {
-        let Ok(terminals) = self.host.orca().terminals() else { return Ok(Vec::new()) };
-        let (mut opened, mut held) = (watch.opened.clone(), Vec::new());
-        for w in self.rows(tracker::workers(None, true)).await? {
-            if w.state.status != worker::Status::Ended {
-                held.push(w.terminal.clone());
-            }
-            opened.push(w.terminal);
-        }
-        held.extend(watch.terminal.clone());
-        Ok(terminals.into_iter().filter(|(h, _)| opened.contains(h) && !held.contains(h)).collect())
     }
 
     /// The findings, each with its fix; the reading; and the owner's part of
