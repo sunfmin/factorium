@@ -59,13 +59,6 @@ impl App {
         harness.home(&self.host.home(), account, &self.dir(&["kept", harness.key()]))
     }
 
-    /// The watch's home and the brief its session is handed there.
-    pub(crate) fn watch_home(&self) -> (PathBuf, PathBuf) {
-        let home = self.dir(&["watch"]);
-        let brief = home.join("BRIEF.md");
-        (home, brief)
-    }
-
     /// A worker's session.
     pub(crate) fn worker_session(st: &w::Started) -> Session {
         Session {
