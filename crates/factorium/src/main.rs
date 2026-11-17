@@ -192,7 +192,7 @@ enum KitCmd {
     /// Answers the kit.
     Show,
     /// Sets the kit: `harness=command[@model]`, highest priority first.
-    /// Harnesses: claude-code, codex, pi, dsh, kimi, grok.
+    /// An unknown harness is refused, naming those there are.
     Set { entries: Vec<String> },
     /// Pins a checkout to one harness (`--harness`), or unpins it.
     Pin {

@@ -10,7 +10,7 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -19,7 +19,7 @@ use crate::start::SKILLS;
 use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
-pub(super) const KEY: &str = "pi";
+const KEY: &str = "pi";
 
 /// pi's flag that answers, for one run, the question it asks before it loads
 /// what the directory it starts in holds of pi's own: a start directory's limits in pi's
@@ -38,11 +38,11 @@ const SKILL: &str = "--skill";
 /// pi's flag for an extension to load.
 const EXTENSION: &str = "--extension";
 /// pi's flag for the model of the session.
-pub(super) const MODEL: &str = "--model";
+const MODEL: &str = "--model";
 
 /// The variable that names pi's user directory: its own, in place of
 /// the host user's.
-pub(super) const USER_DIR: &str = "PI_CODING_AGENT_DIR";
+const USER_DIR: &str = "PI_CODING_AGENT_DIR";
 /// The variable the tool's extension reads the line that runs the guard
 /// from; the worktree and the start directory it reads from theirs.
 const GUARD_ENV: &str = "FACTORIUM_GUARD";
@@ -60,14 +60,14 @@ const EXTENSION_FILE: &str = "factorium.js";
 /// links: a login pi renews is renewed for the host user too, and neither
 /// goes stale. No setting or other extension of the user's is there, and
 /// their skills and rules only in the directory kept for a session given them.
-pub(super) const KEPT_LINKS: &[Link] = &[
+const KEPT_LINKS: &[Link] = &[
     Link { home: ".pi/agent/auth.json", kept: "auth.json" },
     Link { home: ".pi/agent/models.json", kept: "models.json" },
     Link { home: ".pi/agent/extensions/orca-agent-status.ts", kept: "extensions/orca-agent-status.ts" },
 ];
 
 /// What the host keeps for pi beside the links: the tool's extension.
-pub(super) fn kept(_start: &Start) -> Vec<(&'static str, String)> {
+fn kept(_start: &Start) -> Vec<(&'static str, String)> {
     vec![(EXTENSION_FILE, include_str!("pi/extension.js").to_string())]
 }
 
@@ -75,13 +75,13 @@ pub(super) fn kept(_start: &Start) -> Vec<(&'static str, String)> {
 const SHELL_TOOL: &str = "bash";
 /// The exit code with which the guard refuses a call of pi's: the tool's
 /// extension takes any but 0 for a refusal.
-pub(super) const REFUSED: u8 = 2;
+const REFUSED: u8 = 2;
 
 /// `line`, which exports a session's environment, with what pi and the
 /// the tool's extension read from it: the user directory the host keeps, the
 /// line that runs the guard, the worktree, and the added directory,
 /// whose rules a pi session is given as it is its worktree's.
-pub(super) fn environment(line: Line, start: &Start) -> Line {
+fn environment(line: Line, start: &Start) -> Line {
     line.fixed(" ")
         .fixed(USER_DIR)
         .fixed("=")
@@ -104,7 +104,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
 /// put a session in its start directory: its question answered, the start directory's skills, then
 /// the host user's where it is given them, and no others, the tool's
 /// extension, and the caller's model.
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(APPROVE)
@@ -142,7 +142,7 @@ struct Input {
 /// An HTTP 429 whose body carries code 1308 and says the usage limit was
 /// reached. The JSON may wrap across lines. The same body on another
 /// harness's screen is not this quota.
-pub(super) fn account_quota(output: &[String]) -> Option<String> {
+fn account_quota(output: &[String]) -> Option<String> {
     if let Some(line) = output.iter().find(|line| zai_limit(line)) {
         return Some(line.clone());
     }
@@ -170,7 +170,7 @@ fn zai_limit(text: &str) -> bool {
 
 /// The tool call `described` to the tool's extension, as the guard judges
 /// one.
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     Ok(match described.input.command {
         Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
@@ -180,13 +180,13 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
 
 /// Where pi keeps the session of `cwd`: one JSONL file for each session, in
 /// the directory it names from the worktree path.
-pub(super) fn layout(cwd: &str) -> Layout {
+fn layout(cwd: &str) -> Layout {
     Layout::Files { dir: format!("sessions/{}", session::wrapped_dir(cwd)), extension: "jsonl" }
 }
 
 /// The turn `text` records for `cwd`. A session header for another worktree
 /// is not this file. pi records no child session.
-pub(super) fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
     let mut notes = Vec::new();
     for value in json_lines(text) {
         if value["type"] == "session" && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
@@ -216,7 +216,7 @@ fn note(value: &Value) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let mut body = format!(
         "{}\n",
@@ -241,4 +241,60 @@ pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
         ));
     }
     body
+}
+
+/// pi, as a harness: what its module says of it.
+pub(super) struct Pi;
+
+impl Kind for Pi {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Unused;
+    const USER_HOME: Option<&'static str> = None;
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const ENVIRONMENT: &'static [&'static str] = &[];
+    const REFUSED: u8 = REFUSED;
+
+    fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        Ok(kept(start))
+    }
+
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.dir
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
+        (line, Some(crate::brief::brief_pointer(brief)))
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(screen: &[String]) -> Option<Stop> {
+        account_quota(screen).map(Stop::Quota)
+    }
+
+    fn layout(cwd: &str) -> Layout {
+        layout(cwd)
+    }
+
+    fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
+        true
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None)
+    }
+
+    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, open, at)
+    }
 }

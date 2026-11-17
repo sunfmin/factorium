@@ -103,7 +103,7 @@ impl App {
         if matches!(wk.status, Status::Ended | Status::Waiting) {
             return Ok(None);
         }
-        let harness = Harness::read(&st.harness).unwrap_or(Harness::ClaudeCode);
+        let Some(harness) = Harness::read(&st.harness) else { return Ok(None) };
         let now = self.now();
         let wait = |why: String| async move {
             self.submit::<w::Wait>(w::Because { worker, why: why.clone() }).await?;

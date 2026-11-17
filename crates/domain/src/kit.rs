@@ -15,9 +15,6 @@ pub fn kit_id() -> factum_core::Uuid {
     id("kit")
 }
 
-/// The harness keys factorium starts.
-pub const HARNESSES: &[&str] = &["claude-code", "codex", "pi", "dsh", "kimi", "grok"];
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub harness: String,
@@ -130,10 +127,6 @@ impl Aggregate for Kits {
     }
 }
 
-fn known(h: &str) -> Result<(), factum_core::Rejection> {
-    if HARNESSES.contains(&h) { Ok(()) } else { no("no_harness", format!("{h} is none of {}", HARNESSES.join(", "))) }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetKit {
     pub entries: Vec<Entry>,
@@ -141,7 +134,6 @@ pub struct SetKit {
 
 command!(SetTheKit, "kit.set", Kits, SetKit, |_p| kit_id(), |s, p, now| {
     for e in &p.entries {
-        known(&e.harness)?;
         if e.command.trim().is_empty() {
             return no("no_command", format!("{} needs a launch command", e.harness));
         }
@@ -156,9 +148,6 @@ pub struct Pin {
 }
 
 command!(PinCheckout, "kit.pin", Kits, Pin, |_p| kit_id(), |s, p, now| {
-    if let Some(h) = &p.harness {
-        known(h)?;
-    }
     Ok(vec![KitEvent::CheckoutPinned { checkout: p.checkout.clone(), harness: p.harness.clone() }])
 });
 

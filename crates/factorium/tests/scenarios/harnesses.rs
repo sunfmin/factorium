@@ -13,12 +13,14 @@ pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, op
     h.write_session(&h.home(&w.host.home, account, &kept), cwd, open, at).unwrap();
 }
 
-const ALL: [(&str, &str); 6] =
-    [("claude-code", "claude"), ("codex", "codex"), ("pi", "pi"), ("dsh", "dsh"), ("kimi", "kimi"), ("grok", "grok")];
+/// The harnesses that work only in their cwd, so start in the worktree.
+const IN_WORKTREE: [&str; 1] = ["grok"];
 
 #[tokio::test]
 async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_session_files() {
-    for (key, command) in ALL {
+    assert!(Harness::all().len() >= 6, "every harness is listed");
+    for h in Harness::all() {
+        let (key, command) = (h.key(), format!("run-{}", h.key()));
         let w = World::new();
         w.checkout("web").await;
         w.app.kit_set(&[format!("{key}={command}")]).await.unwrap();
@@ -27,7 +29,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let wk = worker(&w.app).await;
         assert_eq!(wk["harness"], key);
         let term = w.terminal(wk["terminal"].as_str().unwrap());
-        assert!(term.line.contains(command), "{key}: {}", term.line);
+        assert!(term.line.contains(&command), "{key}: {}", term.line);
         assert!(term.line.contains("FACTORIUM_WORKER"), "{key}: the worker is named in its environment");
         let briefed = term.line.contains("web-1-1.md") || term.sent.iter().any(|s| s.contains("web-1-1.md"));
         assert!(briefed, "{key}: handed its brief");
@@ -46,6 +48,15 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
 
         let h = Harness::read(key).unwrap();
         let cwd = wk["worktree"].as_str().unwrap();
+        // Where it starts: its role's directory, or the worktree for one that works only in its cwd.
+        let role = w.dir.join("data").join("role").join("worker");
+        let dir = if IN_WORKTREE.contains(&key) { cwd.to_string() } else { role.to_string_lossy().into_owned() };
+        // DSH's line is quoted once more, as one word of its start script's.
+        let starts = term.line.split("cd ").skip(1).any(|rest| rest.trim_start_matches(['\'', '\\']).starts_with(&dir));
+        assert!(starts, "{key} starts in {dir}: {}", term.line);
+        // A home its line points it nowhere at is the host user's own: the host keeps none for it.
+        let kept = w.dir.join("data").join("kept").join(key);
+        assert!(term.line.contains(&*kept.to_string_lossy()) || !kept.exists(), "{key}: {}", term.line);
         let now = (w.app_now() / 1000) as u64;
         write_session(&w, h, None, cwd, true, now);
         w.advance(45);
@@ -64,6 +75,48 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let wk = worker(&w.app).await;
         assert_eq!(wk["status"], "waiting", "{key}: its closed turn, past the bound, is silence: {wk}");
     }
+}
+
+#[tokio::test]
+async fn the_kit_takes_only_harnesses_factorium_starts_and_names_them_all() {
+    let w = World::new();
+    w.checkout("web").await;
+    let refused = w.app.kit_set(&["vim=vim".into()]).await.unwrap_err();
+    assert_eq!(refused.code, "no_harness");
+    for h in Harness::all() {
+        assert!(refused.message.contains(h.key()), "{}: {}", h.key(), refused.message);
+    }
+    assert_eq!(w.app.kit_pin("web", Some("vim")).await.unwrap_err().code, "no_harness");
+    assert_eq!(w.app.kit().await.unwrap()["entries"], serde_json::json!([]), "nothing set");
+    for h in Harness::all() {
+        w.app.kit_set(&[format!("{}=x", h.key())]).await.unwrap();
+        w.app.kit_pin("web", Some(h.key())).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_account_is_usable_only_by_the_way_its_harness_logs_in() {
+    let w = World::new();
+    let machine = this_machine();
+    let accounts = [
+        ("token", r#"{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk"}"#.to_string()),
+        ("bound", format!(r#"{{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk","MACHINE":"{machine}"}}"#)),
+        ("tokenless", r#"{"HARNESS":"claude-code"}"#.to_string()),
+        ("pi", r#"{"HARNESS":"pi","CLAUDE_CODE_OAUTH_TOKEN":"sk"}"#.to_string()),
+        ("login", format!(r#"{{"HARNESS":"codex","MACHINE":"{machine}"}}"#)),
+        ("login-token", format!(r#"{{"HARNESS":"codex","MACHINE":"{machine}","CLAUDE_CODE_OAUTH_TOKEN":"sk"}}"#)),
+        ("nowhere", r#"{"HARNESS":"codex"}"#.to_string()),
+    ];
+    for (name, fields) in &accounts {
+        let home = w.host.home.join(".agent-accounts").join(name);
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("auth.json"), "{}").unwrap();
+        w.host.tokens.lock().unwrap().insert(format!("agent-account-{name}"), format!(r#"{{"fields":{fields}}}"#));
+    }
+    let listed = w.app.accounts().await.unwrap();
+    let mut names: Vec<&str> = listed.as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
+    names.sort();
+    assert_eq!(names, ["login", "token"], "{listed}");
 }
 
 #[tokio::test]
@@ -289,6 +342,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
         "harness.rs: enum Stop",
+        "harness.rs: fn all",
         "harness.rs: fn home",
         "harness.rs: fn launch",
         "harness.rs: fn read",
