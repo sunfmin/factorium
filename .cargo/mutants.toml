@@ -37,6 +37,8 @@ exclude_re = [
   # account's windows are always empty.
   'kit.rs:48:.* in Account::left$',
   'kit.rs:49:.*replace - with \+ in Account::left$',
+  # Equivalent: of two equal times, keeping either keeps the same time.
+  'replace > with >= in (prefer|ended_last)$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',

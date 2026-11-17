@@ -32,11 +32,9 @@ pub enum Turn {
 ///
 /// Notes are in the order the session wrote them. A child is skipped. A
 /// start opens a turn and forgets an end before it. An end closes the start
-/// it follows. With `not_before` set, a turn that started earlier is not
-/// this send's turn, and an end whose start is not in the notes proves
-/// nothing. With `not_before` unset, an end with no start in the notes is
-/// still a turn that ended — the start was earlier in a file read whole.
-pub(crate) fn latest(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
+/// it follows. An end with no start in the notes is still a turn that
+/// ended — the start was earlier in a file read whole.
+pub(crate) fn latest(notes: &[Note]) -> Option<Turn> {
     let mut started: Option<u64> = None;
     let mut ended: Option<u64> = None;
     for note in notes {
@@ -48,18 +46,7 @@ pub(crate) fn latest(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
                 started = Some(note.at);
                 ended = None;
             }
-            Marker::End => {
-                if started.is_some() || not_before.is_none() {
-                    ended = Some(note.at);
-                }
-            }
-        }
-    }
-    if let Some(bound) = not_before {
-        match started {
-            Some(start) if start < bound => return None,
-            None => return None,
-            Some(_) => {}
+            Marker::End => ended = Some(note.at),
         }
     }
     match (started, ended) {

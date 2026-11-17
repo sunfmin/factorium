@@ -231,9 +231,9 @@ fn dir_name(cwd: &str) -> String {
 
 /// The turn `text` records. The worktree is the directory the file was in.
 /// A session that is not the primary one is a child.
-fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(_cwd: &str, text: &str) -> Option<Turn> {
     let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 fn note(value: &serde_json::Value) -> Option<Note> {
@@ -324,7 +324,7 @@ impl Kind for Grok {
     }
 
     fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None)
+        recorded_turn(cwd, text)
     }
 
     fn stand_in(_cwd: &str, open: bool, at: u64) -> String {

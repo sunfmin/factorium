@@ -258,7 +258,7 @@ fn layout() -> Layout {
 
 /// The turn `text` records for `cwd`, or for the session handed `brief`
 /// when it started elsewhere. A header is required.
-fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
     let mut saw_header = false;
     let mut notes = Vec::new();
     for value in json_lines(text) {
@@ -276,7 +276,7 @@ fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&
     if !saw_header {
         return None;
     }
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 /// Whether the first brief pointer in the opening user messages (after any
@@ -387,7 +387,7 @@ impl Kind for Codex {
     }
 
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None, Some(brief))
+        recorded_turn(cwd, text, Some(brief))
     }
 
     fn stand_in(cwd: &str, open: bool, at: u64) -> String {

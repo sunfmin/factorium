@@ -142,8 +142,8 @@ pub(super) fn json_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
 }
 
 /// The turn `notes` leave, in the order the session wrote them.
-pub(super) fn turn_of(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
-    latest(notes, not_before)
+pub(super) fn turn_of(notes: &[Note]) -> Option<Turn> {
+    latest(notes)
 }
 
 /// The first brief pointer in a user message: whether it names exactly

@@ -780,3 +780,63 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
         assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
     }
 }
+
+/// A Claude Code worker 60 min into its work whose worktree has the session
+/// files `sessions` (name, and its notes as (start?, minutes after the
+/// worker started)): whether it is silent, its turn ended past the silent
+/// bound of 30 min.
+async fn silent_with(sessions: &[(&str, &[(bool, u64)])]) -> bool {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    let t0 = (w.app_now() / 1000) as u64;
+    // Each note as the stand-in session writes it: its first line a start,
+    // its second an end.
+    // Claude Code keeps them under the host user's own home.
+    let projects = w.host.home().join(".claude").join("projects");
+    let stand_in = || {
+        let dir = std::fs::read_dir(&projects).unwrap().flatten().next().unwrap().path();
+        std::fs::read_dir(dir).unwrap().flatten().next().unwrap().path()
+    };
+    let note = |start: bool, min: u64| {
+        write_session(&w, Harness::ClaudeCode, None, &cwd, start, t0 + min * 60);
+        let text = std::fs::read_to_string(stand_in()).unwrap();
+        text.lines().nth(usize::from(!start)).unwrap().to_string()
+    };
+    let written: Vec<(&str, Vec<String>)> =
+        sessions.iter().map(|(name, ns)| (*name, ns.iter().map(|(s, m)| note(*s, *m)).collect())).collect();
+    let file = stand_in();
+    let dir = file.parent().unwrap().to_path_buf();
+    std::fs::remove_file(file).unwrap();
+    for (name, lines) in written {
+        std::fs::write(dir.join(format!("{name}.jsonl")), lines.join("\n") + "\n").unwrap();
+    }
+    w.advance(60);
+    w.tick().await;
+    worker(&w.app).await["status"] == "waiting"
+}
+
+#[tokio::test]
+async fn of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks() {
+    // Each case both ways round, whichever order the files are read in.
+    let both = async |a: &[(bool, u64)], b: &[(bool, u64)]| {
+        let one = silent_with(&[("a", a), ("b", b)]).await;
+        assert_eq!(one, silent_with(&[("a", b), ("b", a)]).await, "the order the files are read in");
+        one
+    };
+    // An older session left open does not keep the one that started last busy.
+    assert!(both(&[(true, 1)], &[(true, 2), (false, 5)]).await, "the last start ended 55 min ago");
+    // Nor does an older one that ended make an open one idle.
+    assert!(!both(&[(true, 1), (false, 5)], &[(true, 2)]).await, "the last start is open");
+    // Of sessions on the same start, the end written last.
+    assert!(!both(&[(true, 2), (false, 5)], &[(true, 2), (false, 59)]).await, "it ended a minute ago");
+    // A session that names no start does not outrank one that does.
+    assert!(both(&[(false, 59)], &[(true, 2), (false, 5)]).await, "the one that names its start ended long ago");
+    // With no start named, the end written last.
+    assert!(!both(&[(false, 5)], &[(false, 59)]).await, "it ended a minute ago");
+    assert!(both(&[(false, 5)], &[(false, 6)]).await, "it ended 54 min ago");
+}
