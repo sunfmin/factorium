@@ -87,6 +87,7 @@ impl App {
     pub(crate) async fn end_worker(&self, worker: Uuid, why: &str, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
+        self.close_session(&st);
         if wk.status != Status::Ended {
             self.submit::<w::EndWorker>(w::Because { worker, why: why.into() }).await?;
         }

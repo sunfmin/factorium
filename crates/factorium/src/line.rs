@@ -12,7 +12,7 @@ use factorium_domain::declared::Kind;
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
-use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_host::Git;
 use factum::Uuid;
 use serde_json::{Value, json};
@@ -85,6 +85,7 @@ impl App {
             // The tip moved since it was read: land again on the new tip.
             return Ok(Ok(json!({ "worker": worker, "retry": e })));
         }
+        self.close_session(&st);
         self.submit::<w::GreenLanding>(w::Land { worker, commit: merged.clone() }).await?;
         self.submit::<line::RecordLanding>(line::Landed {
             checkout: c.name.clone(),
@@ -116,12 +117,19 @@ impl App {
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }
 
-    /// Ends a worker's session; its worktree goes if `remove` and it holds
+    /// Closes a worker's terminal. Run before the worker is recorded ended:
+    /// Orca lists a terminal until its close returns (seconds, for an
+    /// agent's), and an ended worker's listed terminal is an orphan, which
+    /// the watch would close in its stead.
+    pub(crate) fn close_session(&self, st: &Started) {
+        self.host.orca().close(&st.terminal);
+    }
+
+    /// Frees an ended worker's worktree: it goes if `remove` and it holds
     /// nothing that is nowhere else ([`holds_own`]).
     pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
-        self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
         if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) {

@@ -60,6 +60,9 @@ pub const ESCAPE: &str = "\x1b";
 /// the words a harness that names some shows once up (Kimi Code's).
 pub const UP: &str = "› Ask anything · ? for shortcuts · context: 0% (0/1M)";
 
+/// What runs while a terminal closes, given its handle.
+pub type Closing = Box<dyn FnMut(&str) + Send>;
+
 /// Orca as `orca … --json` answers: its envelopes are shaped as Orca 1.4
 /// answered them (`{"ok":true,"result":…}`, `{"ok":false,"error":{"code",
 /// "message"}}`, `terminal read` giving `terminal.status` and `terminal.tail`).
@@ -84,6 +87,11 @@ pub struct FakeOrca {
     pub never_found: Mutex<bool>,
     /// Orca refuses to remove worktrees while set.
     pub refuse_rm: Mutex<bool>,
+    /// Real Orca (1.4.254) takes seconds to close an agent's terminal (2.2s
+    /// for dsh's) and lists it, connected, until the close returns. While
+    /// set, this runs with the handle when one terminal's close is asked,
+    /// before it takes: what another process sees in that time.
+    pub while_closing: Mutex<Option<Closing>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -107,6 +115,13 @@ impl FakeOrca {
     fn answer(&self, root: &Path, args: &[&str]) -> Said {
         if let Some(why) = &*self.down.lock().unwrap() {
             return Said { ok: false, out: String::new(), err: why.clone() };
+        }
+        if args[..2] == ["terminal", "close"] && !args.contains(&"--all") {
+            let during = self.while_closing.lock().unwrap().take();
+            if let Some(mut during) = during {
+                during(flag(args, "--terminal"));
+                *self.while_closing.lock().unwrap() = Some(during);
+            }
         }
         let mut held = self.held.lock().unwrap();
         let path_of = |sel: &str| sel.strip_prefix("path:").map(PathBuf::from);
@@ -514,6 +529,24 @@ impl World {
 
     pub fn terminal(&self, handle: &str) -> Terminal {
         self.host.orca.terminals.lock().unwrap()[handle].clone()
+    }
+
+    /// Runs doctor, as another process on its database, each time one
+    /// terminal's close is asked and has not yet taken; answers what each
+    /// run found, oldest first.
+    pub fn doctor_while_closing(&self) -> Arc<Mutex<Vec<Value>>> {
+        let found = Arc::new(Mutex::new(Vec::new()));
+        let (db, clock, host, into) = (self.db.clone(), self.clock.clone(), Arc::downgrade(&self.host), found.clone());
+        *self.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| {
+            let (db, clock, host) = (db.clone(), clock.clone(), host.upgrade().unwrap());
+            let doctor = std::thread::spawn(move || {
+                let app = App::open(&db, clock, "owner", host).unwrap();
+                let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                rt.block_on(app.doctor()).unwrap()
+            });
+            into.lock().unwrap().push(doctor.join().unwrap());
+        }));
+        found
     }
 
     pub fn set_screen(&self, handle: &str, lines: &[&str]) {

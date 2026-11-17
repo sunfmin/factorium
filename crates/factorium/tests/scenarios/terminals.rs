@@ -31,6 +31,28 @@ async fn a_landed_worker_s_terminal_is_closed() {
     assert!(closed(&w, &wk));
 }
 
+/// Real Orca lists a terminal until its close returns, seconds for an
+/// agent's: a doctor run in that time (the watch's) finds the worker still
+/// holds it, so the watch never closes it in the worker's stead.
+#[tokio::test]
+async fn a_worker_s_terminal_is_never_an_orphan_while_it_closes() {
+    let w = World::new();
+    let wk = one_worker(&w).await;
+    let found = w.doctor_while_closing();
+    w.commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert!(!w.tick().await.landed.is_empty());
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.app.issue_close("web", 2, "not needed").await.unwrap();
+    let found = found.lock().unwrap().clone();
+    assert_eq!(found.len(), 2, "a doctor ran while each worker's terminal closed");
+    for f in &found {
+        assert_eq!(orphans(f), Vec::<String>::new(), "the worker still holds it");
+    }
+    assert!(closed(&w, &wk));
+}
+
 #[tokio::test]
 async fn closing_or_parking_its_issue_closes_the_worker_s_terminal() {
     let w = World::new();
