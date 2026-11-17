@@ -2,7 +2,7 @@
 //! added plugin asks the guard and reports running/idle to the session backend.
 use serde::{Deserialize, Deserializer};
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -10,19 +10,17 @@ use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
-pub(super) const KEY: &str = "dsh";
+const KEY: &str = "dsh";
 /// What a bare program is started with: nothing.
-pub(super) const STOCK_ARGUMENTS: &str = "";
+const STOCK_ARGUMENTS: &str = "";
 /// The variable that names DSH's user directory.
-pub(super) const USER_DIR: &str = "DSH_HOME";
+const USER_DIR: &str = "DSH_HOME";
 
-pub(super) const REFUSED: u8 = 2;
-/// The key that stops its running turn, typed without Enter: Escape.
-pub(super) const INTERRUPT: &str = "\x1b";
+const REFUSED: u8 = 2;
 /// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
 /// program having exited and been started again): typed text answers it.
-pub(super) const ASKS_FIRST: &str = "进入安全模式";
-pub(super) const KEPT_LINKS: &[Link] = &[
+const ASKS_FIRST: &str = "进入安全模式";
+const KEPT_LINKS: &[Link] = &[
     Link { home: ".dsh/.credentials.yaml", kept: ".credentials.yaml" },
     // Only dependency resolution is shared; neither the user's profile
     // manifest nor any patch is loaded by the tool's profile.
@@ -39,7 +37,7 @@ const PLUGIN: &str = "factorium.mjs";
 /// loads none of the host user's patches; the overlay that mounts nothing
 /// before the guard; the guard's plugin; and the script the line starts it
 /// through, which refuses a session whose guard files are not there.
-pub(super) fn kept(start: &Start) -> Vec<(&'static str, String)> {
+fn kept(start: &Start) -> Vec<(&'static str, String)> {
     let plugin = format!("{}/{PLUGIN}", start.home.dir()).replace('\'', "''");
     vec![
         ("profiles/dsh-tui/package.json", include_str!("dsh/profile.json").into()),
@@ -51,7 +49,7 @@ pub(super) fn kept(start: &Start) -> Vec<(&'static str, String)> {
     ]
 }
 
-pub(super) fn environment(line: Line, start: &Start) -> Line {
+fn environment(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(USER_DIR)
@@ -80,7 +78,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
     }
 }
 
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     let launch = line.done();
     Line::new()
         .launch("sh ")
@@ -95,6 +93,8 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
         .word(start.worktree)
         .fixed(" ")
         .word("kept")
+        .fixed(" ")
+        .word(&crate::brief::brief_pointer(start.brief))
 }
 
 #[derive(Deserialize)]
@@ -108,7 +108,7 @@ struct Arguments {
     command: Option<String>,
 }
 
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     Ok(match described.arguments.command {
         Some(line) if described.name == "bash" || described.name == "bash_persistent" => Call::Shell(line),
@@ -120,7 +120,7 @@ const SESSION_FILE: &str = "session.v4.jsonl.zstd";
 
 /// The turn `text` records. The worktree is the directory the file was in.
 /// DeepSeek Harness records no child session.
-pub(super) fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
     let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();
     session::turn_of(&notes, not_before)
 }
@@ -135,7 +135,7 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn, before it is compressed.
-pub(super) fn stand_in(open: bool, at: u64) -> String {
+fn stand_in(open: bool, at: u64) -> String {
     let ms = at.saturating_mul(1000);
     let mut body = format!(
         "{}\n",
@@ -166,6 +166,71 @@ pub(super) fn stand_in(open: bool, at: u64) -> String {
 
 /// Where DeepSeek Harness keeps the session of `cwd`: one compressed file
 /// in each session directory under the worktree's directory.
-pub(super) fn layout(cwd: &str) -> Layout {
+fn layout(cwd: &str) -> Layout {
     Layout::Named { dir: format!("sessions/{}", session::wrapped_dir(cwd)), name: SESSION_FILE }
+}
+
+/// DSH, as a harness: what its module says of it.
+pub(super) struct Dsh;
+
+impl Kind for Dsh {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Unused;
+    const USER_HOME: Option<&'static str> = None;
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = Some(ASKS_FIRST);
+    const ENVIRONMENT: &'static [&'static str] = &[];
+    const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
+
+    fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        Ok(kept(start))
+    }
+
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.dir
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    /// Its start script hands it the brief as its first prompt.
+    fn briefed(line: String, _brief: &str) -> (String, Option<String>) {
+        (line, None)
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(_screen: &[String]) -> Option<Stop> {
+        None
+    }
+
+    fn layout(cwd: &str) -> Layout {
+        layout(cwd)
+    }
+
+    fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
+        true
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None)
+    }
+
+    fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
+        stand_in(open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
+    }
 }

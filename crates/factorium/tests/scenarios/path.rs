@@ -60,7 +60,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!(cut["version"], "v0.1.0");
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
     // The first cut installs it, and Homebrew is asked what it has once done.
-    let installs = ["--prefix web", "update --quiet", "list --formula web", "install web", "list --versions web"];
+    let installs = ["update --quiet", "list --formula web", "install web", "list --versions web"];
     assert_eq!(w.host.brewed(), installs);
 }
 
@@ -207,6 +207,135 @@ async fn closing_or_parking_an_issue_ends_its_worker() {
     w.app.issue_ready("web", b["number"].as_u64().unwrap()).await.unwrap();
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", b["number"].as_u64().unwrap(), 2)));
+    assert_ne!(again["worktree"], b["worktree"], "a worktree that holds nothing of its own is not resumed");
+}
+
+/// The brief a worker was handed.
+fn brief_of(w: &World, name: &str) -> String {
+    std::fs::read_to_string(w.dir.join("data").join("briefs").join(format!("{name}.md"))).unwrap()
+}
+
+#[tokio::test]
+async fn readying_a_parked_issue_resumes_in_the_worktree_it_kept() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let first = worker(&w.app).await;
+    let tree = PathBuf::from(first["worktree"].as_str().unwrap());
+    w.commit(&tree, "kept.txt", "x");
+    std::fs::write(tree.join("wip.txt"), "half done").unwrap();
+    w.app.issue_park("web", 1, "a mutants run holds the CPU").await.unwrap();
+    // Proving moves on while the issue is parked.
+    w.app.issue_add("web", "other", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let other = worker(&w.app).await;
+    w.commit(&PathBuf::from(other["worktree"].as_str().unwrap()), "other.txt", "y");
+    w.app.worker_done(id(&other)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#2");
+
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+    assert_eq!(again["worktree"], first["worktree"], "it resumes in the kept worktree");
+    assert_eq!(worker(&w.app).await["branch"], first["branch"], "on its branch");
+    assert!(!w.dir.join("worktrees").join("web-1-2").exists(), "no second worktree");
+    assert_eq!(std::fs::read_to_string(tree.join("wip.txt")).unwrap(), "half done");
+    let brief = brief_of(&w, "web-1-2");
+    assert!(brief.contains("## You resume"), "{brief}");
+    assert!(brief.contains("write kept.txt") && brief.contains("- `wip.txt`"), "{brief}");
+    assert!(brief.contains("kept from an earlier attempt"), "{brief}");
+
+    // It brings the branch up to date itself, and lands it.
+    w.git(&tree, &["merge", "--quiet", "--no-edit", "origin/proving"]).unwrap();
+    w.git(&tree, &["add", "-A"]).unwrap();
+    w.git(&tree, &["commit", "--quiet", "-m", "finish"]).unwrap();
+    w.app.worker_done(id(&worker(&w.app).await)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+    assert!(!tree.exists(), "landed, the worktree goes");
+}
+
+#[tokio::test]
+async fn starting_a_parked_issue_over_discards_its_kept_worktree_and_keeps_its_branch() {
+    let w = World::new();
+    let repo = w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let first = worker(&w.app).await;
+    let tree = PathBuf::from(first["worktree"].as_str().unwrap());
+    w.commit(&tree, "kept.txt", "x");
+    std::fs::write(tree.join("wip.txt"), "half done").unwrap();
+
+    let live = w.app.issue_start_over("web", 1, "wrong approach").await.unwrap_err();
+    assert_eq!(live.code, "live_worker");
+    assert!(live.message.contains("park"), "{}", live.message);
+    assert!(tree.exists(), "refused, nothing changes");
+
+    w.app.issue_park("web", 1, "wrong approach").await.unwrap();
+    let over = w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
+    assert_eq!(over["status"], "parked", "its state stays");
+    assert_eq!(over["abandoned"], "factorium/web-1-1-abandoned");
+    assert!(!tree.exists(), "the kept worktree is gone");
+    let comment = over["comments"].as_array().unwrap().last().unwrap().as_str().unwrap().to_string();
+    assert!(comment.contains("`factorium/web-1-1-abandoned`") && comment.contains("wrong approach"), "{comment}");
+    // Nothing is lost: the commits and what was not committed are on it.
+    let old = "factorium/web-1-1-abandoned";
+    assert_eq!(w.git(&repo, &["show", &format!("{old}:kept.txt")]).unwrap(), "x");
+    assert_eq!(w.git(&repo, &["show", &format!("{old}:wip.txt")]).unwrap(), "half done");
+
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worktree"], json!(w.dir.join("worktrees").join("web-1-2")), "a new worktree");
+    let fresh = worker(&w.app).await;
+    assert_eq!(fresh["branch"], "factorium/web-1-2");
+    let new = PathBuf::from(again["worktree"].as_str().unwrap());
+    assert!(!new.join("kept.txt").exists() && !new.join("wip.txt").exists(), "begun from proving");
+    let brief = brief_of(&w, "web-1-2");
+    assert!(!brief.contains("You resume") && brief.contains(&comment), "{brief}");
+}
+
+#[tokio::test]
+async fn starting_over_an_issue_with_nothing_kept_changes_nothing() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", true, &[]).await.unwrap();
+    let over = w.app.issue_start_over("web", 1, "why not").await.unwrap();
+    assert_eq!(over["discarded"], false);
+    assert!(over["said"].as_str().unwrap().contains("nothing"));
+    assert_eq!(over["status"], "parked");
+    assert_eq!(over["comments"], json!([]));
+
+    // An attempt that ended holding nothing of its own kept nothing either.
+    w.app.issue_ready("web", 1).await.unwrap();
+    w.tick().await;
+    w.app.issue_park("web", 1, "later").await.unwrap();
+    let over = w.app.issue_start_over("web", 1, "why not").await.unwrap();
+    assert_eq!(over["discarded"], false);
+    assert_eq!(over["comments"], json!([]));
+}
+
+#[tokio::test]
+async fn a_start_after_a_kept_worktree_was_removed_starts_fresh() {
+    let w = World::new();
+    let repo = w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let first = worker(&w.app).await;
+    let tree = PathBuf::from(first["worktree"].as_str().unwrap());
+    w.commit(&tree, "kept.txt", "x");
+    w.app.issue_park("web", 1, "later").await.unwrap();
+    w.git(&repo, &["worktree", "remove", "--force", &tree.to_string_lossy()]).unwrap();
+
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worktree"], json!(w.dir.join("worktrees").join("web-1-2")), "a new worktree");
+    assert_eq!(worker(&w.app).await["branch"], "factorium/web-1-2");
+    let brief = brief_of(&w, "web-1-2");
+    assert!(!brief.contains("You resume") && brief.contains("made from `web`'s proving branch"), "{brief}");
 }
 
 #[tokio::test]

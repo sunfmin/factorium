@@ -18,5 +18,8 @@ uuid.workspace = true
 clap.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+toml = "0.8"
+
 [lints]
 workspace = true

@@ -52,7 +52,10 @@ watch's look and the operator's view.
    with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
-3. The worker's worktree is branched from the proving tip; its harness and
+3. The worker resumes in the worktree its issue's last attempt kept, if
+   that one holds work that is nowhere else (commits not on proving, or
+   changes not committed), and its brief says what is there; else its
+   worktree is branched from the proving tip. Its harness and
    account are chosen; the guard is installed; its brief is sent; the
    session file says when its turn starts and ends. Text is typed at a
    session only once its harness's own screen is up there: typed at a
@@ -62,13 +65,27 @@ watch's look and the operator's view.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
    a row goes to the watch.
 6. Green: the issue closes, the worker ends, its worktree is removed
-   unless it holds unpushed commits.
+   unless it holds work that is nowhere else: the one test that also
+   decides where its issue's next start begins (step 3).
+   A kept worktree that went bad is discarded on purpose with
+   `issue start-over <checkout> <n> --why …`, only while no worker is on
+   the issue: its uncommitted changes are committed, its branch is kept as
+   `<branch>-abandoned`, a comment names that branch and the why, and the
+   worktree goes, so the next start is branched from the proving tip. The
+   issue stays ready or parked as it was.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
-whose session died, never came up or went silent past its bound, a hot worker, a red
-promotion, a failed cut, admission held for one reason past the host's
-span. The watch fixes, restarts, re-briefs, parks or closes, and reports.
+whose session died, never came up, went silent past its bound, or hung
+past it (its turn open, its processes next to idle, its screen
+unchanged), a hot worker, a red promotion, a failed cut, admission held
+for one reason past the host's span. So does a line that stopped:
+whatever it owes is done within its bound or is a finding — a heavy
+queue that starts nothing past `stall_bound` (or whose oldest waits past
+`hold_bound` and `stall_bound` more), a landing no gate runs for past
+`stall_bound`, the oldest unpromoted landing past `promotion_bound` with
+no promotion running, the oldest uncut promotion past `cut_bound` with no
+cut running. The watch fixes, restarts, re-briefs, parks or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
 which `doctor` shows.
 
@@ -96,14 +113,18 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block`, `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
 
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH
-declared in it, restarted whenever it exits; `factorium stop` unloads it,
-and a cut's restart execs in place as the same pid. At start it looks for
+declared in it, restarted whenever it exits; `factorium stop` unloads it.
+A daemon Homebrew installed notes its formula's link at start; once the
+link names another version (a cut by the daemon, by `factorium cut`, or
+by hand), it execs the link between ticks, as the same pid. So no session
+stops it: the guard refuses `stop` to the watch, which lives under the
+daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
 tick is recorded, and `tick_failures_max` of them in a row is a finding;
 the watch still looks when a tick fails.

@@ -8,7 +8,7 @@
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -17,24 +17,22 @@ use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 use toml::Value as Toml;
 
-pub(super) const KEY: &str = "grok";
+const KEY: &str = "grok";
 /// What a bare program is started with: no approval prompts (its `auto-review` mode denies `factorium worker done`).
-pub(super) const STOCK_ARGUMENTS: &str = "--always-approve";
+const STOCK_ARGUMENTS: &str = "--always-approve";
 
-pub(super) const MODEL: &str = "--model";
+const MODEL: &str = "--model";
 /// On the launch line. Grok 1.0.70 accepts it and `--help` does not name it,
 /// so it is not one of `FLAGS`: the flag check does not require `--help` to.
-pub(super) const TRUST: &str = "--trust";
+const TRUST: &str = "--trust";
 
-pub(super) const USER_DIR: &str = "GROK_HOME";
+const USER_DIR: &str = "GROK_HOME";
 /// Nothing here is set to `=1`. The disables are `=0`, written in `environment`.
-pub(super) const ENVIRONMENT: [&str; 0] = [];
+const ENVIRONMENT: [&str; 0] = [];
 
-pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".grok/auth.json", kept: "auth.json" }];
+const KEPT_LINKS: &[Link] = &[Link { home: ".grok/auth.json", kept: "auth.json" }];
 
-pub(super) const REFUSED: u8 = 2;
-/// The key that stops its running turn, typed without Enter: Escape.
-pub(super) const INTERRUPT: &str = "\x1b";
+const REFUSED: u8 = 2;
 
 /// Its configuration, and the rules it is told, in its user directory.
 const CONFIG: &str = "config.toml";
@@ -79,7 +77,7 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/grok-hook.sh\"; \
 
 /// What the host keeps for Grok beside the links: the configuration, and
 /// where its rules are.
-pub(super) fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
     Ok(vec![(CONFIG, configuration(start.hook)?), (TOLD_FILE, TOLD.into())])
 }
 
@@ -126,7 +124,7 @@ fn guard_asked(guard: &str) -> String {
     )
 }
 
-pub(super) fn environment(line: Line, start: &Start) -> Line {
+fn environment(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(USER_DIR)
@@ -152,7 +150,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .fixed(" GROK_CURSOR_SKILLS_ENABLED=0")
 }
 
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     // No `--add-dir`. Grok 1.0.60+ refuses `additionalDirectories` and the
     // session then never starts. The worktree is the cwd (`start_line`). Repo
     // and added rules are in the kept home, and so are the start directory's.
@@ -199,7 +197,7 @@ fn one_spelling<T: PartialEq, E: Error>(what: &str, camel: Option<T>, snake: Opt
     }
 }
 
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     let name = one_spelling("toolName", described.camel_name, described.snake_name)?
         .ok_or_else(|| D::Error::custom("a Grok tool call names no tool"))?;
@@ -233,7 +231,7 @@ fn dir_name(cwd: &str) -> String {
 
 /// The turn `text` records. The worktree is the directory the file was in.
 /// A session that is not the primary one is a child.
-pub(super) fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
     let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();
     session::turn_of(&notes, not_before)
 }
@@ -249,7 +247,7 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 }
 
 /// The events a stand-in writes for this turn.
-pub(super) fn stand_in(open: bool, at: u64) -> String {
+fn stand_in(open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let mut body = format!(
         "{}\n",
@@ -271,6 +269,71 @@ pub(super) fn stand_in(open: bool, at: u64) -> String {
 
 /// Where Grok keeps the session of `cwd`: one events file in each session
 /// directory under the worktree's directory.
-pub(super) fn layout(cwd: &str) -> Layout {
+fn layout(cwd: &str) -> Layout {
     Layout::Named { dir: format!("sessions/{}", dir_name(cwd)), name: EVENTS }
+}
+
+/// Grok, as a harness: what its module says of it.
+pub(super) struct Grok;
+
+impl Kind for Grok {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
+    const USER_HOME: Option<&'static str> = None;
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
+    const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
+    const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
+
+    fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        kept(start)
+    }
+
+    /// Grok works only in its cwd, so it starts in the worktree.
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.worktree
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
+        (line, Some(crate::brief::brief_pointer(brief)))
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(_screen: &[String]) -> Option<Stop> {
+        None
+    }
+
+    fn layout(cwd: &str) -> Layout {
+        layout(cwd)
+    }
+
+    fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
+        true
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None)
+    }
+
+    fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
+        stand_in(open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
+    }
 }

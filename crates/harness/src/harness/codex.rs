@@ -9,7 +9,7 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -24,13 +24,13 @@ fn joined(output: &[String]) -> String {
 }
 
 /// Codex's task-refusal screen, seen 2026-10-26.
-pub(super) fn task_refusal(output: &[String]) -> Option<String> {
+fn task_refusal(output: &[String]) -> Option<String> {
     let words = "We take extra care with some cybersecurity requests. If you're doing authorized security work, apply for Daybreak to get broader access.";
     joined(output).contains(words).then(|| words.to_string())
 }
 
 /// Codex's capacity words, seen 2026-10-26.
-pub(super) fn capacity_stop(output: &[String]) -> Option<String> {
+fn capacity_stop(output: &[String]) -> Option<String> {
     let words = "Selected model is at capacity. Please try a different model.";
     joined(output).contains(words).then(|| words.to_string())
 }
@@ -38,7 +38,7 @@ pub(super) fn capacity_stop(output: &[String]) -> Option<String> {
 /// Codex's usage-limit screen, an account quota: both clauses, in any case,
 /// possibly wrapped. A screen that only says a usage limit was reached is
 /// not this one.
-pub(super) fn account_quota(output: &[String]) -> Option<String> {
+fn account_quota(output: &[String]) -> Option<String> {
     let lower = joined(output).to_lowercase();
     if !lower.contains("usage limit reached") || !lower.contains("increase your limits to continue using codex") {
         return None;
@@ -52,9 +52,9 @@ pub(super) fn account_quota(output: &[String]) -> Option<String> {
     )
 }
 
-pub(super) const KEY: &str = "codex";
+const KEY: &str = "codex";
 /// What a bare program is started with: no approval prompts, no sandbox.
-pub(super) const STOCK_ARGUMENTS: &str = "--dangerously-bypass-approvals-and-sandbox";
+const STOCK_ARGUMENTS: &str = "--dangerously-bypass-approvals-and-sandbox";
 
 const ADD_DIR: &str = "--add-dir";
 /// One configuration key, `key=value` with the value in TOML.
@@ -62,15 +62,15 @@ const CONFIG: &str = "--config";
 /// Answers, for one run, the review Codex asks of every unreviewed hook;
 /// asked at the terminal it would take the brief for its answer.
 const HOOKS_REVIEWED: &str = "--dangerously-bypass-hook-trust";
-pub(super) const MODEL: &str = "--model";
+const MODEL: &str = "--model";
 
-pub(super) const USER_DIR: &str = "CODEX_HOME";
+const USER_DIR: &str = "CODEX_HOME";
 
 /// Codex's kept user directory links the host user's login and nothing else
 /// (so no hook, configuration or custom provider of theirs), and their
 /// skills and rules for a session given them. A link, so a renewed login
 /// stays fresh in both places.
-pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".codex/auth.json", kept: "auth.json" }];
+const KEPT_LINKS: &[Link] = &[Link { home: ".codex/auth.json", kept: "auth.json" }];
 
 /// The key that says, per directory, whether Codex loads what it holds of
 /// Codex's own; untold, Codex asks at its terminal. Given as one table: a
@@ -118,9 +118,7 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x
 
 /// The shell tool. `apply_patch` is handed a `command` too, and is another.
 const SHELL_TOOL: &str = "Bash";
-pub(super) const REFUSED: u8 = 2;
-/// The key that stops its running turn, typed without Enter: Escape.
-pub(super) const INTERRUPT: &str = "\x1b";
+const REFUSED: u8 = 2;
 
 /// `text` as a TOML string, quotes and all.
 fn toml_text(text: &str) -> String {
@@ -168,7 +166,7 @@ fn told(file: &str, text: &str) -> String {
     format!("{TOLD}={}", toml_text(&format!("{TOLD_OPENS}{repo}")))
 }
 
-pub(super) fn environment(line: Line, start: &Start) -> Line {
+fn environment(line: Line, start: &Start) -> Line {
     line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.home.dir())
 }
 
@@ -177,7 +175,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
 const GOAL: &str = "/goal ";
 
 /// The line that hands a session `brief`: set as its goal.
-pub(super) fn brief_line(brief: &str) -> String {
+fn brief_line(brief: &str) -> String {
     format!("{GOAL}{}", crate::brief::goal_objective(brief))
 }
 
@@ -202,7 +200,7 @@ fn isolated(line: Line) -> Line {
 /// `line` with the worktree added, hooks reviewed and the start directory
 /// trusted, its rules and none above them, the told rules, the guard and
 /// the report, isolation, shadowed skills off, and the model.
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     let line = line.fixed(" ").fixed(ADD_DIR).fixed(" ").word(start.worktree);
     let line = trust(line, start.dir)
         .fixed(" ")
@@ -245,7 +243,7 @@ struct Input {
 }
 
 /// The tool call `described` to a hook, as the guard judges one.
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     Ok(match described.tool_input.command {
         Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
@@ -254,13 +252,13 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
 }
 
 /// Every JSONL file under [`SESSIONS`]; each file says its worktree.
-pub(super) fn layout() -> Layout {
+fn layout() -> Layout {
     Layout::Tree { dir: SESSIONS.into(), extension: "jsonl" }
 }
 
 /// The turn `text` records for `cwd`, or for the session handed `brief`
 /// when it started elsewhere. A header is required.
-pub(super) fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
     let mut saw_header = false;
     let mut notes = Vec::new();
     for value in json_lines(text) {
@@ -284,7 +282,7 @@ pub(super) fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brie
 /// Whether the first brief pointer in the opening user messages (after any
 /// AGENTS.md and environment messages) is `brief`'s. A later mention, tool
 /// output or reply does not count.
-pub(super) fn names_brief(text: &str, brief: &str) -> bool {
+fn names_brief(text: &str, brief: &str) -> bool {
     for value in json_lines(text) {
         let payload = &value["payload"];
         if value["type"] == "response_item"
@@ -326,7 +324,7 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let meta = json!({"cwd": cwd, "id": "factorium"});
     let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
@@ -337,4 +335,68 @@ pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
         body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": done}));
     }
     body
+}
+
+/// Codex, as a harness: what its module says of it.
+pub(super) struct Codex;
+
+impl Kind for Codex {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
+    const USER_HOME: Option<&'static str> = None;
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
+    const ENVIRONMENT: &'static [&'static str] = &[];
+    const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
+
+    fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.dir
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
+        (line, Some(brief_line(brief)))
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(screen: &[String]) -> Option<Stop> {
+        account_quota(screen).map(Stop::Quota).or_else(|| task_refusal(screen).or_else(|| capacity_stop(screen)).map(Stop::Refused))
+    }
+
+    fn layout(_cwd: &str) -> Layout {
+        layout()
+    }
+
+    fn could_record(cwd: &str, text: &str, brief: &str) -> bool {
+        session::names_cwd_or_brief(cwd, text, brief)
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None, Some(brief))
+    }
+
+    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
+    }
 }

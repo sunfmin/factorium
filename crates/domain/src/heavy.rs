@@ -13,6 +13,12 @@ pub fn queue_id() -> Uuid {
     id("heavy")
 }
 
+/// What a proving line's heavy command is called: `job` (`fast gate`,
+/// `slow gate`, `cut`) of `checkout`. Doctor knows a line's move runs by it.
+pub fn line_job(checkout: &str, job: &str) -> String {
+    format!("{job} of {checkout}")
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: Uuid,
@@ -40,10 +46,21 @@ impl Queue {
         self.entries.iter().filter(|e| e.started_at.is_none())
     }
 
+    /// The waiting entry that starts next.
+    pub fn oldest(&self) -> Option<&Entry> {
+        self.waiting().min_by_key(|e| (e.queued_at, e.id))
+    }
+
+    /// Whether the line job `job` of `checkout` runs now.
+    pub fn runs(&self, checkout: &str, job: &str) -> bool {
+        let what = line_job(checkout, job);
+        self.running().any(|e| e.what == what)
+    }
+
     /// Whether `id` may start, given whether the host has room and when the
     /// reading was taken; else why not.
     pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64) -> Result<(), String> {
-        let oldest = self.waiting().min_by_key(|e| (e.queued_at, e.id));
+        let oldest = self.oldest();
         match oldest {
             Some(e) if e.id == id => {}
             Some(e) => return Err(format!("waits behind {}", e.what)),

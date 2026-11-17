@@ -17,10 +17,17 @@ how to fix it. Then:
    - Both answer `delivery`: `submitted` (the worker read it) or `queued`
      (it waits until the worker's running call returns, which a hung call
      never does). Add `--now` to stop the running turn first.
-   - `factorium issue park|close|edit|comment|block …`, `factorium issue add`
+   - `factorium issue park|ready|start-over|close|edit|comment|block …`
+     (`start-over <checkout> <n> --why "…"` on a parked issue whose kept
+     worktree went bad: the next start begins from proving, the old branch
+     stays as `…-abandoned`), `factorium issue add`
      for new work (`--blocked-by N` for each issue it waits for), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
-     `factorium settings <name> <value>`
+     `factorium settings <name> <value>`. A cut of factorium itself needs
+     nothing more: the daemon swaps to the installed binary on its own.
+     Never stop the daemon; you live under it.
+   - `factorium unqueue <entry>` — take an entry of the heavy queue
+     (doctor's `heavy`) that does not move off it, so the rest can start
 3. Report: `factorium watch report --text "what you found and did"`; add
    `--human "…"` only for what needs the owner.
 

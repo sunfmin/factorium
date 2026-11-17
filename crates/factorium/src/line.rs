@@ -10,33 +10,56 @@ use std::time::Duration;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::issue::{Because, CloseIssue};
-use factorium_domain::line::{self, Lines, next_version};
+use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
-use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_host::Git;
 use factum::Uuid;
 use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
+use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
-/// What one move did, for the tick's answer.
-pub(crate) type Did = Option<Value>;
+/// What one move did, or why it did not run now.
+pub(crate) type Did = Result<Value, String>;
+
+/// Why a move that is due did not run this tick.
+const QUEUED: &str = "waits its turn in the heavy-command queue";
 
 impl App {
-    /// Lands the worker `worker`: answers what happened, or `None` when it
-    /// must wait for another tick.
-    pub(crate) async fn land(&self, worker: Uuid) -> Answer<Did> {
+    /// Carries out `mv` on `c` if its line says it is due now.
+    pub(crate) async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
+        let l = self.state::<Lines>(line_id(&c.name)).await?;
+        let settings = self.settings().await?;
+        let workers: Vec<_> = self
+            .live_workers()
+            .await?
+            .into_iter()
+            .filter(|w| w.checkout == c.name)
+            .map(|w| (w.worker, w.state.status))
+            .collect();
+        let look = Look { now: self.now(), settings: &settings, workers: &workers, by_hand, tip: None };
+        match l.due(mv, &look) {
+            Err(why) => Ok(Err(why)),
+            Ok(Due::Land(worker)) => self.land(c, worker).await,
+            Ok(Due::Promote) => {
+                let git = self.host.git(&c.path);
+                let tip = git.fetch(&c.proving).map_err(fail("git"))?;
+                if let Err(why) = l.due(mv, &Look { tip: Some(&tip), ..look }) {
+                    return Ok(Err(why));
+                }
+                self.promote_tip(c, &git, tip, by_hand).await
+            }
+            Ok(Due::Cut) => self.cut_base(c, by_hand).await,
+        }
+    }
+
+    /// Lands `worker` onto the proving tip of `c`.
+    async fn land(&self, c: &Checkout, worker: Uuid) -> Answer<Did> {
         let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started.clone() else { return Ok(None) };
-        if wk.status != Status::Landing {
-            return Ok(None);
-        }
-        let c = self.checkout(&st.checkout).await?;
-        if self.state::<Lines>(line_id(&c.name)).await?.held.is_some() {
-            return Ok(None);
-        }
+        let Some(st) = wk.started.clone() else { return Ok(Err("the worker never started".into())) };
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
         let here = git.fresh(&self.dir(&["landing", &c.name]), &tip).map_err(fail("git"))?;
@@ -49,18 +72,18 @@ impl App {
                 let why = format!(
                     "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."
                 );
-                return self.red(worker, why).await.map(Some);
+                return self.red(worker, why).await.map(Ok);
             }
         };
         let at = At::Commit { rev: &merged, by_hand: false };
-        let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(None) };
+        let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(Err(QUEUED.into())) };
         if !gated.green {
             let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
-            return self.red(worker, why).await.map(Some);
+            return self.red(worker, why).await.map(Ok);
         }
         if let Err(e) = here.push_requiring(&merged, &c.proving, Some(&tip)) {
             // The tip moved since it was read: land again on the new tip.
-            return Ok(Some(json!({ "worker": worker, "retry": e })));
+            return Ok(Ok(json!({ "worker": worker, "retry": e })));
         }
         self.submit::<w::GreenLanding>(w::Land { worker, commit: merged.clone() }).await?;
         self.submit::<line::RecordLanding>(line::Landed {
@@ -72,7 +95,7 @@ impl App {
         let reason = format!("landed as {merged}");
         self.submit::<CloseIssue>(Because { checkout: c.name.clone(), number: st.number, reason }).await?;
         self.release_worker(worker, true).await?;
-        Ok(Some(json!({ "landed": format!("{}#{}", c.name, st.number), "commit": merged })))
+        Ok(Ok(json!({ "landed": format!("{}#{}", c.name, st.number), "commit": merged })))
     }
 
     async fn red(&self, worker: Uuid, why: String) -> Answer<Value> {
@@ -83,22 +106,21 @@ impl App {
                 "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
             );
             if let Some(st) = &wk.started {
-                let _ = self.type_at(&Self::worker_session(st), &one_line(&text));
+                let _ = Self::worker_session(st).and_then(|s| self.type_at(&s, &one_line(&text)));
             }
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }
 
-    /// Ends a worker's session; its worktree goes unless it holds commits
-    /// that are nowhere else (or `keep`).
+    /// Ends a worker's session; its worktree goes if `remove` and it holds
+    /// nothing that is nowhere else ([`holds_own`]).
     pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
         self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
-        let kept = git.fetch(&c.proving).ok().is_some_and(|tip| git.ahead(&tip, &st.branch).unwrap_or(1) > 0);
-        if remove && !kept {
+        if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) {
             let path = PathBuf::from(&st.worktree);
             self.host.orca().remove(&path).map_err(fail("orca"))?;
             git.forget(&path, &st.branch);
@@ -106,64 +128,44 @@ impl App {
         Ok(())
     }
 
-    /// Promotes `checkout` if it is due: the slow gate on the proving tip,
-    /// then the base fast-forwarded to it.
-    pub(crate) async fn promote_if_due(&self, c: &Checkout, idle: bool, force: bool) -> Answer<Did> {
-        let l = self.state::<Lines>(line_id(&c.name)).await?;
-        let Some(oldest) = l.unpromoted.first() else { return Ok(None) };
-        let bound = self.settings().await?.ms(Time::PromotionBound);
-        if !(force || idle || self.now() - oldest.at >= bound) {
-            return Ok(None);
-        }
-        let git = self.host.git(&c.path);
-        let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-        if l.red.as_ref().is_some_and(|(t, _)| *t == tip) && !force {
-            return Ok(None);
-        }
+    /// Promotes the proving `tip` of `c`: its slow gate, then the base
+    /// fast-forwarded to it.
+    async fn promote_tip(&self, c: &Checkout, git: &Git, tip: String, by_hand: bool) -> Answer<Did> {
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
-        let at = At::Commit { rev: &tip, by_hand: force };
-        let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(None) };
-        let red = |why: String| line::Tip { checkout: c.name.clone(), tip: tip.clone(), why };
-        if !gated.green {
-            let tail = gated.why();
-            self.submit::<line::RedPromotion>(red(tail.clone())).await?;
-            return Ok(Some(json!({ "promotion": c.name, "red": tail })));
-        }
-        if !git.is_ancestor(&base, &tip) {
-            let why = format!("{} is not an ancestor of the proving tip; the base moved outside factorium", c.base);
-            self.submit::<line::RedPromotion>(red(why.clone())).await?;
-            return Ok(Some(json!({ "promotion": c.name, "red": why })));
+        let at = At::Commit { rev: &tip, by_hand };
+        let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(Err(QUEUED.into())) };
+        let behind = git.is_ancestor(&base, &tip);
+        let red = (!gated.green).then(|| gated.why());
+        let promotion = line::Promotion { checkout: c.name.clone(), tip: tip.clone(), base: base.clone(), red, behind };
+        if let Some(why) = promotion.red() {
+            self.submit::<line::Promote>(promotion).await?;
+            return Ok(Ok(json!({ "promotion": c.name, "red": why })));
         }
         if let Err(e) = git.push_requiring(&tip, &c.base, Some(&base)) {
-            return Ok(Some(json!({ "promotion": c.name, "retry": e })));
+            return Ok(Ok(json!({ "promotion": c.name, "retry": e })));
         }
-        self.submit::<line::RecordPromotion>(red(String::new())).await?;
-        Ok(Some(json!({ "promoted": c.name, "tip": tip })))
+        self.submit::<line::Promote>(promotion).await?;
+        Ok(Ok(json!({ "promoted": c.name, "tip": tip })))
     }
 
-    /// Cuts a version of `checkout` if it is due and it declares a cut.
-    pub(crate) async fn cut_if_due(&self, c: &Checkout, idle: bool, force: bool) -> Answer<Did> {
-        let l = self.state::<Lines>(line_id(&c.name)).await?;
-        let Some(oldest) = l.uncut.first() else { return Ok(None) };
-        if l.cut_failed.is_some() && !force {
-            return Ok(None);
-        }
-        let bound = self.settings().await?.ms(Time::CutBound);
-        if !(force || (idle && l.unpromoted.is_empty()) || self.now() - oldest >= bound) {
-            return Ok(None);
-        }
+    /// Cuts a version of `c` from its base tip, if it declares a cut.
+    async fn cut_base(&self, c: &Checkout, by_hand: bool) -> Answer<Did> {
         let git = self.host.git(&c.path);
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let declared = self.declared(&git, &base)?;
-        let Some(cut) = declared.cut else { return Ok(None) };
+        let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().first().map(String::as_str));
         let here = git.fresh(&self.dir(&["cut", &c.name]), &base).map_err(fail("git"))?;
         let env = vec![("FACTORIUM_VERSION".to_string(), version.clone())];
-        let fail_cut =
-            |why: String| line::Cut { checkout: c.name.clone(), version: version.clone(), commit: base.clone(), why };
+        let record = |commit: &str, failed: Option<String>| line::Cut {
+            checkout: c.name.clone(),
+            version: version.clone(),
+            commit: commit.into(),
+            failed,
+        };
         // The steps share the clone, so they take one turn of the queue.
-        let what = format!("cut {version} of {}", c.name);
+        let what = factorium_domain::heavy::line_job(&c.name, "cut");
         let job = Job {
             what,
             worker: None,
@@ -172,56 +174,42 @@ impl App {
             env: &env,
             limit: Duration::from_secs(cut.limit),
         };
-        let turn = if force { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
-        let Some(rans) = self.heavy(job, turn).await? else { return Ok(None) };
+        let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
+        let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
         if let Some(ran) = rans.last().filter(|r| !r.ok) {
             let why = format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail);
-            self.submit::<line::FailCut>(fail_cut(why.clone())).await?;
-            return Ok(Some(json!({ "cut": c.name, "version": version, "failed": why })));
+            self.submit::<line::RecordCut>(record(&base, Some(why.clone()))).await?;
+            return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": why })));
         }
         let tagged = here.sha("HEAD").map_err(fail("git"))?;
         if let Err(e) = here.tag_pushed(&version, &tagged) {
-            self.submit::<line::FailCut>(fail_cut(format!("tagging failed: {e}"))).await?;
-            return Ok(Some(json!({ "cut": c.name, "version": version, "failed": e })));
+            self.submit::<line::RecordCut>(record(&base, Some(format!("tagging failed: {e}")))).await?;
+            return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
         }
-        let (mut installed, mut restart) = (None, None);
+        let mut installed = None;
         if let Some(formula) = &cut.formula {
-            // The daemon's own formula: it runs the new binary once the tick ends.
-            restart = self.host.brew().binary_of(formula);
+            // The daemon's own formula: it sees the new link once the tick ends.
             if let Err(e) = self.host.brew().upgrade(formula, &version) {
-                self.submit::<line::FailCut>(fail_cut(format!("installing {formula} failed: {e}"))).await?;
-                return Ok(Some(json!({ "cut": c.name, "version": version, "failed": e })));
+                self.submit::<line::RecordCut>(record(&base, Some(format!("installing {formula} failed: {e}"))))
+                    .await?;
+                return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
             }
             installed = Some(formula.clone());
         }
-        let made = line::Cut {
-            checkout: c.name.clone(),
-            version: version.clone(),
-            commit: tagged.clone(),
-            why: String::new(),
-        };
-        self.submit::<line::RecordCut>(made).await?;
-        Ok(Some(
-            json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed, "restart": restart }),
-        ))
+        self.submit::<line::RecordCut>(record(&tagged, None)).await?;
+        Ok(Ok(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed })))
     }
 
-    /// `factorium promote`: promotes now, whatever the bound says.
+    /// `factorium promote`: promotes now, whatever the bound or a red tip says.
     pub async fn promote(&self, checkout: &str) -> Answer {
         let c = self.checkout(checkout).await?;
-        Ok(self
-            .promote_if_due(&c, true, true)
-            .await?
-            .unwrap_or(json!({ "promoted": null, "why": "nothing to promote" })))
+        Ok(self.carry(&c, Move::Promote, true).await?.unwrap_or_else(|why| json!({ "promoted": null, "why": why })))
     }
 
-    /// `factorium cut`: cuts now, whatever the bound says.
+    /// `factorium cut`: cuts now, whatever the bound or a failed cut says.
     pub async fn cut(&self, checkout: &str) -> Answer {
         let c = self.checkout(checkout).await?;
-        Ok(self
-            .cut_if_due(&c, true, true)
-            .await?
-            .unwrap_or(json!({ "cut": null, "why": "nothing promoted since the last cut, or no cut declared" })))
+        Ok(self.carry(&c, Move::Cut, true).await?.unwrap_or_else(|why| json!({ "cut": null, "why": why })))
     }
 }
 

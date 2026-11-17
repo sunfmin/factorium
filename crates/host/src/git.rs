@@ -169,6 +169,20 @@ impl Git {
         Ok(!self.run(&["status", "--porcelain", "--untracked-files=normal"])?.is_empty())
     }
 
+    /// The commits of `head` not in `base`, newest first, one line each.
+    pub fn commits(&self, base: &str, head: &str) -> Result<Vec<String>, String> {
+        let log = self.run(&["log", "--oneline", "--no-decorate", &format!("{base}..{head}")])?;
+        Ok(log.lines().map(str::to_string).collect())
+    }
+
+    /// The files with changes not committed: changed since `HEAD`, staged or
+    /// not, then those git does not track (and does not ignore).
+    pub fn changes(&self) -> Result<Vec<String>, String> {
+        let changed = self.run(&["diff", "--name-only", "HEAD"])?;
+        let untracked = self.run(&["ls-files", "--others", "--exclude-standard"])?;
+        Ok(changed.lines().chain(untracked.lines()).map(str::to_string).collect())
+    }
+
     /// The commits of `head` not in `base`.
     pub fn ahead(&self, base: &str, head: &str) -> Result<u64, String> {
         self.run(&["rev-list", "--count", &format!("{base}..{head}")])?.parse().map_err(|e| format!("{e}"))

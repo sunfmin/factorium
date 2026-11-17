@@ -101,7 +101,7 @@ impl App {
         );
         // A brief never handed goes first: the word is about its work.
         self.hand_worker_brief(worker, false).await?;
-        let delivery = self.deliver_at(&Self::worker_session(&st), &one_line(&line), now)?;
+        let delivery = self.deliver_at(&Self::worker_session(&st)?, &one_line(&line), now)?;
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
     }
@@ -113,7 +113,7 @@ impl App {
         let st =
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
         let line = one_line(&format!("factorium (the watch): {text}"));
-        let delivery = self.deliver_at(&Self::worker_session(&st), &line, now)?;
+        let delivery = self.deliver_at(&Self::worker_session(&st)?, &line, now)?;
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word() }))
     }
 

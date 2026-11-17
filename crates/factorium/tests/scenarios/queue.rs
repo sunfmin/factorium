@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::{World, id, worker};
 
 /// Long enough that only a broken rule gets there.
-const STUCK: Duration = Duration::from_secs(20);
+pub(crate) const STUCK: Duration = Duration::from_secs(20);
 
 async fn until_file(path: &Path) {
     while !path.exists() {
@@ -20,14 +20,14 @@ async fn until_file(path: &Path) {
 }
 
 /// The heavy commands `doctor` shows, as `what`.
-async fn heavy(w: &World) -> Vec<String> {
+pub(crate) async fn heavy(w: &World) -> Vec<String> {
     let d = w.run().doctor().await.unwrap();
     d["heavy"].as_array().unwrap().iter().map(|e| e["what"].as_str().unwrap().to_string()).collect()
 }
 
 /// Runs `during` while another CLI run's heavy command holds the queue, then
 /// lets that command end.
-async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
+pub(crate) async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
     let dir = w.dir.join("busy");
     std::fs::create_dir_all(&dir).unwrap();
     let cli = w.run();
@@ -138,4 +138,26 @@ async fn a_queued_gate_no_longer_due_leaves_the_queue() {
     assert_eq!(heavy(&w).await, Vec::<String>::new());
     let next = tokio::time::timeout(STUCK, w.run().worker_exclusive(None, &w.dir, "echo next")).await;
     assert_eq!(next.expect("nothing stale waits ahead of it").unwrap()["ok"], json!(true));
+}
+
+#[tokio::test]
+async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    done(&w, "a", "x").await;
+    while_busy(&w, async {
+        for _ in 0..3 {
+            assert_eq!(w.tick().await.landed, Vec::<serde_json::Value>::new(), "the landing waits its turn");
+            let gates = heavy(&w).await.into_iter().filter(|h| h == "fast gate of web").count();
+            assert_eq!(gates, 1, "one entry for the landing, however many ticks ask");
+            // A new second: the landing's merge is a new commit each tick.
+            tokio::time::sleep(Duration::from_millis(1100)).await;
+        }
+    })
+    .await;
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "its gate starts on the next tick");
+    assert_eq!(heavy(&w).await, Vec::<String>::new());
 }
