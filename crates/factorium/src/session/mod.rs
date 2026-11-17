@@ -10,6 +10,7 @@ mod health;
 mod launch;
 mod outbox;
 
+use factorium_domain::doctor::{Terminal, Unclosed};
 use factorium_domain::health::Sight;
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, EndWatch, Watch, Watches, watch_id};
@@ -192,31 +193,33 @@ impl App {
     /// known, and every failed close as recorded.
     pub(crate) async fn orphans(&self, watch: &Watch) -> Answer<Orphans> {
         let (mut opened, mut held) = (watch.opened.clone(), Vec::new());
-        let mut unclosed: Vec<(String, String, String)> =
-            watch.unclosed.iter().map(|(t, why)| (t.clone(), launch::WATCH_TITLE.into(), why.clone())).collect();
+        let unclose =
+            |handle: &str, title: String, why: &str| Unclosed { handle: handle.into(), title, why: why.into() };
+        let mut unclosed: Vec<Unclosed> =
+            watch.unclosed.iter().map(|(t, why)| unclose(t, launch::WATCH_TITLE.into(), why)).collect();
         for r in self.rows(tracker::workers(None, true)).await? {
             if r.state.status != Status::Ended {
                 held.push(r.terminal.clone());
             }
             if let Some(why) = r.close_failed {
-                unclosed.push((r.terminal.clone(), format!("{}#{}", r.checkout, r.number), why));
+                unclosed.push(unclose(&r.terminal, format!("{}#{}", r.checkout, r.number), &why));
             }
             opened.push(r.terminal);
         }
         held.extend(watch.terminal.clone());
         let Ok(listed) = self.terminals() else { return Ok((Vec::new(), unclosed)) };
-        unclosed.retain(|(h, _, _)| listed.iter().any(|(l, _)| l == h) && !held.contains(h));
+        unclosed.retain(|u| listed.iter().any(|(l, _)| *l == u.handle) && !held.contains(&u.handle));
         let orphans = listed
             .into_iter()
-            .filter(|(h, _)| opened.contains(h) && !held.contains(h) && !unclosed.iter().any(|(u, _, _)| u == h))
+            .filter(|(h, _)| opened.contains(h) && !held.contains(h) && !unclosed.iter().any(|u| u.handle == *h))
+            .map(|(handle, title)| Terminal { handle, title })
             .collect();
         Ok((orphans, unclosed))
     }
 }
 
-/// Doctor's orphans, (handle, title), and the terminals whose close failed,
-/// (handle, title, why).
-pub(crate) type Orphans = (Vec<(String, String)>, Vec<(String, String, String)>);
+/// Doctor's orphans and the terminals whose close failed.
+pub(crate) type Orphans = (Vec<Terminal>, Vec<Unclosed>);
 
 /// A screen's hash: whether it changed between two looks.
 fn hash(screen: &[String]) -> u64 {
