@@ -1,5 +1,5 @@
 //! The proving line's three moves: a landing merges a worker's branch onto
-//! the proving tip and pushes it once the fast gate is green; a promotion
+//! the proving         if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) { and pushes it once the fast gate is green; a promotion
 //! fast-forwards the base branch to the proving tip once the slow gate is
 //! green; a cut makes a version from the base tip. Each push requires the
 //! tip it read. Each runs in its own clone of the checkout under the data directory.
@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
+use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
 /// What one move did, or why it did not run now.
@@ -111,16 +112,15 @@ impl App {
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }
 
-    /// Ends a worker's session; its worktree goes unless it holds commits
-    /// that are nowhere else (or `keep`).
+    /// Ends a worker's session; its worktree goes if `remove` and it holds
+    /// nothing that is nowhere else ([`holds_own`]).
     pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
         self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
-        let kept = git.fetch(&c.proving).ok().is_some_and(|tip| git.ahead(&tip, &st.branch).unwrap_or(1) > 0);
-        if remove && !kept {
+        if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) {
             let path = PathBuf::from(&st.worktree);
             self.host.orca().remove(&path).map_err(fail("orca"))?;
             git.forget(&path, &st.branch);
