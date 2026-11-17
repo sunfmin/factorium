@@ -6,9 +6,11 @@
 //! the scenario moves it.
 
 mod admission;
+mod bounds;
 mod harnesses;
 mod line;
 mod path;
+mod queue;
 mod tracker;
 mod watch;
 

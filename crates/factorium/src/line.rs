@@ -114,7 +114,9 @@ impl App {
             return self.red(worker, &st.terminal, why).await.map(Some);
         }
         let merged = here.sha("HEAD").map_err(fail("git"))?;
-        let queued = id(&format!("landing:{worker}:{merged}"));
+        // By tree, not commit: the merge is made again each tick, with a new time.
+        let tree = here.tree(&merged).map_err(fail("git"))?;
+        let queued = id(&format!("landing:{worker}:{tree}"));
         let Some((green, tail)) = self.gate_tree(&c, &here, &merged, Kind::Fast, queued).await? else {
             return Ok(None);
         };
