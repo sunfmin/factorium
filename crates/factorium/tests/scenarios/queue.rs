@@ -161,3 +161,51 @@ async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_n
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "its gate starts on the next tick");
     assert_eq!(heavy(&w).await, Vec::<String>::new());
 }
+
+#[tokio::test]
+async fn promote_by_hand_waits_out_a_busy_queue_and_then_promotes() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    // #2 keeps working all along: the checkout is never idle, so no tick promotes.
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
+    let one = one.unwrap();
+    w.commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&one)).await.unwrap();
+    let t = w.tick().await;
+    assert_eq!(t.landed.len(), 1);
+    assert_eq!(t.lines, Vec::<serde_json::Value>::new(), "landed, not promoted");
+
+    let dir = w.dir.join("busy");
+    std::fs::create_dir_all(&dir).unwrap();
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+    let cli = w.run();
+    let busy = cli.worker_exclusive(None, &dir, line);
+    let promoting = async {
+        until_file(&dir.join("started")).await;
+        let mut promote = std::pin::pin!(w.app.promote("web"));
+        let queued = async {
+            while !heavy(&w).await.contains(&"slow gate of web".to_string()) {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            p = &mut promote => panic!("promote answered while the queue was busy: {}", p.unwrap()),
+            _ = queued => {}
+        }
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        std::fs::write(dir.join("release"), "").unwrap();
+        promote.await
+    };
+    let (held, promoted) =
+        tokio::time::timeout(STUCK, async { tokio::join!(busy, promoting) }).await.expect("promote gets its turn");
+    assert_eq!(held.unwrap()["ok"], true);
+    assert_eq!(promoted.unwrap()["promoted"], "web");
+    assert_eq!(w.app.promote("web").await.unwrap()["why"], "nothing to promote");
+}

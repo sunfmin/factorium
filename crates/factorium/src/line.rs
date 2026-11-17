@@ -206,7 +206,9 @@ impl App {
         ))
     }
 
-    /// `factorium promote`: promotes now, whatever the bound says.
+    /// `factorium promote`: promotes now, whatever the bound says. Forced, it
+    /// waits its turn in the heavy queue, so `None` means only that nothing
+    /// is unpromoted: "not yet" is never answered as "nothing to do".
     pub async fn promote(&self, checkout: &str) -> Answer {
         let c = self.checkout(checkout).await?;
         Ok(self
@@ -215,13 +217,16 @@ impl App {
             .unwrap_or(json!({ "promoted": null, "why": "nothing to promote" })))
     }
 
-    /// `factorium cut`: cuts now, whatever the bound says.
+    /// `factorium cut`: cuts now, whatever the bound says, waiting its turn
+    /// in the heavy queue like `promote`.
     pub async fn cut(&self, checkout: &str) -> Answer {
         let c = self.checkout(checkout).await?;
-        Ok(self
-            .cut_if_due(&c, true, true)
-            .await?
-            .unwrap_or(json!({ "cut": null, "why": "nothing promoted since the last cut, or no cut declared" })))
+        if let Some(did) = self.cut_if_due(&c, true, true).await? {
+            return Ok(did);
+        }
+        let uncut = !self.state::<Lines>(line_id(&c.name)).await?.uncut.is_empty();
+        let why = if uncut { "no cut declared" } else { "nothing promoted since the last cut" };
+        Ok(json!({ "cut": null, "why": why }))
     }
 }
 
