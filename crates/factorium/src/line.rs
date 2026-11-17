@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
-use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
@@ -20,6 +19,7 @@ use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
+use crate::life::End;
 use crate::{Answer, App, fail};
 
 /// What one move did, or why it did not run now.
@@ -79,17 +79,13 @@ impl App {
             // The tip moved since it was read: land again on the new tip.
             return Ok(Ok(json!({ "worker": worker, "retry": e })));
         }
-        self.close_worker_session(worker, &st).await?;
-        self.submit::<w::GreenLanding>(w::Land { worker, commit: merged.clone() }).await?;
         self.submit::<line::RecordLanding>(line::Landed {
             checkout: c.name.clone(),
             number: st.number,
             commit: merged.clone(),
         })
         .await?;
-        let reason = format!("landed as {merged}");
-        self.submit::<CloseIssue>(Because { checkout: c.name.clone(), number: st.number, reason }).await?;
-        self.release_worker(worker, true).await?;
+        self.end_worker(worker, End::Landed(merged.clone())).await?;
         Ok(Ok(json!({ "landed": format!("{}#{}", c.name, st.number), "commit": merged })))
     }
 

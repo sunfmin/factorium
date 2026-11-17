@@ -15,6 +15,7 @@ use factum::{Uuid, Value};
 use serde_json::json;
 
 use super::Session;
+use crate::life::End;
 use crate::{Answer, App};
 
 impl App {
@@ -65,7 +66,7 @@ impl App {
                     self.submit::<LimitAccount>(AccountNote { name: account.clone(), windows: Vec::new(), until })
                         .await?;
                 }
-                self.end_worker(worker, &format!("its account is used up: {said}"), false).await?;
+                self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
                 Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))
             }
         }
