@@ -66,6 +66,19 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let doctor = w.app.doctor().await.unwrap();
     assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"));
     assert!(w.tick().await.lines.is_empty(), "the same tip is not gated again");
+    let again = w.app.promote("web").await.unwrap();
+    assert!(again["red"].is_string(), "by hand it is gated again: {again}");
+
+    // A new tip, the red fixed: promoted.
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    w.git(&tree, &["rm", "-q", "SLOWRED"]).unwrap();
+    w.git(&tree, &["commit", "-q", "-m", "green"]).unwrap();
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
 }
 
 #[tokio::test]
