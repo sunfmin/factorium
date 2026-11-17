@@ -123,9 +123,9 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote`, `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
-| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
+| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it parks with `issue park`, releases a hold with `hold --release`) |
 
 Every message to a session — a brief, a landing's red, a round, `watch
 tell` and `watch restart`, a comment — goes through that session's outbox,
