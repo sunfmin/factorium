@@ -114,8 +114,11 @@ enum IssueCmd {
     Add {
         checkout: String,
         title: String,
-        #[arg(long, default_value = "")]
-        body: String,
+        #[arg(long)]
+        body: Option<String>,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_file: Option<PathBuf>,
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
@@ -139,6 +142,9 @@ enum IssueCmd {
         title: Option<String>,
         #[arg(long)]
         body: Option<String>,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_file: Option<PathBuf>,
     },
     /// Closes an issue; a worker on it ends.
     Close {
@@ -265,12 +271,14 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, parked, blocked_by } => {
+            IssueCmd::Add { checkout, title, body, body_file, parked, blocked_by } => {
+                let body = body_text(body, body_file)?.unwrap_or_default();
                 app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
             }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
-            IssueCmd::Edit { checkout, number, title, body } => {
+            IssueCmd::Edit { checkout, number, title, body, body_file } => {
+                let body = body_text(body, body_file)?;
                 app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
             }
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
@@ -311,6 +319,22 @@ async fn run(cli: Cli) -> Answer {
         },
         Top::Guard { .. } => unreachable!("answered before the database opens"),
     }
+}
+
+/// The body given by `--body`, or read as UTF-8 text from `--body-file`
+/// (`-` is stdin), as is.
+fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<String>, Refusal> {
+    let Some(file) = file else { return Ok(body) };
+    let bytes = if file.as_os_str() == "-" {
+        let mut b = Vec::new();
+        std::io::stdin().read_to_end(&mut b).map(|_| b)
+    } else {
+        std::fs::read(&file)
+    };
+    let bytes = bytes.map_err(|e| Refusal::new("io", format!("{}: {e}", file.display())))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| Refusal::new("not_utf8", format!("{} is not UTF-8 text", file.display())))
 }
 
 fn shell_word(s: &str) -> String {

@@ -23,7 +23,7 @@ factorium cuts its own versions (`factorium.toml`, `packaging/release.sh`).
 ```sh
 factorium checkout add web ~/src/web --base main --proving proving
 factorium kit set claude-code=claude@opus codex=codex
-factorium issue add web "Fix the login" --body "..."
+factorium issue add web "Fix the login" --body-file body.md   # or --body "..."; - reads stdin
 factorium run          # the daemon: start workers, land, promote, cut, watch
 factorium doctor       # what needs you
 ```
