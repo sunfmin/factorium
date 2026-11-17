@@ -7,11 +7,11 @@ mod daemon;
 mod gate;
 mod heavy;
 mod kept;
+mod life;
 mod line;
 mod owner;
 mod service;
 mod session;
-mod start;
 mod watch;
 mod work;
 

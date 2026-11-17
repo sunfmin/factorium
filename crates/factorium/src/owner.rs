@@ -15,6 +15,7 @@ use factorium_harness::Harness;
 use factum::{Model, Uuid, Value};
 use serde_json::json;
 
+use crate::life::End;
 use crate::{Answer, App, Refusal};
 
 pub(crate) fn model() -> Model {
@@ -178,7 +179,7 @@ impl App {
         let worker = self.issue(checkout, number).await?.worker;
         self.submit::<CloseIssue>(Because { checkout: checkout.into(), number, reason: reason.into() }).await?;
         if let Some(w) = worker {
-            self.end_worker(w, &format!("its issue closed: {reason}"), true).await?;
+            self.end_worker(w, End::because(format!("its issue closed: {reason}"), false)).await?;
         }
         self.issue_show(checkout, number).await
     }
@@ -188,7 +189,7 @@ impl App {
         let worker = self.issue(checkout, number).await?.worker;
         self.submit::<ParkIssue>(Because { checkout: checkout.into(), number, reason: reason.into() }).await?;
         if let Some(w) = worker {
-            self.end_worker(w, &format!("its issue was parked: {reason}"), false).await?;
+            self.end_worker(w, End::because(format!("its issue was parked: {reason}"), true)).await?;
         }
         self.issue_show(checkout, number).await
     }
@@ -390,7 +391,8 @@ impl App {
             // What the base declares, as last fetched: doctor fetches nothing.
             let git = self.host.git(&c.path);
             let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts });
+            let stuck = crate::line::stuck_base(&c, &git);
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck });
         }
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;

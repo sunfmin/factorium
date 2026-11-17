@@ -97,6 +97,24 @@ pub struct LineSeen {
     pub line: Line,
     /// Whether its base declares a cut.
     pub cuts: bool,
+    /// Its local base, where it cannot follow origin's.
+    #[serde(default)]
+    pub stuck: Option<Stuck>,
+}
+
+/// A checkout's local base behind origin's that is not fast-forwarded,
+/// because something of it would be lost.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Stuck {
+    pub base: String,
+    /// The checkout's path.
+    pub path: String,
+    /// Commits of origin's base it lacks.
+    pub behind: u64,
+    /// Its own commits, not on origin's base.
+    pub ours: u64,
+    /// Whether it is checked out over changes not committed.
+    pub dirty: bool,
 }
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
@@ -113,7 +131,20 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     let mut add =
         |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into(), heard: Vec::new() });
-    for LineSeen { checkout, line, .. } in &seen.lines {
+    for LineSeen { checkout, line, stuck, .. } in &seen.lines {
+        if let Some(Stuck { base, path, behind, ours, dirty }) = stuck {
+            let why = if *dirty {
+                "it is checked out over changes not committed".to_string()
+            } else {
+                format!("it has {ours} commits of its own")
+            };
+            add(
+                format!("base:{checkout}"),
+                format!("{checkout}: local {base} in {path} is {behind} commits behind origin/{base}, and {why}"),
+                "commit or put aside the changes, or merge or rebase its own commits onto origin's; the next tick \
+                 fast-forwards it. factorium never resets it",
+            );
+        }
         if let Some((tip, why)) = &line.red {
             add(
                 format!("promotion:{checkout}:{tip}"),
@@ -223,7 +254,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             &format!("{unqueue}; the next tick gates the landing. If the daemon does not tick, see its daemon.log"),
         );
     }
-    for LineSeen { checkout, line, cuts } in &seen.lines {
+    for LineSeen { checkout, line, cuts, .. } in &seen.lines {
         if let (Some(o), Some(owed)) = (line.unpromoted.first(), line.owed(Move::Promote, now, s))
             && owed.overdue()
             && line.red.is_none()
