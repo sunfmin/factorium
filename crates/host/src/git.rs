@@ -16,7 +16,18 @@ impl Git {
 
     /// Runs git; its output trimmed, or its error.
     pub fn run(&self, args: &[&str]) -> Result<String, String> {
-        let out = Command::new("git")
+        let mut git = Command::new("git");
+        // What factorium itself commits (a landing merge, a cut tag, the
+        // watch's home) needs an identity; a host with none commits as factorium.
+        if matches!(args.first(), Some(&("commit" | "merge" | "tag"))) && !self.holds(&["config", "user.email"]) {
+            for v in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"] {
+                git.env(v, "factorium");
+            }
+            for v in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] {
+                git.env(v, "factorium@localhost");
+            }
+        }
+        let out = git
             .args(args)
             .current_dir(&self.dir)
             .env("GIT_TERMINAL_PROMPT", "0")

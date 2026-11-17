@@ -5,10 +5,13 @@ use factorium_domain::doctor;
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_harness::Harness;
+use factorium_harness::turn::Turn;
 use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::line::one_line;
+use crate::session::turn_of;
 use crate::{Answer, App, Refusal};
 
 impl App {
@@ -27,7 +30,16 @@ impl App {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
-        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms("round_bound") }).await?;
+        let ready = match (&terminal, self.state::<Watches>(watch_id()).await?.harness) {
+            (Some(_), Some(h)) => Harness::read(&h).is_some_and(|h| {
+                let home = self.dir(&["watch"]);
+                let brief = home.join("BRIEF.md");
+                let turn = turn_of(h, &self.session_root(h), &home.to_string_lossy(), &brief.to_string_lossy());
+                matches!(turn, Some(Turn::Closed { .. }))
+            }),
+            _ => false,
+        };
+        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms("round_bound"), ready }).await?;
         let after = self.state::<Watches>(watch_id()).await?;
         let fresh = after.round.as_ref().filter(|r| before.round.as_ref().is_none_or(|b| b.n != r.n));
         if let (Some(r), Some(t)) = (fresh, &terminal) {

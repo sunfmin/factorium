@@ -1,12 +1,21 @@
 //! The watch: its session, its look, episodes and rounds, its report, and
 //! what it does with its commands.
 
+use factorium_harness::Harness;
 use serde_json::json;
 
+use crate::harnesses::write_session;
 use crate::{World, id, worker};
 
-/// A checkout, a kit, a worker that escalated.
+/// A checkout, a kit, a worker that escalated, and the watch's session up.
 async fn escalated(w: &World) -> serde_json::Value {
+    let wk = escalated_alone(w).await;
+    watch_up(w, false);
+    wk
+}
+
+/// A checkout, a kit, a worker that escalated; the watch's terminal opened.
+async fn escalated_alone(w: &World) -> serde_json::Value {
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false).await.unwrap();
@@ -14,6 +23,28 @@ async fn escalated(w: &World) -> serde_json::Value {
     let wk = worker(&w.app).await;
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
     wk
+}
+
+/// The watch's session writes its turn: open, or closed.
+fn watch_up(w: &World, open: bool) {
+    let home = w.dir.join("data").join("watch");
+    let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
+    write_session(w, Harness::ClaudeCode, &home.to_string_lossy(), open, at);
+}
+
+#[tokio::test]
+async fn no_round_is_typed_before_the_watch_s_session_is_up_and_idle() {
+    let w = World::new();
+    escalated_alone(&w).await;
+    w.advance(5);
+    assert_eq!(w.tick().await.watch.unwrap()["round"], json!(null), "its session is not up yet");
+    watch_up(&w, true);
+    w.advance(5);
+    assert_eq!(w.tick().await.watch.unwrap()["round"], json!(null), "its turn is open");
+    assert!(w.terminal(&watch_terminal(&w)).sent.is_empty());
+    watch_up(&w, false);
+    w.advance(5);
+    assert_eq!(w.tick().await.watch.unwrap()["round"]["n"], 1);
 }
 
 fn watch_terminal(w: &World) -> String {

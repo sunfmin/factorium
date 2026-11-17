@@ -137,12 +137,15 @@ pub struct Look {
     pub found: Vec<Found>,
     /// The round bound, ms.
     pub bound: i64,
+    /// Whether the watch's session can take a round now: it runs, and its
+    /// turn is closed. A line typed before it is up goes to the shell.
+    pub ready: bool,
 }
 
 command!(
     /// A look: episodes open for new findings and close for gone ones; a round
     /// past its bound ends; and, with none running, the oldest episode without
-    /// a round starts one.
+    /// a round starts one, once the watch's session can take it.
     LookNow,
     "watch.look",
     Watches,
@@ -171,7 +174,7 @@ command!(
             ev.push(WatchEvent::RoundEnded { n: r.n, why: "past its bound".into() });
             running = None;
         }
-        if running.is_none() {
+        if running.is_none() && p.ready {
             let mut fresh: Vec<(i64, &String)> = s
                 .episodes
                 .iter()

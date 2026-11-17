@@ -99,12 +99,16 @@ impl Orca for OrcaCli {
     }
 
     fn send(&self, terminal: &str, text: &str) -> Result<(), String> {
+        // Text sent before the session is up goes to the shell, ahead of
+        // the line Orca types to start it: wait for its screen to settle.
+        let _ = orca(&["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", "60000"]);
         orca(&["terminal", "send", "--terminal", terminal, "--text", text, "--enter"]).map(|_| ())
     }
 
     fn screen(&self, terminal: &str) -> Option<Vec<String>> {
         let read = orca(&["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"]).ok()?;
-        let lines = read["lines"].as_array().or_else(|| read["terminal"]["lines"].as_array())?;
+        // Orca answers the rendered rows as `terminal.tail`.
+        let lines = read["terminal"]["tail"].as_array()?;
         Some(lines.iter().map(|l| l.as_str().unwrap_or_default().to_string()).collect())
     }
 
