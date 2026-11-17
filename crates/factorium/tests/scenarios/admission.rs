@@ -145,11 +145,11 @@ async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_
     let wk = worker(&w.app).await;
     let (cwd, id_) = (wk["worktree"].as_str().unwrap().to_string(), id(&wk));
     let now = (w.app_now() / 1000) as u64;
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, true, now);
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, true, now);
     w.advance(45);
     w.tick().await;
     assert_eq!(worker(&w.app).await["status"], "working", "its turn is open");
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, false, now + 60);
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, now + 60);
     w.tick().await;
     let silent =
         w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| id(x) == id_).cloned().unwrap();
@@ -161,4 +161,72 @@ impl World {
         use factum::Clock;
         self.clock.now().0
     }
+}
+
+/// A checkout, a kit and one worker at work; answers its terminal.
+async fn one_working(w: &World) -> String {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    worker(&w.app).await["terminal"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn orca_failing_to_answer_is_no_gone_terminal() {
+    let w = World::new();
+    let terminal = one_working(&w).await;
+    *w.host.orca.down.lock().unwrap() = Some("orca: the runtime is not running".into());
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "nothing is known of its terminal");
+    *w.host.orca.down.lock().unwrap() = None;
+    w.kill_terminal(&terminal);
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["why"], "its session's terminal is gone", "Orca says it exited");
+}
+
+#[tokio::test]
+async fn a_terminal_orca_no_longer_knows_is_gone() {
+    let w = World::new();
+    let terminal = one_working(&w).await;
+    // Orca restarted: the handle is stale.
+    w.host.orca.terminals.lock().unwrap().remove(&terminal);
+    w.tick().await;
+    let gone = worker(&w.app).await;
+    assert_eq!(
+        (gone["status"].clone(), gone["why"].clone()),
+        (json!("waiting"), json!("its session's terminal is gone"))
+    );
+}
+
+#[tokio::test]
+async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_their_unit() {
+    let w = World::new();
+    let all = w.app.settings_set(None, None).await.unwrap();
+    let all = all.as_array().unwrap();
+    assert_eq!(all.len(), 16, "every setting is listed");
+    let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
+    assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
+    let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();
+    assert_eq!(cpu["unit"], "percent");
+
+    for (name, value) in [("held_fr", None), ("held_fr", Some(1))] {
+        let no = w.app.settings_set(Some(name), value).await.unwrap_err();
+        assert_eq!(no.code, "no_setting", "a typo is refused, not a panic");
+    }
+
+    // A time set in seconds bounds in seconds; a share in percent.
+    ready(&w).await;
+    w.app.settings_set(Some("held_for"), Some(120)).await.unwrap();
+    w.host.reading.lock().unwrap().cpu_busy = 90;
+    assert!(w.tick().await.started.is_none());
+    w.advance(1);
+    w.tick().await;
+    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "held 60 of 120 seconds");
+    w.advance(1);
+    w.tick().await;
+    let found = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    assert!(found.contains("admission held"), "{found}");
+    w.app.settings_set(Some("cpu_busy_max"), Some(95)).await.unwrap();
+    assert!(w.tick().await.started.is_some(), "90% is under 95%");
 }

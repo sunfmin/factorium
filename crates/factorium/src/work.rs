@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use factorium_domain::declared::Kind;
 use factorium_domain::issue::{ReleaseIssue, Take};
+use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_host::Git;
 use factum::Uuid;
@@ -75,7 +76,7 @@ impl App {
 
     /// Runs a command through the heavy-command queue.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        let limit = Duration::from_secs(self.settings().await?.get("hold_bound").max(60) * 4);
+        let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
         let steps = [cmd.to_string()];
         let job = Job { what: cmd.into(), worker, dir, steps: &steps, env: &[], limit };
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");

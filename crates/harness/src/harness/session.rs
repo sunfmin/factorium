@@ -8,7 +8,7 @@ use crate::turn::{Note, Turn, latest};
 
 /// Epoch seconds of an ISO-8601 stamp in UTC, or `None` when it is not one.
 /// A fractional second is dropped. The offset is `Z` or zero.
-pub fn parse_iso(text: &str) -> Option<u64> {
+pub(crate) fn parse_iso(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
     if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
         return None;
@@ -51,7 +51,7 @@ pub(super) fn format_iso(at: u64) -> String {
 }
 
 /// Epoch seconds. A value past year 2286 is milliseconds.
-pub fn epoch_number(value: u64) -> u64 {
+pub(crate) fn epoch_number(value: u64) -> u64 {
     if value > 10_000_000_000 { value / 1000 } else { value }
 }
 
@@ -96,17 +96,6 @@ pub(super) fn same_cwd(recorded: &str, cwd: &str) -> bool {
     recorded.trim_end_matches('/') == cwd.trim_end_matches('/')
 }
 
-/// Whether `text` names the absolute `path`: an occurrence not preceded by a
-/// character a path holds, so `/a/b` does not name `/x/a/b`.
-pub(super) fn names_path(text: &str, path: &str) -> bool {
-    !path.is_empty()
-        && text.match_indices(path).any(|(at, _)| {
-            text.get(..at)
-                .and_then(|before| before.chars().next_back())
-                .is_none_or(|ch| !(ch.is_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | '~' | '%' | '+' | '@')))
-        })
-}
-
 /// One path component holds at most this many bytes. A worktree path longer
 /// than that cannot be the harness's own directory name, so the record and
 /// the reader share a short name for it. A path that fits keeps the name the
@@ -143,13 +132,6 @@ pub(super) fn wrapped_dir(cwd: &str) -> String {
     stored_name(format!("-{body}-"), cwd)
 }
 
-/// The hook output Claude Code and Codex both read as ending the session's
-/// turn: `continue: false`, with `reason` the `stopReason` shown.
-pub(super) fn stopped(reason: &str) -> String {
-    let reason = serde_json::Value::String(reason.to_string());
-    format!("{{\"continue\":false,\"stopReason\":{reason}}}")
-}
-
 /// Each JSON object `text` holds, one a line. A blank line and a line that
 /// is not JSON are not events.
 pub(super) fn json_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
@@ -162,27 +144,6 @@ pub(super) fn json_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
 /// The turn `notes` leave, in the order the session wrote them.
 pub(super) fn turn_of(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
     latest(notes, not_before)
-}
-
-/// Whether a session's `text` holds `mark` in a message the harness gave its
-/// model as the user's: a line typed at its prompt, or one typed while it
-/// worked that it handed over mid-turn. A line the harness only queued, a
-/// tool's output and the model's own words are not.
-pub(super) fn holds_note(text: &str, mark: &str) -> bool {
-    !mark.is_empty() && json_lines(text).any(|line| user_texts(&line).iter().any(|said| said.contains(mark)))
-}
-
-/// When the first line of `text` that holds `mark` as the user's (as
-/// `holds_note`) was recorded, by its `timestamp`: epoch seconds or
-/// milliseconds, or an ISO stamp. A line with no readable stamp is passed.
-pub(super) fn noted_at(text: &str, mark: &str) -> Option<u64> {
-    text.lines().find_map(|line| {
-        if !holds_note(line, mark) {
-            return None;
-        }
-        let value = serde_json::from_str::<Value>(line).ok()?;
-        number_at(value["timestamp"].as_u64(), value["timestamp"].as_str())
-    })
 }
 
 /// The first brief pointer in a user message: whether it names exactly

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
+use factorium_domain::settings::Time;
 use factorium_host::{Ran, run};
 use factum::Uuid;
 
@@ -119,7 +120,7 @@ impl App {
     /// Runs the started `id`'s steps, ending the one running once it holds
     /// others up past the hold bound.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
-        let bound = self.settings().await?.ms("hold_bound");
+        let bound = self.settings().await?.ms(Time::HoldBound);
         let held = Arc::new(AtomicBool::new(false));
         let mut rans = Vec::new();
         for step in job.steps {

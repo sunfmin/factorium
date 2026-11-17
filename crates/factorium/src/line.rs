@@ -12,6 +12,7 @@ use factorium_domain::declared::Kind;
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Lines, next_version};
 use factorium_domain::line_id;
+use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_host::Git;
 use factum::Uuid;
@@ -131,7 +132,7 @@ impl App {
     pub(crate) async fn promote_if_due(&self, c: &Checkout, idle: bool, force: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let Some(oldest) = l.unpromoted.first() else { return Ok(None) };
-        let bound = self.settings().await?.ms("promotion_bound");
+        let bound = self.settings().await?.ms(Time::PromotionBound);
         if !(force || idle || self.now() - oldest.at >= bound) {
             return Ok(None);
         }
@@ -169,7 +170,7 @@ impl App {
         if l.cut_failed.is_some() && !force {
             return Ok(None);
         }
-        let bound = self.settings().await?.ms("cut_bound");
+        let bound = self.settings().await?.ms(Time::CutBound);
         if !(force || (idle && l.unpromoted.is_empty()) || self.now() - oldest >= bound) {
             return Ok(None);
         }
@@ -211,8 +212,8 @@ impl App {
         let (mut installed, mut restart) = (None, None);
         if let Some(formula) = &cut.formula {
             // The daemon's own formula: it runs the new binary once the tick ends.
-            restart = self.host.binary_of(formula);
-            if let Err(e) = self.host.brew_upgrade(formula, &version) {
+            restart = self.host.brew().binary_of(formula);
+            if let Err(e) = self.host.brew().upgrade(formula, &version) {
                 self.submit::<line::FailCut>(fail_cut(format!("installing {formula} failed: {e}"))).await?;
                 return Ok(Some(json!({ "cut": c.name, "version": version, "failed": e })));
             }

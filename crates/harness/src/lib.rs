@@ -1,21 +1,18 @@
 //! What factorium knows of each harness it starts sessions in — Claude Code,
-//! pi, Codex, DSH, Kimi Code and Grok: how each starts, where it reads its
-//! rules and skills, how a hook reaches it, where it keeps its session and
-//! which lines start or end a turn, what its usage lines count, what it says
-//! of its account's usage windows and limits, which screen words mean a quota
-//! or a refusal, and the engine accounts mytokens holds. Whoever starts a
-//! session says what it is started with (`Start`); nothing here knows why.
+//! pi, Codex, DSH, Kimi Code and Grok: how a session of each starts and is
+//! handed its brief, how its hook is asked about a tool call, where it keeps
+//! its session and which lines start or end a turn, which screen words mean
+//! a quota or a refusal, and the engine accounts mytokens holds. Whoever
+//! starts a session says what it is started with (`Start`); nothing here
+//! knows why.
 
 pub mod account;
-pub mod brief;
+mod brief;
 mod harness;
-pub mod line;
-pub mod start;
-pub mod status;
-pub mod steps;
-pub mod tokens;
-pub mod turn;
-pub mod window;
+mod line;
+mod start;
+mod turn;
 
-pub use harness::*;
-pub use start::{DshProfile, Rules, Start, Told};
+pub use harness::{Harness, Stop};
+pub use start::{Home, Launch, RULES, SKILLS, Start};
+pub use turn::Turn;

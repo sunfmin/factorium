@@ -59,7 +59,9 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut");
     assert_eq!(cut["version"], "v0.1.0");
     assert!(git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
-    assert_eq!(*w.host.brewed.lock().unwrap(), vec!["web".to_string()]);
+    // The first cut installs it, and Homebrew is asked what it has once done.
+    let installs = ["--prefix web", "update --quiet", "list --formula web", "install web", "list --versions web"];
+    assert_eq!(w.host.brewed(), installs);
 }
 
 #[tokio::test]
@@ -241,4 +243,40 @@ async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
     assert_eq!(landing["status"], "landing");
     assert_eq!(landing["since"], json!(start + 5 * 60_000));
     assert_eq!(landing["started_at"], json!(start), "the start stays put");
+}
+
+#[tokio::test]
+async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by_id() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    let start = factum::Clock::now(&*w.clock).0;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let row = |v: &serde_json::Value| (v["status"].clone(), v["why"].clone(), v["since"].clone());
+    assert_eq!(row(&wk), (json!("working"), json!(null), json!(start)));
+    let issue = w.app.issue_list(None, false).await.unwrap()[0].clone();
+    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("ready"), wk["worker"].clone()));
+
+    w.advance(2);
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    let waiting = worker(&w.app).await;
+    let at = start + 2 * 60_000;
+    assert_eq!(row(&waiting), (json!("waiting"), json!("escalated: which API version?"), json!(at)));
+    let doctor = w.app.doctor().await.unwrap();
+    let found = doctor["findings"].as_array().unwrap().iter().find(|f| f["key"] == format!("worker:{}", id(&wk)));
+    let found = found.expect("the waiting worker, by its id");
+    assert!(found["what"].as_str().unwrap().contains("on web#1 waits: escalated"), "{found}");
+
+    w.advance(1);
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+    let issue = w.app.issue_list(None, true).await.unwrap()[0].clone();
+    assert_eq!(
+        (issue["status"].clone(), issue["reason"].clone(), issue["worker"].clone()),
+        (json!("closed"), json!("not needed"), json!(null))
+    );
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    let ended = w.app.workers(true).await.unwrap()[0].clone();
+    assert_eq!(row(&ended), (json!("ended"), json!("its issue closed: not needed"), json!(at + 60_000)));
 }

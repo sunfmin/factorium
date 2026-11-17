@@ -104,7 +104,7 @@ The help in the binary is the manual (as in afkconvoy): every command's
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
 | `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, hot-worker rules and the disk floor as pure functions of readings; doctor's findings. No IO, no clock. | 7,000 |
-| `factorium-harness` | The six harnesses: start line, rules and skills places, hooks, session files and turn lines, usage lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it. | 8,000 |
+| `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
 | `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,000 |
 
@@ -124,11 +124,15 @@ else of factorium.
   CLI command is one method of it, and the daemon's tick is one too.
   Every scenario drives `App` as the CLI does and reads only what the CLI
   could print. No crate has tests of its own beneath it.
-- **What is faked, and how.** Orca: an in-process stand-in that keeps
-  terminals and what was sent to them. Harnesses: a stand-in session that
-  writes the session file each harness describes, line by line, from its
-  own module, so no second copy of a format exists. Host readings, the
-  clock, mytokens and Homebrew: in-process stand-ins the scenario moves.
+- **What is faked, and how.** Orca, Homebrew and mytokens: the programs
+  themselves. The app runs them through one port (run a program, get its
+  answer), and a scenario stands in there with answers shaped as the real
+  programs gave them — Orca's keeping terminals and what was sent to them —
+  so what the app makes of their answers runs in every scenario.
+  Harnesses: a stand-in session that writes the session file each harness
+  describes, line by line, from its own module, so no second copy of a
+  format exists. Host readings and the clock: in-process stand-ins the
+  scenario moves.
   Git is real: a bare remote and clones in a temporary directory, made
   once per test run and copied, because landing's correctness is git's.
 - **The binary.** A handful of tests run the built binary to prove the

@@ -21,7 +21,8 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 | The object store the fleet owned | Nothing factorium keeps needs one. |
 | A private repo's release cut on a Mac / several cut hosts | One host cuts. |
 | Codex goals as the worker's frame | The harness can still keep a goal; factorium does not depend on it. |
-| Model research and holding a model by its listed id | The kit names the model; the harness checks it. |
+| Model research and holding a model by its listed id | The kit names the model; the session is started on it. |
+| afkconvoy-harness's interface factorium never called: token and step counting, status hooks read back, model, flag and login probes, notes, resumed sessions, goal rows, first-run and limits files, background-work reads, pi's status extension and DSH's profile files | Nothing called them (factorium#8). The harness crate offers what factorium uses and no more; a scenario lists it. Each comes back from git history with its caller. |
 | Worker health judged by an external judge | Health is the session file, the terminal, and the readings. |
 | Flux refinement types | Scenarios and mutation hold the rules (SPEC §9). |
 
@@ -32,5 +33,5 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 | An issue that needs the next version waits on the cut | Express it with `issue block` on an issue the cut closes; no automatic link yet. |
 | A repo's declared gate needs (tools to install before the gate) | Install them yourself; `factorium.toml` has no `needs` yet. |
 | A repo's declared heavy commands, queued without `worker exclusive` | Workers are told to use `factorium worker exclusive`; the guard does not yet reroute declared commands. |
-| Usage windows read from each harness's status line | Accounts are limited when their quota screen shows; windows are not yet read. |
+| Usage windows read from each harness's status line | Accounts are limited when their quota screen shows; windows are not yet read. afkconvoy's readers left with factorium#8, to return with a caller. |
 | Serial builds (cargo's fine-grain locking opted out) | Gate runs and exclusive commands go through the queue; per-build locking is not set. |

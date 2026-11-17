@@ -47,6 +47,9 @@ pub struct Report {
 pub struct Watch {
     pub terminal: Option<String>,
     pub harness: Option<String>,
+    /// The account its session started on, if its harness takes one.
+    #[serde(default)]
+    pub account: Option<String>,
     pub episodes: BTreeMap<String, Episode>,
     /// The round running now.
     pub round: Option<Round>,
@@ -66,17 +69,46 @@ const KEPT: usize = 50;
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WatchEvent {
-    WatchStarted { terminal: String, harness: String },
-    Looked { at: i64 },
-    EpisodeOpened { key: String, what: String, fix: String, at: i64 },
-    EpisodeClosed { key: String },
-    RoundStarted { n: u64, episode: String, at: i64 },
-    RoundEnded { n: u64, why: String },
-    RoundSent { n: u64, terminal: String },
+    WatchStarted {
+        terminal: String,
+        harness: String,
+        #[serde(default)]
+        account: Option<String>,
+    },
+    Looked {
+        at: i64,
+    },
+    EpisodeOpened {
+        key: String,
+        what: String,
+        fix: String,
+        at: i64,
+    },
+    EpisodeClosed {
+        key: String,
+    },
+    RoundStarted {
+        n: u64,
+        episode: String,
+        at: i64,
+    },
+    RoundEnded {
+        n: u64,
+        why: String,
+    },
+    RoundSent {
+        n: u64,
+        terminal: String,
+    },
     Reported(Report),
-    AdmissionHeld { why: String, at: i64 },
+    AdmissionHeld {
+        why: String,
+        at: i64,
+    },
     AdmissionOpen,
-    HumanSeen { round: u64 },
+    HumanSeen {
+        round: u64,
+    },
 }
 
 pub struct Watches;
@@ -88,7 +120,9 @@ impl Aggregate for Watches {
 
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
-            WatchEvent::WatchStarted { terminal, harness } => (s.terminal, s.harness) = (Some(terminal), Some(harness)),
+            WatchEvent::WatchStarted { terminal, harness, account } => {
+                (s.terminal, s.harness, s.account) = (Some(terminal), Some(harness), account)
+            }
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
@@ -124,12 +158,14 @@ impl Aggregate for Watches {
 pub struct Started {
     pub terminal: String,
     pub harness: String,
+    pub account: Option<String>,
 }
 
 command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(vec![WatchEvent::WatchStarted {
         terminal: p.terminal.clone(),
         harness: p.harness.clone(),
+        account: p.account.clone(),
     }])
 });
 

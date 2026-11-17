@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Parser, Subcommand};
 use factorium::host::Machine;
 use factorium::{Answer, App, Refusal, default_db};
-use factorium_harness::{Call, Harness};
+use factorium_harness::Harness;
 use factum::{SystemClock, Uuid};
 use serde_json::json;
 
@@ -114,8 +114,11 @@ enum IssueCmd {
     Add {
         checkout: String,
         title: String,
-        #[arg(long, default_value = "")]
-        body: String,
+        #[arg(long)]
+        body: Option<String>,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_file: Option<PathBuf>,
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
@@ -136,6 +139,9 @@ enum IssueCmd {
         title: Option<String>,
         #[arg(long)]
         body: Option<String>,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long, conflicts_with = "body")]
+        body_file: Option<PathBuf>,
     },
     /// Closes an issue; a worker on it ends.
     Close {
@@ -262,10 +268,14 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, parked } => app.issue_add(&checkout, &title, &body, parked).await,
+            IssueCmd::Add { checkout, title, body, body_file, parked } => {
+                let body = body_text(body, body_file)?.unwrap_or_default();
+                app.issue_add(&checkout, &title, &body, parked).await
+            }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
-            IssueCmd::Edit { checkout, number, title, body } => {
+            IssueCmd::Edit { checkout, number, title, body, body_file } => {
+                let body = body_text(body, body_file)?;
                 app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
             }
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
@@ -308,6 +318,22 @@ async fn run(cli: Cli) -> Answer {
     }
 }
 
+/// The body given by `--body`, or read as UTF-8 text from `--body-file`
+/// (`-` is stdin), as is.
+fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<String>, Refusal> {
+    let Some(file) = file else { return Ok(body) };
+    let bytes = if file.as_os_str() == "-" {
+        let mut b = Vec::new();
+        std::io::stdin().read_to_end(&mut b).map(|_| b)
+    } else {
+        std::fs::read(&file)
+    };
+    let bytes = bytes.map_err(|e| Refusal::new("io", format!("{}: {e}", file.display())))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| Refusal::new("not_utf8", format!("{} is not UTF-8 text", file.display())))
+}
+
 fn shell_word(s: &str) -> String {
     if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-=:,@+".contains(c)) {
         s.into()
@@ -321,8 +347,7 @@ fn hook(harness: &str) -> ExitCode {
     let Some(h) = Harness::read(harness) else { return ExitCode::SUCCESS };
     let mut payload = String::new();
     let _ = std::io::stdin().read_to_string(&mut payload);
-    let mut de = serde_json::Deserializer::from_str(&payload);
-    let Ok(Call::Shell(line)) = h.call(&mut de) else { return ExitCode::SUCCESS };
+    let Some(line) = h.shell_call(&payload) else { return ExitCode::SUCCESS };
     let worker = std::env::var_os("FACTORIUM_WORKER").is_some();
     if let Some(why) = factorium::refused(&line, worker) {
         eprintln!("factorium refuses this: {why}");

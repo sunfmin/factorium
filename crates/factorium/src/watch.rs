@@ -2,16 +2,15 @@
 //! session, and the watch's own commands.
 
 use factorium_domain::doctor;
-use factorium_domain::settings::Settings;
+use factorium_domain::settings::{Settings, Time};
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_harness::Harness;
-use factorium_harness::turn::Turn;
+use factorium_harness::{Harness, Turn};
+use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::line::one_line;
-use crate::session::turn_of;
 use crate::{Answer, App, Refusal};
 
 impl App {
@@ -19,7 +18,7 @@ impl App {
     /// round is sent to the watch's session.
     pub(crate) async fn look_if_due(&self, settings: &Settings) -> Answer<Option<Value>> {
         let before = self.state::<Watches>(watch_id()).await?;
-        if before.last_look > 0 && self.now() - before.last_look < settings.ms("look_every") {
+        if before.last_look > 0 && self.now() - before.last_look < settings.ms(Time::LookEvery) {
             return Ok(None);
         }
         self.look(settings).await.map(Some)
@@ -30,16 +29,18 @@ impl App {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
-        let ready = match (&terminal, self.state::<Watches>(watch_id()).await?.harness) {
+        let started = self.state::<Watches>(watch_id()).await?;
+        let ready = match (&terminal, started.harness) {
             (Some(_), Some(h)) => Harness::read(&h).is_some_and(|h| {
                 let home = self.dir(&["watch"]);
                 let brief = home.join("BRIEF.md");
-                let turn = turn_of(h, &self.session_root(h), &home.to_string_lossy(), &brief.to_string_lossy());
+                let turn =
+                    self.turn_of(h, started.account.as_deref(), &home.to_string_lossy(), &brief.to_string_lossy());
                 matches!(turn, Some(Turn::Closed { .. }))
             }),
             _ => false,
         };
-        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms("round_bound"), ready }).await?;
+        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
         let mut after = self.state::<Watches>(watch_id()).await?;
         // The running round, typed once at each watch session, when it can take it.
         let unsent = after.round.as_ref().filter(|r| ready && r.sent != terminal);
@@ -91,9 +92,15 @@ impl App {
         if wk.status == Status::Ended {
             return Err(Refusal::new("ended", "this worker has ended"));
         }
-        if self.host.orca().screen(&st.terminal).is_none() {
-            self.end_worker(worker, "restarted by the watch: its session was gone", false).await?;
-            return Ok(json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }));
+        match self.host.orca().screen(&st.terminal) {
+            Term::Running(_) => {}
+            Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
+            Term::Exited => {
+                self.end_worker(worker, "restarted by the watch: its session was gone", false).await?;
+                return Ok(
+                    json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
+                );
+            }
         }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         let line = format!(
