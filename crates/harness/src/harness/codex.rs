@@ -9,8 +9,9 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::RULES;
@@ -249,8 +250,8 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
 }
 
 /// Every JSONL file under [`SESSIONS`]; each file says its worktree.
-pub(super) fn session_layout(_cwd: &str) -> SessionLayout {
-    SessionLayout::Tree { dir: SESSIONS.into(), extension: "jsonl" }
+pub(super) fn layout() -> Layout {
+    Layout::Tree { dir: SESSIONS.into(), extension: "jsonl" }
 }
 
 /// The turn `text` records for `cwd`, or for the session handed `brief`
@@ -320,11 +321,9 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-/// The stand-in session file; it replaces one of the same name.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The session a stand-in writes for this turn.
+pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
-    let name = format!("rollout-factorium-{}.jsonl", session::mark(cwd));
-    let (year, month, day) = session::civil_from_days((at / 86_400) as i64);
     let meta = json!({"cwd": cwd, "id": "factorium"});
     let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
     let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
@@ -333,10 +332,5 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
         let done = json!({"type": "task_complete", "completed_at": at, "turn_id": "factorium"});
         body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": done}));
     }
-    vec![SessionFile {
-        path: format!("{SESSIONS}/{year:04}/{month:02}/{day:02}/{name}"),
-        body,
-        compressed: false,
-        replaces: Some(name),
-    }]
+    body
 }
