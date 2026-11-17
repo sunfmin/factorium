@@ -10,7 +10,7 @@ use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
-use factorium_harness::{Harness, Start};
+use factorium_harness::{Harness, Kept, RULES, Start};
 use factorium_host::{Git, Host, Term};
 use factum::Value;
 use serde_json::json;
@@ -90,7 +90,7 @@ impl App {
     fn role(&self, name: &str, rules: &str) -> Answer<PathBuf> {
         let dir = self.dir(&["role", name]);
         std::fs::create_dir_all(dir.join(factorium_harness::SKILLS)).map_err(|e| Refusal::new("io", e.to_string()))?;
-        std::fs::write(dir.join(factorium_harness::RULES), rules).map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(dir.join(RULES), rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         Ok(dir)
     }
 
@@ -119,7 +119,10 @@ impl App {
             env,
             brief: &brief,
         };
-        let launched = l.harness.launch(&start).map_err(|e| Refusal::new("io", e.to_string()))?;
+        let launched = l.harness.launch(&start).map_err(|e| Refusal::new("harness", e))?;
+        for kept in &launched.kept {
+            keep(kept).map_err(|e| Refusal::new("io", e.to_string()))?;
+        }
         let (line, typed) = (launched.line, launched.typed);
         let (line, secret) = self.secrets_first(&l.secrets, line)?;
         let opened = self.host.orca().open(l.worktree, l.title, &line);
@@ -243,7 +246,7 @@ impl App {
                 .map_err(fail("git"))?;
         }
         let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
-        std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(home.join(RULES), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let brief = home.join("BRIEF.md");
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let mut secrets = Vec::new();
@@ -293,6 +296,30 @@ fn worker_brief(c: &factorium_domain::checkout::Checkout, i: &factorium_domain::
         c.name, c.proving
     ));
     b
+}
+
+/// Puts one thing a session's home holds in place. A file is written whole
+/// and then moved in, for its user alone: a session starting beside it reads
+/// the last one written, never half of one.
+fn keep(kept: &Kept) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let (Kept::Dir { path } | Kept::File { path, .. } | Kept::Link { path, .. }) = kept;
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("/")))?;
+    match kept {
+        Kept::Dir { path } => std::fs::create_dir_all(path)?,
+        Kept::Link { path, to } => {
+            if path.symlink_metadata().is_err() {
+                std::os::unix::fs::symlink(to, path)?;
+            }
+        }
+        Kept::File { path, text } => {
+            let fresh = path.with_extension(format!("{}.new", uuid::Uuid::now_v7()));
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&fresh)?;
+            std::io::Write::write_all(&mut f, text.as_bytes())?;
+            std::fs::rename(&fresh, path)?;
+        }
+    }
+    Ok(())
 }
 
 fn shell_word(s: &str) -> String {

@@ -150,6 +150,100 @@ async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_
     assert!(line.contains(&format!("{}/CLAUDE.md", wk["worktree"].as_str().unwrap())), "{line}");
 }
 
+/// What a session's home must hold before its line runs, by harness: the
+/// file, and words in it that say it asks the guard. Claude Code and Codex
+/// are given their hooks on the line.
+const KEPT: [(&str, &str, &str); 6] = [
+    ("pi", "factorium.js", "FACTORIUM_GUARD"),
+    ("dsh", "start.sh", "factorium.patch.yml"),
+    ("dsh", "factorium.patch.yml", "factoriumGuard"),
+    ("dsh", "factorium.mjs", "FACTORIUM_GUARD"),
+    ("kimi", "config.toml", "guard kimi"),
+    ("grok", "config.toml", "guard grok"),
+];
+
+#[tokio::test]
+async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_session_starts() {
+    for key in ["pi", "dsh", "kimi", "grok"] {
+        let w = World::new();
+        let repo = w.repo("web");
+        crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+        crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+        // The host user's own Kimi config: its model routing is kept, the rest is not.
+        let user = w.host.home.join(".kimi-code");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(user.join("config.toml"), "default_model = \"k2\"\nmerge_all_available_skills = true\n")
+            .unwrap();
+        w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
+        w.app.issue_add("web", "t", "", false).await.unwrap();
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        assert_eq!(wk["harness"], key);
+        let home = w.dir.join("data").join("kept").join(key);
+        for (_, file, says) in KEPT.iter().filter(|(k, ..)| *k == key) {
+            let text = std::fs::read_to_string(home.join(file)).unwrap_or_else(|e| panic!("{key}: {file}: {e}"));
+            assert!(text.contains(says), "{key}: {file} says {says:?}:\n{text}");
+        }
+        // A home is shared by every session of its harness on its account:
+        // what it holds names where this session's rules are, and holds none
+        // of them.
+        let worktree = wk["worktree"].as_str().unwrap();
+        let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+        let role = w.dir.join("data").join("role").join("worker");
+        // DSH's line is quoted once more, as one word of its start script's.
+        let set = |name: &str, value: &str| {
+            line.contains(&format!("{name}='{value}'")) || line.contains(&format!("{name}='\\''{value}'\\''"))
+        };
+        assert!(set("FACTORIUM_WORKTREE", worktree), "{key}: {line}");
+        assert!(set("FACTORIUM_ADDED_DIR", &role.to_string_lossy()), "{key}: {line}");
+        assert!(std::fs::read_to_string(role.join("CLAUDE.md")).unwrap().contains("You are a factorium worker"));
+        let told = match key {
+            "kimi" => Some("SYSTEM.md"),
+            "grok" => Some("rules/told.md"),
+            _ => None,
+        };
+        if let Some(told) = told {
+            let text = std::fs::read_to_string(home.join(told)).unwrap();
+            assert!(text.contains("FACTORIUM_WORKTREE") && text.contains("FACTORIUM_ADDED_DIR"), "{key}: {text}");
+        }
+        for file in ["config.toml", "SYSTEM.md", "rules/told.md"] {
+            let text = std::fs::read_to_string(home.join(file)).unwrap_or_default();
+            // Neither the worker's nor the watch's, which started after it.
+            let sessions = [worktree.to_string(), w.dir.join("data").join("watch").to_string_lossy().into_owned()];
+            let mine = sessions.iter().any(|dir| text.contains(dir.as_str())) || text.contains("linter");
+            assert!(!mine, "{key}: {file} holds one session's:\n{text}");
+        }
+        if key == "kimi" {
+            let config = std::fs::read_to_string(home.join("config.toml")).unwrap();
+            assert!(config.contains("k2"), "{config}");
+            assert!(!config.contains("merge_all_available_skills"), "{config}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn dsh_starts_only_through_its_guard_files() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let home = w.dir.join("data").join("kept").join("dsh");
+    let start = home.join("start.sh");
+    let (role, home_text) = (w.dir.join("data").join("role").join("worker"), home.to_string_lossy());
+    let run = || {
+        let args = [&start.to_string_lossy(), "echo", &home_text, &role.to_string_lossy(), "/the/worktree", "kept"];
+        std::process::Command::new("sh").args(args).output().unwrap()
+    };
+    let out = run();
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(said.contains(&format!("--patch {home_text}/factorium.patch.yml /the/worktree")), "{said}");
+    std::fs::remove_file(home.join("factorium.mjs")).unwrap();
+    assert!(!run().status.success(), "no guard plugin, no session");
+}
+
 /// What the harness crate offers, item by item: what factorium uses of it
 /// and no more (a `pub` beneath it is public; the rest is `pub(crate)`).
 /// Adding to it is adding a caller first.
@@ -192,10 +286,11 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: fn write_session",
         "lib.rs: mod account",
         "lib.rs: use harness::{Harness, Stop}",
-        "lib.rs: use start::{Home, Launch, RULES, SKILLS, Start}",
+        "lib.rs: use start::{Home, Kept, Launch, RULES, SKILLS, Start}",
         "lib.rs: use turn::Turn",
         "start.rs: const RULES",
         "start.rs: const SKILLS",
+        "start.rs: enum Kept",
         "start.rs: struct Home",
         "start.rs: struct Launch",
         "start.rs: struct Start",
