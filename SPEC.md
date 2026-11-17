@@ -47,12 +47,16 @@ watch's look and the operator's view.
 
 ## 2. The issue's path
 
-1. `factorium issue add` makes an issue, ready unless it says otherwise.
+1. `factorium issue add` makes an issue, ready unless it says otherwise,
+   with the issues it waits for (`--blocked-by N`, repeatable) recorded
+   with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
 3. The worker's worktree is branched from the proving tip; its harness and
    account are chosen; the guard is installed; its brief is sent; the
-   session file says when its turn starts and ends.
+   session file says when its turn starts and ends. Text is typed at a
+   session only once its harness's own screen is up there: typed at a
+   shell, a line is a command it runs.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
    likes, then `factorium worker done`.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
@@ -62,7 +66,7 @@ watch's look and the operator's view.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
-whose session died or went silent past its bound, a hot worker, a red
+whose session died, never came up or went silent past its bound, a hot worker, a red
 promotion, a failed cut, admission held for one reason past the host's
 span. The watch fixes, restarts, re-briefs, parks or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
@@ -92,9 +96,17 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
+
+The daemon runs as a launchd agent (`factorium service install`,
+defined in `packaging/factorium.plist`) with the installing shell's PATH
+declared in it, restarted whenever it exits; `factorium stop` unloads it,
+and a cut's restart execs in place as the same pid. At start it looks for
+git, orca and the kit's harnesses; a missing one is a finding. A failing
+tick is recorded, and `tick_failures_max` of them in a row is a finding;
+the watch still looks when a tick fails.
 
 The help in the binary is the manual (as in afkconvoy): every command's
 `--help` says what it does and what it answers. Answers are JSON.

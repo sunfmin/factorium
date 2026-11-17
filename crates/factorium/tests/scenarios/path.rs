@@ -13,7 +13,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "Add a greeting", "Say hello.", false).await.unwrap();
+    w.app.issue_add("web", "Add a greeting", "Say hello.", false, &[]).await.unwrap();
     let base = w.remote_tip("web", "proving");
 
     let t = w.tick().await;
@@ -69,7 +69,7 @@ async fn done_takes_only_committed_work_of_its_own() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
@@ -86,7 +86,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
@@ -117,7 +117,7 @@ async fn a_red_landing_then_a_fix_lands() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
@@ -135,7 +135,7 @@ async fn a_branch_that_does_not_merge_is_red() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
@@ -157,9 +157,9 @@ async fn blocked_and_parked_issues_wait_and_the_oldest_ready_one_starts_first() 
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "first", "", false).await.unwrap();
-    w.app.issue_add("web", "second", "", false).await.unwrap();
-    w.app.issue_add("web", "parked", "", true).await.unwrap();
+    w.app.issue_add("web", "first", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "second", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "parked", "", true, &[]).await.unwrap();
     w.app.issue_block("web", 1, 2, false).await.unwrap();
 
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#2", "#1 waits for #2");
@@ -169,12 +169,30 @@ async fn blocked_and_parked_issues_wait_and_the_oldest_ready_one_starts_first() 
 }
 
 #[tokio::test]
+async fn an_issue_added_with_its_blockers_waits_for_them_from_the_start() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "blocker", "", true, &[]).await.unwrap();
+    let added = w.app.issue_add("web", "waits", "", false, &[1, 1]).await.unwrap();
+    assert_eq!((added["status"].clone(), added["blocked_by"].clone()), (json!("ready"), json!([1])));
+    assert!(w.tick().await.started.is_none(), "#2 waits for #1, which is parked");
+
+    refused(w.app.issue_add("web", "orphan", "", false, &[1, 9]).await, "no_issue");
+    refused(w.app.issue_show("web", 3).await, "no_issue");
+    assert!(w.tick().await.started.is_none(), "the refused add left no issue to start");
+
+    w.app.issue_close("web", 1, "done").await.unwrap();
+    assert_eq!(w.tick().await.started.unwrap()["issue"], "web#2");
+}
+
+#[tokio::test]
 async fn closing_or_parking_an_issue_ends_its_worker() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let ws = w.app.workers(false).await.unwrap();
@@ -196,7 +214,7 @@ async fn held_landings_wait_until_released() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
@@ -212,7 +230,7 @@ async fn an_escalation_waits_for_the_watch() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     refused(w.app.worker_escalate(id(&wk), " ").await, "no_reason");
@@ -230,7 +248,7 @@ async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     let start = factum::Clock::now(&*w.clock).0;
     w.tick().await;
     let wk = worker(&w.app).await;
@@ -250,7 +268,7 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     let start = factum::Clock::now(&*w.clock).0;
     w.tick().await;
     let wk = worker(&w.app).await;

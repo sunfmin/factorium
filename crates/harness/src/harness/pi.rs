@@ -16,7 +16,7 @@ use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::SKILLS;
-use crate::start::Start;
+use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "pi";
@@ -45,11 +45,9 @@ pub(super) const MODEL: &str = "--model";
 /// The variable that names pi's user directory: its own, in place of
 /// the host user's.
 pub(super) const USER_DIR: &str = "PI_CODING_AGENT_DIR";
-/// The variables the tool's extension reads the line that runs the guard,
-/// the worktree, and the tool's copy of the added directory, from.
+/// The variable the tool's extension reads the line that runs the guard
+/// from; the worktree and the start directory it reads from theirs.
 const GUARD_ENV: &str = "FACTORIUM_GUARD";
-const WORKTREE_ENV: &str = "FACTORIUM_WORKTREE";
-const ADDED_ENV: &str = "FACTORIUM_ADDED_DIR";
 
 /// The tool's extension, as the directory the host keeps for pi holds it.
 /// It is named on the line that starts a session and is not among those pi
@@ -69,6 +67,11 @@ pub(super) const KEPT_LINKS: &[Link] = &[
     Link { home: ".pi/agent/models.json", kept: "models.json" },
     Link { home: ".pi/agent/extensions/orca-agent-status.ts", kept: "extensions/orca-agent-status.ts" },
 ];
+
+/// What the host keeps for pi beside the links: the tool's extension.
+pub(super) fn kept(_start: &Start) -> Vec<(&'static str, String)> {
+    vec![(EXTENSION_FILE, include_str!("pi/extension.js").to_string())]
+}
 
 /// The tool pi runs shell lines with.
 const SHELL_TOOL: &str = "bash";
@@ -94,7 +97,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .fixed("=")
         .word(start.worktree)
         .fixed(" ")
-        .fixed(ADDED_ENV)
+        .fixed(START_DIR_ENV)
         .fixed("=")
         .word(start.dir)
 }

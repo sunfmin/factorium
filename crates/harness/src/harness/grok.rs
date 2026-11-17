@@ -1,8 +1,9 @@
-//! Grok, as a harness. Grok loads no hooks from a project file, so each start
-//! gets a generated home whose config holds the start directory's hooks and
-//! denies, the guard and the report. A session works only in its cwd, so it
-//! starts in the worktree; the start directory's rules are told in that
-//! home, and its skills are named there.
+//! Grok, as a harness. Grok loads no hooks from a project file, so its home's
+//! config is generated at each start and holds the guard and the report: the
+//! only way it gets the guard. A session works only in its cwd, so it starts
+//! in the worktree; where the start directory's rules and skills are, and
+//! the repo's rules, which Grok is kept from reading as Claude's, is told in
+//! that home.
 
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
@@ -12,8 +13,9 @@ use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
-use crate::start::Start;
+use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
+use toml::Value as Toml;
 
 pub(super) const KEY: &str = "grok";
 /// What a bare program is started with: no approval prompts (its `auto-review` mode denies `factorium worker done`).
@@ -32,12 +34,110 @@ pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".grok/auth.json", kept: "
 
 pub(super) const REFUSED: u8 = 2;
 
+/// Its configuration, and the rules it is told, in its user directory.
+const CONFIG: &str = "config.toml";
+const TOLD_FILE: &str = "rules/told.md";
+/// Seconds Grok waits on one hook.
+const HOOK_TIMEOUT: i64 = 10;
+
+/// The events at which a session's state changes, besides `PreToolUse`,
+/// which also asks the guard: each runs `REPORT`.
+const STATE_EVENTS: [&str; 12] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+    "StopFailure",
+    "PreCompact",
+    "PostCompact",
+    "Notification",
+    "SessionEnd",
+];
+
+/// The host user's skill and command directories, none of which a session
+/// is given. `~` is the host user's home, which Grok expands in its config.
+const HOME_SKILLS: [&str; 7] = [
+    "~/.claude/skills",
+    "~/.claude/commands",
+    "~/.agents/skills",
+    "~/.agents/commands",
+    "~/.cursor/skills",
+    "~/.grok/skills",
+    "~/.grok/commands",
+];
+
+/// Tells Orca of the session's state through the hook Orca installs for
+/// Grok, where it did; prints nothing and succeeds.
+const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/grok-hook.sh\"; \
+     if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; \
+     else cat >/dev/null; fi; exit 0";
+
+/// What the host keeps for Grok beside the links: the configuration, and
+/// where its rules are.
+pub(super) fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+    Ok(vec![(CONFIG, configuration(start.hook)?), (TOLD_FILE, TOLD.into())])
+}
+
+/// The configuration a session gets. The host user's Grok config is not
+/// read: its hooks, MCP servers, plugins, permission mode and memories stay
+/// out, and so do Claude's and Cursor's of theirs, and every skill of the
+/// host user's.
+fn configuration(guard: &str) -> Result<String, String> {
+    let off = |cells: &[&str]| Toml::Table(cells.iter().map(|cell| (cell.to_string(), Toml::from(false))).collect());
+    let mut compat = toml::map::Map::new();
+    compat.insert("claude".into(), off(&["hooks", "mcps", "rules", "agents"]));
+    compat.insert("cursor".into(), off(&["hooks", "mcps", "skills", "rules", "agents"]));
+    let mut skills = toml::map::Map::new();
+    skills.insert("ignore".into(), Toml::Array(HOME_SKILLS.into_iter().map(Toml::from).collect()));
+    let command = |command: &str| {
+        let mut hook = toml::map::Map::new();
+        hook.insert("type".into(), Toml::from("command"));
+        hook.insert("command".into(), Toml::from(command));
+        hook.insert("timeout".into(), Toml::from(HOOK_TIMEOUT));
+        Toml::Table(hook)
+    };
+    let group = |hooks: Vec<Toml>| {
+        Toml::Array(vec![Toml::Table([("hooks".to_string(), Toml::Array(hooks))].into_iter().collect())])
+    };
+    let mut hooks = toml::map::Map::new();
+    hooks.insert("PreToolUse".into(), group(vec![command(&guard_asked(guard)), command(REPORT)]));
+
+    for event in STATE_EVENTS {
+        hooks.insert(event.into(), group(vec![command(REPORT)]));
+    }
+    let mut table = toml::map::Map::new();
+    table.insert("compat".into(), Toml::Table(compat));
+    table.insert("skills".into(), Toml::Table(skills));
+    table.insert("hooks".into(), Toml::Table(hooks));
+    toml::to_string_pretty(&Toml::Table(table)).map_err(|error| error.to_string())
+}
+
+/// Grok's hooks fail open on an unreadable or failed guard: every such
+/// outcome is turned into the refusal code, with the guard's reason on stderr.
+fn guard_asked(guard: &str) -> String {
+    format!(
+        "said=$({guard} 2>&1 >/dev/null) && exit 0; \
+         printf '%s\\n' \"${{said:-factorium guard: it could not be asked}}\" >&2; exit {REFUSED}"
+    )
+}
+
 pub(super) fn environment(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(USER_DIR)
         .fixed("=")
         .word(start.home.dir())
+        .fixed(" ")
+        .fixed(WORKTREE_ENV)
+        .fixed("=")
+        .word(start.worktree)
+        .fixed(" ")
+        .fixed(START_DIR_ENV)
+        .fixed("=")
+        .word(start.dir)
         .fixed(" GROK_MEMORY=0")
         .fixed(" GROK_CLAUDE_HOOKS_ENABLED=0")
         .fixed(" GROK_CLAUDE_MCPS_ENABLED=0")

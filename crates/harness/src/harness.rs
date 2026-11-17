@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use crate::line::Line;
-use crate::start::{Home, Launch, Start};
+use crate::start::{Home, Kept, Launch, Start};
 
 mod claude_code;
 mod codex;
@@ -121,22 +121,32 @@ impl Harness {
         })
     }
 
-    /// Readies the session's home `start.home` (made, and the host user's
-    /// login files linked into a kept directory) and answers the line a terminal runs to start a session as
-    /// `start` says, and what is typed at it once it runs to hand it its
-    /// brief. Each harness starts in `start.dir` and is given the worktree,
-    /// the hook, Orca's status report and the model; Grok works only in its
-    /// cwd, so it starts in the worktree.
-    pub fn launch(self, start: &Start) -> std::io::Result<Launch> {
+    /// Everything it takes to start a session as `start` says, read but
+    /// not done: what its home `start.home` must hold — the host user's
+    /// login files linked, and the files the tool carries or makes for this
+    /// harness, its guard among them — the line a terminal runs, and what is
+    /// typed at it once it runs to hand it its brief. Each harness starts in
+    /// `start.dir` and is given the worktree, the hook, Orca's status report
+    /// and the model; Grok works only in its cwd, so it starts in the
+    /// worktree. An error: a file of the host user's it is made from could
+    /// not be read as it must be.
+    pub fn launch(self, start: &Start) -> Result<Launch, String> {
         let home = start.home.path();
-        std::fs::create_dir_all(home)?;
-        for link in each!(self, KEPT_LINKS) {
-            let (from, to) = (start.user_home.join(link.home), home.join(link.kept));
-            if from.exists() && !to.exists() {
-                let _ = std::fs::create_dir_all(to.parent().unwrap_or(home));
-                let _ = std::os::unix::fs::symlink(&from, &to);
-            }
-        }
+        let mut kept = vec![Kept::Dir { path: home.to_path_buf() }];
+        let links = each!(self, KEPT_LINKS)
+            .iter()
+            .map(|link| (start.user_home.join(link.home), home.join(link.kept)))
+            .filter(|(to, _)| to.exists())
+            .map(|(to, path)| Kept::Link { path, to });
+        kept.extend(links);
+        let files = match self {
+            Harness::Pi => pi::kept(start),
+            Harness::Dsh => dsh::kept(start),
+            Harness::Kimi => kimi::kept(start)?,
+            Harness::Grok => grok::kept(start)?,
+            Harness::ClaudeCode | Harness::Codex => Vec::new(),
+        };
+        kept.extend(files.into_iter().map(|(path, text)| Kept::File { path: home.join(path), text }));
         let directory = match self {
             Harness::Grok => start.worktree,
             _ => start.dir,
@@ -152,9 +162,9 @@ impl Harness {
         let line = line.fixed(" && ").launch(&self.command(start.command));
         let line = each!(self, added(line, start)).done();
         Ok(match self {
-            Harness::ClaudeCode => Launch { line: claude_code::brief_at_start(&line, start.brief), typed: None },
-            Harness::Codex => Launch { line, typed: Some(codex::brief_line(start.brief)) },
-            _ => Launch { line, typed: Some(crate::brief::brief_pointer(start.brief)) },
+            Harness::ClaudeCode => Launch { kept, line: claude_code::brief_at_start(&line, start.brief), typed: None },
+            Harness::Codex => Launch { kept, line, typed: Some(codex::brief_line(start.brief)) },
+            _ => Launch { kept, line, typed: Some(crate::brief::brief_pointer(start.brief)) },
         })
     }
 
@@ -182,6 +192,21 @@ impl Harness {
     /// hook's stderr is shown to the session.
     pub const fn refused(self) -> u8 {
         each!(self, REFUSED)
+    }
+
+    /// Why `screen`, the end of a session's terminal, is not this harness's
+    /// own screen up, ready to be typed at: blank, a shell's prompt (its
+    /// program not started yet, or exited), or a question it asks before its
+    /// screen is up. `None`: it is up.
+    pub fn not_up(self, screen: &[String]) -> Option<String> {
+        let Some(row) = crate::screen::last_row(screen) else { return Some("its screen is blank".into()) };
+        if crate::screen::shell_prompt(row) {
+            return Some(format!("its screen is a shell's: {row}"));
+        }
+        match self {
+            Harness::Dsh if row.contains(dsh::ASKS_FIRST) => Some(format!("it asks before it starts: {row}")),
+            _ => None,
+        }
     }
 
     /// What `screen`, the end of a session's terminal, says stopped it.
