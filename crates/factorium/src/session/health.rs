@@ -50,7 +50,7 @@ impl App {
             return Ok(None);
         }
         let Some(sight) = self.see(&session) else { return Ok(None) };
-        let evidence = self.dir(&["evidence", &format!("{worker}-{}.txt", self.now())]);
+        let evidence = self.data().evidence(worker, self.now());
         let evidence = evidence.to_string_lossy().into_owned();
         let seen = Observation { worker, sight, load, quiet, evidence, settings: settings.clone() };
         match Verdict::of(&self.decide::<Observe>(seen).await?) {

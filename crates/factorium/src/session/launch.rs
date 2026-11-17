@@ -165,9 +165,7 @@ impl App {
 
     /// The watch's home and the brief its session is handed there.
     pub(crate) fn watch_home(&self) -> (PathBuf, PathBuf) {
-        let home = self.dir(&["watch"]);
-        let brief = home.join("BRIEF.md");
-        (home, brief)
+        (self.data().watch(), self.data().watch_brief())
     }
 
     /// What a session for `checkout` (the watch: `""`) starts on now; refused
@@ -193,10 +191,10 @@ impl App {
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
         let (dir, worktree, brief, title, mut env) = match role {
             Role::Worker { id, worktree, name, title, brief } => {
-                let path = self.dir(&["briefs", &format!("{name}.md")]);
+                let path = self.data().brief(name);
                 std::fs::create_dir_all(path.parent().expect("a parent")).map_err(io)?;
                 std::fs::write(&path, brief).map_err(io)?;
-                let dir = self.dir(&["role", "worker"]);
+                let dir = self.data().worker_role();
                 std::fs::create_dir_all(dir.join(factorium_harness::SKILLS)).map_err(io)?;
                 std::fs::write(dir.join(RULES), WORKER_RULES).map_err(io)?;
                 (dir, worktree.to_path_buf(), path, title.to_string(), vec![(WORKER_ENV, id.to_string())])
@@ -261,7 +259,7 @@ impl App {
             return Ok(None);
         }
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-        let dir = self.dir(&["secrets"]);
+        let dir = self.data().secrets();
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
         let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;

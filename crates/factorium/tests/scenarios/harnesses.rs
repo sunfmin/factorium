@@ -17,19 +17,18 @@ use factorium::host::Host;
 pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, open: bool, at: u64) {
     // The brief its session was handed: the watch's, in its home; a worker's,
     // named as its worktree.
-    let data = w.dir.join("data");
     let path = std::path::Path::new(cwd);
-    let brief = if path == data.join("watch") {
-        path.join("BRIEF.md")
+    let brief = if path == w.data().watch() {
+        w.data().watch_brief()
     } else {
-        data.join("briefs").join(format!("{}.md", path.file_name().unwrap().to_string_lossy()))
+        w.data().brief(&path.file_name().unwrap().to_string_lossy())
     };
     write_session_in(w, h, account, cwd, &brief.to_string_lossy(), open, at);
 }
 
 /// The stand-in session of `h` run in `dir` and handed `brief`.
 pub fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str, brief: &str, open: bool, at: u64) {
-    let kept = w.dir.join("data").join("kept").join(h.key());
+    let kept = w.data().kept(h.key());
     h.write_session(&h.home(&w.host.home(), account, &kept), dir, brief, open, at).unwrap();
 }
 
@@ -66,7 +65,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let h = Harness::read(key).unwrap();
         let cwd = wk["worktree"].as_str().unwrap();
         // A home its line points it nowhere at is the host user's own: the host keeps none for it.
-        let kept = w.dir.join("data").join("kept").join(key);
+        let kept = w.data().kept(key);
         assert!(term.line.contains(&*kept.to_string_lossy()) || !kept.exists(), "{key}: {}", term.line);
         let now = (w.app_now() / 1000) as u64;
         write_session(&w, h, None, cwd, true, now);
@@ -143,10 +142,10 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
         let (wk, line, dir, env, args) = started(&w, h).await;
-        let kept = w.dir.join("data").join("kept").join(key);
+        let kept = w.data().kept(key);
         let home = h.home(&w.host.home(), None, &kept);
         let at = |path: &str| std::fs::canonicalize(path).unwrap();
-        let (worktree, role) = (wk["worktree"].as_str().unwrap(), w.dir.join("data").join("role").join("worker"));
+        let (worktree, role) = (wk["worktree"].as_str().unwrap(), w.data().worker_role());
         let role = role.to_string_lossy();
         assert!(std::fs::read_to_string(at(&role).join(RULES)).unwrap().contains("You are a factorium worker"));
 
@@ -178,7 +177,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
 
         // What the host keeps for it is none of one session's: neither the
         // worker's nor the watch's, which started after it.
-        let sessions = [worktree.to_string(), w.dir.join("data").join("watch").to_string_lossy().into_owned()];
+        let sessions = [worktree.to_string(), w.data().watch().to_string_lossy().into_owned()];
         let mut files = vec![kept];
         while let Some(path) = files.pop() {
             let kind = std::fs::symlink_metadata(&path).map(|m| m.file_type());

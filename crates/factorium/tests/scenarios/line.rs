@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
+use factorium::LineClone;
 use factorium::host::Host;
 
 use crate::{World, id, worker};
@@ -222,7 +223,7 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     let web = w.checkout("web").await;
     w.kit().await;
     // A landing dir made the old way: a worktree of the checkout.
-    let landing = w.dir.join("data").join("landing").join("web");
+    let landing = w.data().clone_of(LineClone::Landing, "web");
     std::fs::create_dir_all(landing.parent().unwrap()).unwrap();
     w.git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
@@ -234,8 +235,8 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
-    for kind in ["landing", "promotion", "cut"] {
-        assert!(w.dir.join("data").join(kind).join("web").join(".git").is_dir(), "{kind} is a clone");
+    for kind in LineClone::ALL {
+        assert!(w.data().clone_of(kind, "web").join(".git").is_dir(), "{kind:?} is a clone");
     }
     let listed = w.git(&web, &["worktree", "list", "--porcelain"]).unwrap();
     let trees: Vec<_> = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).collect();

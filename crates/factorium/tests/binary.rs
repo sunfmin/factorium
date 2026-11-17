@@ -246,7 +246,7 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     assert_eq!(get("EnvironmentVariables.PATH"), format!("{}:/usr/bin", bin.display()), "declared, as found");
     let db = dir.0.join("data/factorium/factorium.db");
     assert_eq!(get("EnvironmentVariables.FACTORIUM_DB"), db.to_str().unwrap());
-    assert_eq!(get("StandardErrorPath"), dir.0.join("data/factorium/daemon.log").to_str().unwrap());
+    assert_eq!(get("StandardErrorPath"), factorium::Data::of(&db).log().to_str().unwrap());
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
 /// `stop` must; answers what it printed.
 fn daemon_for(dir: &Dir, ms: u64) -> std::process::Output {
     let mut daemon = bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
-    let pid = dir.0.join("data/factorium/daemon.pid");
+    let pid = factorium::Data::of(&dir.0.join("data/factorium/factorium.db")).pid();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !pid.exists() {
         let gone = daemon.try_wait().unwrap();

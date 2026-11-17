@@ -102,7 +102,7 @@ async fn a_program_two_kit_entries_need_is_missing_once() {
 async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
     let w = World::new();
     // A daemon that runs a newly installed binary keeps its pid, and its file.
-    std::fs::write(w.dir.join("data/daemon.pid"), std::process::id().to_string()).unwrap();
+    std::fs::write(w.data().pid(), std::process::id().to_string()).unwrap();
     let ran = w.app.run(&AtomicBool::new(true)).await.unwrap();
     assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
 }

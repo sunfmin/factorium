@@ -27,7 +27,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let term = w.terminal(wk["terminal"].as_str().unwrap());
     assert_eq!(term.worktree, tree);
     assert!(term.line.contains("claude --dangerously-skip-permissions"), "{}", term.line);
-    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+    let brief = std::fs::read_to_string(w.data().brief("web-1-1")).unwrap();
     assert!(
         brief.contains("Add a greeting") && brief.contains("Say hello.") && brief.contains("factorium worker done")
     );
@@ -216,7 +216,7 @@ async fn closing_or_parking_an_issue_ends_its_worker() {
 
 /// The brief a worker was handed.
 fn brief_of(w: &World, name: &str) -> String {
-    std::fs::read_to_string(w.dir.join("data").join("briefs").join(format!("{name}.md"))).unwrap()
+    std::fs::read_to_string(w.data().brief(name)).unwrap()
 }
 
 #[tokio::test]
@@ -465,9 +465,9 @@ async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
     w.app.issue_comment("web", 2, "use the v2 API").await.unwrap();
     w.tick().await;
     w.tick().await;
-    let a = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+    let a = std::fs::read_to_string(w.data().brief("web-1-1")).unwrap();
     assert!(!a.contains("## Comments"), "{a}");
-    let b = std::fs::read_to_string(w.dir.join("data/briefs/web-2-1.md")).unwrap();
+    let b = std::fs::read_to_string(w.data().brief("web-2-1")).unwrap();
     assert!(b.contains("## Comments\n\n- owner: use the v2 API\n"), "{b}");
 }
 
@@ -475,7 +475,7 @@ async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
 async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
     let w = World::new();
     assert_eq!(w.app.stop().await.unwrap()["why"], "no daemon runs");
-    let pid = w.dir.join("data/daemon.pid");
+    let pid = w.data().pid();
     // A pid no process has (macOS gives at most 99998).
     std::fs::write(&pid, "999999").unwrap();
     assert_eq!(w.app.stop().await.unwrap(), json!({ "stopped": false, "why": "no daemon runs", "watch_closed": null }));

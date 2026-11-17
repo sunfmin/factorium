@@ -45,7 +45,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let secrets = w.db.parent().unwrap().join("secrets");
+    let secrets = w.data().secrets();
     *w.host.orca.refuse_open.lock().unwrap() = true;
     let refused = w.app.tick().await.unwrap_err();
     assert!(refused.message.contains("orca terminal create: terminal_create_failed"), "not the kit's: {refused:?}");
@@ -180,7 +180,7 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
     w.app.worker_escalate(crate::id(&wk), "which API version?").await.unwrap();
     w.advance(5);
     assert_eq!(w.tick().await.watch.unwrap()["round"], serde_json::json!(null), "its session is not up yet");
-    let home = w.dir.join("data").join("watch");
+    let home = w.data().watch();
     let at = (w.app_now() / 1000) as u64;
     write_session(&w, Harness::Codex, Some("night"), &home.to_string_lossy(), false, at);
     w.advance(5);
@@ -261,6 +261,6 @@ async fn the_watch_starts_on_its_account_s_secret() {
     w.tick().await;
     let t = w.host.orca.terminals.lock().unwrap();
     let watch = t.values().find(|t| t.title == "factorium watch").expect("the watch's terminal");
-    let reads = watch.line.starts_with(". ") && watch.line.contains("/data/secrets/");
+    let reads = watch.line.starts_with(". ") && watch.line.contains(&format!("{}/", w.data().secrets().display()));
     assert!(reads && !watch.line.contains("sk-ant"), "it reads its secret from a file first");
 }

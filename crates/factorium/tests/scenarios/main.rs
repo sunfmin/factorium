@@ -29,7 +29,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use factorium::host::{Git, Host, Proc, Programs, Reading, Said};
-use factorium::{Answer, App, Tick};
+use factorium::{Answer, App, Data, Tick};
 use factum::{Instant, ManualClock, Uuid};
 use serde_json::{Value, json};
 
@@ -501,6 +501,11 @@ impl World {
         let db = dir.join("data").join(name);
         let app = App::open(&db, clock.clone(), "owner", host.clone()).unwrap();
         World { dir, db, clock, host, app }
+    }
+
+    /// Where the App keeps what it keeps beside the database.
+    pub fn data(&self) -> Data {
+        Data::of(&self.db)
     }
 
     /// Another CLI run on the same database.

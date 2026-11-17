@@ -51,7 +51,7 @@ impl Session {
 impl App {
     /// Where a session of `harness` on `account` keeps its files.
     pub(crate) fn session_home(&self, harness: Harness, account: Option<&str>) -> Home {
-        harness.home(&self.host.home(), account, &self.dir(&["kept", harness.key()]))
+        harness.home(&self.host.home(), account, &self.data().kept(harness.key()))
     }
 
     /// Worker `worker`'s session.

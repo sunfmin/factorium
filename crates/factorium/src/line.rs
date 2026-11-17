@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
 use crate::life::End;
-use crate::{Answer, App, fail};
+use crate::{Answer, App, LineClone, fail};
 
 /// Fast-forwards the checkout's local base to `tip`, never further, where
 /// nothing of it is lost; answers what it did, if it moved or failed.
@@ -78,7 +78,7 @@ impl App {
         let Some(st) = wk.started.clone() else { return Ok(Err("the worker never started".into())) };
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-        let here = git.fresh(&self.dir(&["landing", &c.name]), &tip).map_err(fail("git"))?;
+        let here = git.fresh(&self.data().clone_of(LineClone::Landing, &c.name), &tip).map_err(fail("git"))?;
         let issue = self.issue(&c.name, st.number).await?;
         let message = format!("Land {}#{}: {}", c.name, st.number, issue.title);
         // The worker's branch lives in the checkout, not in this clone.
@@ -126,7 +126,7 @@ impl App {
     /// fast-forwarded to it.
     async fn promote_tip(&self, c: &Checkout, git: &Git, tip: String, by_hand: bool) -> Answer<Did> {
         let base = git.fetch(&c.base).map_err(fail("git"))?;
-        let here = git.fresh(&self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
+        let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
         let at = At::Commit { rev: &tip, by_hand };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(Err(QUEUED.into())) };
         let behind = git.is_ancestor(&base, &tip);
@@ -151,7 +151,7 @@ impl App {
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().first().map(String::as_str));
-        let here = git.fresh(&self.dir(&["cut", &c.name]), &base).map_err(fail("git"))?;
+        let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
         let env = vec![("FACTORIUM_VERSION".to_string(), version.clone())];
         let record = |commit: &str, failed: Option<String>| line::Cut {
             checkout: c.name.clone(),

@@ -1,6 +1,7 @@
 //! Each bound of the host's readings at its edge: a reading at the bound
 //! still has room, one past it does not.
 
+use factorium::LineClone;
 use factorium::host::{Proc, Reading};
 use serde_json::json;
 
@@ -46,7 +47,7 @@ async fn each_admission_bound_has_room_at_its_value_and_none_past_it() {
 
 /// A build output in a landing worktree, as a gate leaves it.
 fn built(w: &World) -> std::path::PathBuf {
-    let target = w.db.parent().unwrap().join("landing").join("web-1").join("target");
+    let target = w.data().clone_of(LineClone::Landing, "web-1").join("target");
     std::fs::create_dir_all(&target).unwrap();
     std::fs::write(target.join("out"), "built").unwrap();
     target
