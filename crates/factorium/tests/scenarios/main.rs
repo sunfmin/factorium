@@ -5,12 +5,14 @@
 //! gives, so what the app makes of them runs as for real. Time moves when
 //! the scenario moves it.
 
+mod accounts;
 mod admission;
 mod bounds;
 mod comment;
 mod daemon;
 mod harnesses;
 mod line;
+mod one_harness;
 mod path;
 mod queue;
 mod stall;

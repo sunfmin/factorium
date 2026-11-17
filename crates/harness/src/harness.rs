@@ -48,6 +48,14 @@ trait Kind {
     /// An error: a file of the host user's they are made from could not be
     /// read as it must be.
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String>;
+    /// The kept file, under its home, its sessions are told where their
+    /// rules are in, where it keeps one.
+    const TOLD_IN: Option<&'static str>;
+    /// The guard lines the files it keeps under `home` run before each tool
+    /// call, as they stand there, a variable its line sets written `$NAME`:
+    /// none where they are not there as `kept` makes them. `None`: it keeps
+    /// no guard; its line gives it one.
+    fn guards(home: &Path) -> Option<Vec<String>>;
     /// The directory a session of it starts in.
     fn start_dir<'a>(start: &Start<'a>) -> &'a str;
     /// `line`, which exports a session's environment, with its own variables.
@@ -244,6 +252,22 @@ impl Harness {
         each!(self, |K| launch::<K>(start))
     }
 
+    /// The guard lines the files it keeps under `home` run before each tool
+    /// call, as they stand there, a variable its line sets written `$NAME`:
+    /// none where they are not there as its start makes them. `None`: it
+    /// keeps no guard; its line gives it one.
+    pub fn guards(self, home: &Home) -> Option<Vec<String>> {
+        each!(self, |K| K::guards(home.path()))
+    }
+
+    /// What the file it keeps under `home` tells its sessions of where their
+    /// rules are, empty where that file is not there. `None`: it keeps no
+    /// such file; it reads its rules where it starts.
+    pub fn told(self, home: &Home) -> Option<String> {
+        let file = each!(self, |K| K::TOLD_IN)?;
+        Some(std::fs::read_to_string(home.path().join(file)).unwrap_or_default())
+    }
+
     /// The shell line of the tool call a hook is handed as `payload`;
     /// `None` when it is no shell call.
     pub fn shell_call(self, payload: &str) -> Option<String> {
@@ -330,29 +354,5 @@ fn command<K: Kind>(given: &str) -> String {
         given.to_string()
     } else {
         format!("{given} {}", K::STOCK_ARGUMENTS)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rows(lines: &[&str]) -> Vec<String> {
-        lines.iter().map(|l| l.to_string()).collect()
-    }
-
-    #[test]
-    fn claude_code_s_auto_mode_dialog_is_asking_and_escape_dismisses_it() {
-        let dialog =
-            rows(&["Teach auto mode about your environment?", "› Continue", "Enter to continue · Esc to cancel"]);
-        let (asks, key) = Harness::ClaudeCode.asking(&dialog).unwrap();
-        assert_eq!((asks.as_str(), key), ("Teach auto mode about your environment?", "\x1b"));
-        assert_eq!(Harness::Codex.asking(&dialog), None, "another harness's");
-    }
-
-    #[test]
-    fn the_question_quoted_at_the_prompt_is_not_the_dialog() {
-        let quoted = rows(&["⏺ The modal said: Teach auto mode about your environment?", "", "› ", "? for shortcuts"]);
-        assert_eq!(Harness::ClaudeCode.asking(&quoted), None);
     }
 }

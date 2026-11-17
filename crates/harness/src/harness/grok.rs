@@ -103,7 +103,7 @@ fn configuration(guard: &str) -> Result<String, String> {
         Toml::Array(vec![Toml::Table([("hooks".to_string(), Toml::Array(hooks))].into_iter().collect())])
     };
     let mut hooks = toml::map::Map::new();
-    hooks.insert("PreToolUse".into(), group(vec![command(&guard_asked(guard)), command(REPORT)]));
+    hooks.insert(BEFORE_A_CALL.into(), group(vec![command(&guard_asked(guard)), command(REPORT)]));
 
     for event in STATE_EVENTS {
         hooks.insert(event.into(), group(vec![command(REPORT)]));
@@ -113,6 +113,17 @@ fn configuration(guard: &str) -> Result<String, String> {
     table.insert("skills".into(), Toml::Table(skills));
     table.insert("hooks".into(), Toml::Table(hooks));
     toml::to_string_pretty(&Toml::Table(table)).map_err(|error| error.to_string())
+}
+
+/// The event of Grok's before each tool call: where the guard is asked.
+const BEFORE_A_CALL: &str = "PreToolUse";
+
+/// The guard lines its kept configuration under `home` runs before a call.
+fn guards(home: &std::path::Path) -> Vec<String> {
+    let config = std::fs::read_to_string(home.join(CONFIG)).ok().and_then(|text| text.parse::<Toml>().ok());
+    let groups = config.as_ref().and_then(|config| config.get("hooks")?.get(BEFORE_A_CALL)?.as_array());
+    let hooks = groups.into_iter().flatten().filter_map(|group| group.get("hooks")?.as_array()).flatten();
+    hooks.filter_map(|hook| hook.get("command")?.as_str().map(String::from)).collect()
 }
 
 /// Grok's hooks fail open on an unreadable or failed guard: every such
@@ -292,6 +303,12 @@ impl Kind for Grok {
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         kept(start)
+    }
+
+    const TOLD_IN: Option<&'static str> = Some(TOLD_FILE);
+
+    fn guards(home: &std::path::Path) -> Option<Vec<String>> {
+        Some(guards(home))
     }
 
     /// Grok works only in its cwd, so it starts in the worktree.
