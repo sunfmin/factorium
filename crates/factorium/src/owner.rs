@@ -40,6 +40,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Wait>()
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
+        .command::<worker::NoteLoad>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()

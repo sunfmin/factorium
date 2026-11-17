@@ -61,18 +61,43 @@ pub struct Worker {
     pub since: i64,
     /// The landed commit.
     pub landed: Option<String>,
+    /// Since when its processes have been over their share, in ms.
+    #[serde(default)]
+    pub over_since: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WorkerEvent {
     WorkerStarted(Box<Started>),
-    LandingAsked { at: i64 },
-    LandingRed { why: String, at: i64 },
-    WorkerLanded { commit: String, at: i64 },
-    WorkerWaits { why: String, at: i64 },
-    WorkerResumed { at: i64 },
-    WorkerEnded { why: String, at: i64 },
+    LandingAsked {
+        at: i64,
+    },
+    LandingRed {
+        why: String,
+        at: i64,
+    },
+    WorkerLanded {
+        commit: String,
+        at: i64,
+    },
+    WorkerWaits {
+        why: String,
+        at: i64,
+    },
+    WorkerResumed {
+        at: i64,
+    },
+    WorkerEnded {
+        why: String,
+        at: i64,
+    },
+    /// Its processes went over their share.
+    WentOver {
+        at: i64,
+    },
+    /// Its processes are back within their share.
+    CameUnder,
 }
 
 pub struct Workers;
@@ -96,8 +121,12 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerLanded { commit, at } => {
                 (s.status, s.since, s.landed, s.why) = (Status::Ended, at, Some(commit), Some("landed".into()))
             }
-            WorkerEvent::WorkerWaits { why, at } => (s.status, s.why, s.since) = (Status::Waiting, Some(why), at),
+            WorkerEvent::WorkerWaits { why, at } => {
+                (s.status, s.why, s.since, s.over_since) = (Status::Waiting, Some(why), at, None)
+            }
             WorkerEvent::WorkerResumed { at } => (s.status, s.reds, s.why, s.since) = (Status::Working, 0, None, at),
+            WorkerEvent::WentOver { at } => s.over_since = Some(at),
+            WorkerEvent::CameUnder => s.over_since = None,
             WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
         }
     }
@@ -218,3 +247,28 @@ command!(EndWorker, "worker.end", Workers, Because, |p| p.worker, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::WorkerEnded { why: p.why.clone(), at: now.0 }])
 });
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Load {
+    pub worker: Uuid,
+    /// Whether its processes are over their share now.
+    pub over: bool,
+}
+
+command!(
+    /// Notes whether the worker's processes are over their share; the
+    /// first reading over starts its clock, one within stops it.
+    NoteLoad,
+    "worker.load",
+    Workers,
+    Load,
+    |p| p.worker,
+    |s, p, now| {
+        live(s)?;
+        Ok(match (p.over, s.over_since) {
+            (true, None) => vec![WorkerEvent::WentOver { at: now.0 }],
+            (false, Some(_)) => vec![WorkerEvent::CameUnder],
+            _ => Vec::new(),
+        })
+    }
+);
