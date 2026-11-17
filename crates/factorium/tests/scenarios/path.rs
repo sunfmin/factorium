@@ -60,7 +60,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!(cut["version"], "v0.1.0");
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
     // The first cut installs it, and Homebrew is asked what it has once done.
-    let installs = ["--prefix web", "update --quiet", "list --formula web", "install web", "list --versions web"];
+    let installs = ["update --quiet", "list --formula web", "install web", "list --versions web"];
     assert_eq!(w.host.brewed(), installs);
 }
 
