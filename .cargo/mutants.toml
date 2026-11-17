@@ -60,6 +60,15 @@ exclude_re = [
   'replace <impl Host for Machine>::(reading|processes) ->',
   'procs.rs:.*replace (list|parse) ->',
   'procs.rs:.* in parse$',
+  # The same for the host's reading of its CPU, memory and disk: only a
+  # mutant that keeps the binary sampling forever shows.
+  'reading.rs:.*replace (read|disk|load_share|memory_free|ticks|Cpu::busy) ->',
+  'reading.rs:.* in (disk|load_share|memory_free)$',
+  'reading.rs:(46|63|67|76):.*',
+  'reading.rs:37:.*replace (> with (==|>=)|>= with <) in Cpu::busy$',
+  'reading.rs:40:(31|35):.*',
+  'reading.rs:40:88:.*replace < with (<=|==) in Cpu::busy$',
+  'reading.rs:68:22:.*replace \+ with \* in ticks$',
   # Equivalent: Orca's exit status and its answer's `ok` agree.
   'replace \|\| with && in Orca.*::call$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
