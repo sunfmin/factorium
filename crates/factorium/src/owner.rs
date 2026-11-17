@@ -379,10 +379,12 @@ impl App {
         for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
             let issue = format!("{}#{}", w.checkout, w.number);
             let heard = self.state::<worker::Workers>(w.worker).await?.heard.into_iter().map(|(_, t)| t).collect();
-            seen.waiting.push((w.worker.to_string(), issue, w.state.why.unwrap_or_default(), heard));
+            let why = w.state.why.unwrap_or_default();
+            seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard });
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
-            seen.landing.push((w.worker.to_string(), w.checkout, w.number, w.state.since));
+            let (worker, since) = (w.worker.to_string(), w.state.since);
+            seen.landing.push(doctor::LandingSeen { worker, checkout: w.checkout, number: w.number, since });
         }
         for c in self.rows(tracker::listed()).await? {
             let line = self.state::<Lines>(line_id(&c.name)).await?;
@@ -394,13 +396,14 @@ impl App {
         }
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
-        seen.held = w.held.clone();
+        seen.held = w.held.clone().map(|(since, why)| doctor::HeldSeen { since, why });
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
-            seen.dead_letters.push((factorium_domain::tracker::TRACKER.into(), dead.len()));
+            let projection = factorium_domain::tracker::TRACKER.into();
+            seen.dead_letters.push(doctor::DeadLetters { projection, count: dead.len() });
         }
         Ok(seen)
     }

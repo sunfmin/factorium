@@ -5,6 +5,8 @@
 //! ([`Line::due`]); its commands record what the app did and refuse what
 //! the line does not hold. The app does the git and gate work it is told.
 
+use std::cmp::Ordering;
+
 use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
@@ -109,14 +111,45 @@ impl Look<'_> {
     fn idle(&self) -> bool {
         self.workers.iter().all(|(_, s)| *s == Status::Waiting)
     }
+}
 
-    /// Whether what began at `since` has waited `bound`.
-    fn waited(&self, since: i64, bound: Time) -> bool {
-        self.now - since >= self.settings.ms(bound)
+/// What the line owes, a promotion or a cut: since when, its bound, and
+/// how the wait so far stands to that bound. A move owed is due once it
+/// has waited its bound, and overdue past it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owed {
+    pub since: i64,
+    /// The bound, ms.
+    pub bound: i64,
+    pub wait: Ordering,
+}
+
+impl Owed {
+    /// It has waited its bound: due whatever the checkout does.
+    pub fn due(&self) -> bool {
+        self.wait.is_ge()
+    }
+
+    /// It has waited past its bound.
+    pub fn overdue(&self) -> bool {
+        self.wait.is_gt()
     }
 }
 
 impl Line {
+    /// What the line owes of `mv` at `now`: a promotion of its oldest
+    /// unpromoted landing, a cut of its oldest uncut promotion. A landing
+    /// is the worker's to ask, not the line's to owe.
+    pub fn owed(&self, mv: Move, now: i64, settings: &Settings) -> Option<Owed> {
+        let (since, bound) = match mv {
+            Move::Land => return None,
+            Move::Promote => (self.unpromoted.first()?.at, Time::PromotionBound),
+            Move::Cut => (*self.uncut.first()?, Time::CutBound),
+        };
+        let bound = settings.ms(bound);
+        Some(Owed { since, bound, wait: (now - since).cmp(&bound) })
+    }
+
     /// Whether `mv` is due on this checkout now, or why not, in one call.
     /// `tip` reads the proving tip: it is called only for a promotion due
     /// on everything else, which is then judged on that tip, and its error
@@ -148,8 +181,10 @@ impl Line {
 
     /// Whether a promotion is due on everything but the proving tip.
     fn promotable(&self, look: &Look) -> Result<(), String> {
-        let Some(oldest) = self.unpromoted.first() else { return Err("nothing to promote".into()) };
-        if !(look.by_hand || look.idle() || look.waited(oldest.at, Time::PromotionBound)) {
+        let Some(owed) = self.owed(Move::Promote, look.now, look.settings) else {
+            return Err("nothing to promote".into());
+        };
+        if !(look.by_hand || look.idle() || owed.due()) {
             return Err("the checkout is busy and its oldest landing waits within the promotion bound".into());
         }
         Ok(())
@@ -166,14 +201,14 @@ impl Line {
     }
 
     fn cut(&self, look: &Look) -> Result<Due, String> {
-        let Some(&oldest) = self.uncut.first() else {
+        let Some(owed) = self.owed(Move::Cut, look.now, look.settings) else {
             return Err("nothing promoted since the last cut".into());
         };
         if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
             return Err(format!("cutting {version} failed; a cut by hand tries again: {why}"));
         }
         let settled = look.idle() && self.unpromoted.is_empty();
-        if !(look.by_hand || settled || look.waited(oldest, Time::CutBound)) {
+        if !(look.by_hand || settled || owed.due()) {
             return Err(
                 "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound".into()
             );
