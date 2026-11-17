@@ -7,16 +7,29 @@
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
+use crate::declared::Kind;
 use crate::{command, id, no};
 
 pub fn queue_id() -> Uuid {
     id("heavy")
 }
 
-/// What a proving line's heavy command is called: `job` (`fast gate`,
-/// `slow gate`, `cut`) of `checkout`. Doctor knows a line's move runs by it.
-pub fn line_job(checkout: &str, job: &str) -> String {
-    format!("{job} of {checkout}")
+/// A proving line's heavy command. Its name is made here alone: the binary
+/// queues it by that name, and doctor knows by it that a line's move runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineJob {
+    Gate(Kind),
+    Cut,
+}
+
+impl LineJob {
+    /// What the queue calls this job of `checkout`.
+    pub fn of(self, checkout: &str) -> String {
+        match self {
+            LineJob::Gate(kind) => format!("{} gate of {checkout}", kind.as_str()),
+            LineJob::Cut => format!("cut of {checkout}"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -52,8 +65,8 @@ impl Queue {
     }
 
     /// Whether the line job `job` of `checkout` runs now.
-    pub fn runs(&self, checkout: &str, job: &str) -> bool {
-        let what = line_job(checkout, job);
+    pub fn runs(&self, checkout: &str, job: LineJob) -> bool {
+        let what = job.of(checkout);
         self.running().any(|e| e.what == what)
     }
 
