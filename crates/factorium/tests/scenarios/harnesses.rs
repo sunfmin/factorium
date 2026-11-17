@@ -106,7 +106,7 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
     w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields);
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!(wk["account"], "night");
