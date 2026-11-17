@@ -264,10 +264,11 @@ impl App {
         let none = Account::default();
         let rows: Vec<Value> = self
             .accounts_here()
+            .usable
             .into_iter()
-            .map(|(name, harness, _)| {
-                let a = kit.accounts.get(&name).unwrap_or(&none);
-                json!({ "name": name, "harness": harness, "left": a.left(now), "limited_until": a.limited_until, "windows": a.windows })
+            .map(|u| {
+                let a = kit.accounts.get(&u.name).unwrap_or(&none);
+                json!({ "name": u.name, "harness": u.harness.key(), "left": a.left(now), "limited_until": a.limited_until, "windows": a.windows })
             })
             .collect();
         Ok(Value::Array(rows))
@@ -362,7 +363,11 @@ impl App {
         }
         let reading = self.host.reading();
         let heavy = self.state::<heavy::Heavy>(heavy::queue_id()).await?.entries;
+        let skipped: Vec<Value> =
+            self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
         Ok(json!({
+            // The engine accounts no session can start on here, and why.
+            "accounts_skipped": skipped,
             "heavy": heavy,
             "findings": findings,
             "human": seen.human,
