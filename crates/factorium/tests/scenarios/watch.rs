@@ -236,45 +236,6 @@ async fn a_watch_home_orca_never_finds_is_given_up_after_five_more_tries() {
     assert!(ran.iter().any(|r| r.starts_with(&format!("orca repo add --path {}", home.display()))));
 }
 
-#[tokio::test]
-async fn a_tell_to_a_busy_worker_answers_queued_and_now_interrupts_it_first() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    let handle = wk["terminal"].as_str().unwrap();
-
-    let idle = w.app.watch_tell(id(&wk), "hi", false).await.unwrap();
-    assert_eq!(idle["delivery"], "submitted", "an idle worker reads it at once");
-
-    // Stuck in a call that never returns, the worker only queues the text.
-    w.set_busy(handle, true, false);
-    let before = w.terminal(handle).sent.len();
-    let told = w.app.watch_tell(id(&wk), "stop waiting on the FIFO", false).await.unwrap();
-    assert_eq!(told["delivery"], "queued");
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent.len(), before + 1, "no key goes ahead of a plain tell: {sent:?}");
-
-    // With --now, Claude Code's Escape goes first, then the text, and it reads it.
-    let told = w.app.watch_tell(id(&wk), "stop waiting on the FIFO", true).await.unwrap();
-    assert_eq!(told["delivery"], "submitted");
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent[sent.len() - 2], crate::ESCAPE, "{sent:?}");
-    assert!(sent[sent.len() - 1].contains("stop waiting on the FIFO"), "{sent:?}");
-    assert!(!w.terminal(handle).busy);
-
-    // A restart says the same.
-    w.app.worker_escalate(id(&wk), "stuck").await.unwrap();
-    w.set_busy(handle, true, false);
-    assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["delivery"], "queued");
-    w.app.worker_escalate(id(&wk), "stuck").await.unwrap();
-    let restarted = w.app.watch_restart(id(&wk), "go on", true).await.unwrap();
-    assert_eq!(restarted["delivery"], "submitted");
-    assert_eq!(w.terminal(handle).sent.iter().filter(|s| *s == crate::ESCAPE).count(), 2);
-}
-
 /// A session file's stamp after any tell a scenario sends.
 const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
 

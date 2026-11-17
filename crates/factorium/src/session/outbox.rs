@@ -1,0 +1,163 @@
+//! The one route of every message to a session. A caller says who it is
+//! from and what it says; the outbox formats it, gives it to the session's
+//! record, and tries what the session has to be typed, oldest first: typed
+//! only once its harness is up, the running turn stopped first only when
+//! asked, and checked against the session's turn. What is held is tried
+//! again on the session's next look. A worker a message is lost on goes to
+//! the watch at once.
+
+use factorium_domain::outbox::{
+    Give, GiveMessage, Message, Outbox, Outboxes, Outcome, Sender, Try, TryMessage, outbox_id,
+};
+use factorium_domain::watch::{Watches, watch_id};
+use factorium_domain::worker as w;
+use factorium_harness::Turn;
+use factorium_host::{Delivery, Term};
+use factum::Uuid;
+use serde_json::json;
+
+use super::Session;
+use crate::{Answer, App, Refusal};
+
+impl App {
+    /// Passes `text` from `from` to session `s`, behind what it holds; answers
+    /// how it went. `now`: first stops the running turn with the harness's
+    /// own key, so a session stuck in a call reads it at once.
+    pub(crate) async fn tell(&self, s: &Session, from: Sender, text: &str, now: bool) -> Answer<Outcome> {
+        let text = format_message(&from, text);
+        self.submit::<GiveMessage>(Give { terminal: s.terminal.clone(), from, text }).await?;
+        let n = self.outbox(s).await?.messages.len() as u64;
+        let tried = self.flush(s, Some((n, now))).await?;
+        Ok(tried.into_iter().find(|(m, _)| *m == n).map(|(_, o)| o).expect("the message given is tried"))
+    }
+
+    /// Hands a session the line its start left to be typed, once its
+    /// harness has had up to a minute to settle.
+    pub(crate) async fn hand_brief(&self, s: &Session, typed: &str) -> Answer<Outcome> {
+        let _ = self.host.orca().ready(&s.terminal);
+        self.tell(s, Sender::Brief, typed, false).await
+    }
+
+    /// Tries again what session `s` holds: on each look at it.
+    pub(crate) async fn retry(&self, s: &Session) -> Answer<()> {
+        self.flush(s, None).await.map(drop)
+    }
+
+    /// `factorium outbox`: what was passed to worker `worker`'s session, or
+    /// the watch's, and how each delivery went, oldest first.
+    pub async fn outbox_of(&self, worker: Option<Uuid>) -> Answer {
+        let terminal = match worker {
+            Some(id) => self.state::<w::Workers>(id).await?.started.map(|st| st.terminal),
+            None => self.state::<Watches>(watch_id()).await?.terminal,
+        };
+        let terminal = terminal.ok_or_else(|| Refusal::new("no_session", "no such session"))?;
+        let messages = self.state::<Outboxes>(outbox_id(&terminal)).await?.messages;
+        Ok(json!({ "terminal": terminal, "messages": messages }))
+    }
+
+    /// Session `s`'s outbox.
+    pub(crate) async fn outbox(&self, s: &Session) -> Answer<Outbox> {
+        self.state::<Outboxes>(outbox_id(&s.terminal)).await
+    }
+
+    /// Tries each message `s` has still to be tried, oldest first; `now`:
+    /// message `n` stops the running turn first. What comes after a brief
+    /// still held waits on it: a comment goes into the brief, anything else
+    /// is refused as the brief was. Answers how each try went.
+    async fn flush(&self, s: &Session, now: Option<(u64, bool)>) -> Answer<Vec<(u64, Outcome)>> {
+        let mut blocked: Option<Outcome> = None;
+        let mut tried = Vec::new();
+        for m in self.outbox(s).await?.messages.into_iter().filter(Message::pending) {
+            let outcome = match (&blocked, &m.from) {
+                (Some(_), Sender::Comment) => add_to_brief(&s.brief, &m.text)
+                    .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
+                (Some(held), _) => held.clone(),
+                (None, _) => self.deliver(s, &m, now == Some((m.n, true))),
+            };
+            self.submit::<TryMessage>(Try { terminal: s.terminal.clone(), n: m.n, outcome: outcome.clone() }).await?;
+            let m = Message { outcome: Some(outcome.clone()), ..m };
+            if m.pending() {
+                blocked = Some(outcome.clone());
+            }
+            if let (Some(worker), Some(why)) = (s.worker, m.lost()) {
+                match self.submit::<w::Wait>(w::Because { worker, why }).await {
+                    // An ended worker waits for no one.
+                    Err(r) if r.code == "ended" => {}
+                    other => other?,
+                }
+            }
+            tried.push((m.n, outcome));
+        }
+        Ok(tried)
+    }
+
+    /// Types one message at its session. A brief is typed and no more; any
+    /// other is watched for the turn it starts, and checked against the
+    /// session's turn: it waits behind a running turn, or it missed.
+    fn deliver(&self, s: &Session, m: &Message, now: bool) -> Outcome {
+        if let Err(r) = self.up(s) {
+            return not_typed(r.code, r.message);
+        }
+        let orca = self.host.orca();
+        if m.from == Sender::Brief {
+            return orca.send(&s.terminal, &m.text).map_or_else(|e| not_typed("orca", e), |()| Outcome::Typed);
+        }
+        let since = (self.now() / 1000).saturating_sub(1) as u64;
+        let key = now.then(|| s.harness.interrupt());
+        let seen = match orca.deliver(&s.terminal, &m.text, key) {
+            Ok(seen) => seen,
+            Err(e) => return not_typed("orca", e),
+        };
+        // Orca misses a turn that starts right after an interrupt or ends
+        // within a second; the session's own file, where its harness keeps
+        // one, says whether the text was taken as a prompt.
+        let home = self.session_home(s.harness, s.account.as_deref());
+        if seen == Delivery::Submitted || s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, since) == Some(true) {
+            return Outcome::Submitted;
+        }
+        if matches!(self.turn(s), Some(Turn::Open { .. })) {
+            return Outcome::Queued;
+        }
+        let shows = match orca.screen(&s.terminal) {
+            Term::Running(screen) => {
+                screen.iter().rev().take(3).rev().map(|r| r.trim()).collect::<Vec<_>>().join(" / ")
+            }
+            _ => "unreadable".into(),
+        };
+        Outcome::Missed { why: format!("typed, it started no turn and none runs; its screen ends: {shows}") }
+    }
+}
+
+/// What a sender who waits on the answer hears: the refusal of a message
+/// not typed.
+pub(crate) fn heard(outcome: Outcome) -> Answer<Outcome> {
+    match outcome {
+        Outcome::NotTyped { code, why } => Err(Refusal::new(&code, why)),
+        other => Ok(other),
+    }
+}
+
+fn not_typed(code: impl Into<String>, why: impl Into<String>) -> Outcome {
+    Outcome::NotTyped { code: code.into(), why: why.into() }
+}
+
+/// A message as it is typed: opened as its sender's, on one line.
+fn format_message(from: &Sender, text: &str) -> String {
+    if *from == Sender::Brief {
+        return text.into();
+    }
+    let text = format!("{}{text}", from.prefix());
+    text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" | ")
+}
+
+/// Adds a comment to a brief not yet handed, under its own heading.
+fn add_to_brief(brief: &str, typed: &str) -> std::io::Result<()> {
+    const HEAD: &str = "\n## Comments since\n\n";
+    let text = typed.strip_prefix(&Sender::Comment.prefix()).unwrap_or(typed);
+    let mut b = std::fs::read_to_string(brief)?;
+    if !b.contains(HEAD) {
+        b.push_str(HEAD);
+    }
+    b.push_str(&format!("- {text}\n"));
+    std::fs::write(brief, b)
+}

@@ -47,10 +47,6 @@ pub struct Started {
     pub base: String,
     /// When it started, in ms.
     pub at: i64,
-    /// The line typed at its session to hand it its brief, once its harness
-    /// is up; `None`: the brief is on its start line.
-    #[serde(default)]
-    pub typed: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -68,9 +64,6 @@ pub struct Worker {
     /// Since when its processes have been over their share, in ms.
     #[serde(default)]
     pub over_since: Option<i64>,
-    /// Its `typed` line was typed at its session.
-    #[serde(default)]
-    pub handed: bool,
     /// Its turn open, its processes near idle and its screen unchanged:
     /// that screen's hash, and since when, in ms.
     #[serde(default)]
@@ -79,13 +72,6 @@ pub struct Worker {
     /// ms: its watch episode carries them.
     #[serde(default)]
     pub heard: Vec<(i64, String)>,
-}
-
-impl Worker {
-    /// The line still to be typed to hand it its brief.
-    pub fn unhanded(&self) -> Option<&str> {
-        self.started.as_ref().and_then(|st| st.typed.as_deref()).filter(|_| !self.handed)
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -99,8 +85,8 @@ pub enum WorkerEvent {
         why: String,
         at: i64,
     },
-    /// Its landing's red was typed at its session: whether it reached the
-    /// prompt (started a turn, or waits behind the running one).
+    /// Written before the outbox (#47), which now records what reached
+    /// its session; read and ignored.
     RedTold {
         reached: bool,
         at: i64,
@@ -126,7 +112,7 @@ pub enum WorkerEvent {
     },
     /// Its processes are back within their share.
     CameUnder,
-    /// Its brief was typed at its session.
+    /// Written before the outbox (#47); read and ignored.
     BriefHanded,
     /// Its turn open, its processes near idle, showing this screen.
     WentQuiet {
@@ -194,7 +180,7 @@ impl Aggregate for Workers {
             WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
             WorkerEvent::CameUnder => s.over_since = None,
-            WorkerEvent::BriefHanded => s.handed = true,
+            WorkerEvent::BriefHanded => {}
             WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
             WorkerEvent::SessionClosed { .. } | WorkerEvent::WentHot { .. } | WorkerEvent::UsedUp { .. } => {}
         }
@@ -225,19 +211,6 @@ command!(StartWorker, "worker.start", Workers, Start, |p| p.worker, |s, p, now| 
     started.at = now.0;
     Ok(vec![WorkerEvent::WorkerStarted(Box::new(started))])
 });
-
-command!(
-    /// Its brief was typed at its session, its harness up.
-    HandBrief,
-    "worker.handed",
-    Workers,
-    Of,
-    |p| p.worker,
-    |s, _p, _now| {
-        live(s)?;
-        Ok(if s.unhanded().is_some() { vec![WorkerEvent::BriefHanded] } else { Vec::new() })
-    }
-);
 
 fn live(s: &Worker) -> Result<(), Rejection> {
     match (&s.started, s.status) {
@@ -277,37 +250,6 @@ command!(
         let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0 }];
         if s.reds + 1 >= 2 {
             events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
-        }
-        Ok(events)
-    }
-);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Told {
-    pub worker: Uuid,
-    /// Why the red did not reach its session's prompt; `None`: it did.
-    pub missed: Option<String>,
-}
-
-command!(
-    /// Its landing's red was typed at its session; one that did not reach
-    /// the prompt sends it to the watch at once, not after its silence.
-    ToldRed,
-    "worker.red_told",
-    Workers,
-    Told,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        if s.status != Status::Working {
-            return Ok(Vec::new());
-        }
-        let mut events = vec![WorkerEvent::RedTold { reached: p.missed.is_none(), at: now.0 }];
-        if let Some(why) = &p.missed {
-            events.push(WorkerEvent::WorkerWaits {
-                why: format!("its landing's red did not reach it: {why}"),
-                at: now.0,
-            });
         }
         Ok(events)
     }

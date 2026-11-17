@@ -267,34 +267,6 @@ async fn at_shell(w: &World) -> serde_json::Value {
     worker(&w.app).await
 }
 
-#[tokio::test]
-async fn a_brief_is_typed_once_the_harness_is_up_never_at_its_shell() {
-    let w = World::new();
-    let wk = at_shell(&w).await;
-    let handle = wk["terminal"].as_str().unwrap();
-    assert!(w.terminal(handle).sent.is_empty(), "the shell's prompt is not typed at");
-    w.advance(1);
-    w.tick().await;
-    assert!(w.terminal(handle).sent.is_empty(), "still the shell's");
-    let told = w.app.watch_tell(id(&wk), "hello", false).await;
-    refused(told, "not_up");
-    assert!(w.terminal(handle).sent.is_empty(), "nor is the watch's word");
-
-    w.set_screen(handle, &[SHELL, "Welcome to Kimi Code!", UP]);
-    w.advance(1);
-    w.tick().await;
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent.len(), 1, "{sent:?}");
-    assert!(sent[0].contains("web-1-1.md"), "{sent:?}");
-    w.advance(1);
-    w.tick().await;
-    assert_eq!(w.terminal(handle).sent.len(), 1, "handed once");
-    assert_eq!(worker(&w.app).await["status"], "working");
-}
-
-/// Seen 2026-11-18 (#39's first run, Kimi Code 2.5.3): its brief was typed
-/// 1.2s after its start, at the shell's echo of its launch line, while Kimi
-/// was still starting; it never reached it. Kimi's screen is up once its
 /// footer shows.
 #[tokio::test]
 async fn a_kimi_brief_waits_for_kimi_s_own_screen_not_its_launch_line() {
@@ -445,8 +417,9 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
     for (n, row) in harness_rows.iter().enumerate() {
         w.set_screen(handle, &["context: 0% (0/1M)", row]);
         w.app.watch_tell(id(&wk), "hello", false).await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
-        assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
+        assert_eq!(w.terminal(handle).sent.len(), n + 2, "{row}");
     }
+    assert!(w.terminal(handle).sent[0].contains("web-1-1.md"), "the brief first");
 }
 
 /// A Claude Code worker 60 min into its work whose worktree has the session

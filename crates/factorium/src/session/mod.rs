@@ -1,24 +1,26 @@
 //! A harness session, from open to a confirmed close: the one module that
 //! reaches Orca's terminals. It opens a session's terminal (the kit's pick,
 //! its harness's launch line); sees what it is doing from its screen and its
-//! session files (the session file is the turn); types at it only once its
-//! harness is up; and closes it, confirmed against Orca's list of
+//! session files (the session file is the turn); passes it messages through
+//! its outbox ([`outbox`]), typed only once its harness is up; and closes it, confirmed against Orca's list of
 //! terminals, a failed close recorded. Doctor's orphans are read from that
 //! same list.
 
 mod health;
 mod launch;
+mod outbox;
 
 use factorium_domain::health::Sight;
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, EndWatch, Watch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status};
 use factorium_harness::{Harness, Home, Stop, Turn};
-use factorium_host::{Delivery, Term};
+use factorium_host::Term;
 use factum::Uuid;
 
 pub use launch::{Caller, DB_ENV};
 pub(crate) use launch::{Opened, Pick, Role};
+pub(crate) use outbox::heard;
 
 use crate::{Answer, App, Refusal};
 
@@ -29,6 +31,8 @@ const DISMISS_TRIES: u32 = 3;
 /// One harness session, as it was started.
 pub(crate) struct Session {
     terminal: String,
+    /// The worker it is, if it is a worker's.
+    worker: Option<Uuid>,
     harness: Harness,
     account: Option<String>,
     /// Its working directory, and the brief it was handed.
@@ -49,11 +53,12 @@ impl App {
         harness.home(&self.host.home(), account, &self.dir(&["kept", harness.key()]))
     }
 
-    /// A worker's session.
-    pub(crate) fn worker_session(st: &w::Started) -> Answer<Session> {
+    /// Worker `worker`'s session.
+    pub(crate) fn worker_session(worker: Uuid, st: &w::Started) -> Answer<Session> {
         let harness = Harness::read(&st.harness).ok_or_else(|| Refusal::new("no_harness", st.harness.clone()))?;
         Ok(Session {
             terminal: st.terminal.clone(),
+            worker: Some(worker),
             harness,
             account: st.account.clone(),
             cwd: st.worktree.clone(),
@@ -66,6 +71,7 @@ impl App {
         let (home, brief) = self.watch_home();
         Some(Session {
             terminal: watch.terminal.clone()?,
+            worker: None,
             harness: watch.harness.as_deref().and_then(Harness::read)?,
             account: watch.account.clone(),
             cwd: home.to_string_lossy().into_owned(),
@@ -81,12 +87,6 @@ impl App {
             Term::Exited => Ok(true),
             Term::Unreadable(why) => Err(why),
         }
-    }
-
-    /// Waits, up to a minute, for the program a session's terminal was
-    /// opened with to be up and its screen to settle.
-    fn settle(&self, terminal: &str) {
-        let _ = self.host.orca().ready(terminal);
     }
 
     /// What a session is doing, seen from outside; `None`: Orca did not
@@ -110,50 +110,6 @@ impl App {
             Some(Turn::Closed { since, .. }) => Sight::Closed(Some(since as i64 * 1000)),
             None => Sight::Closed(None),
         })
-    }
-
-    /// Types `text` and Enter at a session, only once its harness's own
-    /// screen is up there: typed at a shell, a line is a command it runs.
-    pub(crate) fn type_at(&self, s: &Session, text: &str) -> Answer<()> {
-        self.up(s)?;
-        self.host.orca().send(&s.terminal, text).map_err(crate::fail("orca"))
-    }
-
-    /// Types `text` and Enter at a session whose harness is up, and answers
-    /// whether it started a turn. `now`: first stops the running turn with
-    /// the harness's own key, so a session stuck in a call reads it at once.
-    /// Orca misses a turn that starts right after an interrupt or ends
-    /// within a second; the session's own file, where its harness keeps
-    /// one, says whether the text was taken as a prompt.
-    pub(crate) fn deliver_at(&self, s: &Session, text: &str, now: bool) -> Answer<Delivery> {
-        self.up(s)?;
-        let since = (self.now() / 1000).saturating_sub(1) as u64;
-        let key = now.then(|| s.harness.interrupt());
-        let seen = self.host.orca().deliver(&s.terminal, text, key).map_err(crate::fail("orca"))?;
-        let home = self.session_home(s.harness, s.account.as_deref());
-        let took = || s.harness.prompted(&home, &s.cwd, &s.brief, text, since) == Some(true);
-        Ok(if seen == Delivery::Queued && took() { Delivery::Submitted } else { seen })
-    }
-
-    /// Types `text` at a worker's session that is idle at its prompt, and
-    /// answers whether it reached it: it started a turn, or waits behind the
-    /// one running. `Err`: why it did not.
-    pub(crate) fn reach(&self, s: &Session, text: &str) -> Result<(), String> {
-        let open = || matches!(self.turn(s), Some(Turn::Open { .. }));
-        match self.deliver_at(s, text, false) {
-            Ok(Delivery::Submitted) => Ok(()),
-            Ok(Delivery::Queued) if open() => Ok(()),
-            Ok(Delivery::Queued) => {
-                let shows = match self.host.orca().screen(&s.terminal) {
-                    Term::Running(screen) => {
-                        screen.iter().rev().take(3).rev().map(|r| r.trim()).collect::<Vec<_>>().join(" / ")
-                    }
-                    _ => "unreadable".into(),
-                };
-                Err(format!("typed, it started no turn and none runs; its screen ends: {shows}"))
-            }
-            Err(r) => Err(r.message),
-        }
     }
 
     /// The turn a session's files say it is in.

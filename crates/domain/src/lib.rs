@@ -16,6 +16,7 @@ pub mod heavy;
 pub mod issue;
 pub mod kit;
 pub mod line;
+pub mod outbox;
 pub mod settings;
 pub mod tracker;
 pub mod watch;

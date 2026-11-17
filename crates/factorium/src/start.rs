@@ -5,7 +5,8 @@
 //! opened as [`crate::launch`] says.
 
 use factorium_domain::issue::{Take, TakeIssue};
-use factorium_domain::watch::{self, StartWatch};
+use factorium_domain::outbox::Outcome;
+use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use serde_json::json;
@@ -26,10 +27,23 @@ impl App {
         let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
         self.submit::<TakeIssue>(Take { checkout: checkout.into(), number, worker }).await?;
         match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
-            Ok(st) => {
+            Ok((st, typed)) => {
                 let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
+                let session = Self::worker_session(worker, &st);
                 self.submit::<w::StartWorker>(w::Start { worker, started: st }).await?;
-                self.hand_worker_brief(worker, true).await?;
+                if let Some(typed) = typed {
+                    match self.hand_brief(&session?, &typed).await? {
+                        // Typed once the harness is up, on a later look.
+                        Outcome::NotTyped { code, .. } if code == "not_up" => {}
+                        // Up, yet Orca would not type at it: the start fails,
+                        // and what factorium opened, factorium closes.
+                        Outcome::NotTyped { code, why } => {
+                            self.end_worker(worker, &format!("its brief could not be typed: {why}"), true).await?;
+                            return Err(crate::Refusal::new(&code, why));
+                        }
+                        _ => {}
+                    }
+                }
                 Ok(shown)
             }
             Err(r) => {
@@ -48,7 +62,7 @@ impl App {
         worker: factum::Uuid,
         pick: &Pick,
         tip: String,
-    ) -> Answer<Started> {
+    ) -> Answer<(Started, Option<String>)> {
         let name = format!("{}-{}-{attempt}", c.name, issue.number);
         let next = self.next_worktree(c, issue, &name, &tip).await?;
         let (path, branch, resumed) = (next.path, next.branch, next.resumed);
@@ -56,7 +70,7 @@ impl App {
         let brief = worker_brief(c, issue, &branch, resumed.as_ref());
         let role = Role::Worker { id: worker, worktree: &path, name: &name, title: &title, brief: &brief };
         let opened = self.open_session(role, pick)?;
-        Ok(Started {
+        let started = Started {
             checkout: c.name.clone(),
             number: issue.number,
             attempt,
@@ -69,8 +83,8 @@ impl App {
             brief: opened.brief.to_string_lossy().into_owned(),
             base: tip,
             at: 0,
-            typed: opened.typed,
-        })
+        };
+        Ok((started, opened.typed))
     }
 
     /// Starts the watch's session if the kit has a harness and none runs:
@@ -94,10 +108,12 @@ impl App {
             terminal: terminal.clone(),
             harness: pick.harness.key().into(),
             account: pick.account.clone(),
-            typed,
         })
         .await?;
-        self.hand_watch_brief(true).await?;
+        let started = self.state::<Watches>(watch_id()).await?;
+        if let (Some(s), Some(typed)) = (self.watch_session(&started), typed) {
+            self.hand_brief(&s, &typed).await?;
+        }
         Ok(Some(terminal))
     }
 }

@@ -123,14 +123,28 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
 
+Every message to a session — a brief, a landing's red, a round, `watch
+tell` and `watch restart`, a comment — goes through that session's outbox,
+one record of who it was from, the line typed, and how it went: `typed` (a
+brief), `submitted` (it started a turn), `queued` (it waits behind the
+running turn), `brief` (written into a brief still to be typed),
+`not_typed` (the harness was not up, the terminal gone, Orca refused), or
+`missed` (typed, it started no turn and none runs: a dialog took it).
+Nothing is typed before the harness is up, nor ahead of the brief. A brief
+not typed is held and tried again on the session's next look; anything
+else not typed is refused to its sender, and a red no one hears refused
+sends its worker to the watch. A missed message sends its worker to the
+watch at once; a missed round is passed again on the next look.
+`factorium outbox [--worker <id>]` answers the record.
+
 `issue comment` records the comment and reaches the live worker on the
-issue at once, through the same delivery as `watch tell`, never stopping
+issue at once, through the same outbox as `watch tell`, never stopping
 its running turn: a working worker gets one line typed at its session
-(`delivery: submitted` or `queued`); one whose brief is not yet handed
+(`delivery: submitted`, `queued`, or `missed`); one whose brief is not yet handed
 gets it in that brief (`brief`); a waiting one is not typed at, its watch
 episode carries it (`watch`); with no worker, or when delivery fails
 (`undelivered` says why), `none`. The next brief carries every comment.

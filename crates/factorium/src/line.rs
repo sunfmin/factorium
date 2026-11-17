@@ -12,6 +12,7 @@ use factorium_domain::declared::Kind;
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
+use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_host::Git;
 use factum::Uuid;
@@ -95,17 +96,10 @@ impl App {
     async fn red(&self, worker: Uuid, why: String) -> Answer<Value> {
         self.submit::<w::RedLanding>(w::Because { worker, why: why.clone() }).await?;
         let wk = self.state::<Workers>(worker).await?;
-        if wk.status == Status::Working {
-            let text = format!(
-                "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
-            );
-            if let Some(st) = &wk.started {
-                let missed = match Self::worker_session(st) {
-                    Ok(s) => self.reach(&s, &one_line(&text)).err(),
-                    Err(r) => Some(r.message),
-                };
-                self.submit::<w::ToldRed>(w::Told { worker, missed }).await?;
-            }
+        // A red that does not reach it sends it to the watch at once, not after its silence.
+        if let (Status::Working, Some(st)) = (wk.status, &wk.started) {
+            let text = format!("your landing was red. {why}\nFix it, commit, and run `factorium worker done` again.");
+            self.tell(&Self::worker_session(worker, st)?, Sender::Factorium, &text, false).await?;
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }
@@ -193,9 +187,4 @@ impl App {
         let c = self.checkout(checkout).await?;
         Ok(self.carry(&c, Move::Cut, true).await?.unwrap_or_else(|why| json!({ "cut": null, "why": why })))
     }
-}
-
-/// Text typed at a terminal: one line.
-pub(crate) fn one_line(text: &str) -> String {
-    text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" | ")
 }

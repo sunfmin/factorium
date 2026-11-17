@@ -3,14 +3,14 @@
 
 use factorium_domain::doctor;
 use factorium_domain::issue::Author;
+use factorium_domain::outbox::{Outcome, Sender};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
-use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
+use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factum::{Uuid, Value};
 use serde_json::json;
 
-use crate::line::one_line;
 use crate::{Answer, App, Refusal};
 
 impl App {
@@ -44,17 +44,20 @@ impl App {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
-        if terminal.is_some() {
-            self.hand_watch_brief(false).await?;
-        }
         let started = self.state::<Watches>(watch_id()).await?;
-        let session = terminal.as_ref().and_then(|_| self.watch_ready(&started));
+        let session = match (&terminal, self.watch_session(&started)) {
+            (Some(_), Some(s)) => {
+                self.retry(&s).await?;
+                self.watch_ready(&started).await?
+            }
+            _ => None,
+        };
         let ready = session.is_some();
         self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
-        let mut after = self.state::<Watches>(watch_id()).await?;
-        // The running round, typed once at each watch session, when it can take it.
-        let unsent = after.round.as_ref().filter(|r| r.sent != terminal);
-        if let (Some(r), Some(t), Some(s)) = (unsent, &terminal, &session)
+        let after = self.state::<Watches>(watch_id()).await?;
+        // The running round, passed once to each watch session, when it can take it.
+        if let (Some(r), Some(s)) = (&after.round, &session)
+            && !self.outbox(s).await?.arrived(&Sender::Round(r.n))
             && let Some(e) = after.episodes.get(&r.episode)
         {
             let heard = match e.heard.as_slice() {
@@ -62,14 +65,13 @@ impl App {
                 said => format!(" — Comments on its issue since: {}", said.join(" / ")),
             };
             let line = format!(
-                "factorium round {}: {}{heard} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
+                "{}{heard} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
                  When done, file `factorium watch report --text \"what you found and did\"` (add --human \"...\" \
                  only for what needs the owner: spending money). `factorium watch next` shows this round again.",
-                r.n, e.what, e.fix
+                e.what, e.fix
             );
-            self.type_at(s, &one_line(&line))?;
-            self.submit::<SendRound>(watch::Sent { n: r.n, terminal: t.clone() }).await?;
-            after = self.state::<Watches>(watch_id()).await?;
+            // Missed, it is passed again on the next look.
+            self.tell(s, Sender::Round(r.n), &line, false).await?;
         }
         Ok(
             json!({ "findings": found.len(), "episodes": after.episodes.len(), "round": after.round, "watch": terminal }),
@@ -108,7 +110,7 @@ impl App {
         }
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
-        let session = Self::worker_session(&st)?;
+        let session = Self::worker_session(worker, &st)?;
         match self.gone(&session) {
             Ok(false) => {}
             Err(why) => return Err(Refusal::new("orca", why)),
@@ -119,12 +121,12 @@ impl App {
                 );
             }
         }
-        let line = format!(
-            "factorium (the watch): {text} Then go on, and run `factorium worker done` when the work is committed."
-        );
+        let line = format!("{text} Then go on, and run `factorium worker done` when the work is committed.");
         // A brief never handed goes first: the word is about its work.
-        self.hand_worker_brief(worker, false).await?;
-        let delivery = self.deliver_at(&session, &one_line(&line), now)?;
+        let delivery = self.tell(&session, Sender::Watch, &line, now).await.and_then(crate::session::heard)?;
+        if let Outcome::Missed { why } = &delivery {
+            return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "missed": why }));
+        }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
     }
@@ -137,17 +139,19 @@ impl App {
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
-        let line = one_line(&format!("factorium (the watch): {text}"));
-        let delivery = self.deliver_at(&Self::worker_session(&st)?, &line, now)?;
-        Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word() }))
+        let delivery = self
+            .tell(&Self::worker_session(worker, &st)?, Sender::Watch, text, now)
+            .await
+            .and_then(crate::session::heard)?;
+        Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word(), "missed": delivery.why() }))
     }
 
     /// A comment on a worker's issue, passed to the worker exactly once.
     /// Waiting for the watch, it is not typed at: its watch episode carries
-    /// the comment. Its brief still to be handed, the comment goes into
-    /// that brief, read once handed. Else it is typed at its session behind
-    /// any running turn. Answers how (`submitted`, `queued`, `brief`,
-    /// `watch`, or `none`), and why it did not reach the worker; the issue
+    /// the comment. Else it goes through its session's outbox: into its
+    /// brief while that is still to be typed, or typed behind any running
+    /// turn. Answers how (`submitted`, `queued`, `brief`, `missed`, `watch`,
+    /// or `none`), and why it did not reach the worker; the issue
     /// keeps the comment for the next brief either way.
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
         let wk = self.state::<Workers>(worker).await?;
@@ -156,17 +160,8 @@ impl App {
             self.submit::<w::Hear>(w::Heard { worker, text: text.into() }).await?;
             return Ok(("watch", None));
         }
-        if wk.unhanded().is_some() {
-            return Ok(match add_to_brief(&st.brief, text) {
-                Ok(()) => ("brief", None),
-                Err(e) => ("none", Some(format!("its brief {}: {e}", st.brief))),
-            });
-        }
-        let line = one_line(&format!("factorium (a comment on your issue): {text}"));
-        Ok(match Self::worker_session(st).and_then(|s| self.deliver_at(&s, &line, false)) {
-            Ok(d) => (d.word(), None),
-            Err(r) => ("none", Some(r.message)),
-        })
+        let d = self.tell(&Self::worker_session(worker, st)?, Sender::Comment, text, false).await?;
+        Ok((d.word(), d.why().map(str::to_string)))
     }
 
     /// The reports' owner part, for `doctor`.
@@ -182,15 +177,4 @@ impl App {
         let settings = self.settings().await?;
         self.look(&settings).await
     }
-}
-
-/// Adds a comment to a brief not yet handed, under its own heading.
-fn add_to_brief(brief: &str, text: &str) -> std::io::Result<()> {
-    const HEAD: &str = "\n## Comments since\n\n";
-    let mut b = std::fs::read_to_string(brief)?;
-    if !b.contains(HEAD) {
-        b.push_str(HEAD);
-    }
-    b.push_str(&format!("- {text}\n"));
-    std::fs::write(brief, b)
 }
