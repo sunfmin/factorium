@@ -7,6 +7,7 @@ mod daemon;
 mod heavy;
 mod line;
 mod owner;
+mod service;
 mod session;
 mod start;
 mod watch;

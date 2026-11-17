@@ -18,13 +18,28 @@ brew install sunfmin/tap/factorium
 
 factorium cuts its own versions (`factorium.toml`, `packaging/release.sh`).
 
+The daemon runs as a launchd agent, started at login and again whenever it
+exits. Install it from a shell whose PATH finds git, orca and the kit's
+harnesses: that PATH is written into the agent.
+
+```sh
+factorium service install   # writes ~/Library/LaunchAgents/com.github.sunfmin.factorium.plist and loads it
+factorium service show      # the definition it would write (packaging/factorium.plist, filled in)
+factorium stop              # unloads it; `service install` starts it again
+factorium service remove    # unloads it and deletes the file
+```
+
+It logs to `$XDG_DATA_HOME/factorium/daemon.log`. A program it needs and
+cannot find at start, and ticks failing in a row (`tick_failures_max`), are
+`doctor` findings, and so rounds for the watch.
+
 ## Use
 
 ```sh
 factorium checkout add web ~/src/web --base main --proving proving
 factorium kit set claude-code=claude@opus codex=codex
 factorium issue add web "Fix the login" --body-file body.md   # or --body "..."; - reads stdin
-factorium run          # the daemon: start workers, land, promote, cut, watch
+factorium run          # the daemon in the foreground (the service runs it for you)
 factorium doctor       # what needs you
 ```
 

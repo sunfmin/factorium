@@ -9,7 +9,7 @@ use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{doctor, gate, heavy, line, watch, worker};
+use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factum::{Model, Value};
 use serde_json::json;
@@ -61,6 +61,9 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
         .command::<heavy::EndHeavy>()
+        .aggregate::<daemon::Daemons>()
+        .command::<daemon::StartDaemon>()
+        .command::<daemon::NoteTick>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::LookNow>()
@@ -296,6 +299,7 @@ impl App {
         }
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone();
+        seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
