@@ -132,7 +132,12 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     let secrets = w.dir.join("data").join("secrets");
     *w.host.orca.refuse_open.lock().unwrap() = true;
-    assert!(w.app.tick().await.is_err(), "Orca refusing is no matter of the kit");
+    let refused = w.app.tick().await.unwrap_err();
+    assert!(refused.message.contains("orca terminal create: terminal_create_failed"), "not the kit's: {refused:?}");
+    // Refused, not unknown: its worktree is not given to Orca as a repo.
+    assert!(
+        !w.host.ran.lock().unwrap().iter().any(|r| r.starts_with("orca repo add --path") && r.contains("worktrees"))
+    );
     assert_eq!(std::fs::read_dir(&secrets).unwrap().count(), 0, "a terminal that never opened leaves no secret");
     *w.host.orca.refuse_open.lock().unwrap() = false;
     w.tick().await;

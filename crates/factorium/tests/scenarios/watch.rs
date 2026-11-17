@@ -217,3 +217,20 @@ async fn the_watch_looks_once_every_look_every() {
     w.advance(1);
     assert!(w.tick().await.watch.is_some());
 }
+
+#[tokio::test]
+async fn a_watch_home_orca_never_finds_is_given_up_after_five_more_tries() {
+    let w = World::new();
+    *w.host.orca.never_found.lock().unwrap() = true;
+    w.checkout("web").await;
+    w.kit().await;
+    // The first tick looks, and the look opens the watch's session.
+    let failed = w.app.tick().await;
+    let ran = w.host.ran.lock().unwrap().clone();
+    let home = w.dir.join("data").join("watch");
+    let by_repo = ran.iter().filter(|r| r.starts_with("orca terminal create --worktree id:")).count();
+    assert_eq!(by_repo, 6, "by its repo, then five tries more: {failed:?} {ran:#?}");
+    let slept = ran.iter().filter(|r| *r == "sleep 1").count();
+    assert_eq!(slept, 5, "a second between tries");
+    assert!(ran.iter().any(|r| r.starts_with(&format!("orca repo add --path {}", home.display()))));
+}

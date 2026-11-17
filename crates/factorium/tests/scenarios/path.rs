@@ -363,3 +363,31 @@ async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
     w.app.worker_done(id(&wk)).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
+
+/// `web` with one worker at work, no commit of its own; answers its worktree.
+async fn one_worker(w: &World) -> PathBuf {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    PathBuf::from(worker(&w.app).await["worktree"].as_str().unwrap())
+}
+
+#[tokio::test]
+async fn a_closed_issue_s_worktree_is_removed_through_orca_even_once_gone_from_disk() {
+    let w = World::new();
+    let tree = one_worker(&w).await;
+    std::fs::remove_dir_all(&tree).unwrap();
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+    assert!(w.host.orca.removed.lock().unwrap().contains(&tree), "Orca forgets it");
+}
+
+#[tokio::test]
+async fn orca_refusing_to_remove_a_worktree_is_an_error_and_the_worktree_stays() {
+    let w = World::new();
+    let tree = one_worker(&w).await;
+    *w.host.orca.refuse_rm.lock().unwrap() = true;
+    let refused = w.app.issue_close("web", 1, "not needed").await.unwrap_err();
+    assert!(refused.message.contains("orca worktree rm: worktree_remove_failed"), "{refused:?}");
+    assert!(tree.exists());
+}

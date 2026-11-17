@@ -54,6 +54,14 @@ exclude_re = [
   # of a session's file, so both change alike.
   'session.rs:105:.*replace <= with > in stored_name$',
   'in compressed$',
+  # The host's own readings and processes: scenarios stand in for them in
+  # process (SPEC.md §6), and the binary tests' daemon has no worker whose
+  # processes or share of the host it reads.
+  'replace <impl Host for Machine>::(reading|processes) ->',
+  'procs.rs:.*replace (list|parse) ->',
+  'procs.rs:.* in parse$',
+  # Equivalent: Orca's exit status and its answer's `ok` agree.
+  'replace \|\| with && in Orca.*::call$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
