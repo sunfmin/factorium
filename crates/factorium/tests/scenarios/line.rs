@@ -140,3 +140,25 @@ async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
     let t = cut_while_running("other").await;
     assert_eq!(t.restart, None, "another formula's cut leaves the daemon as it is");
 }
+
+#[tokio::test]
+async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    // Homebrew's upgrade succeeds yet it stays on the old version.
+    *w.host.brew_stuck.lock().unwrap() = Some("0.0.9".into());
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("web 0.0.9") && why.contains("not 0.1.0"), "{why}");
+    assert_eq!(cut["installed"], json!(null));
+    let finding = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("not 0.1.0"), "{finding}");
+    assert_eq!(t.restart, None, "the daemon does not restart onto a version it lacks");
+}
