@@ -143,7 +143,7 @@ fn worker_brief(
     if !i.comments.is_empty() {
         b.push_str("\n## Comments\n\n");
         for comment in &i.comments {
-            b.push_str(&format!("- {comment}\n"));
+            b.push_str(&format!("- {}: {}\n", comment.by, comment.text));
         }
     }
     let made = match resumed {

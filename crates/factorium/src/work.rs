@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::issue::{ReleaseIssue, Take};
+use factorium_domain::issue::{Author, ReleaseIssue, Take};
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
@@ -68,8 +68,10 @@ impl App {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say what you need"));
         }
-        self.started(worker).await?;
+        let (_, st) = self.started(worker).await?;
         self.submit::<w::Wait>(w::Because { worker, why: format!("escalated: {why}") }).await?;
+        // Kept on its issue; typed back at no one.
+        self.note(&st.checkout, st.number, Author::Worker(worker), why).await?;
         Ok(json!({ "escalated": true, "said": "The watch will answer in this terminal. Stop until it does." }))
     }
 

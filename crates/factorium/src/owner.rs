@@ -165,7 +165,7 @@ impl App {
             "blocked_by": i.blocked_by,
             "reason": i.reason,
             "worker": i.worker,
-            "comments": i.comments,
+            "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
         }))
     }
 
@@ -242,7 +242,7 @@ impl App {
             "Started over: attempt {}'s worktree was discarded; its branch is kept as `{abandoned}` (not landed). Why: {why}",
             issue.attempts
         );
-        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text }).await?;
+        self.note(checkout, number, Author::Factorium, &text).await?;
         let mut shown = self.issue_show(checkout, number).await?;
         shown["discarded"] = json!(st.worktree);
         shown["abandoned"] = json!(abandoned);
@@ -259,7 +259,7 @@ impl App {
     /// `delivery` says how; `undelivered`, why it did not reach the worker.
     /// Comments factorium writes itself are recorded only.
     pub async fn issue_comment(&self, checkout: &str, number: u64, text: &str) -> Answer {
-        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into() }).await?;
+        self.note(checkout, number, Author::Owner, text).await?;
         let (delivery, why) = match self.issue(checkout, number).await?.worker {
             Some(worker) => self.pass_comment(worker, text).await?,
             None => ("none", None),
@@ -270,6 +270,14 @@ impl App {
             shown["undelivered"] = json!(why);
         }
         Ok(shown)
+    }
+
+    /// Records a comment on an issue, the one record of what is said about
+    /// it: by the owner, its workers, the watch, and factorium. Recording
+    /// passes it to no one.
+    pub(crate) async fn note(&self, checkout: &str, number: u64, by: Author, text: &str) -> Answer<()> {
+        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into(), by }).await?;
+        Ok(())
     }
 
     /// Makes issue `number` wait for issue `by` of the same checkout, or,
