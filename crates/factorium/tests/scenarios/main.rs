@@ -320,11 +320,15 @@ impl Programs for FakeHost {
             }
             "sleep" => Said { ok: true, ..Default::default() },
             "launchctl" => {
+                // As launchd: this user's GUI domain, the agent by its label.
+                use std::os::unix::fs::MetadataExt;
+                let domain = format!("gui/{}", std::fs::metadata(&self.root).unwrap().uid());
+                let target = format!("{domain}/com.github.sunfmin.factorium");
                 let mut loaded = self.service.lock().unwrap();
-                let ok = match args[0] {
-                    "print" => *loaded,
-                    "bootstrap" => !std::mem::replace(&mut *loaded, true),
-                    "bootout" => std::mem::replace(&mut *loaded, false),
+                let ok = match args {
+                    ["print", t] if *t == target => *loaded,
+                    ["bootstrap", d, _] if *d == domain => !std::mem::replace(&mut *loaded, true),
+                    ["bootout", t] if *t == target => std::mem::replace(&mut *loaded, false),
                     _ => false,
                 };
                 Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }
