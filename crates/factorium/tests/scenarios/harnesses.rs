@@ -62,3 +62,29 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         assert_eq!(worker(&w.app).await["status"], "working", "{key}: its open turn keeps it from silence");
     }
 }
+
+#[tokio::test]
+async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_read() {
+    let w = World::new();
+    w.host.tokens.lock().unwrap().insert(
+        "agent-account-team".into(),
+        r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+    );
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert_eq!(wk["account"], "team");
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    assert!(!line.contains("sk-ant-very-secret"), "{line}");
+    // What the shell does with the line's start: read the secret, remove the file.
+    let parts: Vec<&str> = line.splitn(3, " && ").collect();
+    let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    let shell = format!("{} && {} && printenv CLAUDE_CODE_OAUTH_TOKEN", parts[0], parts[1]);
+    let out = std::process::Command::new("sh").args(["-c", &shell]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sk-ant-very-secret");
+    assert!(!std::path::Path::new(&file).exists());
+}

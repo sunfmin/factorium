@@ -48,6 +48,9 @@ struct Launch<'a> {
     dir: &'a Path,
     worktree: &'a Path,
     env: Vec<(&'static str, String)>,
+    /// The account's secrets: kept off the terminal's command line, in a
+    /// file only this user reads, which the line reads and removes.
+    secrets: Vec<(&'static str, String)>,
     brief: &'a Path,
     title: &'a str,
 }
@@ -70,6 +73,25 @@ impl App {
                 _ => None,
             })
             .collect()
+    }
+
+    /// `line`, reading `secrets` first from a file only this user may read,
+    /// which it removes: a secret on a command line shows in `ps`, in the
+    /// terminal's scrollback and in any error naming the line.
+    fn secrets_first(&self, secrets: &[(&'static str, String)], line: String) -> Answer<String> {
+        if secrets.is_empty() {
+            return Ok(line);
+        }
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        let io = |e: std::io::Error| Refusal::new("io", e.to_string());
+        let dir = self.dir(&["secrets"]);
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
+        let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
+        let text: String = secrets.iter().map(|(n, v)| format!("export {n}={}\n", shell_word(v))).collect();
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
+        std::io::Write::write_all(&mut f, text.as_bytes()).map_err(io)?;
+        let file = shell_word(&file.to_string_lossy());
+        Ok(format!(". {file} && rm -f {file} && {line}"))
     }
 
     /// The directory a role's sessions start in, holding its rules.
@@ -127,6 +149,7 @@ impl App {
             BriefAtStart::Started(line) => (line, None),
             BriefAtStart::Typed(typed) => (line, Some(typed)),
         };
+        let line = self.secrets_first(&l.secrets, line)?;
         let terminal = self.host.orca().open(l.worktree, l.title, &line).map_err(fail("orca"))?;
         if let Some(typed) = typed {
             self.host.orca().send(&terminal, &typed).map_err(fail("orca"))?;
@@ -181,12 +204,13 @@ impl App {
         let brief = self.dir(&["briefs", &format!("{name}.md")]);
         std::fs::create_dir_all(brief.parent().expect("a parent")).map_err(|e| Refusal::new("io", e.to_string()))?;
         std::fs::write(&brief, worker_brief(c, issue, &branch)).map_err(|e| Refusal::new("io", e.to_string()))?;
-        let mut env = vec![
+        let mut secrets = Vec::new();
+        let env = vec![
             ("FACTORIUM_WORKER", worker.to_string()),
             ("FACTORIUM_DB", self.dir(&["factorium.db"]).to_string_lossy().into_owned()),
         ];
         if let Some(a) = &choice.account {
-            env.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
+            secrets.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
         }
         let role = self.role("worker", WORKER_RULES)?;
         let title = format!("{}#{}", c.name, issue.number);
@@ -197,6 +221,7 @@ impl App {
             dir: &role,
             worktree: &made.path,
             env,
+            secrets,
             brief: &brief,
             title: &title,
         };
@@ -242,12 +267,13 @@ impl App {
         std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let brief = home.join("BRIEF.md");
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
-        let mut env = vec![
+        let mut secrets = Vec::new();
+        let env = vec![
             ("FACTORIUM_WATCH", "1".to_string()),
             ("FACTORIUM_DB", self.dir(&["factorium.db"]).to_string_lossy().into_owned()),
         ];
         if let Some(a) = &choice.account {
-            env.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
+            secrets.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
         }
         let launch = Launch {
             harness,
@@ -256,6 +282,7 @@ impl App {
             dir: &home,
             worktree: &home,
             env,
+            secrets,
             brief: &brief,
             title: "factorium watch",
         };

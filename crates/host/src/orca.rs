@@ -31,7 +31,10 @@ pub trait Orca: Send + Sync {
 
 pub struct OrcaCli;
 
+/// Runs `orca <args> --json`. An error names the subcommand alone, never
+/// the arguments: a terminal's command line is one, and may be long.
 fn orca(args: &[&str]) -> Result<Value, String> {
+    let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
     let out = Command::new("orca")
         .args(args)
         .arg("--json")
@@ -39,9 +42,9 @@ fn orca(args: &[&str]) -> Result<Value, String> {
         .output()
         .map_err(|e| format!("orca: {e}"))?;
     let answer: Value = serde_json::from_slice(&out.stdout)
-        .map_err(|_| format!("orca {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))?;
+        .map_err(|_| format!("orca {what}: {}", String::from_utf8_lossy(&out.stderr).trim()))?;
     if !out.status.success() || answer["ok"] != true {
-        return Err(format!("orca {}: {}", args.join(" "), answer["error"]));
+        return Err(format!("orca {what}: {}", answer["error"]["message"].as_str().unwrap_or("failed")));
     }
     Ok(answer["result"].clone())
 }
@@ -82,7 +85,16 @@ impl Orca for OrcaCli {
 
     fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
         let sel = format!("path:{}", worktree.display());
-        let made = orca(&["terminal", "create", "--worktree", &sel, "--title", title, "--command", line])?;
+        let create = || orca(&["terminal", "create", "--worktree", &sel, "--title", title, "--command", line]);
+        // A plain git directory (the watch's home) is no Orca workspace
+        // until Orca holds it as a repo.
+        let made = match create() {
+            Err(e) if e.contains("selector_not_found") => {
+                orca(&["repo", "add", "--path", &worktree.to_string_lossy()])?;
+                create()?
+            }
+            other => other?,
+        };
         made["terminal"]["handle"].as_str().map(str::to_string).ok_or_else(|| "orca gave no terminal handle".into())
     }
 
