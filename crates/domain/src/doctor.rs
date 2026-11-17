@@ -4,7 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::settings::{Settings, Time};
+use crate::daemon::Daemon;
+use crate::settings::{Setting, Settings, Time};
 use crate::watch::Found;
 
 /// What doctor reads.
@@ -24,6 +25,12 @@ pub struct Seen {
     pub holds: Vec<(String, String)>,
     /// The owner's part of the watch's reports not yet seen.
     pub human: Vec<String>,
+    /// The daemon: what it could not find at start, its failing ticks.
+    #[serde(default)]
+    pub daemon: Daemon,
+    /// Orca terminals titled as factorium's that no live worker or the
+    /// watch holds: (handle, title).
+    pub orphans: Vec<(String, String)>,
 }
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
@@ -60,8 +67,32 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "find what holds the resource: a hot process, a full disk; free it",
         );
     }
+    for program in &seen.daemon.missing {
+        add(
+            format!("missing:{program}"),
+            format!("the daemon cannot find `{program}` on its PATH: {}", seen.daemon.path),
+            "install it, or put its directory on the service's PATH (run `factorium service install` from a shell \
+             that finds it); the daemon checks again when it starts",
+        );
+    }
+    if let Some(failing) = &seen.daemon.failing
+        && failing.ticks >= s.get(Setting::TickFailuresMax)
+    {
+        add(
+            "daemon:ticks".into(),
+            format!("the daemon's last {} ticks failed: {}", failing.ticks, failing.error),
+            "find what the error names (a program, a repo, the database) and fix it; daemon.log has every tick",
+        );
+    }
     for (p, n) in &seen.dead_letters {
         add(format!("dead:{p}"), format!("projection {p} has {n} dead letters"), "a code fix, then retry them");
+    }
+    for (handle, title) in &seen.orphans {
+        add(
+            format!("orphan:{handle}"),
+            format!("Orca terminal {handle} ({title}) is factorium's, but no live worker or the watch holds it"),
+            &format!("close it: `orca terminal close --terminal {handle}`"),
+        );
     }
     f
 }

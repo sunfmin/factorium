@@ -1,10 +1,7 @@
 //! The `factorium` binary: arguments in, one [`App`] call, JSON out. A
 //! refusal prints `{"error": {"code", "message"}}` and exits 1.
 //!
-//! Who runs a command is known by the environment its session was started
-//! with: a worker's holds `FACTORIUM_WORKER`, the watch's `FACTORIUM_WATCH`.
-//! A worker may run only `factorium worker …`; only the watch may run
-//! `factorium watch …`.
+//! Who runs a command, and what each may run, is [`Caller`]'s to say.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -12,9 +9,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use factorium::host::Machine;
-use factorium::{Answer, App, Refusal, default_db};
+use factorium::{Answer, App, Caller, DB_ENV, Refusal, default_db};
 use factorium_harness::Harness;
 use factum::{SystemClock, Uuid};
 use serde_json::json;
@@ -27,7 +24,7 @@ use serde_json::json;
 #[command(name = "factorium", version)]
 struct Cli {
     /// The database. Default: $XDG_DATA_HOME/factorium/factorium.db.
-    #[arg(long, global = true, env = "FACTORIUM_DB")]
+    #[arg(long, global = true, env = DB_ENV)]
     db: Option<PathBuf>,
     #[command(subcommand)]
     command: Top,
@@ -35,12 +32,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`.
-    /// When a cut installs the formula it runs from, it runs the new binary
-    /// in its place between ticks, as the same pid.
+    /// Runs the daemon in the foreground until `factorium stop`; refused
+    /// while another runs. At start it looks for git, orca and the kit's
+    /// harnesses on its PATH; what is missing is a finding. When a cut
+    /// installs the formula it runs from, it runs the new binary in its place
+    /// between ticks, as the same pid. As a service, launchd runs it.
     Run,
-    /// Stops the daemon.
+    /// Stops the daemon; run as the service, unloads the service.
     Stop,
+    /// The daemon as a launchd agent, kept running and restarted when it exits.
+    #[command(subcommand)]
+    Service(ServiceCmd),
     /// Runs one pass of the daemon and answers what it did.
     Tick,
     /// The repos on the list.
@@ -91,6 +93,18 @@ enum Top {
 }
 
 #[derive(Subcommand)]
+enum ServiceCmd {
+    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
+    /// and this database, and loads it (in place of one loaded before).
+    /// Run it from a shell that finds git, orca and the kit's harnesses.
+    Install,
+    /// Unloads the agent and deletes its file.
+    Remove,
+    /// Answers the agent's definition as `install` would write it.
+    Show,
+}
+
+#[derive(Subcommand)]
 enum CheckoutCmd {
     /// Puts a repo on the list. It needs an `origin` holding the base; a
     /// proving branch origin lacks is made at the base.
@@ -122,6 +136,9 @@ enum IssueCmd {
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
+        /// An issue of the checkout it waits for; repeat for each.
+        #[arg(long = "blocked-by", value_name = "N")]
+        blocked_by: Vec<u64>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -173,6 +190,8 @@ enum KitCmd {
     Show,
     /// Sets the kit: `harness=command[@model]`, highest priority first.
     /// Harnesses: claude-code, codex, pi, dsh, kimi, grok.
+    /// A command that is only a program (a path or a name) gets that
+    /// harness's stock arguments; one with arguments is taken as given.
     Set { entries: Vec<String> },
     /// Pins a checkout to one harness (`--harness`), or unpins it.
     Pin {
@@ -224,35 +243,10 @@ enum WatchCmd {
     Reports,
 }
 
-fn worker_id() -> Answer<Uuid> {
-    std::env::var("FACTORIUM_WORKER")
-        .ok()
-        .and_then(|w| w.parse().ok())
-        .ok_or_else(|| Refusal::new("not_a_worker", "only a worker's session runs this: FACTORIUM_WORKER is not set"))
-}
-
-/// Refuses a command its caller may not run.
-fn guard(command: &Top) -> Answer<()> {
-    let worker = std::env::var_os("FACTORIUM_WORKER").is_some();
-    let watch = std::env::var_os("FACTORIUM_WATCH").is_some();
-    match command {
-        Top::Worker(_) | Top::Guard { .. } => Ok(()),
-        _ if worker => Err(Refusal::new("guarded", "a worker runs only `factorium worker …`")),
-        Top::Watch(_) if !watch => Err(Refusal::new("guarded", "only the watch runs `factorium watch …`")),
-        _ => Ok(()),
-    }
-}
-
-async fn run(cli: Cli) -> Answer {
-    guard(&cli.command)?;
+async fn run(cli: Cli, caller: Caller) -> Answer {
     let db = cli.db.unwrap_or_else(default_db);
-    let by = if std::env::var_os("FACTORIUM_WORKER").is_some() {
-        "worker"
-    } else if std::env::var_os("FACTORIUM_WATCH").is_some() {
-        "watch"
-    } else {
-        "owner"
-    };
+    let by = caller.by();
+    let worker_id = || caller.worker();
     let data = db.parent().map(PathBuf::from).unwrap_or_default();
     let app = App::open(&db, Arc::new(SystemClock), by, Arc::new(Machine::new(data)))?;
     match cli.command {
@@ -260,7 +254,12 @@ async fn run(cli: Cli) -> Answer {
             let stop = Arc::new(AtomicBool::new(false));
             app.run(&stop).await
         }
-        Top::Stop => app.stop(),
+        Top::Stop => app.stop().await,
+        Top::Service(s) => match s {
+            ServiceCmd::Install => app.service_install(),
+            ServiceCmd::Remove => app.service_remove(),
+            ServiceCmd::Show => app.service_show(),
+        },
         Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
@@ -268,9 +267,9 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, body_file, parked } => {
+            IssueCmd::Add { checkout, title, body, body_file, parked, blocked_by } => {
                 let body = body_text(body, body_file)?.unwrap_or_default();
-                app.issue_add(&checkout, &title, &body, parked).await
+                app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
             }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
@@ -348,22 +347,24 @@ fn hook(harness: &str) -> ExitCode {
     let mut payload = String::new();
     let _ = std::io::stdin().read_to_string(&mut payload);
     let Some(line) = h.shell_call(&payload) else { return ExitCode::SUCCESS };
-    let worker = std::env::var_os("FACTORIUM_WORKER").is_some();
-    if let Some(why) = factorium::refused(&line, worker) {
-        eprintln!("factorium refuses this: {why}");
+    if let Err(refusal) = Caller::here().may_run_line(&line) {
+        eprintln!("factorium refuses this: {}", refusal.message);
         return ExitCode::from(h.refused());
     }
     ExitCode::SUCCESS
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     if let Top::Guard { harness } = &cli.command {
         return hook(harness);
     }
     let exclusive = matches!(cli.command, Top::Worker(WorkerCmd::Exclusive { .. }));
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a tokio runtime");
-    match runtime.block_on(run(cli)) {
+    let caller = Caller::here();
+    let answer = caller.may_run(matches.subcommand_name().unwrap_or(""));
+    match answer.and_then(|()| runtime.block_on(run(cli, caller))) {
         Ok(answer) => {
             println!("{answer:#}");
             if exclusive {

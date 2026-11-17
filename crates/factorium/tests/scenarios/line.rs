@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{World, commit, git, id, worker};
+use factorium::host::Host;
+
+use crate::{World, id, worker};
 
 /// Lands one commit of `file` through a worker; answers the landed commit.
 async fn land(w: &World, number: u64, file: &str) -> String {
@@ -19,7 +21,7 @@ async fn land(w: &World, number: u64, file: &str) -> String {
         .find(|x| x["number"] == number)
         .cloned()
         .unwrap();
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     t.landed.iter().find(|l| l["landed"] == format!("web#{number}")).expect("landed")["commit"].as_str().unwrap().into()
@@ -32,8 +34,8 @@ async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound() {
     w.kit().await;
     // #2 keeps working all along: it is never silent.
     w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let main = w.remote_tip("web", "main");
@@ -51,11 +53,11 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let main = w.remote_tip("web", "main");
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "SLOWRED", "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "SLOWRED", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     assert_eq!(t.landed[0]["landed"], "web#1", "the fast gate is green");
@@ -72,8 +74,8 @@ async fn promote_and_cut_by_hand_run_now() {
     w.checkout("web").await;
     w.kit().await;
     assert_eq!(w.app.promote("web").await.unwrap()["promoted"], json!(null));
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let landed = land(&w, 1, "a").await;
@@ -81,9 +83,9 @@ async fn promote_and_cut_by_hand_run_now() {
     assert_eq!(w.app.cut("web").await.unwrap()["version"], "v0.1.0");
     // Idle once #2 lands: that tick promotes and cuts by itself.
     let _ = land(&w, 2, "b").await;
-    assert!(git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.1"]).is_ok());
+    assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.1"]).is_ok());
     assert_eq!(w.app.cut("web").await.unwrap()["cut"], json!(null), "nothing new to cut");
-    let version = git(&w.dir.join("remotes/web.git"), &["show", "v0.1.1:VERSION"]);
+    let version = w.git(&w.dir.join("remotes/web.git"), &["show", "v0.1.1:VERSION"]);
     assert!(version.is_err(), "a step's own changes stay its own: the tag is on what it committed");
 }
 
@@ -95,17 +97,17 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     // The repo now declares a cut whose step fails.
     let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"exit 7\"]\n";
     let clone = w.dir.join("edit");
-    git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
-    git(&clone, &["fetch", "-q"]).unwrap();
-    git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
-    commit(&clone, "factorium.toml", toml);
-    git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
+    w.git(&clone, &["fetch", "-q"]).unwrap();
+    w.git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
+    w.commit(&clone, "factorium.toml", toml);
+    w.git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let t = {
         let wk = worker(&w.app).await;
-        commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+        w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
         w.app.worker_done(id(&wk)).await.unwrap();
         w.tick().await
     };
@@ -121,10 +123,10 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
 async fn cut_one(w: &World) -> crate::Tick {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     w.tick().await
 }
@@ -181,11 +183,11 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     // A landing dir made the old way: a worktree of the checkout.
     let landing = w.dir.join("data").join("landing").join("web");
     std::fs::create_dir_all(landing.parent().unwrap()).unwrap();
-    git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
@@ -194,8 +196,26 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     for kind in ["landing", "promotion", "cut"] {
         assert!(w.dir.join("data").join(kind).join("web").join(".git").is_dir(), "{kind} is a clone");
     }
-    let listed = git(&web, &["worktree", "list", "--porcelain"]).unwrap();
+    let listed = w.git(&web, &["worktree", "list", "--porcelain"]).unwrap();
     let trees: Vec<_> = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).collect();
     assert_eq!(trees.len(), 1, "only the checkout itself: {trees:?}");
     assert!(trees[0].ends_with("repos/web"), "{trees:?}");
+}
+
+#[tokio::test]
+async fn factorium_commits_as_the_hosts_own_identity_or_as_itself_on_a_fresh_host() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    let author = |sha: &str| w.git(&w.dir.join("remotes/web.git"), &["log", "-1", "--format=%an <%ae>", sha]).unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let landed = land(&w, 1, "a").await;
+    assert_eq!(author(&landed), "factorium <factorium@localhost>", "a fresh host has no identity");
+
+    std::fs::write(w.host.home().join(".gitconfig"), "[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let landed = land(&w, 2, "b").await;
+    assert_eq!(author(&landed), "Ann <ann@host>", "the host's config is its home's");
 }

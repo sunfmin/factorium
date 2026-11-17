@@ -9,7 +9,7 @@ use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{doctor, gate, heavy, line, watch, worker};
+use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factum::{Model, Value};
 use serde_json::json;
@@ -41,6 +41,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteLoad>()
+        .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()
@@ -61,10 +62,15 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
         .command::<heavy::EndHeavy>()
+        .aggregate::<daemon::Daemons>()
+        .command::<daemon::StartDaemon>()
+        .command::<daemon::NoteTick>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
+        .command::<watch::EndWatch>()
         .command::<watch::LookNow>()
         .command::<watch::SendRound>()
+        .command::<watch::HandWatchBrief>()
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
@@ -80,7 +86,7 @@ impl App {
     pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
-        let git = factorium_host::Git::at(&path);
+        let git = self.host.git(&path);
         let base_tip = git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
         if git.fetch(proving).is_err() {
             git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
@@ -106,13 +112,25 @@ impl App {
 
     // ---- issues ----
 
-    /// Makes an issue numbered one past the checkout's last.
-    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool) -> Answer {
+    /// Makes an issue numbered one past the checkout's last, waiting from
+    /// the start for the issues of the checkout in `blocked_by`, so no tick
+    /// sees it ready without them.
+    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool, blocked_by: &[u64]) -> Answer {
         self.checkout(checkout).await?;
+        for by in blocked_by {
+            self.issue(checkout, *by).await?;
+        }
         loop {
             let last = self.rows(tracker::last_issue(checkout)).await?;
             let number = last.first().map_or(0, |r| r.number) + 1;
-            let open = Open { checkout: checkout.into(), number, title: title.into(), body: body.into(), parked };
+            let open = Open {
+                checkout: checkout.into(),
+                number,
+                title: title.into(),
+                body: body.into(),
+                parked,
+                blocked_by: blocked_by.to_vec(),
+            };
             match self.submit::<OpenIssue>(&open).await {
                 // Another command took the number first: take the next.
                 Err(r) if r.code == "number_taken" => continue,
@@ -205,7 +223,13 @@ impl App {
     // ---- the kit and the accounts ----
 
     pub async fn kit(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
+        let mut kit = self.state::<Kits>(kit_id()).await?;
+        // The command that will run, as a launch makes it.
+        for e in &mut kit.entries {
+            if let Some(h) = factorium_harness::Harness::read(&e.harness) {
+                e.command = h.command(&e.command);
+            }
+        }
         Ok(json!({ "entries": kit.entries, "pins": kit.pins }))
     }
 
@@ -296,7 +320,9 @@ impl App {
         }
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone();
+        seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
+        seen.orphans = self.orphans(w.terminal.as_deref()).await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             seen.dead_letters.push((factorium_domain::tracker::TRACKER.into(), dead.len()));
@@ -304,8 +330,28 @@ impl App {
         Ok(seen)
     }
 
-    /// The findings, each with its fix; the reading; the heavy queue; and
-    /// the owner's part of the watch's reports, which this marks seen.
+    /// Orca's terminals titled as factorium titles its sessions' (the
+    /// watch's, `<checkout>#<n>` of a listed checkout) that neither a live
+    /// worker nor the watch (`watch`) holds. Orca unreadable: none known.
+    async fn orphans(&self, watch: Option<&str>) -> Answer<Vec<(String, String)>> {
+        let Ok(terminals) = self.host.orca().terminals() else { return Ok(Vec::new()) };
+        let held: Vec<String> =
+            self.rows(tracker::workers(None, false)).await?.into_iter().map(|w| w.terminal).collect();
+        let listed: Vec<String> = self.rows(tracker::listed()).await?.into_iter().map(|c| c.name).collect();
+        let ours = |title: &str| {
+            title == crate::launch::WATCH_TITLE
+                || title.rsplit_once('#').is_some_and(|(c, n)| {
+                    listed.iter().any(|l| l == c) && !n.is_empty() && n.chars().all(|d| d.is_ascii_digit())
+                })
+        };
+        Ok(terminals
+            .into_iter()
+            .filter(|(h, title)| ours(title) && Some(h.as_str()) != watch && !held.contains(h))
+            .collect())
+    }
+
+    /// The findings, each with its fix; the reading; and the owner's part of
+    /// the watch's reports, which this marks seen.
     pub async fn doctor(&self) -> Answer {
         let seen = self.seen().await?;
         let settings = self.settings().await?;
@@ -315,14 +361,12 @@ impl App {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
         let reading = self.host.reading();
-        let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
-        let queue: Vec<_> =
-            q.entries.iter().map(|e| json!({ "what": e.what, "worker": e.worker, "started": e.started_at })).collect();
+        let heavy = self.state::<heavy::Heavy>(heavy::queue_id()).await?.entries;
         Ok(json!({
+            "heavy": heavy,
             "findings": findings,
             "human": seen.human,
             "holds": seen.holds,
-            "queue": queue,
             "reading": reading,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))

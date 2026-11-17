@@ -47,6 +47,10 @@ pub struct Started {
     pub base: String,
     /// When it started, in ms.
     pub at: i64,
+    /// The line typed at its session to hand it its brief, once its harness
+    /// is up; `None`: the brief is on its start line.
+    #[serde(default)]
+    pub typed: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -64,6 +68,16 @@ pub struct Worker {
     /// Since when its processes have been over their share, in ms.
     #[serde(default)]
     pub over_since: Option<i64>,
+    /// Its `typed` line was typed at its session.
+    #[serde(default)]
+    pub handed: bool,
+}
+
+impl Worker {
+    /// The line still to be typed to hand it its brief.
+    pub fn unhanded(&self) -> Option<&str> {
+        self.started.as_ref().and_then(|st| st.typed.as_deref()).filter(|_| !self.handed)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,6 +112,8 @@ pub enum WorkerEvent {
     },
     /// Its processes are back within their share.
     CameUnder,
+    /// Its brief was typed at its session.
+    BriefHanded,
 }
 
 pub struct Workers;
@@ -127,6 +143,7 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerResumed { at } => (s.status, s.reds, s.why, s.since) = (Status::Working, 0, None, at),
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
             WorkerEvent::CameUnder => s.over_since = None,
+            WorkerEvent::BriefHanded => s.handed = true,
             WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
         }
     }
@@ -156,6 +173,19 @@ command!(StartWorker, "worker.start", Workers, Start, |p| p.worker, |s, p, now| 
     started.at = now.0;
     Ok(vec![WorkerEvent::WorkerStarted(Box::new(started))])
 });
+
+command!(
+    /// Its brief was typed at its session, its harness up.
+    HandBrief,
+    "worker.handed",
+    Workers,
+    Of,
+    |p| p.worker,
+    |s, _p, _now| {
+        live(s)?;
+        Ok(if s.unhanded().is_some() { vec![WorkerEvent::BriefHanded] } else { Vec::new() })
+    }
+);
 
 fn live(s: &Worker) -> Result<(), Rejection> {
     match (&s.started, s.status) {

@@ -4,9 +4,12 @@
 //! so what they see is what the CLI prints.
 
 mod daemon;
+mod gate;
 mod heavy;
+mod launch;
 mod line;
 mod owner;
+mod service;
 mod session;
 mod start;
 mod watch;
@@ -28,6 +31,7 @@ use serde::de::DeserializeOwned;
 
 pub use daemon::Tick;
 pub use factorium_host as host;
+pub use launch::{Caller, DB_ENV};
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.
@@ -73,6 +77,14 @@ pub fn default_db() -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
+/// What the daemon keeps between ticks and nowhere else: which of its heavy
+/// jobs wait in the queue, and which this tick asked for.
+#[derive(Default)]
+struct Memory {
+    queued: std::collections::BTreeSet<Uuid>,
+    asked: std::collections::BTreeSet<Uuid>,
+}
+
 pub struct App {
     engine: Engine<SqliteStore>,
     host: Arc<dyn Host>,
@@ -80,6 +92,7 @@ pub struct App {
     /// worktrees of the lines, the watch's home, evidence.
     db: PathBuf,
     by: By,
+    memory: std::sync::Mutex<Memory>,
 }
 
 impl App {
@@ -95,7 +108,7 @@ impl App {
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, db, by: By::Principal(by.into()) })
+        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
     }
 
     fn now(&self) -> i64 {
@@ -134,7 +147,7 @@ impl App {
 
     /// What the repo declares at `rev`.
     fn declared(&self, git: &Git, rev: &str) -> Answer<Declared> {
-        let text = git.run(&["show", &format!("{rev}:{}", declared::FILE)]).ok();
+        let text = git.shown(rev, declared::FILE);
         declared::read(text.as_deref()).map_err(fail("bad_declaration"))
     }
 
@@ -142,43 +155,4 @@ impl App {
         let data = self.db.parent().unwrap_or(Path::new("."));
         parts.iter().fold(data.to_path_buf(), |p, s| p.join(s))
     }
-}
-
-/// Why a session may not run the shell `line`, if it may not: a worker runs
-/// only `factorium worker …` and never pushes.
-pub fn refused(line: &str, worker: bool) -> Option<&'static str> {
-    if !worker {
-        return None;
-    }
-    // Each command the line runs: what follows a separator, past variable
-    // assignments and the words that run the next one (`env`, `exec`, …).
-    for segment in line.split(|c: char| ";&|()\n`".contains(c) || c == '$') {
-        let mut words = segment.split_whitespace().peekable();
-        while let Some(w) = words.peek() {
-            let assigns = w.split_once('=').is_some_and(|(n, _)| !n.is_empty() && !n.starts_with('-'));
-            let runs_next = ["env", "exec", "command", "nohup", "time", "nice", "xargs"].contains(w);
-            if !(assigns || runs_next || (w.starts_with('-') && segment.trim_start().starts_with("env"))) {
-                break;
-            }
-            words.next();
-        }
-        let Some(command) = words.next() else { continue };
-        if command.rsplit('/').next() == Some("factorium") && words.next() != Some("worker") {
-            return Some("a worker runs only `factorium worker …`");
-        }
-        if command.rsplit('/').next() == Some("git") {
-            // The subcommand: past git's own options, `-C dir` and `-c x=y` taking a word.
-            while let Some(w) = words.next() {
-                if w == "-C" || w == "-c" {
-                    words.next();
-                } else if !w.starts_with('-') {
-                    if w == "push" {
-                        return Some("a worker does not push: `factorium worker done` lands your branch");
-                    }
-                    break;
-                }
-            }
-        }
-    }
-    None
 }

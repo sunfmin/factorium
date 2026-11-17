@@ -18,7 +18,7 @@ async fn escalated(w: &World) -> serde_json::Value {
 async fn escalated_alone(w: &World) -> serde_json::Value {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
@@ -103,7 +103,7 @@ async fn a_round_past_its_bound_ends_and_the_next_episode_gets_one() {
     escalated(&w).await;
     w.advance(5);
     w.tick().await;
-    w.app.issue_add("web", "u", "", false).await.unwrap();
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
     let second =
         w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned().unwrap();
@@ -123,7 +123,7 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());
@@ -173,14 +173,36 @@ async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_secon
 }
 
 #[tokio::test]
-async fn the_worker_and_the_watch_are_told_the_database_the_app_was_opened_on() {
+async fn the_worker_and_the_watch_start_alike_each_as_its_role() {
     let w = World::on("other.db");
+    w.host.tokens.lock().unwrap().insert(
+        "agent-account-team".into(),
+        r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+    );
     let wk = escalated_alone(&w).await;
     let db = w.db.to_string_lossy().into_owned();
-    let worker = w.terminal(wk["terminal"].as_str().unwrap());
-    assert!(worker.line.contains(&format!("FACTORIUM_DB='{db}'")), "{}", worker.line);
-    let watch = w.terminal(&watch_terminal(&w));
-    assert!(watch.line.contains(&format!("FACTORIUM_DB='{db}'")), "{}", watch.line);
+    let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
+    let worker = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    let watch = w.terminal(&watch_terminal(&w)).line;
+    assert_eq!(wk["account"], "team");
+    for (role, line) in [("worker", &worker), ("watch", &watch)] {
+        assert!(line.contains(&format!("FACTORIUM_DB='{db}'")), "{role}: the app's database: {line}");
+        assert!(line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")), "{role}: {line}");
+        assert!(line.contains(" guard claude-code"), "{role}: guarded: {line}");
+        assert!(!line.contains("sk-ant-very-secret"), "{role}: {line}");
+        // What the shell does with the line's start: read the secret, remove the file.
+        let parts: Vec<&str> = line.splitn(3, " && ").collect();
+        let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
+        let shell = format!("{} && {} && printenv CLAUDE_CODE_OAUTH_TOKEN", parts[0], parts[1]);
+        let out = std::process::Command::new("sh").args(["-c", &shell]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sk-ant-very-secret", "{role}");
+        assert!(!std::path::Path::new(&file).exists(), "{role}");
+    }
+    // Each is named as its role, and only as its role.
+    assert!(worker.contains("FACTORIUM_WORKER=") && !worker.contains("FACTORIUM_WATCH="), "{worker}");
+    assert!(watch.contains("FACTORIUM_WATCH=") && !watch.contains("FACTORIUM_WORKER="), "{watch}");
     let rules = std::fs::read_to_string(w.dir.join("data/watch/CLAUDE.md")).unwrap();
     assert!(rules.contains(&format!("The database is {db}.")), "{rules}");
+    let rules = std::fs::read_to_string(w.dir.join("data/role/worker/CLAUDE.md")).unwrap();
+    assert!(rules.contains("You are a factorium worker"), "{rules}");
 }
