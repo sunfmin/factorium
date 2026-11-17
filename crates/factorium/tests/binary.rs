@@ -37,11 +37,13 @@ fn sh(dir: &Path, line: &str) {
     assert!(ok.success(), "{line}");
 }
 
-/// Runs the binary with `XDG_DATA_HOME` in `dir` and `env` added; answers its
+/// Runs the binary with `XDG_DATA_HOME` and an empty `HOME` (a fresh host)
+/// in `dir` and `env` added; answers its
 /// exit success and its printed JSON.
 fn run_with(dir: &Dir, env: &[(&str, &str)], args: &[&str]) -> (bool, Value) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
     cmd.args(args).env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB");
+    cmd.env("HOME", dir.0.join("home"));
     cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
     for (k, v) in env {
         cmd.env(k, v);

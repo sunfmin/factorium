@@ -24,8 +24,7 @@ cargo clippy --workspace --all-targets --quiet -- -D warnings
 # The tests run in 60 seconds or less once built (SPEC.md §6).
 cargo test --workspace --no-run --quiet
 start=$(date +%s)
-# As a fresh host: no git identity or config of the user's.
-GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 cargo test --workspace --quiet
+cargo test --workspace --quiet
 took=$(( $(date +%s) - start ))
 echo "tests took ${took}s"
 if [ "$took" -gt 60 ]; then

@@ -5,12 +5,13 @@
 use factorium_harness::Harness;
 
 use crate::{World, worker};
+use factorium::host::Host;
 
 /// Writes the session files a harness's stand-in describes for `cwd`, in
 /// the home of its sessions on `account`.
 pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, open: bool, at: u64) {
     let kept = w.dir.join("data").join("kept").join(h.key());
-    h.write_session(&h.home(&w.host.home, account, &kept), cwd, open, at).unwrap();
+    h.write_session(&h.home(&w.host.home(), account, &kept), cwd, open, at).unwrap();
 }
 
 const ALL: [(&str, &str); 6] =
@@ -111,7 +112,7 @@ fn this_machine() -> String {
 #[tokio::test]
 async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_there() {
     let w = World::new();
-    let account = w.host.home.join(".agent-accounts").join("night");
+    let account = w.host.home().join(".agent-accounts").join("night");
     std::fs::create_dir_all(&account).unwrap();
     std::fs::write(account.join("auth.json"), "{}").unwrap();
     let fields = format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{}"}}}}"#, this_machine());
@@ -150,8 +151,8 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
 async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_directory() {
     let w = World::new();
     let repo = w.repo("web");
-    crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
-    crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+    w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+    w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
     w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();

@@ -11,7 +11,7 @@ use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
 use factorium_harness::{Harness, Start};
-use factorium_host::{Git, Host, Term};
+use factorium_host::{Host, Term};
 use factum::Value;
 use serde_json::json;
 
@@ -180,7 +180,7 @@ impl App {
         choice: &factorium_domain::kit::Choice,
         accounts: &[Usable],
     ) -> Answer<Started> {
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
         let name = format!("{}-{}-{attempt}", c.name, issue.number);
         let branch = format!("factorium/{name}");
@@ -241,13 +241,7 @@ impl App {
         let Ok(choice) = kit.choose("", self.now(), &here) else { return Ok(None) };
         let Some(harness) = Harness::read(&choice.entry.harness) else { return Ok(None) };
         let (home, brief) = self.watch_home();
-        if !home.join(".git").exists() {
-            std::fs::create_dir_all(&home).map_err(|e| Refusal::new("io", e.to_string()))?;
-            Git::at(&home).run(&["init", "--quiet"]).map_err(fail("git"))?;
-            Git::at(&home)
-                .run(&["commit", "--quiet", "--allow-empty", "-m", "The watch's home"])
-                .map_err(fail("git"))?;
-        }
+        self.host.git(&home).init("The watch's home").map_err(fail("git"))?;
         let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
         std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;

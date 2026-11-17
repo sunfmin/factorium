@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use factorium::host::{Host, Proc, Programs, Reading, Said};
+use factorium::host::{Git, Host, Proc, Programs, Reading, Said};
 use factorium::{Answer, App, Tick};
 use factum::{Instant, ManualClock, Uuid};
 use serde_json::{Value, json};
@@ -98,7 +98,8 @@ impl FakeOrca {
                 let repo = path_of(flag(args, "--repo")).unwrap();
                 let path = root.join("worktrees").join(flag(args, "--name"));
                 let (branch, sha) = (flag(args, "--branch"), flag(args, "--base-branch"));
-                if let Err(e) = git(&repo, &["worktree", "add", "--quiet", "-b", branch, &path.to_string_lossy(), sha])
+                if let Err(e) =
+                    git_of(root, &repo, &["worktree", "add", "--quiet", "-b", branch, &path.to_string_lossy(), sha])
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
@@ -114,7 +115,7 @@ impl FakeOrca {
                 let path = path_of(flag(args, "--worktree")).unwrap();
                 self.removed.lock().unwrap().push(path.clone());
                 if path.exists()
-                    && let Err(e) = git(&path, &["worktree", "remove", "--force", &path.to_string_lossy()])
+                    && let Err(e) = git_of(root, &path, &["worktree", "remove", "--force", &path.to_string_lossy()])
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
@@ -220,7 +221,7 @@ impl FakeBrew {
             ["update", ..] => {
                 for remote in std::fs::read_dir(root.join("remotes")).into_iter().flatten().flatten() {
                     let name = remote.file_name().to_string_lossy().trim_end_matches(".git").to_string();
-                    let tags = git(&remote.path(), &["tag", "--sort=-v:refname"]).unwrap_or_default();
+                    let tags = git_of(root, &remote.path(), &["tag", "--sort=-v:refname"]).unwrap_or_default();
                     if let Some(tag) = tags.lines().next() {
                         self.tap.insert(name, tag.trim_start_matches('v').to_string());
                     }
@@ -255,7 +256,6 @@ pub struct FakeHost {
     pub tokens: Mutex<BTreeMap<String, String>>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
-    pub home: PathBuf,
     root: PathBuf,
 }
 
@@ -301,25 +301,19 @@ impl Host for FakeHost {
         pid == std::process::id()
     }
     fn home(&self) -> PathBuf {
-        self.home.clone()
+        home(&self.root)
     }
 }
 
-pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t")
-        .output()
-        .map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr)))
-    }
+/// The home of the world at `root`: empty, as a fresh host's.
+fn home(root: &Path) -> PathBuf {
+    root.join("home")
+}
+
+/// git in `dir` as the host of the world at `root` runs it: with its home,
+/// which holds no config — a fresh host, with no identity of its own.
+fn git_of(root: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
+    Git::new(home(root), dir).run(args)
 }
 
 /// The repo every scenario starts from, made once per run: a bare remote
@@ -331,6 +325,8 @@ fn template() -> &'static Path {
         let t = std::env::temp_dir().join("factorium-template").join(Uuid::now_v7().to_string());
         let work = t.join("work");
         std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(home(&t)).unwrap();
+        let git = |dir: &Path, args: &[&str]| git_of(&t, dir, args);
         git(&work, &["init", "--quiet", "-b", "main"]).unwrap();
         std::fs::write(work.join("README"), "a repo\n").unwrap();
         std::fs::write(
@@ -364,7 +360,7 @@ impl World {
     pub fn on(name: &str) -> World {
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
-        std::fs::create_dir_all(dir.join("home")).unwrap();
+        std::fs::create_dir_all(home(&dir)).unwrap();
         let clock = Arc::new(ManualClock::new(Instant(1_800_000_000_000)));
         let host = Arc::new(FakeHost {
             orca: FakeOrca::default(),
@@ -378,7 +374,6 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             ran: Mutex::default(),
-            home: dir.join("home"),
             root: dir.clone(),
         });
         let db = dir.join("data").join(name);
@@ -398,7 +393,7 @@ impl World {
         let t = template().join("remote.git");
         Command::new("cp").args(["-R", &t.to_string_lossy(), &remote.to_string_lossy()]).status().unwrap();
         let path = self.dir.join("repos").join(name);
-        git(&self.dir, &["clone", "--quiet", &remote.to_string_lossy(), &path.to_string_lossy()]).unwrap();
+        self.git(&self.dir, &["clone", "--quiet", &remote.to_string_lossy(), &path.to_string_lossy()]).unwrap();
         path
     }
 
@@ -435,9 +430,21 @@ impl World {
         self.host.orca.terminals.lock().unwrap().get_mut(handle).unwrap().alive = false;
     }
 
+    /// Runs git in `dir` as the world's host runs it.
+    pub fn git(&self, dir: &Path, args: &[&str]) -> Result<String, String> {
+        git_of(&self.dir, dir, args)
+    }
+
+    /// Commits `file` with `text` in a worktree.
+    pub fn commit(&self, dir: &Path, file: &str, text: &str) {
+        std::fs::write(dir.join(file), text).unwrap();
+        self.git(dir, &["add", "-A"]).unwrap();
+        self.git(dir, &["commit", "--quiet", "-m", &format!("write {file}")]).unwrap();
+    }
+
     /// The remote's tip of `branch` of repo `name`.
     pub fn remote_tip(&self, name: &str, branch: &str) -> String {
-        git(&self.dir.join("remotes").join(format!("{name}.git")), &["rev-parse", branch]).unwrap()
+        self.git(&self.dir.join("remotes").join(format!("{name}.git")), &["rev-parse", branch]).unwrap()
     }
 }
 
@@ -454,13 +461,6 @@ pub async fn worker(app: &App) -> Value {
 
 pub fn id(w: &Value) -> Uuid {
     w["worker"].as_str().unwrap().parse().unwrap()
-}
-
-/// Commits `file` with `text` in a worktree.
-pub fn commit(dir: &Path, file: &str, text: &str) {
-    std::fs::write(dir.join(file), text).unwrap();
-    git(dir, &["add", "-A"]).unwrap();
-    git(dir, &["commit", "--quiet", "-m", &format!("write {file}")]).unwrap();
 }
 
 pub fn refused(answer: Answer, code: &str) {

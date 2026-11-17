@@ -81,7 +81,7 @@ impl App {
     pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
-        let git = factorium_host::Git::at(&path);
+        let git = self.host.git(&path);
         let base_tip = git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
         if git.fetch(proving).is_err() {
             git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
