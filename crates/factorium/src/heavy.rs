@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
+use factorium_domain::settings::Time;
 use factorium_host::{Ran, run};
 use factum::Uuid;
 
@@ -78,7 +79,7 @@ impl App {
         let (dir, line, env, flag) = (dir.to_path_buf(), line.to_string(), env.to_vec(), stop.clone());
         let mut job =
             tokio::task::spawn_blocking(move || run(&dir, &line, &env, limit, &|| flag.load(Ordering::Relaxed)));
-        let bound = self.settings().await?.ms("hold_bound");
+        let bound = self.settings().await?.ms(Time::HoldBound);
         let ran = loop {
             tokio::select! {
                 ran = &mut job => break ran.map_err(|e| crate::Refusal::new("internal", e.to_string()))?,

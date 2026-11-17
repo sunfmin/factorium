@@ -2,7 +2,7 @@
 //! session, and the watch's own commands.
 
 use factorium_domain::doctor;
-use factorium_domain::settings::Settings;
+use factorium_domain::settings::{Settings, Time};
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::Harness;
@@ -19,7 +19,7 @@ impl App {
     /// round is sent to the watch's session.
     pub(crate) async fn look_if_due(&self, settings: &Settings) -> Answer<Option<Value>> {
         let before = self.state::<Watches>(watch_id()).await?;
-        if before.last_look > 0 && self.now() - before.last_look < settings.ms("look_every") {
+        if before.last_look > 0 && self.now() - before.last_look < settings.ms(Time::LookEvery) {
             return Ok(None);
         }
         self.look(settings).await.map(Some)
@@ -39,7 +39,7 @@ impl App {
             }),
             _ => false,
         };
-        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms("round_bound"), ready }).await?;
+        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
         let mut after = self.state::<Watches>(watch_id()).await?;
         // The running round, typed once at each watch session, when it can take it.
         let unsent = after.round.as_ref().filter(|r| ready && r.sent != terminal);

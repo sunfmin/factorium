@@ -8,6 +8,7 @@ use std::time::Duration;
 use factorium_domain::declared::Kind;
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
 use factorium_domain::issue::{ReleaseIssue, Take};
+use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_host::Git;
 use factum::Uuid;
@@ -91,7 +92,7 @@ impl App {
 
     /// Runs a command through the heavy-command queue.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        let limit = Duration::from_secs(self.settings().await?.get("hold_bound").max(60) * 4);
+        let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
         let ran = self.heavy(cmd, worker, dir, cmd, &[], limit).await?;
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
     }

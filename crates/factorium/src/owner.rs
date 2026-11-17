@@ -7,7 +7,7 @@ use factorium_domain::checkout::{Add, AddCheckout, Checkouts, Named, RemoveCheck
 use factorium_domain::issue::*;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
-use factorium_domain::settings::{HostSettings, SETTINGS, Set, SetSetting};
+use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{CHECKOUTS, ISSUES, Tracker, WORKERS};
 use factorium_domain::{doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
@@ -280,11 +280,10 @@ impl App {
             self.submit::<SetSetting>(Set { name: name.into(), value }).await?;
         }
         let s = self.settings().await?;
-        let all: Vec<Value> =
-            SETTINGS.iter().map(|(n, _, what)| json!({ "name": n, "value": s.get(n), "what": what })).collect();
+        let row = |t: Setting| json!({ "name": t.name(), "value": s.get(t), "unit": t.unit().name(), "default": t.default(), "what": t.what() });
         Ok(match name {
-            Some(n) => all.into_iter().find(|v| v["name"] == n).ok_or_else(|| Refusal::new("no_setting", n))?,
-            None => Value::Array(all),
+            Some(n) => row(Setting::named(n).ok_or_else(|| Refusal::new("no_setting", n))?),
+            None => Setting::all().map(row).collect(),
         })
     }
 

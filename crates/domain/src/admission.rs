@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::settings::Settings;
+use crate::settings::{Setting, Settings};
 
 /// What the host read, as the rules see it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -19,18 +19,18 @@ const GIB: u64 = 1 << 30;
 
 /// Whether the host has room for one more start; else why not.
 pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
-    if r.disk_free < s.get("disk_floor_gib") * GIB {
+    if r.disk_free < s.get(Setting::DiskFloorGib) * GIB {
         return Err(format!(
             "disk: {} GiB free, under the floor of {} GiB",
             r.disk_free / GIB,
-            s.get("disk_floor_gib")
+            s.get(Setting::DiskFloorGib)
         ));
     }
-    if r.cpu_busy > s.get("cpu_busy_max") {
-        return Err(format!("cpu: {}% busy, over {}%", r.cpu_busy, s.get("cpu_busy_max")));
+    if r.cpu_busy > s.get(Setting::CpuBusyMax) {
+        return Err(format!("cpu: {}% busy, over {}%", r.cpu_busy, s.get(Setting::CpuBusyMax)));
     }
-    if r.memory_free < s.get("memory_free_min") {
-        return Err(format!("memory: {}% free, under {}%", r.memory_free, s.get("memory_free_min")));
+    if r.memory_free < s.get(Setting::MemoryFreeMin) {
+        return Err(format!("memory: {}% free, under {}%", r.memory_free, s.get(Setting::MemoryFreeMin)));
     }
     Ok(())
 }
@@ -39,13 +39,13 @@ pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
 /// share of the CPU.
 pub fn admit(r: &Reading, s: &Settings) -> Result<(), String> {
     room(r, s)?;
-    if r.workers_cpu > s.get("workers_cpu_share") {
-        return Err(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get("workers_cpu_share")));
+    if r.workers_cpu > s.get(Setting::WorkersCpuShare) {
+        return Err(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get(Setting::WorkersCpuShare)));
     }
     Ok(())
 }
 
 /// Whether the disk is under its floor: the time to reclaim `target/`.
 pub fn disk_short(r: &Reading, s: &Settings) -> bool {
-    r.disk_free < s.get("disk_floor_gib") * GIB
+    r.disk_free < s.get(Setting::DiskFloorGib) * GIB
 }
