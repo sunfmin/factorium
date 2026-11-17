@@ -134,3 +134,24 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     assert_eq!(again["issue"], "web#1");
     assert_ne!(again["worker"], wk["worker"]);
 }
+
+#[tokio::test]
+async fn a_new_watch_session_gets_the_round_that_is_running() {
+    let w = World::new();
+    escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    let first = watch_terminal(&w);
+    assert_eq!(w.terminal(&first).sent.len(), 1);
+    w.kill_terminal(&first);
+    w.advance(5);
+    let t = w.tick().await.watch.unwrap();
+    let second = t["watch"].as_str().unwrap().to_string();
+    assert_ne!(second, first, "a new session");
+    assert_eq!(t["round"]["n"], 1, "the same round");
+    let sent = w.terminal(&second).sent;
+    assert!(sent.len() == 1 && sent[0].contains("round 1"), "{sent:?}");
+    w.advance(5);
+    w.tick().await;
+    assert_eq!(w.terminal(&second).sent.len(), 1, "once per session");
+}

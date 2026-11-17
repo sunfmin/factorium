@@ -3,7 +3,7 @@
 
 use factorium_domain::doctor;
 use factorium_domain::settings::Settings;
-use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, Watches, watch_id};
+use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::Harness;
 use factorium_harness::turn::Turn;
@@ -40,10 +40,12 @@ impl App {
             _ => false,
         };
         self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms("round_bound"), ready }).await?;
-        let after = self.state::<Watches>(watch_id()).await?;
-        let fresh = after.round.as_ref().filter(|r| before.round.as_ref().is_none_or(|b| b.n != r.n));
-        if let (Some(r), Some(t)) = (fresh, &terminal) {
-            let e = &after.episodes[&r.episode];
+        let mut after = self.state::<Watches>(watch_id()).await?;
+        // The running round, typed once at each watch session, when it can take it.
+        let unsent = after.round.as_ref().filter(|r| ready && r.sent != terminal);
+        if let (Some(r), Some(t)) = (unsent, &terminal)
+            && let Some(e) = after.episodes.get(&r.episode)
+        {
             let line = format!(
                 "factorium round {}: {} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
                  When done, file `factorium watch report --text \"what you found and did\"` (add --human \"...\" \
@@ -51,6 +53,8 @@ impl App {
                 r.n, e.what, e.fix
             );
             self.host.orca().send(t, &one_line(&line)).map_err(crate::fail("orca"))?;
+            self.submit::<SendRound>(watch::Sent { n: r.n, terminal: t.clone() }).await?;
+            after = self.state::<Watches>(watch_id()).await?;
         }
         Ok(
             json!({ "findings": found.len(), "episodes": after.episodes.len(), "round": after.round, "watch": terminal }),
