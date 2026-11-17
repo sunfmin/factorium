@@ -112,6 +112,56 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("red twice"));
 }
 
+/// Claude Code's dialog after a turn ended, as two workers showed it on
+/// 2026-11-18 while their landing's red was typed at them.
+const AUTO_MODE_DIALOG: [&str; 4] = [
+    "Teach auto mode about your environment?",
+    "Claude Code reads this project, your recent Claude sessions, and optionally your shell history.",
+    "› Continue",
+    "←/→ to change · Enter to continue · Esc to cancel",
+];
+
+/// A worker gone red, its harness showing `dialog` when the red is typed.
+async fn red_at(w: &World, dialog: &[&str]) -> serde_json::Value {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "RED", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.open_dialog(wk["terminal"].as_str().unwrap(), dialog);
+    assert!(w.tick().await.landed[0]["red"].is_string());
+    wk
+}
+
+#[tokio::test]
+async fn a_red_typed_at_a_known_harness_dialog_dismisses_it_first_and_reaches_the_session() {
+    let w = World::new();
+    let wk = red_at(&w, &AUTO_MODE_DIALOG).await;
+    let term = w.terminal(wk["terminal"].as_str().unwrap());
+    let n = term.sent.len();
+    assert_eq!(term.sent[n - 2], crate::ESCAPE, "{:?}", term.sent);
+    assert!(term.sent[n - 1].contains("landing was red"), "{:?}", term.sent);
+    assert!(!term.dialog, "dismissed");
+    assert_eq!(worker(&w.app).await["status"], "working", "it took the red");
+    assert!(w.app.doctor().await.unwrap()["findings"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_red_that_an_unknown_dialog_takes_is_a_finding_at_once() {
+    let w = World::new();
+    let wk = red_at(&w, &["Try the new thing?", "› Yes", "Enter to confirm"]).await;
+    let term = w.terminal(wk["terminal"].as_str().unwrap());
+    assert!(!term.sent.contains(&crate::ESCAPE.to_string()), "no key is guessed: {:?}", term.sent);
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting", "not 30 min of silence");
+    let why = waiting["why"].as_str().unwrap();
+    assert!(why.contains("did not reach") && why.contains("Enter to confirm"), "{why}");
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("did not reach"), "{doctor}");
+}
+
 #[tokio::test]
 async fn a_red_landing_then_a_fix_lands() {
     let w = World::new();

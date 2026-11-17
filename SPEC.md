@@ -59,11 +59,14 @@ watch's look and the operator's view.
    account are chosen; the guard is installed; its brief is sent; the
    session file says when its turn starts and ends. Text is typed at a
    session only once its harness's own screen is up there: typed at a
-   shell, a line is a command it runs.
+   shell, a line is a command it runs. A question the harness opens on its
+   own mid-session (a dialog that would take the line) is dismissed first
+   with the harness's own key.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
    likes, then `factorium worker done`.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
-   a row goes to the watch.
+   a row goes to the watch. A red that does not reach the session's prompt
+   (no turn starts and none runs) goes to the watch at once.
 6. Green: the issue closes, the worker ends, its worktree is removed
    unless it holds work that is nowhere else: the one test that also
    decides where its issue's next start begins (step 3).

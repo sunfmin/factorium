@@ -106,7 +106,11 @@ impl App {
                 "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
             );
             if let Some(st) = &wk.started {
-                let _ = Self::worker_session(st).and_then(|s| self.type_at(&s, &one_line(&text)));
+                let missed = match Self::worker_session(st) {
+                    Ok(s) => self.reach(&s, &one_line(&text)).err(),
+                    Err(r) => Some(r.message),
+                };
+                self.submit::<w::ToldRed>(w::Told { worker, missed }).await?;
             }
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))

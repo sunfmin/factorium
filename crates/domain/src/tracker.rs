@@ -239,6 +239,7 @@ impl Projection for Tracker {
                 WorkerEvent::WentOver { .. }
                 | WorkerEvent::CameUnder
                 | WorkerEvent::BriefHanded
+                | WorkerEvent::RedTold { .. }
                 | WorkerEvent::WentQuiet { .. }
                 | WorkerEvent::Stirred => Vec::new(),
             },

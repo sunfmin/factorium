@@ -25,6 +25,10 @@ const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
 /// the watch.
 const UP_BOUND_MS: i64 = 5 * 60 * 1000;
 
+/// How many times a question a harness opened mid-session is dismissed
+/// before what is typed is given up.
+const DISMISS_TRIES: u32 = 3;
+
 /// One harness session, as it was started.
 pub(crate) struct Session {
     terminal: String,
@@ -97,7 +101,7 @@ impl App {
         if let Some(why) = s.harness.not_up(&screen) {
             return Seen::Down(why);
         }
-        match s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief) {
+        match self.turn(s) {
             Some(Turn::Open { .. }) => Seen::Open(hash(&screen)),
             Some(Turn::Closed { since, .. }) => Seen::Closed(Some(since as i64 * 1000)),
             None => Seen::Closed(None),
@@ -127,17 +131,53 @@ impl App {
         Ok(if seen == Delivery::Queued && took() { Delivery::Submitted } else { seen })
     }
 
-    /// Refuses unless a session's harness is up in its terminal: typed at a
-    /// shell, a line is a command it runs.
+    /// Types `text` at a worker's session that is idle at its prompt, and
+    /// answers whether it reached it: it started a turn, or waits behind the
+    /// one running. `Err`: why it did not.
+    pub(crate) fn reach(&self, s: &Session, text: &str) -> Result<(), String> {
+        let open = || matches!(self.turn(s), Some(Turn::Open { .. }));
+        match self.deliver_at(s, text, false) {
+            Ok(Delivery::Submitted) => Ok(()),
+            Ok(Delivery::Queued) if open() => Ok(()),
+            Ok(Delivery::Queued) => {
+                let shows = match self.host.orca().screen(&s.terminal) {
+                    Term::Running(screen) => {
+                        screen.iter().rev().take(3).rev().map(|r| r.trim()).collect::<Vec<_>>().join(" / ")
+                    }
+                    _ => "unreadable".into(),
+                };
+                Err(format!("typed, it started no turn and none runs; its screen ends: {shows}"))
+            }
+            Err(r) => Err(r.message),
+        }
+    }
+
+    /// The turn a session's files say it is in.
+    fn turn(&self, s: &Session) -> Option<Turn> {
+        s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief)
+    }
+
+    /// Refuses unless a session's harness is up in its terminal, ready to be
+    /// typed at: typed at a shell, a line is a command it runs. A question
+    /// its harness opened on its own mid-session is dismissed with its own
+    /// key first: what is typed there never reaches the prompt.
     fn up(&self, s: &Session) -> Answer<()> {
-        let screen = match self.host.orca().screen(&s.terminal) {
-            Term::Running(screen) => screen,
-            Term::Exited => return Err(Refusal::new("gone", "its session's terminal is gone")),
-            Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
-        };
-        match s.harness.not_up(&screen) {
-            Some(why) => Err(Refusal::new("not_up", format!("its harness is not up: {why}"))),
-            None => Ok(()),
+        let mut dismissed = 0;
+        loop {
+            let screen = match self.host.orca().screen(&s.terminal) {
+                Term::Running(screen) => screen,
+                Term::Exited => return Err(Refusal::new("gone", "its session's terminal is gone")),
+                Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
+            };
+            if let Some(why) = s.harness.not_up(&screen) {
+                return Err(Refusal::new("not_up", format!("its harness is not up: {why}")));
+            }
+            let Some((asks, key)) = s.harness.asking(&screen) else { return Ok(()) };
+            if dismissed == DISMISS_TRIES {
+                return Err(Refusal::new("not_up", format!("its harness asks and stays asking: {asks}")));
+            }
+            self.host.orca().press(&s.terminal, key).map_err(crate::fail("orca"))?;
+            dismissed += 1;
         }
     }
 
