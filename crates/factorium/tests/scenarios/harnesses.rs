@@ -188,7 +188,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         std::fs::write(user.join("config.toml"), "default_model = \"k2\"\nmerge_all_available_skills = true\n")
             .unwrap();
         w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
-        w.app.issue_add("web", "t", "", false).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = worker(&w.app).await;
         assert_eq!(wk["harness"], key);
@@ -239,7 +239,7 @@ async fn dsh_starts_only_through_its_guard_files() {
     let w = World::new();
     w.checkout("web").await;
     w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let home = w.dir.join("data").join("kept").join("dsh");
     let start = home.join("start.sh");
