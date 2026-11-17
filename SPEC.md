@@ -104,7 +104,7 @@ The help in the binary is the manual (as in afkconvoy): every command's
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
 | `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, hot-worker rules and the disk floor as pure functions of readings; doctor's findings. No IO, no clock. | 7,000 |
-| `factorium-harness` | The six harnesses: start line, rules and skills places, hooks, session files and turn lines, usage lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it. | 8,000 |
+| `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
 | `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,000 |
 

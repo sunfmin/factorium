@@ -1,7 +1,0 @@
-# Headless DSH disables its credential service. Enable its read service so
-# the listing uses the same store and precedence as an interactive session.
-- id: credentials
-  disabled: false
-- insert:
-    - id: factorium-models
-      name: '@FACTORIUM_DSH_MODELS@'

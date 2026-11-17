@@ -4,16 +4,16 @@
 
 /// A start or an end the session recorded, in epoch seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Note {
-    pub marker: Marker,
-    pub at: u64,
+pub(crate) struct Note {
+    pub(crate) marker: Marker,
+    pub(crate) at: u64,
     /// A child of the session's turn. It is not the session's turn.
-    pub child: bool,
+    pub(crate) child: bool,
 }
 
 /// Whether a note opens a turn or closes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Marker {
+pub(crate) enum Marker {
     Start,
     End,
 }
@@ -36,7 +36,7 @@ pub enum Turn {
 /// this send's turn, and an end whose start is not in the notes proves
 /// nothing. With `not_before` unset, an end with no start in the notes is
 /// still a turn that ended — the start was earlier in a file read whole.
-pub fn latest(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
+pub(crate) fn latest(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
     let mut started: Option<u64> = None;
     let mut ended: Option<u64> = None;
     for note in notes {
@@ -78,7 +78,7 @@ pub fn latest(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
 /// make it idle. A session that names no start cannot outrank one that
 /// does. With none named, the turn that ended last remains. A child never
 /// reaches here: it is not a primary session.
-pub fn prefer(turns: &[Turn]) -> Option<Turn> {
+pub(crate) fn prefer(turns: &[Turn]) -> Option<Turn> {
     let mut latest_start: Option<u64> = None;
     for turn in turns {
         if let Some(start) = began(*turn) {

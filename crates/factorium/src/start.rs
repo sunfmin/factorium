@@ -9,8 +9,8 @@ use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
-use factorium_harness::account::{self, Session, Source};
-use factorium_harness::{BriefAtStart, Harness, Rules, Start, Told};
+use factorium_harness::account::{self, Source};
+use factorium_harness::{Harness, Start};
 use factorium_host::{Git, Host};
 use factum::Value;
 use serde_json::json;
@@ -59,19 +59,9 @@ impl App {
     /// The accounts usable on this machine now: (name, harness key, the
     /// environment a session on it starts with).
     pub(crate) fn accounts_here(&self) -> Vec<Usable> {
-        let Ok(found) = account::read(&Tokens(self.host.as_ref())) else { return Vec::new() };
-        let here = account::this_machine().unwrap_or_default();
-        let home = self.host.home();
-        found
-            .accounts
+        account::usable(&Tokens(self.host.as_ref()), &self.host.home())
             .into_iter()
-            .filter_map(|a| match a.session(&here, &home) {
-                Session::Ready(env) => {
-                    let vars = env.vars.iter().map(|(n, v)| (*n, v.expose().to_string())).collect();
-                    Some((a.name.clone(), a.harness.key().to_string(), vars))
-                }
-                _ => None,
-            })
+            .map(|a| (a.name, a.harness.key().to_string(), a.env))
             .collect()
     }
 
@@ -97,10 +87,8 @@ impl App {
     /// The directory a role's sessions start in, holding its rules.
     fn role(&self, name: &str, rules: &str) -> Answer<PathBuf> {
         let dir = self.dir(&["role", name]);
-        std::fs::create_dir_all(dir.join(factorium_harness::start::SKILLS))
-            .map_err(|e| Refusal::new("io", e.to_string()))?;
-        std::fs::write(dir.join(factorium_harness::start::RULES), rules)
-            .map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::create_dir_all(dir.join(factorium_harness::SKILLS)).map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(dir.join(factorium_harness::RULES), rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         Ok(dir)
     }
 
@@ -108,53 +96,30 @@ impl App {
     fn launch(&self, l: Launch) -> Answer<String> {
         let kept = self.dir(&["kept", l.harness.key()]);
         std::fs::create_dir_all(&kept).map_err(|e| Refusal::new("io", e.to_string()))?;
-        // The host user's files the harness needs (its login), linked in.
-        for link in l.harness.kept().links {
-            let (from, to) = (self.host.home().join(link.home), kept.join(link.kept));
-            if from.exists() && !to.exists() {
-                let _ = std::fs::create_dir_all(to.parent().unwrap_or(&kept));
-                let _ = std::os::unix::fs::symlink(&from, &to);
-            }
-        }
-        let (dir, worktree, kept_s) = (l.dir.to_string_lossy(), l.worktree.to_string_lossy(), kept.to_string_lossy());
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
         let hook = format!("{} guard {}", shell_word(&exe), l.harness.key());
-        let read = |p: &Path| std::fs::read_to_string(p).ok();
-        let (repo_rules, own_rules) = (read(&l.worktree.join("CLAUDE.md")), read(&l.dir.join("CLAUDE.md")));
-        let (repo_file, own_file) = (l.worktree.join("CLAUDE.md"), l.dir.join("CLAUDE.md"));
-        let (repo_file, own_file) = (repo_file.to_string_lossy(), own_file.to_string_lossy());
-        let told = Told {
-            repo: repo_rules.as_deref().map(|text| Rules { file: &repo_file, text }),
-            added: None,
-            own: own_rules.as_deref().map(|text| Rules { file: &own_file, text }),
-        };
         // The session runs factorium by name: this one.
         let mut env = l.env;
         let path = std::env::var("PATH").unwrap_or_default();
         if let Some(bin) = Path::new(&exe).parent() {
             env.push(("PATH", format!("{}:{path}", bin.display())));
         }
+        let (dir, worktree, kept) = (l.dir.to_string_lossy(), l.worktree.to_string_lossy(), kept.to_string_lossy());
+        let brief = l.brief.to_string_lossy();
+        let home = self.host.home();
         let start = Start {
+            command: l.command,
             dir: &dir,
             worktree: &worktree,
-            added: &dir,
             model: l.model,
             hook: &hook,
-            kept: &kept_s,
-            host_user: false,
-            kept_config: false,
-            host_rules: &[],
-            dsh_profile: Default::default(),
-            shadowed: &[],
-            told,
+            kept: &kept,
+            home: &home,
             env,
+            brief: &brief,
         };
-        let line = l.harness.start_line(l.command, &start);
-        let brief = l.brief.to_string_lossy();
-        let (line, typed) = match l.harness.brief_at_start(&line, &brief) {
-            BriefAtStart::Started(line) => (line, None),
-            BriefAtStart::Typed(typed) => (line, Some(typed)),
-        };
+        let launched = l.harness.launch(&start);
+        let (line, typed) = (launched.line, launched.typed);
         let (line, secret) = self.secrets_first(&l.secrets, line)?;
         let opened = self.host.orca().open(l.worktree, l.title, &line);
         if let (Err(_), Some(file)) = (&opened, &secret) {

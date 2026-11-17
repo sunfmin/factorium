@@ -152,7 +152,6 @@ dependencies = [
  "factorium-host",
  "factum",
  "factum-sqlite",
- "ruzstd",
  "serde",
  "serde_json",
  "tokio",
@@ -175,9 +174,9 @@ name = "factorium-harness"
 version = "0.1.0"
 dependencies = [
  "gethostname",
+ "ruzstd",
  "serde",
  "serde_json",
- "toml",
 ]
 
 [[package]]

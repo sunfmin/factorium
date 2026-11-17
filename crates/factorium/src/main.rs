@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Parser, Subcommand};
 use factorium::host::Machine;
 use factorium::{Answer, App, Refusal, default_db};
-use factorium_harness::{Call, Harness};
+use factorium_harness::Harness;
 use factum::{SystemClock, Uuid};
 use serde_json::json;
 
@@ -321,8 +321,7 @@ fn hook(harness: &str) -> ExitCode {
     let Some(h) = Harness::read(harness) else { return ExitCode::SUCCESS };
     let mut payload = String::new();
     let _ = std::io::stdin().read_to_string(&mut payload);
-    let mut de = serde_json::Deserializer::from_str(&payload);
-    let Ok(Call::Shell(line)) = h.call(&mut de) else { return ExitCode::SUCCESS };
+    let Some(line) = h.shell_call(&payload) else { return ExitCode::SUCCESS };
     let worker = std::env::var_os("FACTORIUM_WORKER").is_some();
     if let Some(why) = factorium::refused(&line, worker) {
         eprintln!("factorium refuses this: {why}");
