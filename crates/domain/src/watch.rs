@@ -72,6 +72,10 @@ pub struct Watch {
     /// only watch terminals this database's factorium calls its own.
     #[serde(default)]
     pub opened: Vec<String>,
+    /// Terminals of its sessions whose close failed, with why: Orca
+    /// refused, or lists them still.
+    #[serde(default)]
+    pub unclosed: Vec<(String, String)>,
 }
 
 /// How many reports the watch keeps in its state.
@@ -91,6 +95,11 @@ pub enum WatchEvent {
     /// Its brief was typed at its session.
     BriefHanded,
     WatchEnded,
+    /// Closing its session's terminal failed: why.
+    WatchCloseFailed {
+        terminal: String,
+        why: String,
+    },
     Looked {
         at: i64,
     },
@@ -151,6 +160,12 @@ impl Aggregate for Watches {
             }
             WatchEvent::BriefHanded => s.unhanded = None,
             WatchEvent::WatchEnded => (s.terminal, s.harness, s.account, s.unhanded) = (None, None, None, None),
+            WatchEvent::WatchCloseFailed { terminal, why } => {
+                s.unclosed.retain(|(t, _)| *t != terminal);
+                s.unclosed.push((terminal, why));
+                let extra = s.unclosed.len().saturating_sub(KEPT);
+                s.unclosed.drain(..extra);
+            }
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at, heard } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None, heard });
@@ -225,18 +240,28 @@ command!(
     })
 );
 
+/// How closing the watch's session's terminal went.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Ended {
+    /// Why its terminal is not closed; `None`: Orca no longer lists it.
+    pub failed: Option<String>,
+}
+
 command!(
     /// The watch's session was closed: the next look starts a fresh one.
     EndWatch,
     "watch.end",
     Watches,
-    (),
+    Ended,
     |_p| watch_id(),
-    |s, _p, _now| Ok::<_, factum_core::Rejection>(if s.terminal.is_some() {
-        vec![WatchEvent::WatchEnded]
-    } else {
-        Vec::new()
-    })
+    |s, p, _now| {
+        let Some(terminal) = &s.terminal else { return Ok::<_, factum_core::Rejection>(Vec::new()) };
+        let mut events = vec![WatchEvent::WatchEnded];
+        if let Some(why) = &p.failed {
+            events.push(WatchEvent::WatchCloseFailed { terminal: terminal.clone(), why: why.clone() });
+        }
+        Ok(events)
+    }
 );
 
 /// One finding, as a look hands it on.

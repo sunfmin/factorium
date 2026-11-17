@@ -73,6 +73,12 @@ pub struct WorkerRow {
     pub started_at: i64,
     #[serde(flatten)]
     pub state: WorkerState,
+    /// Its terminal was closed and Orca no longer lists it.
+    #[serde(default)]
+    pub closed: bool,
+    /// Why closing its terminal failed, the last time it was tried.
+    #[serde(default)]
+    pub close_failed: Option<String>,
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -168,7 +174,7 @@ impl Projection for Tracker {
     }
 
     fn version(&self) -> u32 {
-        4
+        5
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -228,6 +234,8 @@ impl Projection for Tracker {
                         branch: s.branch,
                         started_at: s.at,
                         state: WorkerState { status: WorkerStatus::Working, why: None, since: s.at },
+                        closed: false,
+                        close_failed: None,
                     }),
                 ),
                 WorkerEvent::LandingAsked { at } => state(WorkerStatus::Landing, None, at),
@@ -236,6 +244,9 @@ impl Projection for Tracker {
                 WorkerEvent::WorkerWaits { why, at } => state(WorkerStatus::Waiting, Some(why), at),
                 WorkerEvent::WorkerResumed { at } => state(WorkerStatus::Working, None, at),
                 WorkerEvent::WorkerEnded { why, at } => state(WorkerStatus::Ended, Some(why), at),
+                WorkerEvent::SessionClosed { failed } => {
+                    merge(WORKERS, json!({ "closed": failed.is_none(), "close_failed": failed }))
+                }
                 WorkerEvent::WentOver { .. }
                 | WorkerEvent::CameUnder
                 | WorkerEvent::BriefHanded

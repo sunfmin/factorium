@@ -232,8 +232,8 @@ impl Orca<'_> {
         Ok(rows.iter().map(|t| (text(&t["handle"]), text(&t["title"]))).collect())
     }
 
-    /// Ends a terminal.
-    pub fn close(&self, terminal: &str) {
-        let _ = self.call(&["terminal", "close", "--terminal", terminal]);
+    /// Ends a terminal; answers why Orca refused to.
+    pub fn close(&self, terminal: &str) -> Result<(), String> {
+        self.call(&["terminal", "close", "--terminal", terminal]).map(|_| ()).map_err(String::from)
     }
 }

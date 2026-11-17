@@ -51,7 +51,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
     assert!(issue["reason"].as_str().unwrap().contains(&landed));
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
-    assert!(!w.terminal("term-1").alive, "its session ends");
+    assert!(crate::closed(&w.app, "term-1").await, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
     let left = w.git(&web, &["branch", "--list", &branch]).unwrap();
     assert!(left.trim().is_empty(), "its branch goes: {branch}");
@@ -255,8 +255,8 @@ async fn closing_or_parking_an_issue_ends_its_worker() {
     w.app.issue_close("web", a["number"].as_u64().unwrap(), "not needed").await.unwrap();
     w.app.issue_park("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
-    assert!(!w.terminal(a["terminal"].as_str().unwrap()).alive);
-    assert!(!w.terminal(b["terminal"].as_str().unwrap()).alive);
+    assert!(crate::closed(&w.app, a["terminal"].as_str().unwrap()).await);
+    assert!(crate::closed(&w.app, b["terminal"].as_str().unwrap()).await);
     assert!(b_tree.exists(), "a parked issue's worktree stays");
     w.app.issue_ready("web", b["number"].as_u64().unwrap()).await.unwrap();
     let again = w.tick().await.started.unwrap();

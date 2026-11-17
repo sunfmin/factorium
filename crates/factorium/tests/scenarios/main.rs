@@ -89,6 +89,10 @@ pub struct FakeOrca {
     pub never_found: Mutex<bool>,
     /// Orca refuses to remove worktrees while set.
     pub refuse_rm: Mutex<bool>,
+    /// Orca refuses to close a terminal while set.
+    pub refuse_close: Mutex<bool>,
+    /// While set, Orca answers a terminal's close and leaves it as it was.
+    pub ignore_close: Mutex<bool>,
     /// Real Orca (1.4.254) takes seconds to close an agent's terminal (2.2s
     /// for dsh's) and lists it, connected, until the close returns. While
     /// set, this runs with the handle when one terminal's close is asked,
@@ -250,6 +254,8 @@ impl FakeOrca {
                         let prompt = enter.then(|| json!({ "stages": stages, "provider": "claude" }));
                         answer(json!({ "send": { "handle": handle, "accepted": true, "prompt": prompt } }))
                     }
+                    "close" if *self.refuse_close.lock().unwrap() => error("terminal_close_failed"),
+                    "close" if *self.ignore_close.lock().unwrap() => answer(json!({ "closed": true })),
                     "close" => {
                         (term.alive, term.closed) = (false, true);
                         answer(json!({ "closed": true }))
@@ -600,6 +606,20 @@ impl Drop for World {
 /// A live worker, as the CLI lists it.
 pub async fn worker(app: &App) -> Value {
     app.workers(false).await.unwrap().as_array().unwrap().first().cloned().expect("a worker")
+}
+
+/// Whether factorium closed terminal `handle`, as the CLI prints it: the
+/// worker it was opened for, if one was, shows it `closed` in `workers
+/// --all`, and doctor names it neither an orphan nor unclosed.
+pub async fn closed(app: &App, handle: &str) -> bool {
+    let rows = app.workers(true).await.unwrap();
+    let row = rows.as_array().unwrap().iter().find(|r| r["terminal"] == handle).cloned();
+    let doctor = app.doctor().await.unwrap();
+    let named = doctor["findings"].as_array().unwrap().iter().any(|f| {
+        let key = f["key"].as_str().unwrap();
+        key == format!("orphan:{handle}") || key == format!("unclosed:{handle}")
+    });
+    row.is_none_or(|r| r["closed"] == true) && !named
 }
 
 pub fn id(w: &Value) -> Uuid {

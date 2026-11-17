@@ -140,6 +140,11 @@ pub enum WorkerEvent {
         text: String,
         at: i64,
     },
+    /// Its terminal was closed and Orca no longer lists it; `failed`: why
+    /// it was not (Orca refused, or lists it still).
+    SessionClosed {
+        failed: Option<String>,
+    },
 }
 
 pub struct Workers;
@@ -179,6 +184,7 @@ impl Aggregate for Workers {
             WorkerEvent::CameUnder => s.over_since = None,
             WorkerEvent::BriefHanded => s.handed = true,
             WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
+            WorkerEvent::SessionClosed { .. } => {}
         }
     }
 
@@ -357,6 +363,29 @@ command!(
             return no("not_waiting", "the worker does not wait for the watch");
         }
         Ok(vec![WorkerEvent::WorkerHeard { text: p.text.clone(), at: now.0 }])
+    }
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Closed {
+    pub worker: Uuid,
+    /// Why its terminal is not closed; `None`: Orca no longer lists it.
+    pub failed: Option<String>,
+}
+
+command!(
+    /// How closing its terminal went. Recorded before it ends: an ended
+    /// worker takes no more commands.
+    NoteClosed,
+    "worker.closed",
+    Workers,
+    Closed,
+    |p| p.worker,
+    |s, p, _now| {
+        if s.started.is_none() {
+            return no("no_worker", "no such worker");
+        }
+        Ok(vec![WorkerEvent::SessionClosed { failed: p.failed.clone() }])
     }
 );
 
