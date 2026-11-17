@@ -83,9 +83,9 @@ struct Memory {
 pub struct App {
     engine: Engine<SqliteStore>,
     host: Arc<dyn Host>,
-    /// The directory beside the database: briefs, worktrees of the lines,
-    /// the watch's home, evidence.
-    data: PathBuf,
+    /// The database it was opened on. Its directory holds the rest: briefs,
+    /// worktrees of the lines, the watch's home, evidence.
+    db: PathBuf,
     by: By,
     memory: Mutex<Memory>,
 }
@@ -94,13 +94,16 @@ impl App {
     /// Opens the database at `db`, making it if it is not there. `by` names
     /// who runs the commands, as the events record it.
     pub fn open(db: &Path, clock: Arc<dyn Clock>, by: &str, host: Arc<dyn Host>) -> Answer<App> {
+        // Absolute: sessions are told it, and they run in other directories.
+        let db = std::path::absolute(db)
+            .map_err(|e| Refusal::new("no_database", format!("cannot place {}: {e}", db.display())))?;
         let data = db.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         std::fs::create_dir_all(&data)
             .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
-        let store = SqliteStore::open(db)
+        let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, data, by: By::Principal(by.into()), memory: Default::default() })
+        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
     }
 
     fn now(&self) -> i64 {
@@ -144,7 +147,8 @@ impl App {
     }
 
     fn dir(&self, parts: &[&str]) -> PathBuf {
-        parts.iter().fold(self.data.clone(), |p, s| p.join(s))
+        let data = self.db.parent().unwrap_or(Path::new("."));
+        parts.iter().fold(data.to_path_buf(), |p, s| p.join(s))
     }
 }
 

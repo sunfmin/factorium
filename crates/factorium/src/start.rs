@@ -128,8 +128,9 @@ impl App {
             added: None,
             own: own_rules.as_deref().map(|text| Rules { file: &own_file, text }),
         };
-        // The session runs factorium by name: this one.
+        // The session runs factorium by name: this one, on this database.
         let mut env = l.env;
+        env.push(("FACTORIUM_DB", self.db.to_string_lossy().into_owned()));
         let path = std::env::var("PATH").unwrap_or_default();
         if let Some(bin) = Path::new(&exe).parent() {
             env.push(("PATH", format!("{}:{path}", bin.display())));
@@ -215,10 +216,7 @@ impl App {
         std::fs::create_dir_all(brief.parent().expect("a parent")).map_err(|e| Refusal::new("io", e.to_string()))?;
         std::fs::write(&brief, worker_brief(c, issue, &branch)).map_err(|e| Refusal::new("io", e.to_string()))?;
         let mut secrets = Vec::new();
-        let env = vec![
-            ("FACTORIUM_WORKER", worker.to_string()),
-            ("FACTORIUM_DB", self.dir(&["factorium.db"]).to_string_lossy().into_owned()),
-        ];
+        let env = vec![("FACTORIUM_WORKER", worker.to_string())];
         if let Some(a) = &choice.account {
             secrets.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
         }
@@ -273,15 +271,12 @@ impl App {
                 .run(&["commit", "--quiet", "--allow-empty", "-m", "The watch's home"])
                 .map_err(fail("git"))?;
         }
-        let rules = WATCH_RULES.replace("{db}", &self.dir(&["factorium.db"]).to_string_lossy());
+        let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
         std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let brief = home.join("BRIEF.md");
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let mut secrets = Vec::new();
-        let env = vec![
-            ("FACTORIUM_WATCH", "1".to_string()),
-            ("FACTORIUM_DB", self.dir(&["factorium.db"]).to_string_lossy().into_owned()),
-        ];
+        let env = vec![("FACTORIUM_WATCH", "1".to_string())];
         if let Some(a) = &choice.account {
             secrets.extend(accounts.iter().find(|(n, ..)| n == a).map(|(.., v)| v.clone()).unwrap_or_default());
         }

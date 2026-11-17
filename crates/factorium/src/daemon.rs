@@ -6,6 +6,7 @@ use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::hot;
 use factorium_domain::issue::Status as IssueStatus;
+use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::Status as WorkerStatus;
@@ -162,8 +163,12 @@ impl App {
                 Err(e) => eprintln!("tick: {e}"),
             }
             ticks += 1;
-            let every = self.settings().await.map(|s| s.get("tick_every")).unwrap_or(10);
-            tokio::time::sleep(std::time::Duration::from_secs(every)).await;
+            let every = self
+                .settings()
+                .await
+                .map(|s| s.ms(Time::TickEvery))
+                .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
+            tokio::time::sleep(std::time::Duration::from_millis(every as u64)).await;
         }
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
