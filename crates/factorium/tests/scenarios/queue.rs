@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::{World, commit, id, worker};
+use crate::{World, id, worker};
 
 /// Long enough that only a broken rule gets there.
 const STUCK: Duration = Duration::from_secs(20);
@@ -51,7 +51,7 @@ async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
 /// A worker of `web` with a commit of `file`, asking to land.
 async fn done(w: &World, file: &str, text: &str) {
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
@@ -102,7 +102,7 @@ async fn a_cut_waits_its_turn_without_holding_the_tick_and_is_made_next_tick() {
     w.tick().await;
     let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
     let one = one.unwrap();
-    commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
     w.app.worker_done(id(&one)).await.unwrap();
     assert_eq!(w.tick().await.landed.len(), 1);
     assert!(w.app.promote("web").await.unwrap()["promoted"] == "web");
@@ -138,4 +138,26 @@ async fn a_queued_gate_no_longer_due_leaves_the_queue() {
     assert_eq!(heavy(&w).await, Vec::<String>::new());
     let next = tokio::time::timeout(STUCK, w.run().worker_exclusive(None, &w.dir, "echo next")).await;
     assert_eq!(next.expect("nothing stale waits ahead of it").unwrap()["ok"], json!(true));
+}
+
+#[tokio::test]
+async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    done(&w, "a", "x").await;
+    while_busy(&w, async {
+        for _ in 0..3 {
+            assert_eq!(w.tick().await.landed, Vec::<serde_json::Value>::new(), "the landing waits its turn");
+            let gates = heavy(&w).await.into_iter().filter(|h| h == "fast gate of web").count();
+            assert_eq!(gates, 1, "one entry for the landing, however many ticks ask");
+            // A new second: the landing's merge is a new commit each tick.
+            tokio::time::sleep(Duration::from_millis(1100)).await;
+        }
+    })
+    .await;
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "its gate starts on the next tick");
+    assert_eq!(heavy(&w).await, Vec::<String>::new());
 }
