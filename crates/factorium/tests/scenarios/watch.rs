@@ -324,3 +324,47 @@ async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_too
     write(&file, &format!("{}\n{took}\n", queued.join("\n")));
     assert_eq!(w.app.watch_tell(id(&wk), "look at the FIFO", true).await.unwrap()["delivery"], "submitted");
 }
+
+#[tokio::test]
+async fn an_escalation_makes_the_look_due_on_the_next_tick() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    watch_up(&w, false);
+    w.advance(5);
+    assert!(w.tick().await.watch.is_some(), "a timed look");
+    let workers = w.app.workers(false).await.unwrap();
+    let workers = workers.as_array().unwrap();
+    assert_eq!(workers.len(), 2);
+
+    // Right after the look, well inside look_every, both escalate.
+    w.advance(1);
+    for wk in workers {
+        w.app.worker_escalate(id(wk), &format!("stuck on {}", wk["number"])).await.unwrap();
+    }
+    let now = factum::Clock::now(w.clock.as_ref()).0;
+    let looked = w.tick().await.watch.expect("the escalations make the look due");
+    assert_eq!(looked["episodes"], 2, "{looked}");
+    let next = w.app.watch_next().await.unwrap();
+    for e in next["episodes"].as_object().unwrap().values() {
+        assert_eq!(e["opened_at"], now, "opened at this tick's look: {e}");
+    }
+    assert_eq!(next["round"]["n"], 1, "one round; the other episode queues");
+    assert!(w.tick().await.watch.is_none(), "two waits, one look");
+
+    // While the round runs, a third wait still makes the look due; its episode queues.
+    w.app.issue_add("web", "v", "", false, &[]).await.unwrap();
+    w.advance(1);
+    w.tick().await;
+    let third =
+        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 3).cloned().unwrap();
+    w.advance(1);
+    w.app.worker_escalate(id(&third), "stuck on 3").await.unwrap();
+    let looked = w.tick().await.watch.expect("the third escalation makes the look due");
+    assert_eq!(looked["episodes"], 3, "{looked}");
+    assert_eq!(looked["round"]["n"], 1, "the running round goes on");
+}
