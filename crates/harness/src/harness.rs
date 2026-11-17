@@ -30,6 +30,9 @@ trait Kind {
     /// Words of a question it asks before its screen is up, which typed
     /// text would answer.
     const ASKS_FIRST: Option<&'static str>;
+    /// Words its own screen shows once it is up, where it has some: until
+    /// they show, it is still starting, and what is typed is lost.
+    const SHOWS_UP: Option<&'static str>;
     /// The questions it opens on its own mid-session, in a dialog that
     /// takes what is typed at it, each with the key that dismisses it.
     const ASKS_MIDWAY: &'static [Dialog];
@@ -264,15 +267,18 @@ impl Harness {
     }
 
     /// own screen up, ready to be typed at: blank, a shell's prompt (its
-    /// program not started yet, or exited), or a question it asks before its
-    /// screen is up. `None`: it is up.
+    /// program not started yet, or exited), a question it asks before its
+    /// screen is up, or not yet the words its own screen shows once up. `None`: it is up.
     pub fn not_up(self, screen: &[String]) -> Option<String> {
         let Some(row) = crate::screen::last_row(screen) else { return Some("its screen is blank".into()) };
         if crate::screen::shell_prompt(row) {
             return Some(format!("its screen is a shell's: {row}"));
         }
-        match each!(self, |K| K::ASKS_FIRST) {
-            Some(words) if row.contains(words) => Some(format!("it asks before it starts: {row}")),
+        if each!(self, |K| K::ASKS_FIRST).is_some_and(|words| row.contains(words)) {
+            return Some(format!("it asks before it starts: {row}"));
+        }
+        match each!(self, |K| K::SHOWS_UP) {
+            Some(words) if !screen.iter().any(|r| r.contains(words)) => Some(format!("it is still starting: {row}")),
             _ => None,
         }
     }

@@ -606,6 +606,42 @@ async fn a_brief_is_typed_once_the_harness_is_up_never_at_its_shell() {
     assert_eq!(worker(&w.app).await["status"], "working");
 }
 
+/// Seen 2026-11-18 (#39's first run, Kimi Code 2.5.3): its brief was typed
+/// 1.2s after its start, at the shell's echo of its launch line, while Kimi
+/// was still starting; it never reached it. Kimi's screen is up once its
+/// footer shows.
+#[tokio::test]
+async fn a_kimi_brief_waits_for_kimi_s_own_screen_not_its_launch_line() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    let launching = [&format!("{SHELL}. '/var/folders/T/orca-launch-3a623b76a5c8c688.sh"), "'"];
+    w.set_screen(handle, &launching);
+    w.advance(1);
+    w.tick().await;
+    assert!(w.terminal(handle).sent.is_empty(), "not typed while it starts");
+    refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
+    let welcome =
+        ["'", " │  ▐█▛█▛█▌  Welcome to Kimi Code!", "   No session yet — one will be created on your first message."];
+    w.set_screen(handle, &welcome);
+    w.advance(1);
+    w.tick().await;
+    assert!(w.terminal(handle).sent.is_empty(), "its banner is not its prompt");
+
+    let up = [
+        "   No session yet — one will be created on your first message.",
+        " │ >                                                  │",
+        " Never Ask  K3.1 Pro thinking: high  …/factorium-39/role/worker",
+        "                                           context: 0% (0/1M)",
+    ];
+    w.set_screen(handle, &up);
+    w.advance(1);
+    w.tick().await;
+    let sent = w.terminal(handle).sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains("web-1-1.md"), "{sent:?}");
+}
+
 #[tokio::test]
 async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() {
     let w = World::new();
@@ -797,8 +833,9 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
         refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
     }
     assert!(w.terminal(handle).sent.is_empty());
+    // A kimi worker: its footer is up above the row told.
     for (n, row) in harness_rows.iter().enumerate() {
-        w.set_screen(handle, &[row]);
+        w.set_screen(handle, &["context: 0% (0/1M)", row]);
         w.app.watch_tell(id(&wk), "hello", false).await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
         assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
     }

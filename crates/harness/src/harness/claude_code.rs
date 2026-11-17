@@ -425,6 +425,7 @@ impl Kind for ClaudeCode {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = None;
+    const SHOWS_UP: Option<&'static str> = None;
     const ASKS_MIDWAY: &'static [Dialog] = ASKS_MIDWAY;
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
     const REFUSED: u8 = REFUSED;
