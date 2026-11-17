@@ -63,8 +63,7 @@ impl App {
             }
             Verdict::UsedUp { said, until } => {
                 if let Some(account) = &st.account {
-                    self.submit::<LimitAccount>(AccountNote { name: account.clone(), windows: Vec::new(), until })
-                        .await?;
+                    self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await?;
                 }
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
                 Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))

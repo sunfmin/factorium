@@ -55,7 +55,6 @@ pub(crate) fn model() -> Model {
         .aggregate::<Kits>()
         .command::<SetTheKit>()
         .command::<PinCheckout>()
-        .command::<ReadWindows>()
         .command::<LimitAccount>()
         .aggregate::<HostSettings>()
         .command::<SetSetting>()
@@ -160,7 +159,7 @@ impl App {
             "number": i.number,
             "title": i.title,
             "body": i.body,
-            "status": i.status.as_str(),
+            "status": i.status,
             "blocked_by": i.blocked_by,
             "reason": i.reason,
             "worker": i.worker,
@@ -331,7 +330,7 @@ impl App {
             .into_iter()
             .map(|u| {
                 let a = kit.accounts.get(&u.name).unwrap_or(&none);
-                json!({ "name": u.name, "harness": u.harness.key(), "left": a.left(now), "limited_until": a.limited_until, "windows": a.windows })
+                json!({ "name": u.name, "harness": u.harness.key(), "left": a.left(now), "limited_until": a.limited_until })
             })
             .collect();
         Ok(Value::Array(rows))

@@ -83,15 +83,6 @@ pub enum Kind {
     Slow,
 }
 
-impl Kind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Kind::Fast => "fast",
-            Kind::Slow => "slow",
-        }
-    }
-}
-
 impl Gate {
     /// The command and limit of one gate; `None` for a slow gate not declared.
     pub fn of(&self, kind: Kind) -> Option<(&str, u64)> {

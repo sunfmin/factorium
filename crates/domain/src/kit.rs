@@ -1,7 +1,6 @@
 //! The kit: the harnesses this host starts, in priority order, each with its
 //! launch command and model; a checkout may pin one. And the accounts: each
-//! harness's subscriptions, with their usage windows and the limits they
-//! met. A worker starts on the first eligible harness, on its account with
+//! harness's subscriptions, with the limits they met. A worker starts on the first eligible harness, on its account with
 //! the most left.
 
 use std::collections::BTreeMap;
@@ -23,30 +22,16 @@ pub struct Entry {
     pub model: Option<String>,
 }
 
-/// One usage window an account's harness reported: how much is used, and
-/// when the window resets.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Window {
-    pub used_percent: f64,
-    /// When it resets, ms.
-    pub resets_at: Option<i64>,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Account {
-    pub windows: Vec<Window>,
     /// Limited until then, ms: a quota screen, or a limit event.
     pub limited_until: Option<i64>,
 }
 
 impl Account {
-    /// What is left, in percent: of the fullest window, nothing while limited.
+    /// What is left, in percent: nothing while limited, else all of it.
     pub fn left(&self, now: i64) -> f64 {
-        if self.limited_until.is_some_and(|t| t > now) {
-            return 0.0;
-        }
-        let live = self.windows.iter().filter(|w| w.resets_at.is_none_or(|r| r > now));
-        100.0 - live.map(|w| w.used_percent).fold(0.0, f64::max)
+        if self.limited_until.is_some_and(|t| t > now) { 0.0 } else { 100.0 }
     }
 }
 
@@ -105,7 +90,6 @@ impl Kit {
 pub enum KitEvent {
     KitSet { entries: Vec<Entry> },
     CheckoutPinned { checkout: String, harness: Option<String> },
-    WindowsRead { name: String, windows: Vec<Window> },
     AccountLimited { name: String, until: i64 },
 }
 
@@ -121,7 +105,6 @@ impl Aggregate for Kits {
             KitEvent::KitSet { entries } => s.entries = entries,
             KitEvent::CheckoutPinned { checkout, harness: Some(h) } => _ = s.pins.insert(checkout, h),
             KitEvent::CheckoutPinned { checkout, harness: None } => _ = s.pins.remove(&checkout),
-            KitEvent::WindowsRead { name, windows } => s.accounts.entry(name).or_default().windows = windows,
             KitEvent::AccountLimited { name, until } => s.accounts.entry(name).or_default().limited_until = Some(until),
         }
     }
@@ -155,19 +138,8 @@ command!(PinCheckout, "kit.pin", Kits, Pin, |_p| kit_id(), |s, p, now| {
 pub struct AccountNote {
     pub name: String,
     #[serde(default)]
-    pub windows: Vec<Window>,
-    #[serde(default)]
     pub until: i64,
 }
-
-command!(ReadWindows, "account.windows", Kits, AccountNote, |_p| kit_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(match s.accounts.get(&p.name) {
-        a if a.is_none_or(|a| a.windows != p.windows) => {
-            vec![KitEvent::WindowsRead { name: p.name.clone(), windows: p.windows.clone() }]
-        }
-        _ => Vec::new(),
-    })
-});
 
 command!(LimitAccount, "account.limited", Kits, AccountNote, |_p| kit_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(match s.accounts.get(&p.name) {

@@ -5,17 +5,21 @@ use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
 use crate::declared::Kind;
-use crate::{command, id};
+use crate::{command, id, named};
+
+/// The words that name the record of `kind` on `tree` in `checkout`.
+pub fn record_key(checkout: &str, tree: &str, kind: Kind) -> String {
+    format!("gate:{checkout}:{tree}:{}", named(kind))
+}
 
 /// The stream of the record of `kind` on `tree` in `checkout`.
 pub fn record_id(checkout: &str, tree: &str, kind: Kind) -> factum_core::Uuid {
-    id(&format!("gate:{checkout}:{tree}:{}", kind.as_str()))
+    id(&record_key(checkout, tree, kind))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub green: bool,
-    pub tail: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,9 +35,8 @@ impl Aggregate for Gates {
     type State = Record;
     type Event = GateEvent;
 
-    fn evolve(s: &mut Record, GateEvent::GateRan { green, tail, .. }: GateEvent) {
+    fn evolve(s: &mut Record, GateEvent::GateRan { green, .. }: GateEvent) {
         s.green |= green;
-        s.tail = tail;
     }
 }
 

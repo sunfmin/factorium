@@ -5,8 +5,9 @@
 use std::time::Duration;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
+use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id, record_key};
 use factorium_domain::heavy;
+use factorium_domain::named;
 use factorium_host::{Git, Ran};
 use factum::Uuid;
 
@@ -61,10 +62,10 @@ impl App {
             At::Commit { by_hand, .. } => (
                 heavy::LineJob::Gate(kind).of(checkout),
                 None,
-                if by_hand { Turn::Wait } else { Turn::Once(format!("gate:{checkout}:{tree}:{}", kind.as_str())) },
+                if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) },
             ),
             At::Worktree { worker, number } => {
-                (format!("{} gate of {checkout}#{number}", kind.as_str()), Some(worker), Turn::Wait)
+                (format!("{} gate of {checkout}#{number}", named(kind)), Some(worker), Turn::Wait)
             }
         };
         let steps = [cmd];
