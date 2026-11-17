@@ -32,7 +32,7 @@ approval and an entry here.
 | 4 | **Worker** | One harness session working one issue in its own worktree, branched from the proving tip. It ends with `factorium worker done`, `factorium worker escalate`, or by failing. |
 | 5 | **Harness** | A coding agent program factorium starts: Claude Code, Codex, pi, DSH, Kimi Code, Grok. How each starts, where it keeps its session and which lines start and end a turn are its own module's to say. The session file is the turn. |
 | 6 | **Kit** | The harnesses this host can start now, in priority order, with their models. A worker starts on the first eligible one. |
-| 7 | **Account** | An engine subscription, kept in mytokens (`agent-account-<name>`): its usage windows and the limits it met. A worker starts on the account of its harness with the most left. |
+| 7 | **Account** | An engine subscription, kept in mytokens (`agent-account-<name>`): its usage windows and the limits it met. A worker starts on the account of its harness with the most left. A worker whose screen says its account is used up ends and its issue starts again; the account rests an hour, a fixed bound, not a setting. |
 | 8 | **Admission** | Whether one more worker may start now, from the host's readings alone: CPU busy share, free memory, the disk floor, factorium's own share caps, and the accounts' windows. No concurrency number. |
 | 9 | **Heavy command** | A command a worker runs through `factorium worker exclusive -- <cmd>`, and every gate run. One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest, and ends one that holds others up past the hold bound. |
 | 10 | **Hot worker** | A worker whose processes take more than their share of CPU, memory, disk written, disk held or process creation, or that stalled holding build locks. Its evidence is taken at once; it is a finding for the watch. |
@@ -86,9 +86,9 @@ watch's look and the operator's view.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
-whose session died, never came up, went silent past its bound, or hung
-past it (its turn open, its processes next to idle, its screen
-unchanged), a hot worker, a red promotion, a failed cut, admission held
+whose session died, never came up (five minutes after it started, a fixed bound), went
+silent past its bound, or hung past it (its turn open, its processes next
+to idle, its screen unchanged), a hot worker, a red promotion, a failed cut, admission held
 for one reason past the host's span. So does a line that stopped:
 whatever it owes is done within its bound or is a finding — a heavy
 queue that starts nothing past `stall_bound` (or whose oldest waits past
@@ -179,7 +179,7 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, hot-worker rules and the disk floor as pure functions of readings; doctor's findings. No IO, no clock. | 7,000 |
+| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 7,000 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
 | `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,000 |

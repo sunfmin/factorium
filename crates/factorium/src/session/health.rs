@@ -1,27 +1,21 @@
 //! A session's health, seen from outside: whether the watch's session can
-//! take a round, and what goes wrong
-//! with a worker, which goes to the watch; a used-up account is noted and
-//! the issue is started again on another.
+//! take a round, and a worker's
+//! observation, which the domain's health rules decide on: what goes wrong
+//! goes to the watch; a used-up account is noted and the issue is started
+//! again on another.
 
-use std::path::PathBuf;
+use std::path::Path;
 
-use factorium_domain::hot;
+use factorium_domain::health::{self, Observation, Observe, Sight, Verdict};
 use factorium_domain::kit::{AccountNote, LimitAccount};
-use factorium_domain::settings::{Settings, Time};
+use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
-use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_domain::worker::{Status, Workers};
 use factum::{Uuid, Value};
 use serde_json::json;
 
-use super::{Seen, Session};
+use super::Session;
 use crate::{Answer, App};
-
-/// How long a used-up account is left alone when its screen gave no time.
-const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
-
-/// How long a session's harness has to come up before its worker goes to
-/// the watch.
-const UP_BOUND_MS: i64 = 5 * 60 * 1000;
 
 impl App {
     /// The watch's session, when it is up, handed its brief, and idle: it
@@ -29,41 +23,17 @@ impl App {
     pub(crate) async fn watch_ready(&self, watch: &Watch) -> Answer<Option<Session>> {
         let Some(s) = self.watch_session(watch) else { return Ok(None) };
         let handed = self.outbox(&s).await?.held().is_none();
-        Ok((handed && matches!(self.see(&s), Seen::Closed(Some(_)))).then_some(s))
-    }
-
-    /// Hung: its turn open, its processes near idle (`quiet`) and its
-    /// screen unchanged past the silent bound — a command blocked on what
-    /// never comes. Answers why it waits, if it does.
-    async fn hung(
-        &self,
-        wk: &w::Worker,
-        worker: Uuid,
-        seen: &Seen,
-        quiet: bool,
-        s: &Settings,
-    ) -> Answer<Option<String>> {
-        let screen = match seen {
-            Seen::Open(h) if quiet && wk.status == Status::Working => Some(*h),
-            _ => None,
-        };
-        self.submit::<w::NoteQuiet>(w::Quiet { worker, screen }).await?;
-        let since = self.state::<Workers>(worker).await?.quiet.map(|(_, at)| at);
-        let now = self.now();
-        Ok(since.filter(|t| now - t > s.ms(Time::SilentBound)).map(|t| {
-            format!(
-                "hung for {} min: its turn is open, its processes use next to no CPU and its screen has not changed",
-                (now - t) / 60_000
-            )
-        }))
+        Ok((handed && matches!(self.see(&s), Some(Sight::Closed(Some(_))))).then_some(s))
     }
 
     /// Looks at one live worker, whose processes hold `load` and are near
-    /// idle if `quiet`; answers what it found, if anything.
+    /// idle if `quiet`: the observation is recorded and decided on in one
+    /// command, and what it decided is carried out. Answers what it found,
+    /// if anything.
     pub(crate) async fn worker_health(
         &self,
         worker: Uuid,
-        load: &hot::Load,
+        load: health::Load,
         quiet: bool,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
@@ -78,56 +48,31 @@ impl App {
         if self.state::<Workers>(worker).await?.status == Status::Waiting {
             return Ok(None);
         }
-        let now = self.now();
-        let wait = |why: String| async move {
-            self.submit::<w::Wait>(w::Because { worker, why: why.clone() }).await?;
-            Ok::<_, crate::Refusal>(Some(json!({ "worker": worker, "waits": why })))
-        };
-        let seen = match self.see(&session) {
-            Seen::Unknown => return Ok(None),
-            Seen::Gone => return wait("its session's terminal is gone".into()).await,
-            Seen::Quota(quota) => {
-                if let Some(account) = &st.account {
-                    let note = AccountNote { name: account.clone(), windows: Vec::new(), until: now + QUOTA_REST_MS };
-                    self.submit::<LimitAccount>(note).await?;
+        let Some(sight) = self.see(&session) else { return Ok(None) };
+        let evidence = self.dir(&["evidence", &format!("{worker}-{}.txt", self.now())]);
+        let evidence = evidence.to_string_lossy().into_owned();
+        let seen = Observation { worker, sight, load, quiet, evidence, settings: settings.clone() };
+        match Verdict::of(&self.decide::<Observe>(seen).await?) {
+            Verdict::Fine => Ok(None),
+            Verdict::Waits { why, hot } => {
+                if let Some(path) = hot {
+                    self.write_evidence(worker, Path::new(&path));
                 }
-                self.end_worker(worker, &format!("its account is used up: {quota}"), false).await?;
-                return Ok(Some(json!({ "worker": worker, "ended": "quota", "said": quota })));
+                Ok(Some(json!({ "worker": worker, "waits": why })))
             }
-            Seen::Stopped(said) => return wait(format!("its harness stopped: {said}")).await,
-            Seen::Down(why) if now - st.at > UP_BOUND_MS => {
-                let after = (now - st.at) / 60_000;
-                return wait(format!("its harness is not up {after} min after it started: {why}")).await;
+            Verdict::UsedUp { said, until } => {
+                if let Some(account) = &st.account {
+                    self.submit::<LimitAccount>(AccountNote { name: account.clone(), windows: Vec::new(), until })
+                        .await?;
+                }
+                self.end_worker(worker, &format!("its account is used up: {said}"), false).await?;
+                Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))
             }
-            Seen::Down(_) => return Ok(None),
-            seen => seen,
-        };
-        // Hot: over its share for `hot_for`, by the clock the database keeps.
-        let over = hot::over(load, settings);
-        self.submit::<w::NoteLoad>(w::Load { worker, over: over.is_some() }).await?;
-        let since = self.state::<Workers>(worker).await?.over_since;
-        if let (Some(what), true) = (&over, hot::hot(since, now, settings)) {
-            let evidence = self.evidence(worker);
-            return wait(format!("hot: {what}; evidence in {}", evidence.display())).await;
         }
-        if let Some(why) = self.hung(&wk, worker, &seen, quiet, settings).await? {
-            return wait(why).await;
-        }
-        // Silent: its turn ended, and no done, past the bound.
-        let idle_since = match seen {
-            Seen::Closed(at) => at.map_or(wk.since, |t| t.max(wk.since)),
-            _ => return Ok(None),
-        };
-        if wk.status == Status::Working && now - idle_since > settings.ms(Time::SilentBound) {
-            return wait(format!("silent for {} min without `factorium worker done`", (now - idle_since) / 60_000))
-                .await;
-        }
-        Ok(None)
     }
 
-    /// Writes what the worker's processes are doing now; answers where.
-    fn evidence(&self, worker: Uuid) -> PathBuf {
-        let path = self.dir(&["evidence", &format!("{worker}-{}.txt", self.now())]);
+    /// Writes what the worker's processes are doing now at `path`.
+    fn write_evidence(&self, worker: Uuid, path: &Path) {
         let procs: Vec<String> = self
             .host
             .processes()
@@ -136,7 +81,6 @@ impl App {
             .map(|p| format!("{:>7} {:>7} {:>6.1}% {:>9}KiB {}", p.pid, p.ppid, p.cpu, p.rss_kib, p.command))
             .collect();
         let _ = std::fs::create_dir_all(path.parent().expect("a parent"));
-        let _ = std::fs::write(&path, format!("    pid    ppid    cpu       rss command\n{}\n", procs.join("\n")));
-        path
+        let _ = std::fs::write(path, format!("    pid    ppid    cpu       rss command\n{}\n", procs.join("\n")));
     }
 }

@@ -159,7 +159,7 @@ pub fn workers(status: Option<WorkerStatus>, all: bool) -> Rows<WorkerRow> {
 pub struct Tracker;
 
 /// An event as its aggregate's own type.
-fn decode<E: DeserializeOwned>(e: &Event) -> Result<E, String> {
+pub(crate) fn decode<E: DeserializeOwned>(e: &Event) -> Result<E, String> {
     let tagged = if e.data.is_null() { json!({ "type": e.kind }) } else { json!({ "type": e.kind, "data": e.data }) };
     serde_json::from_value(tagged).map_err(|err| format!("{}: {err}", e.kind))
 }
@@ -253,6 +253,8 @@ impl Projection for Tracker {
                 | WorkerEvent::RedTold { .. }
                 | WorkerEvent::WentQuiet { .. }
                 | WorkerEvent::Stirred
+                | WorkerEvent::WentHot { .. }
+                | WorkerEvent::UsedUp { .. }
                 | WorkerEvent::WorkerHeard { .. } => Vec::new(),
             },
             _ => Vec::new(),

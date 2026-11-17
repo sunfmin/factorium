@@ -10,6 +10,7 @@ mod health;
 mod launch;
 mod outbox;
 
+use factorium_domain::health::Sight;
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, EndWatch, Watch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status};
@@ -44,24 +45,6 @@ impl Session {
     pub(crate) fn terminal(&self) -> &str {
         &self.terminal
     }
-}
-
-/// What a session is doing, seen from outside.
-enum Seen {
-    /// Its terminal is gone.
-    Gone,
-    /// Orca did not answer: nothing is known.
-    Unknown,
-    /// Its account is used up: the line that says so.
-    Quota(String),
-    /// Its harness stopped: the line that says so.
-    Stopped(String),
-    /// Its harness is not up in its terminal (not yet, or no longer): why.
-    Down(String),
-    /// A turn is open: the hash of its screen.
-    Open(u64),
-    /// Its turn closed at this time, in ms; `None`: no session file says.
-    Closed(Option<i64>),
 }
 
 impl App {
@@ -106,25 +89,27 @@ impl App {
         }
     }
 
-    fn see(&self, s: &Session) -> Seen {
+    /// What a session is doing, seen from outside; `None`: Orca did not
+    /// answer, so nothing is known.
+    fn see(&self, s: &Session) -> Option<Sight> {
         let screen = match self.host.orca().screen(&s.terminal) {
             Term::Running(screen) => screen,
-            Term::Exited => return Seen::Gone,
-            Term::Unreadable(_) => return Seen::Unknown,
+            Term::Exited => return Some(Sight::Gone),
+            Term::Unreadable(_) => return None,
         };
         match s.harness.stopped(&screen) {
-            Some(Stop::Quota(said)) => return Seen::Quota(said),
-            Some(Stop::Refused(said)) => return Seen::Stopped(said),
+            Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
+            Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
             None => {}
         }
         if let Some(why) = s.harness.not_up(&screen) {
-            return Seen::Down(why);
+            return Some(Sight::Down(why));
         }
-        match self.turn(s) {
-            Some(Turn::Open { .. }) => Seen::Open(hash(&screen)),
-            Some(Turn::Closed { since, .. }) => Seen::Closed(Some(since as i64 * 1000)),
-            None => Seen::Closed(None),
-        }
+        Some(match self.turn(s) {
+            Some(Turn::Open { .. }) => Sight::Open(hash(&screen)),
+            Some(Turn::Closed { since, .. }) => Sight::Closed(Some(since as i64 * 1000)),
+            None => Sight::Closed(None),
+        })
     }
 
     /// The turn a session's files say it is in.

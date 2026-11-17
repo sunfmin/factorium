@@ -372,6 +372,12 @@ impl Kind for Codex {
         Ok(Vec::new())
     }
 
+    const TOLD_IN: Option<&'static str> = None;
+
+    fn guards(_home: &std::path::Path) -> Option<Vec<String>> {
+        None
+    }
+
     fn start_dir<'a>(start: &Start<'a>) -> &'a str {
         start.dir
     }

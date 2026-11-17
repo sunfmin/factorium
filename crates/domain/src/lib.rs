@@ -1,7 +1,8 @@
 //! factorium's pure half, on factum: the host's checkouts, issues, workers,
 //! proving lines, watch, kit and settings; the commands that change them;
 //! the tracker the CLI reads; and the rules that decide from readings —
-//! admission, the heavy-command queue, hot workers, and doctor's findings.
+//! admission, the heavy-command queue, workers' health, and doctor's
+//! findings.
 //! Nothing here reads a clock or touches the host.
 
 pub mod admission;
@@ -10,8 +11,8 @@ pub mod daemon;
 pub mod declared;
 pub mod doctor;
 pub mod gate;
+pub mod health;
 pub mod heavy;
-pub mod hot;
 pub mod issue;
 pub mod kit;
 pub mod line;

@@ -68,13 +68,24 @@ fn configuration(user: Option<&str>, guard: &str) -> Result<String, String> {
     table.insert("default_plan_mode".into(), Toml::from(false));
     table.insert("auto_session_title".into(), Toml::from(false));
     table.insert("builtin_product_skills".into(), Toml::from(false));
-    let mut hooks = vec![hook("PreToolUse", guard, None)];
+    let mut hooks = vec![hook(BEFORE_A_CALL, guard, None)];
     for event in STATE_EVENTS {
         hooks.push(hook(event, REPORT, Some(10)));
     }
     table.insert("hooks".into(), Toml::Array(hooks));
     toml::to_string_pretty(&config).map_err(|error| error.to_string())
 }
+
+/// The guard lines its kept configuration under `home` runs before a call.
+fn guards(home: &std::path::Path) -> Vec<String> {
+    let config = std::fs::read_to_string(home.join(CONFIG)).ok().and_then(|text| text.parse::<Toml>().ok());
+    let hooks = config.as_ref().and_then(|config| config.get("hooks")).and_then(Toml::as_array);
+    let before = hooks.into_iter().flatten().filter(|hook| hook.get("event").and_then(Toml::as_str) == Some(BEFORE_A_CALL));
+    before.filter_map(|hook| hook.get("command")?.as_str().map(String::from)).collect()
+}
+
+/// The event of Kimi's before each tool call: where the guard is asked.
+const BEFORE_A_CALL: &str = "PreToolUse";
 
 fn hook(event: &str, command: &str, timeout: Option<i64>) -> Toml {
     let mut hook = toml::map::Map::new();
@@ -307,6 +318,12 @@ impl Kind for Kimi {
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         kept(start)
+    }
+
+    const TOLD_IN: Option<&'static str> = Some(SYSTEM);
+
+    fn guards(home: &std::path::Path) -> Option<Vec<String>> {
+        Some(guards(home))
     }
 
     fn start_dir<'a>(start: &Start<'a>) -> &'a str {
