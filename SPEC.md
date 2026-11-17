@@ -191,8 +191,10 @@ and the domain's neutral parts (admission, the queue's start rule,
 hot-worker rules, landing onto a proving branch), as git dependencies
 pinned to a revision. Those public items name no issue, worker, watch or
 checkout: what only the caller knows it passes in, or says through a
-trait it implements. A test from outside checks they depend on nothing
-else of factorium.
+trait it implements. They live in `factorium_domain::neutral`; factorium's
+own modules wrap them with what it knows. A test from outside
+(`crates/factorium/tests/neutral.rs`) checks they name none of those and
+depend on nothing else of factorium.
 
 ## 6. Tests: only at the outermost layer
 

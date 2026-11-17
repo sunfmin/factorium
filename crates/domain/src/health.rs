@@ -12,23 +12,18 @@
 //! - **silent**: its turn closed, and no done, past `silent_bound`;
 //! - **quota**: its account used up; the account rests an hour.
 //!
-//! The two fixed bounds are fixed in SPEC.md §2, not settings.
+//! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
+//! quiet are neutral: [`crate::neutral::hot`].
 
 use factum_core::{Event, Uuid};
 use serde::{Deserialize, Serialize};
 
+use crate::neutral::hot::Shares;
 use crate::settings::{Setting, Settings, Time};
 use crate::worker::{Status, Worker, WorkerEvent, Workers};
 use crate::{command, no};
 
-/// What one worker's processes held at one reading.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Load {
-    /// Percent of the whole CPU (all cores).
-    pub cpu: f64,
-    pub rss_kib: u64,
-    pub procs: u64,
-}
+pub use crate::neutral::hot::{Load, quiet};
 
 /// How long a session's harness has to come up before its worker goes to
 /// the watch.
@@ -37,35 +32,13 @@ const UP_BOUND_MS: i64 = 5 * 60 * 1000;
 /// How long a used-up account is left alone: its screen gives no time.
 const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
 
-/// Below this share of one core, a worker's processes together use next to
-/// no CPU: a command blocked, not working.
-const QUIET_CPU: f64 = 2.0;
-
-impl Load {
-    /// What processes holding `core_percent` of one core, `rss_kib` and
-    /// `procs` hold on a host of `cores`.
-    pub fn of(core_percent: f64, rss_kib: u64, procs: u64, cores: usize) -> Load {
-        Load { cpu: core_percent / cores as f64, rss_kib, procs }
+/// One worker's share of the host, from the settings.
+fn shares(s: &Settings) -> Shares {
+    Shares {
+        cpu: s.get(Setting::WorkerCpuShare),
+        memory_gib: s.get(Setting::WorkerMemoryGib),
+        procs_max: s.get(Setting::WorkerProcsMax),
     }
-
-    /// What the load is over, if anything.
-    pub fn over(&self, s: &Settings) -> Option<String> {
-        if self.cpu > s.get(Setting::WorkerCpuShare) as f64 {
-            return Some(format!("cpu {:.0}% over its share of {}%", self.cpu, s.get(Setting::WorkerCpuShare)));
-        }
-        if self.rss_kib > s.get(Setting::WorkerMemoryGib) * (1 << 20) {
-            return Some(format!("memory {} GiB over {} GiB", self.rss_kib >> 20, s.get(Setting::WorkerMemoryGib)));
-        }
-        if self.procs > s.get(Setting::WorkerProcsMax) {
-            return Some(format!("{} processes, over {}", self.procs, s.get(Setting::WorkerProcsMax)));
-        }
-        None
-    }
-}
-
-/// Whether processes using `core_percent` of one core between them sit idle.
-pub fn quiet(core_percent: f64) -> bool {
-    core_percent < QUIET_CPU
 }
 
 /// What a session is doing, seen from outside.
@@ -137,7 +110,7 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
     };
     let mut events = Vec::new();
     // Hot: over its share for `hot_for`.
-    let over = o.load.over(s);
+    let over = o.load.over(&shares(s));
     let over_since = match (&over, w.over_since) {
         (Some(_), None) => {
             events.push(WorkerEvent::WentOver { at: now });

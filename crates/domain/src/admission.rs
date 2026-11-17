@@ -1,8 +1,10 @@
-//! Admission: whether one more thing may start now, from the host's reading
-//! alone. No concurrency number: the reading says whether there is room.
+//! Admission as factorium asks it: the host's room (neutral:
+//! [`crate::neutral::admission`]), and for a worker, the workers under
+//! their share of the CPU.
 
 use serde::{Deserialize, Serialize};
 
+use crate::neutral::admission::{self as neutral, Limits};
 use crate::settings::{Setting, Settings};
 
 /// What the host read, as the rules see it.
@@ -15,24 +17,23 @@ pub struct Reading {
     pub workers_cpu: u64,
 }
 
-const GIB: u64 = 1 << 30;
+impl Reading {
+    fn host(&self) -> neutral::Reading {
+        neutral::Reading { cpu_busy: self.cpu_busy, memory_free: self.memory_free, disk_free: self.disk_free }
+    }
+}
+
+fn limits(s: &Settings) -> Limits {
+    Limits {
+        cpu_busy_max: s.get(Setting::CpuBusyMax),
+        memory_free_min: s.get(Setting::MemoryFreeMin),
+        disk_floor_gib: s.get(Setting::DiskFloorGib),
+    }
+}
 
 /// Whether the host has room for one more start; else why not.
 pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
-    if r.disk_free < s.get(Setting::DiskFloorGib) * GIB {
-        return Err(format!(
-            "disk: {} GiB free, under the floor of {} GiB",
-            r.disk_free / GIB,
-            s.get(Setting::DiskFloorGib)
-        ));
-    }
-    if r.cpu_busy > s.get(Setting::CpuBusyMax) {
-        return Err(format!("cpu: {}% busy, over {}%", r.cpu_busy, s.get(Setting::CpuBusyMax)));
-    }
-    if r.memory_free < s.get(Setting::MemoryFreeMin) {
-        return Err(format!("memory: {}% free, under {}%", r.memory_free, s.get(Setting::MemoryFreeMin)));
-    }
-    Ok(())
+    neutral::room(&r.host(), &limits(s))
 }
 
 /// Whether one more worker may start: room, and the workers under their
@@ -47,5 +48,5 @@ pub fn admit(r: &Reading, s: &Settings) -> Result<(), String> {
 
 /// Whether the disk is under its floor: the time to reclaim `target/`.
 pub fn disk_short(r: &Reading, s: &Settings) -> bool {
-    r.disk_free < s.get(Setting::DiskFloorGib) * GIB
+    neutral::disk_short(&r.host(), &limits(s))
 }

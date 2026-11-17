@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::daemon::Daemon;
 use crate::declared::Kind;
 use crate::heavy::{LineJob, Queue};
-use crate::line::{Line, Move};
+use crate::line::{self, Line, Move};
 use crate::settings::{Setting, Settings, Time};
 use crate::watch::Found;
 
@@ -255,7 +255,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         );
     }
     for LineSeen { checkout, line, cuts, .. } in &seen.lines {
-        if let (Some(o), Some(owed)) = (line.unpromoted.first(), line.owed(Move::Promote, now, s))
+        if let (Some(o), Some(owed)) = (line.unpromoted.first(), line.owed(Move::Promote, now, &line::bounds(s)))
             && owed.overdue()
             && line.red.is_none()
             && !q.runs(checkout, LineJob::Gate(Kind::Slow))
@@ -272,7 +272,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
                 &format!("{unqueue}; then the next tick promotes, or `factorium promote {checkout}` promotes now"),
             );
         }
-        if let Some(owed) = line.owed(Move::Cut, now, s)
+        if let Some(owed) = line.owed(Move::Cut, now, &line::bounds(s))
             && owed.overdue()
             && *cuts
             && line.cut_failed.is_none()
