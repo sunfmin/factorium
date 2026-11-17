@@ -1,8 +1,9 @@
 //! An issue in the host's tracker. Its number is the next of its checkout;
 //! its stream is derived from the two, so a number is taken once.
 
-use factum_core::{Aggregate, By, Command, Decision, Instant, Rejection, Uuid};
+use factum_core::{Aggregate, By, Command, Decision, Instant, Rejection, Upcast, Uuid};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::issue_id;
 
@@ -40,7 +41,38 @@ pub struct Issue {
     pub worker: Option<Uuid>,
     /// How many workers have taken it.
     pub attempts: u32,
-    pub comments: Vec<String>,
+    /// The one record of what was said about it, oldest first.
+    pub comments: Vec<Note>,
+}
+
+/// Who wrote a comment.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Author {
+    Owner,
+    Worker(Uuid),
+    Watch,
+    Factorium,
+}
+
+impl std::fmt::Display for Author {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Author::Owner => f.write_str("owner"),
+            Author::Worker(id) => write!(f, "worker {id}"),
+            Author::Watch => f.write_str("watch"),
+            Author::Factorium => f.write_str("factorium"),
+        }
+    }
+}
+
+/// A comment: what was said, who said it, and when, in ms (unknown for
+/// comments made before authors and times were kept).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Note {
+    pub text: String,
+    pub by: Author,
+    pub at: Option<i64>,
 }
 
 impl Issue {
@@ -61,7 +93,16 @@ pub enum IssueEvent {
     IssueClosed { reason: String },
     IssueTaken { worker: Uuid },
     IssueReleased,
-    IssueCommented { text: String },
+    IssueCommented { text: String, by: Author, at: Option<i64> },
+}
+
+/// What a comment was before it kept its author and time: only factorium's
+/// start-over wrote one besides the owner, and it is known by its words.
+fn authored(mut d: Value) -> Value {
+    let factorium = d["text"].as_str().is_some_and(|t| t.starts_with("Started over: attempt "));
+    d["by"] = json!(if factorium { "factorium" } else { "owner" });
+    d["at"] = Value::Null;
+    d
 }
 
 pub struct Issues;
@@ -107,12 +148,21 @@ impl Aggregate for Issues {
                 s.attempts += 1;
             }
             IssueEvent::IssueReleased => s.worker = None,
-            IssueEvent::IssueCommented { text } => s.comments.push(text),
+            IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
         }
     }
 
     fn ending(kind: &str) -> bool {
         kind == "IssueClosed"
+    }
+
+    fn upcasts() -> Vec<(&'static str, Upcast)> {
+        vec![("IssueCommented", authored)]
+    }
+
+    /// "2": comments keep their author and time.
+    fn code() -> &'static str {
+        "2"
     }
 }
 
@@ -285,10 +335,46 @@ pub struct Comment {
     pub checkout: String,
     pub number: u64,
     pub text: String,
+    pub by: Author,
 }
 
-on_issue!(CommentIssue, "issue.comment", Comment, |_s, p| if p.text.trim().is_empty() {
-    Err(Rejection::new("no_text", "a comment needs text"))
-} else {
-    Ok(vec![IssueEvent::IssueCommented { text: p.text.clone() }])
-});
+pub struct CommentIssue;
+
+impl Command for CommentIssue {
+    const NAME: &'static str = "issue.comment";
+    type Aggregate = Issues;
+    type Params = Comment;
+
+    fn stream(p: &Comment) -> Uuid {
+        issue_id(&p.checkout, p.number)
+    }
+
+    fn decide(s: &Issue, p: &Comment, _: &By, now: Instant) -> Result<Decision<IssueEvent>, Rejection> {
+        if !s.opened() {
+            return Err(Rejection::new("no_issue", format!("{}#{} does not exist", p.checkout, p.number)));
+        }
+        if p.text.trim().is_empty() {
+            return Err(Rejection::new("no_text", "a comment needs text"));
+        }
+        Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0) }].into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folded(data: Value) -> Issue {
+        let mut s = Issue::default();
+        Issues::evolve(&mut s, serde_json::from_value(json!({ "type": "IssueCommented", "data": data })).unwrap());
+        s
+    }
+
+    #[test]
+    fn a_comment_made_before_authors_were_kept_still_reads() {
+        let owner = folded(authored(json!({ "text": "use the v2 API" })));
+        assert_eq!(owner.comments, [Note { text: "use the v2 API".into(), by: Author::Owner, at: None }]);
+        let over = folded(authored(json!({ "text": "Started over: attempt 1's worktree was discarded" })));
+        assert_eq!(over.comments[0].by, Author::Factorium);
+    }
+}

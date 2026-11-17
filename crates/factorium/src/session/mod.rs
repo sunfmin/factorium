@@ -200,12 +200,6 @@ impl App {
         }
     }
 
-    /// Opens a terminal in `worktree`, titled `title`, running `line`;
-    /// answers its handle.
-    fn open_terminal(&self, worktree: &std::path::Path, title: &str, line: &str) -> Result<String, String> {
-        self.host.orca().open(worktree, title, line)
-    }
-
     /// Orca's terminals now, as (handle, title): what confirms a close, and
     /// what doctor's orphans are read from.
     fn terminals(&self) -> Result<Vec<(String, String)>, String> {

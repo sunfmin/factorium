@@ -2,6 +2,7 @@
 //! session, and the watch's own commands.
 
 use factorium_domain::doctor;
+use factorium_domain::issue::Author;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
@@ -105,6 +106,8 @@ impl App {
         if wk.status == Status::Ended {
             return Err(Refusal::new("ended", "this worker has ended"));
         }
+        // Kept on its issue as it is typed: this line is its delivery.
+        self.note(&st.checkout, st.number, Author::Watch, text).await?;
         let session = Self::worker_session(&st)?;
         match self.gone(&session) {
             Ok(false) => {}
@@ -132,6 +135,8 @@ impl App {
     pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
         let st =
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
+        // Kept on its issue as it is typed: this line is its delivery.
+        self.note(&st.checkout, st.number, Author::Watch, text).await?;
         let line = one_line(&format!("factorium (the watch): {text}"));
         let delivery = self.deliver_at(&Self::worker_session(&st)?, &line, now)?;
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word() }))

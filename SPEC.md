@@ -70,7 +70,13 @@ watch's look and the operator's view.
    (no turn starts and none runs) goes to the watch at once.
 6. Green: the issue closes, the worker ends, its worktree is removed
    unless it holds work that is nowhere else: the one test that also
-   decides where its issue's next start begins (step 3).
+   decides where its issue's next start begins (step 3). It is read
+   against the last attempt that started, and only a worktree still on
+   disk is resumed or discarded. When the proving tip cannot be read, what
+   a worktree holds is unknown, so it is held: a worker that ends keeps
+   its worktree, start-over discards it (keeping its branch, as below), and
+   a start, which has no tip to begin from either way, refuses and takes
+   nothing.
    A kept worktree that went bad is discarded on purpose with
    `issue start-over <checkout> <n> --why …`, only while no worker is on
    the issue: its uncommitted changes are committed, its branch is kept as
@@ -129,6 +135,16 @@ gets it in that brief (`brief`); a waiting one is not typed at, its watch
 episode carries it (`watch`); with no worker, or when delivery fails
 (`undelivered` says why), `none`. The next brief carries every comment.
 Comments factorium writes itself (start-over's) are typed at no one.
+
+An issue's comments are the one record of what is said about it, each
+with who wrote it (`owner`, `worker <id>`, `watch`, `factorium`) and when;
+`issue show` answers them. A worker's `escalate` text, and the text of
+`watch tell` and `watch restart`, become comments when they are typed,
+delivered or not. Each reaches the worker at most once: the line `tell` or
+`restart` types is its delivery, nothing types it again, and a worker's
+own escalation is typed back at no one. Comments made before authors and
+times were kept read as the owner's (start-over's as factorium's), with no
+time.
 
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH

@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
-use crate::harness::Call;
+use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
@@ -63,7 +63,7 @@ fn environment(line: Line, start: &Start) -> Line {
         .word(start.home.dir())
         .fixed(" DSH_TUI_PROFILE=dsh-tui")
         .fixed(" FACTORIUM_GUARD=")
-        .word(start.hook)
+        .word(&start.hook(Harness::Dsh))
         .fixed(" ")
         .fixed(WORKTREE_ENV)
         .fixed("=")

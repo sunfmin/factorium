@@ -14,6 +14,9 @@ how to fix it. Then:
    - `factorium watch tell <worker> "<text>"` — type at a worker
    - `factorium watch restart <worker> --text "<what to do>"` — send a
      waiting worker back to work (one whose session is gone is started again)
+   - What you tell or restart with is kept as a comment on the worker's
+     issue, as is what a worker escalates: `issue show` has the whole
+     record, who said what and when.
    - Both answer `delivery`: `submitted` (the worker read it) or `queued`
      (it waits until the worker's running call returns, which a hung call
      never does). Add `--now` to stop the running turn first.

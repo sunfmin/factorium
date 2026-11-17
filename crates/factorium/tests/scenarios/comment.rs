@@ -28,7 +28,7 @@ async fn a_comment_with_no_worker_on_the_issue_is_only_recorded() {
     let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
     assert_eq!(shown["delivery"], "none");
     assert_eq!(shown["undelivered"], json!(null), "nothing failed: no one to tell");
-    assert_eq!(shown["comments"], json!(["use the v2 API"]));
+    assert_eq!(shown["comments"], json!([{ "text": "use the v2 API", "by": "owner", "at": 1_800_000_000_000_i64 }]));
 }
 
 #[tokio::test]
@@ -128,7 +128,7 @@ async fn a_comment_that_cannot_be_typed_is_kept_and_says_why() {
     let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
     assert_eq!(shown["delivery"], "none");
     assert!(shown["undelivered"].as_str().unwrap().contains("terminal_send_failed"), "{shown}");
-    assert_eq!(shown["comments"], json!(["use the v2 API"]));
+    assert_eq!(shown["comments"][0]["text"], "use the v2 API");
 
     *w.host.orca.refuse_send.lock().unwrap() = false;
     w.kill_terminal(handle);
@@ -141,7 +141,7 @@ async fn a_comment_that_cannot_be_typed_is_kept_and_says_why() {
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
     let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-2.md")).unwrap();
-    assert!(brief.contains("## Comments\n\n- use the v2 API\n- and log it\n"), "{brief}");
+    assert!(brief.contains("## Comments\n\n- owner: use the v2 API\n- owner: and log it\n"), "{brief}");
 }
 
 #[tokio::test]
@@ -156,4 +156,68 @@ async fn a_comment_factorium_writes_itself_is_typed_at_no_one() {
     for t in terminals.values() {
         assert!(!t.sent.iter().any(|s| s.contains("a comment on your issue")), "{:?}", t.sent);
     }
+}
+
+/// What the watch and the worker say about the issue, as `issue show` keeps it.
+async fn said(w: &World) -> Vec<serde_json::Value> {
+    w.app.issue_show("web", 1).await.unwrap()["comments"].as_array().unwrap().clone()
+}
+
+#[tokio::test]
+async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
+    let w = World::new();
+    let wk = working(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    let before = w.terminal(handle).sent.len();
+    w.advance(1);
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    let by = format!("worker {}", id(&wk));
+    let at = 1_800_000_000_000_i64 + 60_000;
+    assert_eq!(said(&w).await, [json!({ "text": "which API version?", "by": by, "at": at })]);
+    assert_eq!(w.terminal(handle).sent.len(), before, "not typed back at it");
+    w.tick().await;
+    let next = w.app.watch_next().await.unwrap();
+    assert_eq!(next["episodes"][format!("worker:{}", id(&wk))]["heard"], json!([]), "not heard twice: {next}");
+}
+
+#[tokio::test]
+async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
+    let w = World::new();
+    let wk = working(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    let before = w.terminal(handle).sent.len();
+    w.app.watch_tell(id(&wk), "use the v2 API", false).await.unwrap();
+    assert_eq!(said(&w).await[0]["by"], "watch");
+    assert_eq!(said(&w).await[0]["text"], "use the v2 API");
+    w.tick().await;
+    assert_eq!(w.terminal(handle).sent[before..], ["factorium (the watch): use the v2 API".to_string()]);
+
+    // Not delivered, it is kept all the same.
+    *w.host.orca.refuse_send.lock().unwrap() = true;
+    assert!(w.app.watch_tell(id(&wk), "and log it", false).await.is_err());
+    assert_eq!(said(&w).await[1]["text"], "and log it");
+}
+
+#[tokio::test]
+async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_once() {
+    let w = World::new();
+    let wk = working(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    let before = w.terminal(handle).sent.len();
+    w.app.watch_restart(id(&wk), "use the v2 API.", false).await.unwrap();
+    let said = said(&w).await;
+    assert_eq!((said[1]["by"].as_str(), said[1]["text"].as_str()), (Some("watch"), Some("use the v2 API.")));
+    w.tick().await;
+    let sent = &w.terminal(handle).sent[before..];
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].starts_with("factorium (the watch): use the v2 API. Then go on"), "{sent:?}");
+
+    // The next worker's brief carries all of it, each with who said it.
+    w.app.issue_park("web", 1, "again").await.unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    w.tick().await;
+    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-2.md")).unwrap();
+    let want = format!("## Comments\n\n- worker {}: which API version?\n- watch: use the v2 API.\n", id(&wk));
+    assert!(brief.contains(&want), "{brief}");
 }
