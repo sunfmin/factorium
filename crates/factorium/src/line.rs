@@ -9,18 +9,39 @@ use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
+use factorium_domain::doctor::Stuck;
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_host::Git;
+use factorium_host::{Git, Lag};
 use factum::Uuid;
 use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
 use crate::{Answer, App, fail};
+
+/// Fast-forwards the checkout's local base to `tip`, never further, where
+/// nothing of it is lost; answers what it did, if it moved or failed.
+pub(crate) fn follow_base(c: &Checkout, git: &Git, tip: &str) -> Option<Value> {
+    match git.follow(&c.base, tip) {
+        Ok(Lag::Behind(n)) => Some(json!({ "base": c.name, "fast_forwarded": n })),
+        Ok(_) => None,
+        Err(e) => Some(json!({ "base": c.name, "error": e })),
+    }
+}
+
+/// The checkout's local base, where it cannot follow origin's as last fetched.
+pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
+    let (behind, ours, dirty) = match git.lag(&c.base, &format!("refs/remotes/origin/{}", c.base)).ok()? {
+        Lag::Diverged { behind, ours } => (behind, ours, false),
+        Lag::Dirty { behind } => (behind, 0, true),
+        Lag::Even | Lag::Behind(_) => return None,
+    };
+    Some(Stuck { base: c.base.clone(), path: c.path.clone(), behind, ours, dirty })
+}
 
 /// What one move did, or why it did not run now.
 pub(crate) type Did = Result<Value, String>;
@@ -122,7 +143,8 @@ impl App {
             return Ok(Ok(json!({ "promotion": c.name, "retry": e })));
         }
         self.submit::<line::Promote>(promotion).await?;
-        Ok(Ok(json!({ "promoted": c.name, "tip": tip })))
+        let local = follow_base(c, git, &tip);
+        Ok(Ok(json!({ "promoted": c.name, "tip": tip, "local": local })))
     }
 
     /// Cuts a version of `c` from its base tip, if it declares a cut.

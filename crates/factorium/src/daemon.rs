@@ -87,6 +87,9 @@ impl App {
                     t.lines.push(did);
                 }
             }
+            // The local base follows origin's as last fetched, whatever left it behind.
+            let git = self.host.git(&c.path);
+            t.lines.extend(crate::line::follow_base(c, &git, &format!("refs/remotes/origin/{}", c.base)));
         }
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {

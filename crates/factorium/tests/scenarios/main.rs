@@ -7,6 +7,7 @@
 
 mod accounts;
 mod admission;
+mod base;
 mod bounds;
 mod comment;
 mod daemon;

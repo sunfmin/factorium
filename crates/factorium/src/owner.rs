@@ -388,7 +388,8 @@ impl App {
             // What the base declares, as last fetched: doctor fetches nothing.
             let git = self.host.git(&c.path);
             let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts });
+            let stuck = crate::line::stuck_base(&c, &git);
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck });
         }
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
