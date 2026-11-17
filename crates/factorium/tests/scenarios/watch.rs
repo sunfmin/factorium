@@ -184,3 +184,14 @@ async fn the_worker_and_the_watch_are_told_the_database_the_app_was_opened_on() 
     let rules = std::fs::read_to_string(w.dir.join("data/watch/CLAUDE.md")).unwrap();
     assert!(rules.contains(&format!("The database is {db}.")), "{rules}");
 }
+
+#[tokio::test]
+async fn the_watch_looks_once_every_look_every() {
+    let w = World::new();
+    assert!(w.tick().await.watch.is_some(), "the first tick looks");
+    assert!(w.tick().await.watch.is_none());
+    w.advance(4);
+    assert!(w.tick().await.watch.is_none(), "4 of 5 minutes");
+    w.advance(1);
+    assert!(w.tick().await.watch.is_some());
+}

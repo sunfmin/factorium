@@ -15,7 +15,6 @@ pub fn record_id(checkout: &str, tree: &str, kind: Kind) -> factum_core::Uuid {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub green: bool,
-    pub runs: u32,
     pub tail: String,
 }
 
@@ -34,7 +33,6 @@ impl Aggregate for Gates {
 
     fn evolve(s: &mut Record, GateEvent::GateRan { green, tail, .. }: GateEvent) {
         s.green |= green;
-        s.runs += 1;
         s.tail = tail;
     }
 }

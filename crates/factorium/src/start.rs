@@ -12,7 +12,6 @@ use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
 use factorium_harness::{Harness, Start};
 use factorium_host::{Git, Host, Term};
-use factum::Value;
 use serde_json::json;
 
 use crate::{Answer, App, Refusal, fail};
@@ -301,9 +300,4 @@ fn shell_word(s: &str) -> String {
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
     }
-}
-
-/// A started worker's view, for answers.
-pub(crate) fn _shown(st: &Started) -> Value {
-    json!(st)
 }

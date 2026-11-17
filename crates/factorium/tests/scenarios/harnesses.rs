@@ -203,3 +203,15 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     ];
     assert_eq!(offered, expected);
 }
+
+#[tokio::test]
+async fn a_kit_entry_names_a_model_after_its_last_at_and_only_a_harness_factorium_knows() {
+    let w = World::new();
+    let kit = w.app.kit_set(&["claude-code=claude@opus".into(), "codex=codex --x a@b c".into()]).await.unwrap();
+    let e = &kit["entries"];
+    assert_eq!((&e[0]["command"], &e[0]["model"]), (&serde_json::json!("claude"), &serde_json::json!("opus")));
+    assert_eq!(e[1]["command"], "codex --x a@b c", "an @ inside an argument is no model");
+    assert_eq!(e[1]["model"], serde_json::Value::Null);
+    let no = w.app.kit_set(&["nope=nope".into()]).await.unwrap_err();
+    assert_eq!(no.code, "no_harness");
+}

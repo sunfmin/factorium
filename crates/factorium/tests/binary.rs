@@ -132,6 +132,8 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_ne!(hook("FOO=1 /usr/local/bin/factorium promote web", true), Some(0));
     assert_ne!(hook("make | env X=1 factorium cut web", true), Some(0));
     assert_ne!(hook("git -C ../web push", true), Some(0));
+    // A word with `=` assigns only with a name before it: `--x=1` is the command run.
+    assert_eq!(hook("--x=1 factorium issue close web 1", true), Some(0));
     assert_eq!(hook("factorium issue close web 1", false), Some(0), "the owner's own session");
 }
 
