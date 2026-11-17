@@ -206,3 +206,14 @@ async fn the_worker_and_the_watch_start_alike_each_as_its_role() {
     let rules = std::fs::read_to_string(w.dir.join("data/role/worker/CLAUDE.md")).unwrap();
     assert!(rules.contains("You are a factorium worker"), "{rules}");
 }
+
+#[tokio::test]
+async fn the_watch_looks_once_every_look_every() {
+    let w = World::new();
+    assert!(w.tick().await.watch.is_some(), "the first tick looks");
+    assert!(w.tick().await.watch.is_none());
+    w.advance(4);
+    assert!(w.tick().await.watch.is_none(), "4 of 5 minutes");
+    w.advance(1);
+    assert!(w.tick().await.watch.is_some());
+}

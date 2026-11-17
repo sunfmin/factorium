@@ -37,14 +37,35 @@ fn sh(dir: &Path, line: &str) {
     assert!(ok.success(), "{line}");
 }
 
-/// Runs the binary with `XDG_DATA_HOME` and an empty `HOME` (a fresh host)
-/// in `dir` and `env` added; answers its
-/// exit success and its printed JSON.
-fn run_with(dir: &Dir, env: &[(&str, &str)], args: &[&str]) -> (bool, Value) {
+/// The programs through which the binary reaches the host's own service and
+/// sessions: each a stub that fails, so no test stops, opens or reads the
+/// real ones (a test's `stop` once booted out the host's daemon).
+const HOST_PROGRAMS: [&str; 4] = ["launchctl", "orca", "mytokens", "brew"];
+
+/// The binary on `dir`'s database (`XDG_DATA_HOME`) and an empty `HOME` (a
+/// fresh host), in no role, with [`HOST_PROGRAMS`] stubbed out.
+fn bin(dir: &Dir) -> Command {
+    let stubs = dir.0.join("stubs");
+    if !stubs.exists() {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(&stubs).unwrap();
+        for p in HOST_PROGRAMS {
+            std::fs::write(stubs.join(p), "#!/bin/sh\nexit 1\n").unwrap();
+            std::fs::set_permissions(stubs.join(p), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let path = format!("{}:{}", stubs.display(), std::env::var("PATH").unwrap_or_default());
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
-    cmd.args(args).env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB");
-    cmd.env("HOME", dir.0.join("home"));
-    cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
+    cmd.env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB").env("PATH", path);
+    cmd.env("HOME", dir.0.join("home")).env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
+    cmd
+}
+
+/// Runs [`bin`] with `env` added; answers its exit success and its printed
+/// JSON.
+fn run_with(dir: &Dir, env: &[(&str, &str)], args: &[&str]) -> (bool, Value) {
+    let mut cmd = bin(dir);
+    cmd.args(args);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -151,6 +172,8 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_ne!(hook("make | env X=1 factorium cut web", true), Some(0));
     assert_ne!(hook("git -C ../web push", true), Some(0));
     assert_ne!(as_role("factorium stop && factorium run", Some(("FACTORIUM_WATCH", "1"))), Some(0));
+    // A word with `=` assigns only with a name before it: `--x=1` is the command run.
+    assert_eq!(hook("--x=1 factorium issue close web 1", true), Some(0));
     assert_eq!(hook("factorium issue close web 1", false), Some(0), "the owner's own session");
     // The hook judges a factorium line as the command line does, each by its role.
     let watch = Some(("FACTORIUM_WATCH", "1"));
@@ -179,22 +202,16 @@ fn a_body_from_a_file_or_stdin_comes_back_byte_for_byte() {
     assert_eq!(shown["body"], body);
 
     let stdin_body = format!("{body}from stdin\n");
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
+    let mut cmd = bin(&dir);
     cmd.args(["issue", "edit", "web", "1", "--body-file", "-"]);
-    cmd.env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB");
-    cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(stdin_body.as_bytes()).unwrap();
     assert!(child.wait_with_output().unwrap().status.success());
     let (_, shown) = run(&dir, &["issue", "show", "web", "1"]);
     assert_eq!(shown["body"], stdin_body.as_str());
 
-    let both = Command::new(env!("CARGO_BIN_EXE_factorium"))
+    let both = bin(&dir)
         .args(["issue", "add", "web", "Both", "--body", "x", "--body-file", file.to_str().unwrap()])
-        .env("XDG_DATA_HOME", dir.0.join("data"))
-        .env_remove("FACTORIUM_DB")
-        .env_remove("FACTORIUM_WORKER")
-        .env_remove("FACTORIUM_WATCH")
         .output()
         .unwrap();
     assert!(!both.status.success());
@@ -230,4 +247,75 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     let db = dir.0.join("data/factorium/factorium.db");
     assert_eq!(get("EnvironmentVariables.FACTORIUM_DB"), db.to_str().unwrap());
     assert_eq!(get("StandardErrorPath"), dir.0.join("data/factorium/daemon.log").to_str().unwrap());
+}
+
+#[test]
+fn exclusive_runs_its_words_as_given() {
+    let dir = Dir::new();
+    let (ok, ran) = run(&dir, &["worker", "exclusive", "--", "printf", "%s|", "", "a b", "it's", "x=1"]);
+    assert!(ok, "{ran}");
+    assert_eq!(ran["tail"], "|a b|it's|x=1|");
+}
+
+#[test]
+fn a_heavy_command_whose_process_died_holds_nothing_up() {
+    let dir = Dir::new();
+    // No reading ever has room: only a queue with nothing running starts one.
+    assert!(run(&dir, &["settings", "memory_free_min", "100"]).0);
+    sh(&dir.0, "mkfifo go");
+    let mut held = bin(&dir);
+    held.args(["worker", "exclusive", "--", "sh", "-c", "touch running; perl -e 'alarm 20; exec @ARGV' cat go"])
+        .current_dir(&dir.0);
+    let mut held = held.stdout(Stdio::null()).spawn().unwrap();
+    let running = dir.0.join("running");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !running.exists() {
+        assert!(std::time::Instant::now() < deadline, "the first never ran");
+        std::thread::yield_now();
+    }
+    held.kill().unwrap();
+    held.wait().unwrap();
+
+    let mut next = bin(&dir);
+    next.args(["worker", "exclusive", "--", "true"]);
+    let mut next = next.stdout(Stdio::null()).spawn().unwrap();
+    let ended = loop {
+        if let Some(status) = next.try_wait().unwrap() {
+            break Some(status);
+        }
+        if std::time::Instant::now() > deadline {
+            next.kill().unwrap();
+            break None;
+        }
+        std::thread::yield_now();
+    };
+    // The dead one's command is still waiting on the fifo.
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NONBLOCK: never wait for a reader that is gone.
+        let _ = std::fs::OpenOptions::new().write(true).custom_flags(0x0004).open(dir.0.join("go"));
+    }
+    assert!(ended.is_some_and(|s| s.success()), "the dead one's entry held it up");
+}
+
+#[test]
+fn run_ticks_until_stop_ends_it() {
+    let dir = Dir::new();
+    let mut daemon = bin(&dir).arg("run").stdout(Stdio::null()).spawn().unwrap();
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !pid.exists() {
+        let gone = daemon.try_wait().unwrap();
+        if gone.is_some() || std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon did not keep running: {gone:?}");
+        }
+        std::thread::yield_now();
+    }
+    let (ok, stopped) = run(&dir, &["stop"]);
+    if stopped["stopped"] != true {
+        let _ = daemon.kill();
+    }
+    assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
+    daemon.wait().unwrap();
 }

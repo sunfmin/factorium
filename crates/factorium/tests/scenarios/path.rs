@@ -96,6 +96,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"));
+    assert_eq!(t.landed[0]["status"], "working", "back to work");
     assert_eq!(w.remote_tip("web", "proving"), proving, "nothing red lands");
     let again = worker(&w.app).await;
     assert_eq!(again["status"], "working");
@@ -297,4 +298,65 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     let ended = w.app.workers(true).await.unwrap()[0].clone();
     assert_eq!(row(&ended), (json!("ended"), json!("its issue closed: not needed"), json!(at + 60_000)));
+}
+
+#[tokio::test]
+async fn a_closed_issue_takes_no_more_commands() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["checkout"], "web");
+    w.app.issue_close("web", 1, "done elsewhere").await.unwrap();
+    refused(w.app.issue_comment("web", 1, "one more thing").await, "ended");
+}
+
+#[tokio::test]
+async fn an_issue_of_a_removed_checkout_starts_no_worker() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.app.checkout_remove("web").await.unwrap();
+    let t = w.tick().await;
+    assert_eq!((t.started, t.held), (None, None));
+}
+
+#[tokio::test]
+async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.app.issue_comment("web", 2, "use the v2 API").await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let a = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+    assert!(!a.contains("## Comments"), "{a}");
+    let b = std::fs::read_to_string(w.dir.join("data/briefs/web-2-1.md")).unwrap();
+    assert!(b.contains("## Comments\n\n- use the v2 API\n"), "{b}");
+}
+
+#[tokio::test]
+async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
+    let w = World::new();
+    assert_eq!(w.app.stop().await.unwrap()["why"], "no daemon runs");
+    let pid = w.dir.join("data/daemon.pid");
+    // A pid no process has (macOS gives at most 99998).
+    std::fs::write(&pid, "999999").unwrap();
+    assert_eq!(w.app.stop().await.unwrap(), json!({ "stopped": false, "why": "no daemon runs", "watch_closed": null }));
+    assert!(!pid.exists());
+}
+
+#[tokio::test]
+async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "factorium.toml", "[gate]\nslow = \"true\"\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }

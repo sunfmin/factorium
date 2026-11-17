@@ -6,6 +6,7 @@
 //! the scenario moves it.
 
 mod admission;
+mod bounds;
 mod daemon;
 mod harnesses;
 mod line;

@@ -257,3 +257,25 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     w.app.settings_set(Some("cpu_busy_max"), Some(95)).await.unwrap();
     assert!(w.tick().await.started.is_some(), "90% is under 95%");
 }
+
+#[tokio::test]
+async fn silence_counts_from_the_end_of_the_last_turn() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.advance(20);
+    let closed = (w.app_now() / 1000) as u64;
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, closed);
+    w.advance(30);
+    w.tick().await;
+    let all = w.app.workers(false).await.unwrap();
+    let it = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
+    assert_eq!(it["status"], "working", "30 minutes since its turn ended: at the bound");
+    w.advance(1);
+    w.tick().await;
+    let all = w.app.workers(false).await.unwrap();
+    let silent = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
+    assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
+}
