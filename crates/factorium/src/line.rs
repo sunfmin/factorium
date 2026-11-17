@@ -71,14 +71,14 @@ impl App {
             let why = format!(
                 "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."
             );
-            return self.red(worker, &st.terminal, why).await.map(Some);
+            return self.red(worker, why).await.map(Some);
         }
         let merged = here.sha("HEAD").map_err(fail("git"))?;
         let at = At::Commit { rev: &merged, by_hand: false };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(None) };
         if !gated.green {
             let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
-            return self.red(worker, &st.terminal, why).await.map(Some);
+            return self.red(worker, why).await.map(Some);
         }
         if let Err(e) = here.push_requiring(&merged, &c.proving, Some(&tip)) {
             // The tip moved since it was read: land again on the new tip.
@@ -97,14 +97,16 @@ impl App {
         Ok(Some(json!({ "landed": format!("{}#{}", c.name, st.number), "commit": merged })))
     }
 
-    async fn red(&self, worker: Uuid, terminal: &str, why: String) -> Answer<Value> {
+    async fn red(&self, worker: Uuid, why: String) -> Answer<Value> {
         self.submit::<w::RedLanding>(w::Because { worker, why: why.clone() }).await?;
         let wk = self.state::<Workers>(worker).await?;
         if wk.status == Status::Working {
             let text = format!(
                 "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
             );
-            let _ = self.host.orca().send(terminal, &one_line(&text));
+            if let Some(st) = &wk.started {
+                let _ = self.type_at(&Self::worker_session(st), &one_line(&text));
+            }
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }

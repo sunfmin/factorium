@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use factorium_domain::issue::{Take, TakeIssue};
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
+use factorium_domain::watch::{self, StartWatch};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
@@ -96,8 +96,9 @@ impl App {
         Ok(dir)
     }
 
-    /// Opens a terminal running a session as `l` says, and hands it its brief.
-    fn launch(&self, l: Launch) -> Answer<String> {
+    /// Opens a terminal running a session as `l` says: answers it, and the
+    /// line to type at it to hand it its brief once its harness is up.
+    fn launch(&self, l: Launch) -> Answer<(String, Option<String>)> {
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
         let hook = format!("{} guard {}", shell_word(&exe), l.harness.key());
         // The session runs factorium by name: this one, on this database.
@@ -131,17 +132,7 @@ impl App {
         if let (Err(_), Some(file)) = (&opened, &secret) {
             let _ = std::fs::remove_file(file);
         }
-        let terminal = opened.map_err(fail("orca"))?;
-        if let Some(typed) = typed {
-            // Past a minute it is typed anyway, as a person would.
-            let _ = self.host.orca().ready(&terminal);
-            if let Err(e) = self.host.orca().send(&terminal, &typed) {
-                // No session holds it: what factorium opens, factorium closes.
-                self.host.orca().close(&terminal);
-                return Err(Refusal::new("orca", e));
-            }
-        }
-        Ok(terminal)
+        Ok((opened.map_err(fail("orca"))?, typed))
     }
 
     /// Starts a worker on issue `number` of `checkout`.
@@ -162,6 +153,7 @@ impl App {
             Ok(st) => {
                 let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
                 self.submit::<w::StartWorker>(w::Start { worker, started: st }).await?;
+                self.hand_worker_brief(worker, true).await?;
                 Ok(shown)
             }
             Err(r) => {
@@ -210,7 +202,7 @@ impl App {
             brief: &brief,
             title: &title,
         };
-        let terminal = self.launch(launch)?;
+        let (terminal, typed) = self.launch(launch)?;
         Ok(Started {
             checkout: c.name.clone(),
             number: issue.number,
@@ -224,6 +216,7 @@ impl App {
             brief: brief.to_string_lossy().into_owned(),
             base: tip,
             at: 0,
+            typed,
         })
     }
 
@@ -271,14 +264,15 @@ impl App {
             brief: &brief,
             title: WATCH_TITLE,
         };
-        let terminal = self.launch(launch)?;
+        let (terminal, typed) = self.launch(launch)?;
         self.submit::<StartWatch>(watch::Started {
             terminal: terminal.clone(),
             harness: harness.key().into(),
             account: choice.account.clone(),
+            typed,
         })
         .await?;
-        let _ = self.state::<Watches>(watch_id()).await?;
+        self.hand_watch_brief(true).await?;
         Ok(Some(terminal))
     }
 }

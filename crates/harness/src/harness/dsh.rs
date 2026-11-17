@@ -15,6 +15,9 @@ pub(super) const KEY: &str = "dsh";
 pub(super) const USER_DIR: &str = "DSH_HOME";
 
 pub(super) const REFUSED: u8 = 2;
+/// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
+/// program having exited and been started again): typed text answers it.
+pub(super) const ASKS_FIRST: &str = "进入安全模式";
 pub(super) const KEPT_LINKS: &[Link] = &[
     Link { home: ".dsh/.credentials.yaml", kept: ".credentials.yaml" },
     // Only dependency resolution is shared; neither the user's profile

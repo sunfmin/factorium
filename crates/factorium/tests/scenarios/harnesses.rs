@@ -4,7 +4,7 @@
 
 use factorium_harness::Harness;
 
-use crate::{World, worker};
+use crate::{SHELL, UP, World, id, refused, worker};
 
 /// Writes the session files a harness's stand-in describes for `cwd`, in
 /// the home of its sessions on `account`.
@@ -291,6 +291,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: enum Stop",
         "harness.rs: fn home",
         "harness.rs: fn launch",
+        "harness.rs: fn not_up",
         "harness.rs: fn read",
         "harness.rs: fn shell_call",
         "harness.rs: fn stopped",
@@ -309,4 +310,71 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "turn.rs: enum Turn",
     ];
     assert_eq!(offered, expected);
+}
+
+/// A kimi worker whose terminal opens at its shell's prompt.
+async fn at_shell(w: &World) -> serde_json::Value {
+    w.checkout("web").await;
+    w.app.kit_set(&["kimi=kimi".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    *w.host.orca.opens_at_shell.lock().unwrap() = true;
+    w.tick().await;
+    worker(&w.app).await
+}
+
+#[tokio::test]
+async fn a_brief_is_typed_once_the_harness_is_up_never_at_its_shell() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    assert!(w.terminal(handle).sent.is_empty(), "the shell's prompt is not typed at");
+    w.advance(1);
+    w.tick().await;
+    assert!(w.terminal(handle).sent.is_empty(), "still the shell's");
+    let told = w.app.watch_tell(id(&wk), "hello").await;
+    refused(told, "not_up");
+    assert!(w.terminal(handle).sent.is_empty(), "nor is the watch's word");
+
+    w.set_screen(handle, &[SHELL, "Welcome to Kimi Code!", UP]);
+    w.advance(1);
+    w.tick().await;
+    let sent = w.terminal(handle).sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains("web-1-1.md"), "{sent:?}");
+    w.advance(1);
+    w.tick().await;
+    assert_eq!(w.terminal(handle).sent.len(), 1, "handed once");
+    assert_eq!(worker(&w.app).await["status"], "working");
+}
+
+#[tokio::test]
+async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.advance(4);
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "it may yet come up");
+    w.advance(2);
+    w.tick().await;
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    let why = waiting["why"].as_str().unwrap();
+    assert!(why.contains("not up") && why.contains("shell's"), "{why}");
+    assert!(w.terminal(handle).sent.is_empty());
+
+    // Up, handed its brief, then its program exits back to the shell.
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.set_screen(handle, &[UP]);
+    w.tick().await;
+    assert_eq!(w.terminal(handle).sent.len(), 1);
+    w.set_screen(handle, &[UP, "zsh: parse error near `do'", SHELL]);
+    w.advance(6);
+    w.tick().await;
+    assert!(worker(&w.app).await["why"].as_str().unwrap().contains("not up"));
+    refused(w.app.watch_restart(id(&wk), "go on").await, "not_up");
+    assert_eq!(w.terminal(handle).sent.len(), 1, "nothing more is typed at its shell");
+    assert_eq!(worker(&w.app).await["status"], "waiting");
 }
