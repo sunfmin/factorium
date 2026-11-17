@@ -317,3 +317,14 @@ async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
     let b = std::fs::read_to_string(w.dir.join("data/briefs/web-2-1.md")).unwrap();
     assert!(b.contains("## Comments\n\n- use the v2 API\n"), "{b}");
 }
+
+#[tokio::test]
+async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
+    let w = World::new();
+    assert_eq!(w.app.stop().unwrap()["why"], "no daemon runs");
+    let pid = w.dir.join("data/daemon.pid");
+    // A pid no process has (macOS gives at most 99998).
+    std::fs::write(&pid, "999999").unwrap();
+    assert_eq!(w.app.stop().unwrap(), json!({ "stopped": false, "why": "no daemon runs" }));
+    assert!(!pid.exists());
+}

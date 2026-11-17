@@ -66,7 +66,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.app.issue_add("web", "t", "", false).await.unwrap();
     let secrets = w.dir.join("data").join("secrets");
     *w.host.orca.refuse_open.lock().unwrap() = true;
-    let _ = w.app.tick().await;
+    assert!(w.app.tick().await.is_err(), "Orca refusing is no matter of the kit");
     assert_eq!(std::fs::read_dir(&secrets).unwrap().count(), 0, "a terminal that never opened leaves no secret");
     *w.host.orca.refuse_open.lock().unwrap() = false;
     w.tick().await;

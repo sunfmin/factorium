@@ -187,3 +187,27 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     }
     assert!(ended.is_some_and(|s| s.success()), "the dead one's entry held it up");
 }
+
+#[test]
+fn run_ticks_until_stop_ends_it() {
+    let dir = Dir::new();
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_factorium"));
+    daemon.arg("run").env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB");
+    let mut daemon = daemon.env_remove("FACTORIUM_WORKER").stdout(Stdio::null()).spawn().unwrap();
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !pid.exists() {
+        let gone = daemon.try_wait().unwrap();
+        if gone.is_some() || std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon did not keep running: {gone:?}");
+        }
+        std::thread::yield_now();
+    }
+    let (ok, stopped) = run(&dir, &["stop"]);
+    if stopped["stopped"] != true {
+        let _ = daemon.kill();
+    }
+    assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
+    daemon.wait().unwrap();
+}
