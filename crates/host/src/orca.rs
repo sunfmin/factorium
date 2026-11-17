@@ -118,6 +118,10 @@ impl Orca for OrcaCli {
 
     fn screen(&self, terminal: &str) -> Option<Vec<String>> {
         let read = orca(&["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"]).ok()?;
+        // Orca still answers a closed terminal's last screen.
+        if read["terminal"]["status"] == "exited" {
+            return None;
+        }
         // Orca answers the rendered rows as `terminal.tail`.
         let lines = read["terminal"]["tail"].as_array()?;
         Some(lines.iter().map(|l| l.as_str().unwrap_or_default().to_string()).collect())

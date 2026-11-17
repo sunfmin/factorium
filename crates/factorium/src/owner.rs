@@ -63,6 +63,7 @@ pub(crate) fn model() -> Model {
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::LookNow>()
+        .command::<watch::SendRound>()
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
