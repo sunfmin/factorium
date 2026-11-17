@@ -327,7 +327,7 @@ impl App {
             self.rows(tracker::workers(None, false)).await?.into_iter().map(|w| w.terminal).collect();
         let listed: Vec<String> = self.rows(tracker::listed()).await?.into_iter().map(|c| c.name).collect();
         let ours = |title: &str| {
-            title == crate::start::WATCH_TITLE
+            title == crate::launch::WATCH_TITLE
                 || title.rsplit_once('#').is_some_and(|(c, n)| {
                     listed.iter().any(|l| l == c) && !n.is_empty() && n.chars().all(|d| d.is_ascii_digit())
                 })

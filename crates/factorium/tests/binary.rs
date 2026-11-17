@@ -84,6 +84,9 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!(settings["unit"], "seconds");
 }
 
+/// A worker's id, as its session's environment holds it.
+const WORKER: &str = "00000000-0000-0000-0000-000000000001";
+
 #[test]
 fn a_refusal_exits_one_with_its_code() {
     let dir = Dir::new();
@@ -95,7 +98,7 @@ fn a_refusal_exits_one_with_its_code() {
 #[test]
 fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let dir = Dir::new();
-    let worker = [("FACTORIUM_WORKER", "00000000-0000-0000-0000-000000000001")];
+    let worker = [("FACTORIUM_WORKER", WORKER)];
     let (ok, answer) = run_with(&dir, &worker, &["issue", "list"]);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "guarded");
@@ -111,18 +114,19 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
 
 #[test]
 fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
-    let hook = |line: &str, worker: bool| -> Option<i32> {
+    let as_role = |line: &str, role: Option<(&str, &str)>| -> Option<i32> {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
         cmd.args(["guard", "claude-code"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
-        cmd.env_remove("FACTORIUM_WORKER");
-        if worker {
-            cmd.env("FACTORIUM_WORKER", "00000000-0000-0000-0000-000000000001");
+        cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
+        if let Some((name, value)) = role {
+            cmd.env(name, value);
         }
         let mut child = cmd.spawn().unwrap();
         let payload = json!({ "tool_name": "Bash", "tool_input": { "command": line } });
         child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
         child.wait().unwrap().code()
     };
+    let hook = |line: &str, worker: bool| as_role(line, worker.then_some(("FACTORIUM_WORKER", WORKER)));
     assert_eq!(hook("factorium worker gate", true), Some(0));
     assert_ne!(hook("cd x && factorium issue close web 1", true), Some(0));
     assert_ne!(hook("git push origin HEAD", true), Some(0));
@@ -133,6 +137,11 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_ne!(hook("make | env X=1 factorium cut web", true), Some(0));
     assert_ne!(hook("git -C ../web push", true), Some(0));
     assert_eq!(hook("factorium issue close web 1", false), Some(0), "the owner's own session");
+    // The hook judges a factorium line as the command line does, each by its role.
+    let watch = Some(("FACTORIUM_WATCH", "1"));
+    assert_eq!(as_role("factorium watch report --text done", watch), Some(0));
+    assert_ne!(hook("factorium watch report --text done", true), Some(0));
+    assert_eq!(as_role("factorium issue close web 1 && git push", watch), Some(0), "the watch acts as the operator");
 }
 
 #[test]

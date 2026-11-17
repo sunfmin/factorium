@@ -6,6 +6,7 @@
 mod daemon;
 mod gate;
 mod heavy;
+mod launch;
 mod line;
 mod owner;
 mod session;
@@ -29,6 +30,7 @@ use serde::de::DeserializeOwned;
 
 pub use daemon::Tick;
 pub use factorium_host as host;
+pub use launch::{Caller, DB_ENV};
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.
@@ -152,43 +154,4 @@ impl App {
         let data = self.db.parent().unwrap_or(Path::new("."));
         parts.iter().fold(data.to_path_buf(), |p, s| p.join(s))
     }
-}
-
-/// Why a session may not run the shell `line`, if it may not: a worker runs
-/// only `factorium worker …` and never pushes.
-pub fn refused(line: &str, worker: bool) -> Option<&'static str> {
-    if !worker {
-        return None;
-    }
-    // Each command the line runs: what follows a separator, past variable
-    // assignments and the words that run the next one (`env`, `exec`, …).
-    for segment in line.split(|c: char| ";&|()\n`".contains(c) || c == '$') {
-        let mut words = segment.split_whitespace().peekable();
-        while let Some(w) = words.peek() {
-            let assigns = w.split_once('=').is_some_and(|(n, _)| !n.is_empty() && !n.starts_with('-'));
-            let runs_next = ["env", "exec", "command", "nohup", "time", "nice", "xargs"].contains(w);
-            if !(assigns || runs_next || (w.starts_with('-') && segment.trim_start().starts_with("env"))) {
-                break;
-            }
-            words.next();
-        }
-        let Some(command) = words.next() else { continue };
-        if command.rsplit('/').next() == Some("factorium") && words.next() != Some("worker") {
-            return Some("a worker runs only `factorium worker …`");
-        }
-        if command.rsplit('/').next() == Some("git") {
-            // The subcommand: past git's own options, `-C dir` and `-c x=y` taking a word.
-            while let Some(w) = words.next() {
-                if w == "-C" || w == "-c" {
-                    words.next();
-                } else if !w.starts_with('-') {
-                    if w == "push" {
-                        return Some("a worker does not push: `factorium worker done` lands your branch");
-                    }
-                    break;
-                }
-            }
-        }
-    }
-    None
 }
