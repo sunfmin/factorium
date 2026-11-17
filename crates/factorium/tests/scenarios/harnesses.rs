@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use factorium_harness::Harness;
+use factorium_harness::{Harness, RULES};
 
 use crate::{World, worker};
 use factorium::host::Host;
@@ -134,7 +134,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         let key = h.key();
         let w = World::new();
         let repo = w.repo("web");
-        w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+        w.commit(&repo, RULES, "Always run the linter.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
         let (wk, line, dir, env) = started(&w, h).await;
@@ -143,7 +143,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         let at = |path: &str| std::fs::canonicalize(path).unwrap();
         let (worktree, role) = (wk["worktree"].as_str().unwrap(), w.dir.join("data").join("role").join("worker"));
         let role = role.to_string_lossy();
-        assert!(std::fs::read_to_string(at(&role).join("CLAUDE.md")).unwrap().contains("You are a factorium worker"));
+        assert!(std::fs::read_to_string(at(&role).join(RULES)).unwrap().contains("You are a factorium worker"));
 
         // The guard is asked before each tool call: given on its line, or by
         // what its home keeps, the line setting what that names.
