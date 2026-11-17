@@ -49,10 +49,10 @@ exclude_re = [
   'replace > with >= in epoch_number$',
   # Equivalent: a quick look before the turn is read in full, which decides
   # alone; it answers true for any worktree path a checkout can have.
-  'in names_cwd_or_brief$',
+  'names_cwd_or_brief',
   # Equivalent: the stand-in and the reader share the name and the storage
   # of a session's file, so both change alike.
-  'session.rs:104:.*replace <= with > in stored_name$',
+  'session.rs:105:.*replace <= with > in stored_name$',
   'in compressed$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
