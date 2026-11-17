@@ -7,6 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::Harness;
+
 /// A directory's skills: the directory under it every harness reads one
 /// entry per skill from.
 pub const SKILLS: &str = ".claude/skills";
@@ -26,9 +28,9 @@ pub struct Start<'a> {
     pub worktree: &'a str,
     /// The model the session runs in, where one is named.
     pub model: Option<&'a str>,
-    /// The shell line run before each tool call; it refuses a call by
-    /// exiting `Harness::refused`.
-    pub hook: &'a str,
+    /// The factorium program a session asks, as its guard hook, before
+    /// each tool call; the hook refuses a call by exiting `Harness::refused`.
+    pub guard: &'a str,
     /// Where the session keeps its files (`Harness::home`).
     pub home: &'a Home,
     /// The host user's home, whose login files a kept directory links to.
@@ -38,6 +40,23 @@ pub struct Start<'a> {
     pub env: Vec<(&'static str, String)>,
     /// The file of instructions the session is handed.
     pub brief: &'a str,
+    /// The file of secrets the line reads first and removes, kept off the
+    /// line itself: a secret there shows in `ps`, in the terminal's
+    /// scrollback and in any error naming the line (`secrets_file`).
+    pub secrets: Option<&'a str>,
+}
+
+impl Start<'_> {
+    /// The guard hook of a session of `harness`.
+    pub(crate) fn hook(&self, harness: Harness) -> String {
+        crate::line::guard(self.guard, harness.key())
+    }
+
+    /// The guard hook of a session of `harness`, whose hooks fail open: any
+    /// failure to ask the guard refuses the call too.
+    pub(crate) fn hook_asked(&self, harness: Harness) -> String {
+        crate::line::guard_asked(self.guard, harness.key(), harness.refused())
+    }
 }
 
 /// How a session is started: what its home must hold first, the line its

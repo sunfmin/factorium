@@ -1,8 +1,10 @@
-//! A shell line the tool writes for a shell to run: the one that starts a
-//! session, and those a brief tells a session to run. Whatever differs from one
-//! line to the next goes in as a word the shell reads as that text and nothing
-//! more — but for the launch command, which is a shell string already
-//! and goes in as it was given, once.
+//! Every shell line the tool writes for a shell to run: the one that starts a
+//! session (its secrets read first from a file), those a brief tells a
+//! session to run, the guard hook a session runs before each tool call, the
+//! line that logs an account in, and the secrets file itself. Whatever
+//! differs from one line to the next goes in as a word the shell reads as
+//! that text and nothing more — but for the launch command, which is a shell
+//! string already and goes in as it was given, once.
 
 /// A shell line as it is put together. Text reaches it in no other way than
 /// those below, so nothing that was read at run time is in it unquoted but
@@ -32,9 +34,16 @@ impl Line {
         self
     }
 
+    /// Adds the number `n`: digits, which a shell reads as they are.
+    fn number(mut self, n: u8) -> Line {
+        self.text.push_str(&n.to_string());
+        self
+    }
+
     /// Adds the launch command `command` as it was given: the tool
     /// never parses it. A line holds it once.
     pub(crate) fn launch(self, command: &str) -> Line {
+        debug_assert!(!self.launched);
         let mut text = self.text;
         text.push_str(command);
         Line { text, launched: true }
@@ -45,6 +54,12 @@ impl Line {
         debug_assert!(self.launched);
         self.text
     }
+
+    /// The line, of one that starts no launch command: every word of it quoted.
+    fn quoted_only(self) -> String {
+        debug_assert!(!self.launched);
+        self.text
+    }
 }
 
 impl Default for Line {
@@ -53,7 +68,69 @@ impl Default for Line {
     }
 }
 
+/// The start `line`, reading its secrets first from `file`, which it removes.
+pub(crate) fn secrets_first(file: &str, line: &str) -> String {
+    Line::new().fixed(". ").word(file).fixed(" && rm -f ").word(file).fixed(" && ").launch(line).done()
+}
+
+/// The text of a secrets file a start line reads first: each of `secrets`
+/// exported, its value one word.
+pub fn secrets_file(secrets: &[(&'static str, String)]) -> String {
+    let lines = secrets.iter().map(|(name, value)| Line::new().fixed("export ").fixed(name).fixed("=").word(value));
+    lines.map(|line| line.fixed("\n").quoted_only()).collect()
+}
+
+/// The guard hook of a session of the harness `harness`: the factorium
+/// `program` asked whether a tool call may be made.
+pub(crate) fn guard(program: &str, harness: &'static str) -> String {
+    guarded(Line::new(), program, harness).quoted_only()
+}
+
+/// The guard hook for a harness whose hooks fail open on an unreadable or
+/// failed hook: every such outcome is turned into its refusal code
+/// `refused`, with the guard's reason on stderr.
+pub(crate) fn guard_asked(program: &str, harness: &'static str, refused: u8) -> String {
+    guarded(Line::new().fixed("said=$("), program, harness)
+        .fixed(
+            " 2>&1 >/dev/null) && exit 0; \
+             printf '%s\\n' \"${said:-factorium guard: it could not be asked}\" >&2; exit ",
+        )
+        .number(refused)
+        .quoted_only()
+}
+
+fn guarded(line: Line, program: &str, harness: &'static str) -> Line {
+    line.word(program).fixed(" guard ").fixed(harness)
+}
+
+/// The line a person runs to log an account of the harness `harness` in
+/// once: it told, by the variable `user_dir`, that its home is `home`.
+pub(crate) fn login(user_dir: &'static str, home: &str, harness: &'static str) -> String {
+    Line::new().fixed(user_dir).fixed("=").word(home).fixed(" ").fixed(harness).quoted_only()
+}
+
 /// `text` as one word of a shell line, whatever it holds.
-pub(crate) fn quoted(text: &str) -> String {
+fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sh(line: &str) -> String {
+        let out = std::process::Command::new("/bin/sh").args(["-c", line]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn a_secret_and_a_program_are_each_one_word_whatever_they_hold() {
+        let odd = "it's $HOME `x` \"y\" a b";
+        let text = secrets_file(&[("SECRET", odd.to_string())]);
+        assert_eq!(sh(&format!("{text}printf %s \"$SECRET\"")), odd);
+        assert_eq!(sh(&format!("printf '%s|' {}", guard(odd, "pi"))), format!("{odd}|guard|pi|"));
+        let asked = guard_asked("/bin/echo no; false #", "kimi", 7);
+        let out = std::process::Command::new("/bin/sh").args(["-c", &asked]).output().unwrap();
+        assert_eq!(out.status.code(), Some(7), "{asked}");
+    }
 }

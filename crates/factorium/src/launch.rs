@@ -211,7 +211,6 @@ impl App {
             }
         };
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
-        let hook = format!("{} guard {}", shell_word(&exe), pick.harness.key());
         // The session runs factorium by name: this one, on this database;
         // and finds what the kit's program runs by name beside it.
         env.push((DB_ENV, self.db.to_string_lossy().into_owned()));
@@ -222,46 +221,52 @@ impl App {
         let (dir_text, worktree_text, brief_text) =
             (dir.to_string_lossy(), worktree.to_string_lossy(), brief.to_string_lossy());
         let (home, user_home) = (self.session_home(pick.harness, pick.account.as_deref()), self.host.home());
+        let secret = self.write_secrets(&pick.secrets)?;
+        let secret_text = secret.as_ref().map(|file| file.to_string_lossy().into_owned());
         let start = Start {
             command: &pick.command,
             dir: &dir_text,
             worktree: &worktree_text,
             model: pick.model.as_deref(),
-            hook: &hook,
+            guard: &exe,
             home: &home,
             user_home: &user_home,
             env,
             brief: &brief_text,
+            secrets: secret_text.as_deref(),
         };
-        let launched = pick.harness.launch(&start).map_err(|e| Refusal::new("harness", e))?;
-        for kept in &launched.kept {
-            keep(kept).map_err(io)?;
-        }
-        let (line, secret) = self.secrets_first(&pick.secrets, launched.line)?;
-        let opened = self.host.orca().open(&worktree, &title, &line);
+        let opened = self.open_terminal(pick, &start, &worktree, &title);
         if let (Err(_), Some(file)) = (&opened, &secret) {
             let _ = std::fs::remove_file(file);
         }
-        let terminal = opened.map_err(fail("orca"))?;
-        Ok(Opened { terminal, brief, typed: launched.typed })
+        let (terminal, typed) = opened?;
+        Ok(Opened { terminal, brief, typed })
     }
 
-    /// `line`, reading `secrets` first from a file only this user may read,
-    /// which it removes: a secret on a command line shows in `ps`, in the
-    /// terminal's scrollback and in any error naming the line.
-    fn secrets_first(&self, secrets: &[(&'static str, String)], line: String) -> Answer<(String, Option<PathBuf>)> {
+    /// Opens the terminal of the session `start` says: its terminal, and
+    /// the line to type at it once its harness is up.
+    fn open_terminal(&self, pick: &Pick, start: &Start, at: &Path, title: &str) -> Answer<(String, Option<String>)> {
+        let launched = pick.harness.launch(start).map_err(|e| Refusal::new("harness", e))?;
+        for kept in &launched.kept {
+            keep(kept).map_err(io)?;
+        }
+        let terminal = self.host.orca().open(at, title, &launched.line).map_err(fail("orca"))?;
+        Ok((terminal, launched.typed))
+    }
+
+    /// Writes `secrets`, if any, to a file only this user may read, which
+    /// the start line reads first and removes: its path.
+    fn write_secrets(&self, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
         if secrets.is_empty() {
-            return Ok((line, None));
+            return Ok(None);
         }
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         let dir = self.dir(&["secrets"]);
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
         let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
-        let text: String = secrets.iter().map(|(n, v)| format!("export {n}={}\n", shell_word(v))).collect();
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
-        std::io::Write::write_all(&mut f, text.as_bytes()).map_err(io)?;
-        let word = shell_word(&file.to_string_lossy());
-        Ok((format!(". {word} && rm -f {word} && {line}"), Some(file)))
+        std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
+        Ok(Some(file))
     }
 }
 
@@ -300,12 +305,4 @@ fn program_dir(command: &str, home: &Path) -> Option<String> {
         None => return None,
     };
     Some(path.parent()?.display().to_string())
-}
-
-fn shell_word(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c)) {
-        s.into()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
 }

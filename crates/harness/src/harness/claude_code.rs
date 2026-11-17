@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
-use crate::harness::Call;
+use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
@@ -184,7 +184,7 @@ fn added(line: Line, start: &Start) -> Line {
         .fixed(" ")
         .fixed(SETTINGS)
         .fixed(" ")
-        .word(&added_settings(start.hook, REPORT));
+        .word(&added_settings(&start.hook(Harness::ClaudeCode), REPORT));
     match start.model {
         Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
         None => line,
