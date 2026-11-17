@@ -1,10 +1,12 @@
 //! Orca: the worktrees agents work in and the terminals they run in. Every
-//! call is `orca … --json`.
+//! call is `orca … --json`, run through [`Programs`]; what Orca's answers
+//! mean is read here and nowhere else.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use serde_json::Value;
+
+use crate::shell::Programs;
 
 /// A new worktree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,49 +15,60 @@ pub struct Made {
     pub branch: String,
 }
 
-pub trait Orca: Send + Sync {
+/// A terminal as Orca reports it now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Term {
+    /// It runs; its screen as rendered.
+    Running(Vec<String>),
+    /// Its program ended, or Orca no longer knows it.
+    Exited,
+    /// Orca gave no answer to tell; why. Nothing is known of the terminal.
+    Unreadable(String),
+}
+
+/// Orca, reached through the programs the host runs.
+pub struct Orca<'a>(pub &'a dyn Programs);
+
+/// Why an Orca call failed: its error code (Orca's message is its code), or
+/// what it printed when it gave no answer.
+struct Failed {
+    code: Option<String>,
+    why: String,
+}
+
+impl From<Failed> for String {
+    fn from(f: Failed) -> String {
+        f.why
+    }
+}
+
+impl Orca<'_> {
+    /// Runs `orca <args> --json`. An error names the subcommand alone, never
+    /// the arguments: a terminal's command line is one, and may be long.
+    fn call(&self, args: &[&str]) -> Result<Value, Failed> {
+        let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
+        let mut all = args.to_vec();
+        all.push("--json");
+        let said = self.0.run("orca", &all);
+        let Ok(answer) = serde_json::from_str::<Value>(&said.out) else {
+            return Err(Failed { code: None, why: format!("orca {what}: {}", said.err.trim()) });
+        };
+        if !said.ok || answer["ok"] != true {
+            let code = answer["error"]["code"].as_str().map(str::to_string);
+            let message = answer["error"]["message"].as_str().unwrap_or("failed");
+            return Err(Failed { code, why: format!("orca {what}: {message}") });
+        }
+        Ok(answer["result"].clone())
+    }
+
     /// Makes a worktree of the repo at `repo`, named `name`, on a new branch
     /// `branch` at `sha`.
-    fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<Made, String>;
-    /// Removes a worktree and the terminals in it.
-    fn remove(&self, worktree: &Path) -> Result<(), String>;
-    /// Starts a terminal in `worktree` running `line`; answers its handle.
-    fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String>;
-    /// Types `text` and Enter at a terminal.
-    fn send(&self, terminal: &str, text: &str) -> Result<(), String>;
-    /// The terminal's screen as rendered, or `None` when it is gone.
-    fn screen(&self, terminal: &str) -> Option<Vec<String>>;
-    /// Ends a terminal.
-    fn close(&self, terminal: &str);
-}
-
-pub struct OrcaCli;
-
-/// Runs `orca <args> --json`. An error names the subcommand alone, never
-/// the arguments: a terminal's command line is one, and may be long.
-fn orca(args: &[&str]) -> Result<Value, String> {
-    let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
-    let out = Command::new("orca")
-        .args(args)
-        .arg("--json")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("orca: {e}"))?;
-    let answer: Value = serde_json::from_slice(&out.stdout)
-        .map_err(|_| format!("orca {what}: {}", String::from_utf8_lossy(&out.stderr).trim()))?;
-    if !out.status.success() || answer["ok"] != true {
-        return Err(format!("orca {what}: {}", answer["error"]["message"].as_str().unwrap_or("failed")));
-    }
-    Ok(answer["result"].clone())
-}
-
-impl Orca for OrcaCli {
-    fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<Made, String> {
+    pub fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<Made, String> {
         let repo_sel = format!("path:{}", repo.display());
-        if orca(&["repo", "show", "--repo", &repo_sel]).is_err() {
-            orca(&["repo", "add", "--path", &repo.to_string_lossy()])?;
+        if self.call(&["repo", "show", "--repo", &repo_sel]).is_err() {
+            self.call(&["repo", "add", "--path", &repo.to_string_lossy()])?;
         }
-        let made = orca(&[
+        let made = self.call(&[
             "worktree",
             "create",
             "--repo",
@@ -75,34 +88,38 @@ impl Orca for OrcaCli {
         // Orca opens a shell in a new workspace; the session's terminal,
         // opened next, is to be its one tab.
         let sel = format!("path:{}", path.display());
-        let _ = orca(&["terminal", "close", "--worktree", &sel, "--all"]);
+        let _ = self.call(&["terminal", "close", "--worktree", &sel, "--all"]);
         Ok(Made { path, branch: branch.to_string() })
     }
 
-    fn remove(&self, worktree: &Path) -> Result<(), String> {
+    /// Removes a worktree and the terminals in it.
+    pub fn remove(&self, worktree: &Path) -> Result<(), String> {
         let sel = format!("path:{}", worktree.display());
-        match orca(&["worktree", "rm", "--worktree", &sel, "--force"]) {
+        match self.call(&["worktree", "rm", "--worktree", &sel, "--force"]) {
             Err(_) if !worktree.exists() => Ok(()),
-            other => other.map(|_| ()),
+            other => other.map(|_| ()).map_err(String::from),
         }
     }
 
-    fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
-        let create = |sel: &str| orca(&["terminal", "create", "--worktree", sel, "--title", title, "--command", line]);
+    /// Starts a terminal in `worktree` running `line`; answers its handle.
+    pub fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
+        let create =
+            |sel: &str| self.call(&["terminal", "create", "--worktree", sel, "--title", title, "--command", line]);
+        let unknown = |f: &Failed| f.code.as_deref() == Some("selector_not_found");
         // A plain git directory (the watch's home) is no Orca workspace
         // until Orca holds it as a repo, and Orca finds the repo's own
         // worktree a moment after it is added.
         let made = match create(&format!("path:{}", worktree.display())) {
-            Err(e) if e.contains("selector_not_found") => {
-                let repo = orca(&["repo", "add", "--path", &worktree.to_string_lossy()])?;
+            Err(f) if unknown(&f) => {
+                let repo = self.call(&["repo", "add", "--path", &worktree.to_string_lossy()])?;
                 let id = repo["repo"]["id"].as_str().ok_or("orca repo add gave no id")?;
                 let sel = format!("id:{id}::{}", worktree.display());
                 let mut tries = 0;
                 loop {
                     match create(&sel) {
-                        Err(e) if e.contains("selector_not_found") && tries < 5 => {
+                        Err(f) if unknown(&f) && tries < 5 => {
                             tries += 1;
-                            std::thread::sleep(std::time::Duration::from_secs(1));
+                            self.0.run("sleep", &["1"]);
                         }
                         other => break other?,
                     }
@@ -113,25 +130,42 @@ impl Orca for OrcaCli {
         made["terminal"]["handle"].as_str().map(str::to_string).ok_or_else(|| "orca gave no terminal handle".into())
     }
 
-    fn send(&self, terminal: &str, text: &str) -> Result<(), String> {
-        // Text sent before the session is up goes to the shell, ahead of
-        // the line Orca types to start it: wait for its screen to settle.
-        let _ = orca(&["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", "60000"]);
-        orca(&["terminal", "send", "--terminal", terminal, "--text", text, "--enter"]).map(|_| ())
+    /// Waits, up to a minute, for the program a terminal was opened with to
+    /// be up and its screen to settle. Text sent before then goes to the
+    /// shell, ahead of the line Orca types to start the program.
+    pub fn ready(&self, terminal: &str) -> Result<(), String> {
+        let wait = ["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", "60000"];
+        self.call(&wait).map(|_| ()).map_err(String::from)
     }
 
-    fn screen(&self, terminal: &str) -> Option<Vec<String>> {
-        let read = orca(&["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"]).ok()?;
+    /// Types `text` and Enter at a terminal.
+    pub fn send(&self, terminal: &str, text: &str) -> Result<(), String> {
+        self.call(&["terminal", "send", "--terminal", terminal, "--text", text, "--enter"])
+            .map(|_| ())
+            .map_err(String::from)
+    }
+
+    /// The terminal now.
+    pub fn screen(&self, terminal: &str) -> Term {
+        let read = match self.call(&["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"]) {
+            Ok(read) => read,
+            // Orca no longer knows the handle (it restarted, say).
+            Err(f) if f.code.as_deref() == Some("terminal_handle_stale") => return Term::Exited,
+            Err(f) => return Term::Unreadable(f.why),
+        };
         // Orca still answers a closed terminal's last screen.
         if read["terminal"]["status"] == "exited" {
-            return None;
+            return Term::Exited;
         }
         // Orca answers the rendered rows as `terminal.tail`.
-        let lines = read["terminal"]["tail"].as_array()?;
-        Some(lines.iter().map(|l| l.as_str().unwrap_or_default().to_string()).collect())
+        match read["terminal"]["tail"].as_array() {
+            Some(rows) => Term::Running(rows.iter().map(|l| l.as_str().unwrap_or_default().to_string()).collect()),
+            None => Term::Unreadable(format!("orca terminal read gave no rows: {read}")),
+        }
     }
 
-    fn close(&self, terminal: &str) {
-        let _ = orca(&["terminal", "close", "--terminal", terminal]);
+    /// Ends a terminal.
+    pub fn close(&self, terminal: &str) {
+        let _ = self.call(&["terminal", "close", "--terminal", terminal]);
     }
 }

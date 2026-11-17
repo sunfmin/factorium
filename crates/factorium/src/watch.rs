@@ -7,6 +7,7 @@ use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound,
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::Harness;
 use factorium_harness::turn::Turn;
+use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -91,9 +92,15 @@ impl App {
         if wk.status == Status::Ended {
             return Err(Refusal::new("ended", "this worker has ended"));
         }
-        if self.host.orca().screen(&st.terminal).is_none() {
-            self.end_worker(worker, "restarted by the watch: its session was gone", false).await?;
-            return Ok(json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }));
+        match self.host.orca().screen(&st.terminal) {
+            Term::Running(_) => {}
+            Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
+            Term::Exited => {
+                self.end_worker(worker, "restarted by the watch: its session was gone", false).await?;
+                return Ok(
+                    json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
+                );
+            }
         }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         let line = format!(

@@ -59,7 +59,9 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut");
     assert_eq!(cut["version"], "v0.1.0");
     assert!(git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
-    assert_eq!(*w.host.brewed.lock().unwrap(), vec!["web".to_string()]);
+    // The first cut installs it, and Homebrew is asked what it has once done.
+    let installs = ["--prefix web", "update --quiet", "list --formula web", "install web", "list --versions web"];
+    assert_eq!(w.host.brewed(), installs);
 }
 
 #[tokio::test]
