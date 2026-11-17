@@ -66,9 +66,16 @@ watch's look and the operator's view.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
-whose session died, never came up or went silent past its bound, a hot worker, a red
-promotion, a failed cut, admission held for one reason past the host's
-span. The watch fixes, restarts, re-briefs, parks or closes, and reports.
+whose session died, never came up, went silent past its bound, or hung
+past it (its turn open, its processes next to idle, its screen
+unchanged), a hot worker, a red promotion, a failed cut, admission held
+for one reason past the host's span. So does a line that stopped:
+whatever it owes is done within its bound or is a finding — a heavy
+queue that starts nothing past `stall_bound` (or whose oldest waits past
+`hold_bound` and `stall_bound` more), a landing no gate runs for past
+`stall_bound`, the oldest unpromoted landing past `promotion_bound` with
+no promotion running, the oldest uncut promotion past `cut_bound` with no
+cut running. The watch fixes, restarts, re-briefs, parks or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
 which `doctor` shows.
 
@@ -96,7 +103,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
 

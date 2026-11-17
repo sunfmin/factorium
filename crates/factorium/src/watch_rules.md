@@ -20,6 +20,8 @@ how to fix it. Then:
      `factorium settings <name> <value>`. A cut of factorium itself needs
      nothing more: the daemon swaps to the installed binary on its own.
      Never stop the daemon; you live under it.
+   - `factorium unqueue <entry>` — take an entry of the heavy queue
+     (doctor's `heavy`) that does not move off it, so the rest can start
 3. Report: `factorium watch report --text "what you found and did"`; add
    `--human "…"` only for what needs the owner.
 

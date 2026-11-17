@@ -1,5 +1,6 @@
 //! Hot workers: a worker whose processes take more than their share — of
-//! the CPU, of memory, of process count — for longer than `hot_for`.
+//! the CPU, of memory, of process count — for longer than `hot_for`; and
+//! the opposite, processes that sit next to idle.
 
 use serde::{Deserialize, Serialize};
 
@@ -31,4 +32,13 @@ pub fn over(load: &Load, s: &Settings) -> Option<String> {
 /// Whether a worker over since `since` (ms) is hot at `now`.
 pub fn hot(since: Option<i64>, now: i64, s: &Settings) -> bool {
     since.is_some_and(|t| now - t >= s.ms(Time::HotFor))
+}
+
+/// Below this share of one core, a worker's processes together use next to
+/// no CPU: a command blocked, not working.
+const QUIET_CPU: f64 = 2.0;
+
+/// Whether processes using `core_percent` of one core between them sit idle.
+pub fn quiet(core_percent: f64) -> bool {
+    core_percent < QUIET_CPU
 }

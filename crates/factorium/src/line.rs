@@ -165,7 +165,7 @@ impl App {
             failed,
         };
         // The steps share the clone, so they take one turn of the queue.
-        let what = format!("cut {version} of {}", c.name);
+        let what = factorium_domain::heavy::line_job(&c.name, "cut");
         let job = Job {
             what,
             worker: None,

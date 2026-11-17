@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::{World, id, worker};
 
 /// Long enough that only a broken rule gets there.
-const STUCK: Duration = Duration::from_secs(20);
+pub(crate) const STUCK: Duration = Duration::from_secs(20);
 
 async fn until_file(path: &Path) {
     while !path.exists() {
@@ -20,14 +20,14 @@ async fn until_file(path: &Path) {
 }
 
 /// The heavy commands `doctor` shows, as `what`.
-async fn heavy(w: &World) -> Vec<String> {
+pub(crate) async fn heavy(w: &World) -> Vec<String> {
     let d = w.run().doctor().await.unwrap();
     d["heavy"].as_array().unwrap().iter().map(|e| e["what"].as_str().unwrap().to_string()).collect()
 }
 
 /// Runs `during` while another CLI run's heavy command holds the queue, then
 /// lets that command end.
-async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
+pub(crate) async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
     let dir = w.dir.join("busy");
     std::fs::create_dir_all(&dir).unwrap();
     let cli = w.run();

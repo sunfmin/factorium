@@ -12,7 +12,7 @@ use factorium_domain::tracker::{self, Tracker, shown};
 use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
-use factum::{Model, Value};
+use factum::{Model, Uuid, Value};
 use serde_json::json;
 
 use crate::{Answer, App, Refusal};
@@ -42,6 +42,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteLoad>()
+        .command::<worker::NoteQuiet>()
         .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
@@ -300,6 +301,17 @@ impl App {
         Ok(json!({ "checkout": checkout, "held": l.held }))
     }
 
+    /// `factorium unqueue`: takes entry `id` off the heavy queue, waiting or
+    /// running; its owner, if it still asks, queues again behind the rest.
+    pub async fn unqueue(&self, id: Uuid) -> Answer {
+        let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
+        let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {
+            return Err(Refusal::new("no_entry", format!("the heavy queue holds no entry {id}")));
+        };
+        self.submit::<heavy::EndHeavy>(heavy::End { id }).await?;
+        Ok(json!({ "unqueued": entry }))
+    }
+
     // ---- doctor ----
 
     /// What doctor reads, from the database and a reading.
@@ -309,19 +321,17 @@ impl App {
             let issue = format!("{}#{}", w.checkout, w.number);
             seen.waiting.push((w.worker.to_string(), issue, w.state.why.unwrap_or_default()));
         }
-        for c in self.rows(tracker::listed()).await? {
-            let name = c.name.as_str();
-            let l = self.state::<Lines>(line_id(name)).await?;
-            if let Some((tip, why)) = l.red {
-                seen.red_promotions.push((name.into(), tip, why));
-            }
-            if let Some((v, why)) = l.cut_failed {
-                seen.failed_cuts.push((name.into(), v, why));
-            }
-            if let Some(why) = l.held {
-                seen.holds.push((name.into(), why));
-            }
+        for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
+            seen.landing.push((w.worker.to_string(), w.checkout, w.number, w.state.since));
         }
+        for c in self.rows(tracker::listed()).await? {
+            let line = self.state::<Lines>(line_id(&c.name)).await?;
+            // What the base declares, as last fetched: doctor fetches nothing.
+            let git = self.host.git(&c.path);
+            let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts });
+        }
+        seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone();
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
@@ -365,16 +375,17 @@ impl App {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
         let reading = self.host.reading();
-        let heavy = self.state::<heavy::Heavy>(heavy::queue_id()).await?.entries;
+        let holds: Vec<_> =
+            seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
         let skipped: Vec<Value> =
             self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
         Ok(json!({
             // The engine accounts no session can start on here, and why.
             "accounts_skipped": skipped,
-            "heavy": heavy,
+            "heavy": seen.queue.entries,
             "findings": findings,
             "human": seen.human,
-            "holds": seen.holds,
+            "holds": holds,
             "reading": reading,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))

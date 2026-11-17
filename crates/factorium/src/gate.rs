@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use factorium_domain::declared::Kind;
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
+use factorium_domain::heavy;
 use factorium_host::{Git, Ran};
 use factum::Uuid;
 
@@ -58,7 +59,7 @@ impl App {
         };
         let (what, worker, turn) = match at {
             At::Commit { by_hand, .. } => (
-                format!("{} gate of {checkout}", kind.as_str()),
+                heavy::line_job(checkout, &format!("{} gate", kind.as_str())),
                 None,
                 if by_hand { Turn::Wait } else { Turn::Once(format!("gate:{checkout}:{tree}:{}", kind.as_str())) },
             ),

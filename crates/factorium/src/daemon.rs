@@ -67,12 +67,13 @@ impl App {
             let id = w.worker;
             let mine: Vec<_> = procs.iter().filter(|p| p.worker.as_deref() == Some(&id.to_string())).collect();
             let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
+            let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
             let load = hot::Load {
-                cpu: mine.iter().map(|p| p.cpu).sum::<f64>() / cores,
+                cpu: core_percent / cores,
                 rss_kib: mine.iter().map(|p| p.rss_kib).sum(),
                 procs: mine.len() as u64,
             };
-            if let Some(seen) = self.worker_health(id, &load, &settings).await? {
+            if let Some(seen) = self.worker_health(id, &load, hot::quiet(core_percent), &settings).await? {
                 t.seen.push(seen);
             }
         }
