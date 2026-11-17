@@ -134,3 +134,46 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_ne!(hook("git -C ../web push", true), Some(0));
     assert_eq!(hook("factorium issue close web 1", false), Some(0), "the owner's own session");
 }
+
+#[test]
+fn a_body_from_a_file_or_stdin_comes_back_byte_for_byte() {
+    let dir = Dir::new();
+    sh(
+        &dir.0,
+        "git init -q -b main seed && cd seed && git commit -q --allow-empty -m start && cd .. \
+         && git clone -q --bare seed remote.git && git clone -q remote.git web",
+    );
+    let repo = dir.0.join("web");
+    assert!(run(&dir, &["checkout", "add", "web", repo.to_str().unwrap()]).0);
+    let body = "Say \"hi\" and 'bye'.\n\n`code` and $(cat <<'EOF'\nx\nEOF\n) and $HOME\\n\n";
+    let file = dir.0.join("body.md");
+    std::fs::write(&file, body).unwrap();
+
+    let (ok, added) = run(&dir, &["issue", "add", "web", "From a file", "--body-file", file.to_str().unwrap()]);
+    assert!(ok, "{added}");
+    let (_, shown) = run(&dir, &["issue", "show", "web", "1"]);
+    assert_eq!(shown["body"], body);
+
+    let stdin_body = format!("{body}from stdin\n");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
+    cmd.args(["issue", "edit", "web", "1", "--body-file", "-"]);
+    cmd.env("XDG_DATA_HOME", dir.0.join("data")).env_remove("FACTORIUM_DB");
+    cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(stdin_body.as_bytes()).unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+    let (_, shown) = run(&dir, &["issue", "show", "web", "1"]);
+    assert_eq!(shown["body"], stdin_body.as_str());
+
+    let both = Command::new(env!("CARGO_BIN_EXE_factorium"))
+        .args(["issue", "add", "web", "Both", "--body", "x", "--body-file", file.to_str().unwrap()])
+        .env("XDG_DATA_HOME", dir.0.join("data"))
+        .env_remove("FACTORIUM_DB")
+        .env_remove("FACTORIUM_WORKER")
+        .env_remove("FACTORIUM_WATCH")
+        .output()
+        .unwrap();
+    assert!(!both.status.success());
+    let (_, list) = run(&dir, &["issue", "list", "web"]);
+    assert_eq!(list.as_array().unwrap().len(), 1, "the refused add made no issue");
+}
