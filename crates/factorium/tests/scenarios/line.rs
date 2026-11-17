@@ -162,3 +162,30 @@ async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
     assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("not 0.1.0"), "{finding}");
     assert_eq!(t.restart, None, "the daemon does not restart onto a version it lacks");
 }
+
+#[tokio::test]
+async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
+    let w = World::new();
+    let web = w.checkout("web").await;
+    w.kit().await;
+    // A landing dir made the old way: a worktree of the checkout.
+    let landing = w.dir.join("data").join("landing").join("web");
+    std::fs::create_dir_all(landing.parent().unwrap()).unwrap();
+    git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    for kind in ["landing", "promotion", "cut"] {
+        assert!(w.dir.join("data").join(kind).join("web").join(".git").is_dir(), "{kind} is a clone");
+    }
+    let listed = git(&web, &["worktree", "list", "--porcelain"]).unwrap();
+    let trees: Vec<_> = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).collect();
+    assert_eq!(trees.len(), 1, "only the checkout itself: {trees:?}");
+    assert!(trees[0].ends_with("repos/web"), "{trees:?}");
+}

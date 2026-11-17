@@ -72,6 +72,10 @@ impl Orca for OrcaCli {
         ])?;
         let path = made["worktree"]["path"].as_str().map(PathBuf::from).filter(|p| p.is_dir());
         let path = path.ok_or_else(|| format!("orca worktree create returned no usable path: {made}"))?;
+        // Orca opens a shell in a new workspace; the session's terminal,
+        // opened next, is to be its one tab.
+        let sel = format!("path:{}", path.display());
+        let _ = orca(&["terminal", "close", "--worktree", &sel, "--all"]);
         Ok(Made { path, branch: branch.to_string() })
     }
 
