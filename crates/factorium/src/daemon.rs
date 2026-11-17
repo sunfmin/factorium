@@ -28,8 +28,8 @@ pub struct Tick {
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
-    /// The binary to run in place of this one once the tick ends: a cut
-    /// installed the daemon's own formula.
+    /// The binary to run in place of this one once the tick ends: Homebrew
+    /// links another version of the daemon's own formula, whoever cut it.
     pub restart: Option<String>,
 }
 
@@ -116,8 +116,24 @@ impl App {
         }
         self.heavy_forget_unasked().await?;
         t.watch = self.look_if_due(&settings).await?;
-        t.restart = t.lines.iter().find_map(|l| l["restart"].as_str().map(String::from));
+        t.restart = self.swapped().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
+    }
+
+    /// The daemon runs the binary `me` (canonical): if Homebrew installed it,
+    /// each tick asks whether its link now names another version.
+    pub fn runs_as(&self, me: &std::path::Path) {
+        let link = self.host.brew().link_of(me);
+        self.memory.lock().unwrap().running = link.map(|l| (me.to_path_buf(), l));
+    }
+
+    /// The link to exec in place of this binary: Homebrew links a version
+    /// other than the one running, by a cut from the daemon, the CLI or
+    /// by hand. Mid-upgrade, when the link resolves to nothing, not yet.
+    fn swapped(&self) -> Option<std::path::PathBuf> {
+        let (me, link) = self.memory.lock().unwrap().running.clone()?;
+        let now = link.canonicalize().ok()?;
+        (now != me).then_some(link)
     }
 
     /// The oldest ready issue no worker holds and nothing open blocks.
@@ -179,6 +195,9 @@ impl App {
             return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
+        if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
+            self.runs_as(&me);
+        }
         eprintln!("started: {}", self.daemon_start().await?);
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {

@@ -186,10 +186,9 @@ impl App {
             self.submit::<line::RecordCut>(record(&base, Some(format!("tagging failed: {e}")))).await?;
             return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
         }
-        let (mut installed, mut restart) = (None, None);
+        let mut installed = None;
         if let Some(formula) = &cut.formula {
-            // The daemon's own formula: it runs the new binary once the tick ends.
-            restart = self.host.brew().binary_of(formula);
+            // The daemon's own formula: it sees the new link once the tick ends.
             if let Err(e) = self.host.brew().upgrade(formula, &version) {
                 self.submit::<line::RecordCut>(record(&base, Some(format!("installing {formula} failed: {e}"))))
                     .await?;
@@ -198,9 +197,7 @@ impl App {
             installed = Some(formula.clone());
         }
         self.submit::<line::RecordCut>(record(&tagged, None)).await?;
-        Ok(Ok(
-            json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed, "restart": restart }),
-        ))
+        Ok(Ok(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed })))
     }
 
     /// `factorium promote`: promotes now, whatever the bound or a red tip says.

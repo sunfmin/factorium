@@ -134,15 +134,41 @@ async fn cut_one(w: &World) -> crate::Tick {
 #[tokio::test]
 async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
     let w = World::new();
-    let bin = w.running_as("web");
+    let bin = w.running_as(&w.app, "web");
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()));
     let w = World::new();
-    w.running_as("other");
+    w.running_as(&w.app, "other");
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart, None, "another formula's cut leaves the daemon as it is");
+}
+
+#[tokio::test]
+async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
+    let w = World::new();
+    let bin = w.running_as(&w.app, "web");
+    w.checkout("web").await;
+    w.kit().await;
+    // Landed, and uncut while the checkout is busy: the daemon does not cut.
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    assert!(w.tick().await.started.is_some(), "b works on");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(!t.landed.is_empty(), "{t:?}");
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
+    assert_eq!(t.restart, None);
+    // The owner, or the watch, cuts by hand in another process.
+    w.run().promote("web").await.unwrap();
+    let cut = w.run().cut("web").await.unwrap();
+    assert_eq!(cut["installed"], "web", "{cut}");
+    let t = w.tick().await;
+    assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()), "the next tick swaps the binary");
 }
 
 #[tokio::test]
