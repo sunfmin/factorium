@@ -21,7 +21,7 @@ exclude_re = [
   'in Queue::overheld$',
   'replace Queue::overheld -> bool with',
   # Equivalent: starting a heavy command is refused only with "wait".
-  'replace match guard r.code == "wait" with true in App::heavy_try',
+  'replace match guard r.code == "wait" with true in App::take_turn',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
@@ -34,22 +34,10 @@ exclude_re = [
   'delete match arm \((None, _|_, Status::Ended)\) in live',
   # Equivalent: quoting a word that needs no quotes runs the same.
   'replace \|\| with && in shell_word',
-  # Usage windows are never read: nothing submits ReadWindows, so an
-  # account's windows are always empty.
-  'kit.rs:5[12]:.* in Account::left$',
-  # Only `factorium run` prints a tick, and only for a tick that did
-  # something: with no Orca the binary tests' daemon does nothing, and a
-  # test cannot tell when its idle tick ended to see it printed nothing. Its tick
-  # count is in the answer of a run that ends by its stop flag, which
-  # nothing sets (`stop` kills it).
-  'daemon.rs:153:.* in App::run$',
+  # The daemon's tick count is in the answer of a run that ends by its stop
+  # flag, which nothing sets (`stop` kills it).
   'replace \+= with [-*]= in App::run',
   # A refusal's text form is printed only for a daemon tick that fails,
   # which the binary tests' daemon cannot be made to do.
   'replace <impl std::fmt::Display for Refusal>::fmt',
-  # Equivalent: an account's `MACHINE` that is empty names no machine, so
-  # no login is usable on it either way; and a harness that does not log
-  # in is refused whichever reason is given (the reason is not shown).
-  'account.rs:136:.*replace match guard !text.is_empty\(\) with true in parse',
-  'account.rs:154:.*replace match guard harness.logs_in\(\) with (true|false) in parse',
 ]
