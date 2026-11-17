@@ -9,17 +9,18 @@ use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
-use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Lines, next_version};
+use factorium_domain::line_id;
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_domain::{id, line_id};
 use factorium_host::Git;
 use factum::Uuid;
 use serde_json::{Value, json};
 
-use crate::{Answer, App, Refusal, fail};
+use crate::gate::At;
+use crate::heavy::{Job, Turn};
+use crate::{Answer, App, fail};
 
 /// What one move did, for the tick's answer.
 pub(crate) type Did = Option<Value>;
@@ -43,47 +44,6 @@ fn fresh(git: &Git, path: &Path, rev: &str) -> Result<Git, String> {
 }
 
 impl App {
-    /// Runs the `kind` gate on `rev` in `here`, unless that tree is green
-    /// already; answers whether it is green and the tail of a red run.
-    /// `Ok(None)`: the queue has no room yet; ask again next tick.
-    pub(crate) async fn gate_tree(
-        &self,
-        checkout: &Checkout,
-        here: &Git,
-        rev: &str,
-        kind: Kind,
-        queued: Uuid,
-    ) -> Answer<Option<(bool, String)>> {
-        let tree = here.tree(rev).map_err(fail("git"))?;
-        if self.state::<Gates>(record_id(&checkout.name, &tree, kind)).await?.green {
-            return Ok(Some((true, String::new())));
-        }
-        let declared = self.declared(here, rev)?;
-        let Some((cmd, limit)) = declared.gate.of(kind) else { return Ok(Some((true, String::new()))) };
-        let what = format!("{} gate of {}", kind.as_str(), checkout.name);
-        if self.heavy_try(queued, &what, None).await?.is_err() {
-            return Ok(None);
-        }
-        let (dir, cmd2) = (here.dir.clone(), cmd.to_string());
-        let ran = tokio::task::spawn_blocking(move || {
-            factorium_host::run(&dir, &cmd2, &[], Duration::from_secs(limit), &|| false)
-        })
-        .await
-        .map_err(|e| Refusal::new("internal", e.to_string()))?;
-        self.heavy_end(queued).await?;
-        let record = GateRan {
-            checkout: checkout.name.clone(),
-            tree,
-            kind,
-            green: ran.ok,
-            took_ms: ran.took_ms,
-            tail: ran.tail.clone(),
-        };
-        self.submit::<RecordGate>(record).await?;
-        let why = if ran.timed_out { format!("past its limit of {limit}s\n{}", ran.tail) } else { ran.tail };
-        Ok(Some((ran.ok, why)))
-    }
-
     /// Lands the worker `worker`: answers what happened, or `None` when it
     /// must wait for another tick.
     pub(crate) async fn land(&self, worker: Uuid) -> Answer<Did> {
@@ -114,12 +74,10 @@ impl App {
             return self.red(worker, &st.terminal, why).await.map(Some);
         }
         let merged = here.sha("HEAD").map_err(fail("git"))?;
-        let queued = id(&format!("landing:{worker}:{merged}"));
-        let Some((green, tail)) = self.gate_tree(&c, &here, &merged, Kind::Fast, queued).await? else {
-            return Ok(None);
-        };
-        if !green {
-            let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{tail}");
+        let at = At::Commit { rev: &merged, by_hand: false };
+        let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(None) };
+        if !gated.green {
+            let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
             return self.red(worker, &st.terminal, why).await.map(Some);
         }
         if let Err(e) = here.push_requiring(&merged, &c.proving, Some(&tip)) {
@@ -185,10 +143,11 @@ impl App {
         }
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = fresh(&git, &self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
-        let queued = id(&format!("promotion:{}:{tip}", c.name));
-        let Some((green, tail)) = self.gate_tree(c, &here, &tip, Kind::Slow, queued).await? else { return Ok(None) };
+        let at = At::Commit { rev: &tip, by_hand: force };
+        let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(None) };
         let red = |why: String| line::Tip { checkout: c.name.clone(), tip: tip.clone(), why };
-        if !green {
+        if !gated.green {
+            let tail = gated.why();
             self.submit::<line::RedPromotion>(red(tail.clone())).await?;
             return Ok(Some(json!({ "promotion": c.name, "red": tail })));
         }
@@ -225,22 +184,22 @@ impl App {
         let env = vec![("FACTORIUM_VERSION".to_string(), version.clone())];
         let fail_cut =
             |why: String| line::Cut { checkout: c.name.clone(), version: version.clone(), commit: base.clone(), why };
-        for step in &cut.steps {
-            let queued = id(&format!("cut:{}:{version}:{step}", c.name));
-            while self.heavy_try(queued, &format!("cut {version} of {}", c.name), None).await?.is_err() {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            let (dir, s, e) = (here.dir.clone(), step.clone(), env.clone());
-            let limit = Duration::from_secs(cut.limit);
-            let ran = tokio::task::spawn_blocking(move || factorium_host::run(&dir, &s, &e, limit, &|| false))
-                .await
-                .map_err(|e| Refusal::new("internal", e.to_string()))?;
-            self.heavy_end(queued).await?;
-            if !ran.ok {
-                let why = format!("step `{step}` failed:\n{}", ran.tail);
-                self.submit::<line::FailCut>(fail_cut(why.clone())).await?;
-                return Ok(Some(json!({ "cut": c.name, "version": version, "failed": why })));
-            }
+        // The steps share the clone, so they take one turn of the queue.
+        let what = format!("cut {version} of {}", c.name);
+        let job = Job {
+            what,
+            worker: None,
+            dir: &here.dir,
+            steps: &cut.steps,
+            env: &env,
+            limit: Duration::from_secs(cut.limit),
+        };
+        let turn = if force { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
+        let Some(rans) = self.heavy(job, turn).await? else { return Ok(None) };
+        if let Some(ran) = rans.last().filter(|r| !r.ok) {
+            let why = format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail);
+            self.submit::<line::FailCut>(fail_cut(why.clone())).await?;
+            return Ok(Some(json!({ "cut": c.name, "version": version, "failed": why })));
         }
         let tagged = here.sha("HEAD").map_err(fail("git"))?;
         let tag = here

@@ -349,7 +349,9 @@ impl App {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
         let reading = self.host.reading();
+        let heavy = self.state::<heavy::Heavy>(heavy::queue_id()).await?.entries;
         Ok(json!({
+            "heavy": heavy,
             "findings": findings,
             "human": seen.human,
             "holds": seen.holds,
