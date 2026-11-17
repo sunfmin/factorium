@@ -145,6 +145,9 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
         line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")),
         "factorium by name: {line}"
     );
+    // The kit's `claude` is named by name: no directory of its own, so no
+    // empty entry, which would search the session's working directory.
+    assert!(!line.contains(&format!("{bin}::")), "{line}");
     // What the shell does with the line's start: read the secret, remove the file.
     let parts: Vec<&str> = line.splitn(3, " && ").collect();
     let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
