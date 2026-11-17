@@ -194,8 +194,9 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     };
     let status = || async { worker(&w.app).await["status"].as_str().unwrap().to_string() };
 
-    // Busy in its turn: working, however long.
-    cpu(30.0);
+    // Busy in its turn: working, however long. 2% of a core is the least
+    // that is not idle.
+    cpu(2.0);
     w.tick().await;
     w.advance(31);
     w.tick().await;
