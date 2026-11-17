@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
+use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
 /// What one move did, or why it did not run now.
@@ -105,22 +106,25 @@ impl App {
                 "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
             );
             if let Some(st) = &wk.started {
-                let _ = Self::worker_session(st).and_then(|s| self.type_at(&s, &one_line(&text)));
+                let missed = match Self::worker_session(st) {
+                    Ok(s) => self.reach(&s, &one_line(&text)).err(),
+                    Err(r) => Some(r.message),
+                };
+                self.submit::<w::ToldRed>(w::Told { worker, missed }).await?;
             }
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
     }
 
-    /// Ends a worker's session; its worktree goes unless it holds commits
-    /// that are nowhere else (or `keep`).
+    /// Ends a worker's session; its worktree goes if `remove` and it holds
+    /// nothing that is nowhere else ([`holds_own`]).
     pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started else { return Ok(()) };
         self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
-        let kept = git.fetch(&c.proving).ok().is_some_and(|tip| git.ahead(&tip, &st.branch).unwrap_or(1) > 0);
-        if remove && !kept {
+        if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) {
             let path = PathBuf::from(&st.worktree);
             self.host.orca().remove(&path).map_err(fail("orca"))?;
             git.forget(&path, &st.branch);

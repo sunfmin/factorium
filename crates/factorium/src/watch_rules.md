@@ -14,7 +14,13 @@ how to fix it. Then:
    - `factorium watch tell <worker> "<text>"` — type at a worker
    - `factorium watch restart <worker> --text "<what to do>"` — send a
      waiting worker back to work (one whose session is gone is started again)
-   - `factorium issue park|close|edit|comment|block …`, `factorium issue add`
+   - Both answer `delivery`: `submitted` (the worker read it) or `queued`
+     (it waits until the worker's running call returns, which a hung call
+     never does). Add `--now` to stop the running turn first.
+   - `factorium issue park|ready|start-over|close|edit|comment|block …`
+     (`start-over <checkout> <n> --why "…"` on a parked issue whose kept
+     worktree went bad: the next start begins from proving, the old branch
+     stays as `…-abandoned`), `factorium issue add`
      for new work (`--blocked-by N` for each issue it waits for), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`. A cut of factorium itself needs

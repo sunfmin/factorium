@@ -52,17 +52,30 @@ watch's look and the operator's view.
    with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
-3. The worker's worktree is branched from the proving tip; its harness and
+3. The worker resumes in the worktree its issue's last attempt kept, if
+   that one holds work that is nowhere else (commits not on proving, or
+   changes not committed), and its brief says what is there; else its
+   worktree is branched from the proving tip. Its harness and
    account are chosen; the guard is installed; its brief is sent; the
    session file says when its turn starts and ends. Text is typed at a
    session only once its harness's own screen is up there: typed at a
-   shell, a line is a command it runs.
+   shell, a line is a command it runs. A question the harness opens on its
+   own mid-session (a dialog that would take the line) is dismissed first
+   with the harness's own key.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
    likes, then `factorium worker done`.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
-   a row goes to the watch.
+   a row goes to the watch. A red that does not reach the session's prompt
+   (no turn starts and none runs) goes to the watch at once.
 6. Green: the issue closes, the worker ends, its worktree is removed
-   unless it holds unpushed commits.
+   unless it holds work that is nowhere else: the one test that also
+   decides where its issue's next start begins (step 3).
+   A kept worktree that went bad is discarded on purpose with
+   `issue start-over <checkout> <n> --why …`, only while no worker is on
+   the issue: its uncommitted changes are committed, its branch is kept as
+   `<branch>-abandoned`, a comment names that branch and the why, and the
+   worktree goes, so the next start is branched from the proving tip. The
+   issue stays ready or parked as it was.
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
@@ -103,7 +116,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block`, `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
 

@@ -14,7 +14,7 @@ pub mod shell;
 
 pub use brew::Brew;
 pub use git::Git;
-pub use orca::{Orca, Term};
+pub use orca::{Delivery, Orca, Term};
 pub use procs::Proc;
 pub use reading::Reading;
 pub use shell::{Programs, Ran, Said, System, run};

@@ -79,8 +79,8 @@ impl App {
 
     /// `factorium watch restart`: sends a waiting worker back to work, told
     /// `text`; a worker whose session is gone ends, keeping its worktree, and
-    /// its issue is started again.
-    pub async fn watch_restart(&self, worker: Uuid, text: &str) -> Answer {
+    /// its issue is started again. `now` as for `watch_tell`.
+    pub async fn watch_restart(&self, worker: Uuid, text: &str, now: bool) -> Answer {
         let wk = self.state::<Workers>(worker).await?;
         let st = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
         if wk.status == Status::Ended {
@@ -101,17 +101,20 @@ impl App {
         );
         // A brief never handed goes first: the word is about its work.
         self.hand_worker_brief(worker, false).await?;
-        self.type_at(&Self::worker_session(&st)?, &one_line(&line))?;
+        let delivery = self.deliver_at(&Self::worker_session(&st)?, &one_line(&line), now)?;
         self.submit::<w::Resume>(w::Of { worker }).await?;
-        Ok(json!({ "worker": worker, "resumed": true }))
+        Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
     }
 
-    /// `factorium watch tell`: types a line at a worker's session.
-    pub async fn watch_tell(&self, worker: Uuid, text: &str) -> Answer {
+    /// `factorium watch tell`: types a line at a worker's session; answers
+    /// whether it started a turn (`submitted`) or waits behind the running
+    /// one (`queued`). `now`: first stops the running turn.
+    pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
         let st =
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
-        self.type_at(&Self::worker_session(&st)?, &one_line(&format!("factorium (the watch): {text}")))?;
-        Ok(json!({ "worker": worker, "told": text }))
+        let line = one_line(&format!("factorium (the watch): {text}"));
+        let delivery = self.deliver_at(&Self::worker_session(&st)?, &line, now)?;
+        Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word() }))
     }
 
     /// The reports' owner part, for `doctor`.

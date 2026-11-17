@@ -175,6 +175,16 @@ enum IssueCmd {
     Park { checkout: String, number: u64, reason: String },
     /// Readies a parked issue.
     Ready { checkout: String, number: u64 },
+    /// Starts an issue over: removes the worktree its last attempt kept, so
+    /// the next start begins from proving; the old branch is kept as
+    /// `<branch>-abandoned` and named in a comment with the why. Refused
+    /// while a worker is on it (park first); ready or parked stays as it is.
+    StartOver {
+        checkout: String,
+        number: u64,
+        #[arg(long)]
+        why: String,
+    },
     /// Adds a comment, which the next worker's brief carries.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another of its checkout (`--undo`: stop).
@@ -238,9 +248,19 @@ enum WatchCmd {
         worker: Uuid,
         #[arg(long, default_value = "The watch looked at what stopped you; go on.")]
         text: String,
+        /// First stops its running turn (a hung call), so it reads this now.
+        #[arg(long)]
+        now: bool,
     },
-    /// Types a line at a worker.
-    Tell { worker: Uuid, text: String },
+    /// Types a line at a worker; answers `submitted` (it started a turn) or
+    /// `queued` (it waits behind the worker's running turn).
+    Tell {
+        worker: Uuid,
+        text: String,
+        /// First stops its running turn (a hung call), so it reads this now.
+        #[arg(long)]
+        now: bool,
+    },
     /// Looks now: findings to episodes, a round if none runs.
     Look,
     /// Answers the reports filed, newest last.
@@ -284,6 +304,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
             IssueCmd::Park { checkout, number, reason } => app.issue_park(&checkout, number, &reason).await,
             IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
+            IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
             IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
             IssueCmd::Block { checkout, number, by, undo } => app.issue_block(&checkout, number, by, undo).await,
         },
@@ -313,8 +334,8 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
         Top::Watch(w) => match w {
             WatchCmd::Next => app.watch_next().await,
             WatchCmd::Report { text, human } => app.watch_report(&text, human.as_deref()).await,
-            WatchCmd::Restart { worker, text } => app.watch_restart(worker, &text).await,
-            WatchCmd::Tell { worker, text } => app.watch_tell(worker, &text).await,
+            WatchCmd::Restart { worker, text, now } => app.watch_restart(worker, &text, now).await,
+            WatchCmd::Tell { worker, text, now } => app.watch_tell(worker, &text, now).await,
             WatchCmd::Look => app.look_now().await,
             WatchCmd::Reports => app.watch_reports().await,
         },

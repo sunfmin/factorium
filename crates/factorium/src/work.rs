@@ -99,3 +99,14 @@ impl App {
         self.release_worker(worker, remove).await
     }
 }
+
+/// Whether a worker's worktree holds work that is nowhere else: commits of
+/// its branch not on the proving `tip` (`None`: the tip could not be read),
+/// or changes not committed. What cannot be read is held. The one test of
+/// both whether a worktree is kept when its worker ends and whether the
+/// issue's next start resumes in it.
+pub(crate) fn holds_own(git: &factorium_host::Git, st: &Started, tip: Option<&str>) -> bool {
+    let committed = tip.is_none_or(|tip| !matches!(git.ahead(tip, &st.branch), Ok(0)));
+    let path = Path::new(&st.worktree);
+    committed || path.exists() && git.at(path).dirty().unwrap_or(true)
+}

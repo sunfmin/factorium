@@ -8,7 +8,7 @@
 use serde::de::{Error, IgnoredAny};
 use serde::{Deserialize, Deserializer};
 
-use super::{Kind, Link, Login, Stop};
+use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -33,6 +33,20 @@ macro_rules! warning_accepted {
         "\"skipDangerousModePermissionPrompt\":true"
     };
 }
+/// The setting that keeps Claude Code from asking, mid-session, to "Teach auto
+/// mode about your environment?": it opens that dialog only while its
+/// `auto-mode-setup` skill is not off (read in Claude Code 2.1.326). Written
+/// as a member of a JSON object.
+macro_rules! auto_mode_setup_off {
+    () => {
+        "\"skillOverrides\":{\"auto-mode-setup\":\"off\"}"
+    };
+}
+/// The dialogs Claude Code opens on its own once a turn ended, which eat a
+/// line typed at it (seen 2026-11-18 on two workers, whose landing's red
+/// never reached them): each dismissed by Escape.
+const ASKS_MIDWAY: &[Dialog] =
+    &[Dialog { asks: "Teach auto mode about your environment?", keys: "Esc to cancel", dismiss: "\x1b" }];
 /// Turns off Claude Code's prompt suggestions: the grey ghost text it puts in
 /// the prompt box once a turn ends. A session, an interactive session and the asking session
 /// have nobody at that prompt, and whoever reads their screen could take the
@@ -132,8 +146,9 @@ fn json_text(text: &str) -> String {
 
 /// The settings added to a session's: the guard, a hook Claude Code runs
 /// before every tool call with the line `guard`, the report, a hook it
-/// runs with the line `report` wherever the session's state changes, and the
-/// answer to the warning it would stop at, whatever command starts it. They
+/// runs with the line `report` wherever the session's state changes, the
+/// answer to the warning it would stop at, whatever command starts it, and
+/// its auto-mode setup off, which would open a dialog mid-session. They
 /// are added to the start directory's own hooks, which run beside them.
 fn added_settings(guard: &str, report: &str) -> String {
     let guard = format!("{{\"type\":\"command\",\"command\":{}}}", json_text(guard));
@@ -142,7 +157,7 @@ fn added_settings(guard: &str, report: &str) -> String {
     for event in STATE_EVENTS {
         settings.push_str(&format!(",\"{event}\":[{{\"hooks\":[{report}]}}]"));
     }
-    settings.push_str(concat!("},", warning_accepted!()));
+    settings.push_str(concat!("},", warning_accepted!(), ",", auto_mode_setup_off!()));
     settings.push('}');
     settings
 }
@@ -350,6 +365,32 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
     }
 }
 
+/// One session line, read only as far as a typed prompt needs.
+#[derive(Deserialize)]
+struct Typed {
+    #[serde(rename = "type")]
+    kind: String,
+    timestamp: String,
+    message: Said,
+}
+
+#[derive(Deserialize)]
+struct Said {
+    content: serde_json::Value,
+}
+
+/// Whether the session file `text` took `said` as the user's prompt, at or
+/// after `since`. Text typed while a turn runs is written first as a
+/// `queue-operation` and becomes a `user` line only once a turn reads it;
+/// a tool's result is a `user` line too, but its content is no string.
+fn prompted(text: &str, said: &str, since: u64) -> bool {
+    text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
+        t.kind == "user"
+            && t.message.content.as_str().map(str::trim) == Some(said.trim())
+            && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
+    })
+}
+
 /// The session a stand-in writes for this turn.
 fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
@@ -384,8 +425,11 @@ impl Kind for ClaudeCode {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = None;
+    const ASKS_MIDWAY: &'static [Dialog] = ASKS_MIDWAY;
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
     const REFUSED: u8 = REFUSED;
+    /// Escape. Text queued behind the turn is then submitted as the next turn.
+    const INTERRUPT: &'static str = "\x1b";
 
     fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(Vec::new())
@@ -429,5 +473,9 @@ impl Kind for ClaudeCode {
 
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
         stand_in(cwd, brief, open, at)
+    }
+
+    fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {
+        Some(prompted(text, said, since))
     }
 }

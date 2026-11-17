@@ -516,11 +516,13 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "account.rs: struct Skipped",
         "account.rs: struct Usable",
         "account.rs: type Mytokens",
+        "harness.rs: const fn interrupt",
         "harness.rs: const fn key",
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
         "harness.rs: enum Stop",
         "harness.rs: fn all",
+        "harness.rs: fn asking",
         "harness.rs: fn command",
         "harness.rs: fn home",
         "harness.rs: fn launch",
@@ -528,6 +530,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: fn read",
         "harness.rs: fn shell_call",
         "harness.rs: fn stopped",
+        "harness/store.rs: fn prompted",
         "harness/store.rs: fn turn",
         "harness/store.rs: fn write_session",
         "lib.rs: mod account",
@@ -587,7 +590,7 @@ async fn a_brief_is_typed_once_the_harness_is_up_never_at_its_shell() {
     w.advance(1);
     w.tick().await;
     assert!(w.terminal(handle).sent.is_empty(), "still the shell's");
-    let told = w.app.watch_tell(id(&wk), "hello").await;
+    let told = w.app.watch_tell(id(&wk), "hello", false).await;
     refused(told, "not_up");
     assert!(w.terminal(handle).sent.is_empty(), "nor is the watch's word");
 
@@ -630,7 +633,7 @@ async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() 
     w.advance(6);
     w.tick().await;
     assert!(worker(&w.app).await["why"].as_str().unwrap().contains("not up"));
-    refused(w.app.watch_restart(id(&wk), "go on").await, "not_up");
+    refused(w.app.watch_restart(id(&wk), "go on", false).await, "not_up");
     assert_eq!(w.terminal(handle).sent.len(), 1, "nothing more is typed at its shell");
     assert_eq!(worker(&w.app).await["status"], "waiting");
 }
@@ -646,10 +649,10 @@ async fn a_harness_s_question_before_its_screen_is_up_is_not_typed_at() {
     let wk = worker(&w.app).await;
     let handle = wk["terminal"].as_str().unwrap();
     w.set_screen(handle, &["是否进入安全模式？(y/n)"]);
-    refused(w.app.watch_tell(id(&wk), "hello").await, "not_up");
+    refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
     assert!(w.terminal(handle).sent.is_empty(), "the question is not answered");
     w.set_screen(handle, &[UP]);
-    w.app.watch_tell(id(&wk), "hello").await.unwrap();
+    w.app.watch_tell(id(&wk), "hello", false).await.unwrap();
     assert_eq!(w.terminal(handle).sent.len(), 1);
 }
 
@@ -791,12 +794,12 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
     ];
     for row in shells {
         w.set_screen(handle, &[row]);
-        refused(w.app.watch_tell(id(&wk), "hello").await, "not_up");
+        refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
     }
     assert!(w.terminal(handle).sent.is_empty());
     for (n, row) in harness_rows.iter().enumerate() {
         w.set_screen(handle, &[row]);
-        w.app.watch_tell(id(&wk), "hello").await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
+        w.app.watch_tell(id(&wk), "hello", false).await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
         assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
     }
 }

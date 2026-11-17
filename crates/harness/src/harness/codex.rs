@@ -9,7 +9,7 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
 
-use super::{Kind, Link, Login, Stop};
+use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -350,8 +350,11 @@ impl Kind for Codex {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = None;
+    const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
 
     fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(Vec::new())
@@ -395,5 +398,9 @@ impl Kind for Codex {
 
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
         stand_in(cwd, brief, open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
     }
 }
