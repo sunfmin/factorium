@@ -12,7 +12,6 @@ factum.workspace = true
 factum-sqlite.workspace = true
 factorium-host.workspace = true
 factorium-harness.workspace = true
-ruzstd = "0.9"
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

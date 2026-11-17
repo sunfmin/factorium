@@ -8,30 +8,8 @@ use crate::{World, worker};
 
 /// Writes the session files a harness's stand-in describes for `cwd`.
 pub fn write_session(w: &World, h: Harness, cwd: &str, open: bool, at: u64) {
-    let root = match h {
-        Harness::ClaudeCode => w.host.home.join(h.session_place("").under_home),
-        _ => w.dir.join("data").join("kept").join(h.key()),
-    };
-    for f in h.session_files(cwd, open, at) {
-        if let Some(name) = &f.replaces {
-            let _ = std::fs::remove_file(root.join(name));
-        }
-        let path = root.join(&f.path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        if f.compressed {
-            let packed =
-                ruzstd::encoding::compress_to_vec(f.body.as_bytes(), ruzstd::encoding::CompressionLevel::Fastest);
-            std::fs::write(&path, packed).unwrap();
-        } else {
-            std::fs::write(&path, &f.body).unwrap();
-        }
-    }
-    if let Some(index) = h.session_index(cwd, "") {
-        let place = h.session_place(cwd);
-        if let factorium_harness::SessionLayout::Index { file } = place.layout {
-            std::fs::write(root.join(file), index).unwrap();
-        }
-    }
+    let kept = w.dir.join("data").join("kept").join(h.key());
+    h.write_session(&w.host.home, &kept, cwd, open, at).unwrap();
 }
 
 const ALL: [(&str, &str); 6] =
@@ -109,4 +87,72 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     let out = std::process::Command::new("sh").args(["-c", &shell]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sk-ant-very-secret");
     assert!(!std::path::Path::new(&file).exists());
+}
+
+#[tokio::test]
+async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_directory() {
+    let w = World::new();
+    let repo = w.repo("web");
+    crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+    crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+    w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    assert!(line.contains("Always run the linter."), "{line}");
+    assert!(line.contains(&format!("{}/CLAUDE.md", wk["worktree"].as_str().unwrap())), "{line}");
+}
+
+/// What the harness crate offers, item by item: what factorium uses of it
+/// and no more (a `pub` beneath it is public; the rest is `pub(crate)`).
+/// Adding to it is adding a caller first.
+#[test]
+fn the_harness_crate_offers_only_what_factorium_uses() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../harness/src");
+    let mut files = vec![src.clone()];
+    let mut offered = Vec::new();
+    while let Some(p) = files.pop() {
+        if p.is_dir() {
+            files.extend(std::fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            let at = p.strip_prefix(&src).unwrap().to_string_lossy().into_owned();
+            for line in std::fs::read_to_string(&p).unwrap().lines() {
+                let Some(item) = line.trim_start().strip_prefix("pub ") else { continue };
+                let item =
+                    if item.starts_with("use ") { item } else { item.split(['(', '{', ':', '<', '=']).next().unwrap() };
+                // A public struct's fields are its own.
+                if item.contains(' ') {
+                    offered.push(format!("{at}: {}", item.trim().trim_end_matches(';')));
+                }
+            }
+        }
+    }
+    offered.sort();
+    let expected = [
+        "account.rs: fn usable",
+        "account.rs: struct Usable",
+        "account.rs: trait Source",
+        "harness.rs: const fn key",
+        "harness.rs: const fn refused",
+        "harness.rs: enum Harness",
+        "harness.rs: enum Stop",
+        "harness.rs: fn launch",
+        "harness.rs: fn read",
+        "harness.rs: fn shell_call",
+        "harness.rs: fn stopped",
+        "harness.rs: fn turn",
+        "harness.rs: fn write_session",
+        "lib.rs: mod account",
+        "lib.rs: use harness::{Harness, Stop}",
+        "lib.rs: use start::{Launch, RULES, SKILLS, Start}",
+        "lib.rs: use turn::Turn",
+        "start.rs: const RULES",
+        "start.rs: const SKILLS",
+        "start.rs: struct Launch",
+        "start.rs: struct Start",
+        "turn.rs: enum Turn",
+    ];
+    assert_eq!(offered, expected);
 }

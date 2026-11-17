@@ -5,14 +5,12 @@ use factorium_domain::doctor;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_harness::Harness;
-use factorium_harness::turn::Turn;
+use factorium_harness::{Harness, Turn};
 use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::line::one_line;
-use crate::session::turn_of;
 use crate::{Answer, App, Refusal};
 
 impl App {
@@ -35,7 +33,7 @@ impl App {
             (Some(_), Some(h)) => Harness::read(&h).is_some_and(|h| {
                 let home = self.dir(&["watch"]);
                 let brief = home.join("BRIEF.md");
-                let turn = turn_of(h, &self.session_root(h), &home.to_string_lossy(), &brief.to_string_lossy());
+                let turn = self.turn_of(h, &home.to_string_lossy(), &brief.to_string_lossy());
                 matches!(turn, Some(Turn::Closed { .. }))
             }),
             _ => false,

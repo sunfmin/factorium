@@ -11,93 +11,20 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 use super::session::{self, json_lines};
-use super::{Held, Kept, Link, SessionFile, SessionLayout};
+use super::{Link, SessionFile, SessionLayout};
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::SKILLS;
 use crate::start::Start;
-use crate::steps::{self, Said};
-use crate::tokens::{Counts, Keys, Usage};
 use crate::turn::{Marker, Note, Turn};
 
-pub(super) const NAME: &str = "pi";
 pub(super) const KEY: &str = "pi";
-pub(super) const PROGRAM: &str = "pi";
-/// The line that installs it: its native installer, which keeps it up to date.
-pub(super) const INSTALL: &str = "curl -fsSL https://pi.dev/install.sh | sh";
-/// pi logs in to providers, and lists the models of those it holds
-/// credentials for: which one a session uses is its caller's to say. It logs
-/// in to a provider at its own prompt: its words say how, since no line does.
-pub(super) const LOGIN: Option<super::Login> = Some(super::Login {
-    question: "pi --list-models",
-    logged_out: "holds credentials for no provider (`/login` at its prompt logs it in)",
-    line: "pi",
-});
-
-/// What pi lists in place of its models when it holds credentials for no
-/// provider.
-const NO_MODELS: &str = "No models available";
-
-/// Whether the answer to its login question says it holds credentials: it
-/// listed a model at all.
-pub(super) fn logged_in(succeeded: bool, printed: &str) -> bool {
-    succeeded && !printed.trim().is_empty() && !printed.contains(NO_MODELS)
-}
-/// Where it reads its user's global instructions, under the user's home.
-pub(super) const INSTRUCTIONS: &str = ".pi/agent/AGENTS.md";
-/// The agent `npx skills` installs its user's skills for.
-pub(super) const SKILLS_AGENT: Option<&str> = Some("pi");
-/// pi asks nothing before a tool call: it takes no flag to work with nobody
-/// at its terminal.
-pub(super) const STOCK: &str = "pi";
 
 /// pi's flag that answers, for one run, the question it asks before it loads
 /// what the directory it starts in holds of pi's own: a start directory's limits in pi's
 /// form among it. Asked at the terminal, the question would take the
 /// session's brief for its answer.
 const APPROVE: &str = "--approve";
-pub(super) const TRUST: &str = APPROVE;
-/// Its worktree trust is a flag (`APPROVE`): a launch checks the command
-/// takes `FLAGS`.
-pub(super) const TRUST_IS_FLAGS: bool = true;
-
-/// Answers pi's worktree approval question on the launch line.
-pub(super) fn in_worktree(command: &str) -> String {
-    if command.contains(APPROVE) { command.to_string() } else { format!("{command} {APPROVE}") }
-}
-
-/// Starts one interactive session interactively, with pi's login and approval setup.
-pub(super) fn interactive(command: &str, kept: &str, model: Option<&str>) -> String {
-    let line =
-        Line::new().fixed("export ").fixed(USER_DIR).fixed("=").word(kept).fixed(" && ").launch(&in_worktree(command));
-    let line = match model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    };
-    line.done()
-}
-
-/// Loads the same extension as `start_line`, without adding rules.
-pub(super) fn guarded(command: &str, worktree: &str, kept: &str, guard: &str) -> String {
-    Line::new()
-        .fixed("export ")
-        .fixed(USER_DIR)
-        .fixed("=")
-        .word(kept)
-        .fixed(" FACTORIUM_GUARD=")
-        .word(guard)
-        .fixed(" FACTORIUM_WORKTREE=")
-        .word(worktree)
-        .fixed(" FACTORIUM_ADDED_DIR=")
-        .word(worktree)
-        .fixed(" && ")
-        .launch(command)
-        .fixed(" ")
-        .fixed(EXTENSION)
-        .fixed(" ")
-        .word(&format!("{kept}/{EXTENSION_FILE}"))
-        .done()
-}
 
 /// pi's flag that leaves out every skill it would find by itself: those of
 /// the host user's home among them, which it reads wherever its user
@@ -111,26 +38,6 @@ const SKILL: &str = "--skill";
 const EXTENSION: &str = "--extension";
 /// pi's flag for the model of the session.
 pub(super) const MODEL: &str = "--model";
-/// Every flag the tool adds: what a launch command that starts pi
-/// must take.
-pub(super) const FLAGS: [&str; 5] = [APPROVE, NO_SKILLS, SKILL, EXTENSION, MODEL];
-/// What pi is asked for the flags it takes.
-const HELP: &str = " --help";
-
-/// What pi is asked for the models it knows.
-const LIST_MODELS: &str = " --list-models";
-/// What may follow a model's name and a `:`, where pi is given one: how hard
-/// the model is to think.
-const THINKING: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-/// Where a start directory's limits for pi are written, in its directory: the
-/// extensions pi loads from the directory it starts in, once its question is
-/// answered (`APPROVE`).
-pub(super) const LIMITS: &str = ".pi/extensions";
-/// The files pi loads the rules of a directory from before the one every
-/// harness loads (`start::RULES`), and in its place: it loads the first of
-/// them a directory holds, and no other.
-pub(super) const BEFORE_THE_RULES: [&str; 3] = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
 /// The variable that names pi's user directory: its own, in place of
 /// the host user's.
@@ -154,26 +61,11 @@ const EXTENSION_FILE: &str = "factorium.js";
 /// links: a login pi renews is renewed for the host user too, and neither
 /// goes stale. No setting or other extension of the user's is there, and
 /// their skills and rules only in the directory kept for a session given them.
-pub(super) const KEPT: Kept = Kept {
-    links: &[
-        Link { home: ".pi/agent/auth.json", kept: "auth.json" },
-        Link { home: ".pi/agent/models.json", kept: "models.json" },
-        Link { home: ".pi/agent/extensions/orca-agent-status.ts", kept: "extensions/orca-agent-status.ts" },
-    ],
-    host_user: &[
-        Link { home: ".pi/agent/skills", kept: HOST_SKILLS },
-        Link { home: ".pi/agent/AGENTS.override.md", kept: "AGENTS.override.md" },
-        Link { home: ".pi/agent/AGENTS.md", kept: "AGENTS.md" },
-        Link { home: ".pi/agent/CLAUDE.md", kept: "CLAUDE.md" },
-    ],
-    files: &[(EXTENSION_FILE, include_str!("pi/extension.js"))],
-};
-/// Where the user directory the host keeps for a session given the host
-/// user's skills and rules links to their skills. Their rules are linked to
-/// where pi loads them from in its user directory, the first it finds — of
-/// the names that differ in more than case: on a host that does not tell
-/// case apart, one link would stand in for another.
-const HOST_SKILLS: &str = "skills";
+pub(super) const KEPT_LINKS: &[Link] = &[
+    Link { home: ".pi/agent/auth.json", kept: "auth.json" },
+    Link { home: ".pi/agent/models.json", kept: "models.json" },
+    Link { home: ".pi/agent/extensions/orca-agent-status.ts", kept: "extensions/orca-agent-status.ts" },
+];
 
 /// The tool pi runs shell lines with.
 const SHELL_TOOL: &str = "bash";
@@ -201,7 +93,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .fixed(" ")
         .fixed(ADDED_ENV)
         .fixed("=")
-        .word(start.added)
+        .word(start.dir)
 }
 
 /// `line`, which starts the launch command, with what pi is given to
@@ -218,147 +110,11 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
         .fixed(SKILL)
         .fixed(" ")
         .word(&format!("{}/{SKILLS}", start.dir));
-    let line = if start.host_user {
-        line.fixed(" ").fixed(SKILL).fixed(" ").word(&format!("{}/{HOST_SKILLS}", start.kept))
-    } else {
-        line
-    };
     let line = line.fixed(" ").fixed(EXTENSION).fixed(" ").word(&format!("{}/{EXTENSION_FILE}", start.kept));
     match start.model {
         Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
         None => line,
     }
-}
-
-/// `line`, which starts the launch command, asking it which flags it
-/// takes instead of starting a session.
-pub(super) fn asked_its_flags(line: Line) -> Line {
-    line.fixed(HELP)
-}
-
-/// Whether what a start directory holds at `LIMITS` limits a session: a
-/// directory with an entry. What an extension refuses is not read.
-pub(super) fn limited<D>(held: Held<D>) -> bool {
-    match held {
-        Held::Entries(entries) => entries > 0,
-        Held::Nothing | Held::File(_) => false,
-    }
-}
-
-/// The line that asks `command`, a launch command of pi's, which
-/// models it knows, under the user directory `kept` a session of it is given:
-/// the logins and the models there are the ones a session would have.
-pub(super) fn models_question(command: &str, kept: &str) -> String {
-    Line::new()
-        .fixed("export ")
-        .fixed(USER_DIR)
-        .fixed("=")
-        .word(kept)
-        .fixed(" && ")
-        .launch(command)
-        .fixed(LIST_MODELS)
-        .done()
-}
-
-/// The line that sends `model` of pi's the one-line `prompt` through
-/// `command`, under the user directory `kept` a session of it is given, and
-/// prints its answer.
-pub(super) fn prompt_question(command: &str, kept: &str, model: Option<&str>, prompt: &str) -> String {
-    let line = Line::new().fixed("export ").fixed(USER_DIR).fixed("=").word(kept).fixed(" && ").launch(command);
-    let line = match model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    };
-    line.fixed(" --print ").word(prompt).done()
-}
-
-/// What pi's probe adds: its events as JSON, a line each, of which the
-/// answer's names the provider and the model that answered.
-const AS_JSON: &str = " --mode json";
-
-/// The line that probes `model` with `prompt` through `command`, as
-/// `prompt_question` sends it, printing its events in JSON (`answered_as`).
-pub(super) fn probe_question(command: &str, kept: &str, model: Option<&str>, prompt: &str) -> String {
-    let line = Line::new().fixed("export ").fixed(USER_DIR).fixed("=").word(kept).fixed(" && ").launch(command);
-    let line = match model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    };
-    line.fixed(AS_JSON).fixed(" --print ").word(prompt).done()
-}
-
-/// What comes before the provider of a message, and between it and its
-/// model, in pi's events, with no whitespace.
-const PROVIDER: &str = "\"provider\":\"";
-const THEN_MODEL: &str = "\",\"model\":\"";
-
-/// The model that answered `probe_question`, by `answer`: as `provider/id`,
-/// the last message's — the answer's — whatever a terminal broke its lines
-/// at.
-pub(super) fn answered_as(answer: &str) -> Option<String> {
-    let dense: String = answer.split_whitespace().collect();
-    dense
-        .split(PROVIDER)
-        .skip(1)
-        .filter_map(|after| {
-            let (provider, rest) = after.split_once(THEN_MODEL)?;
-            let (id, _) = rest.split_once('"')?;
-            let named = !provider.is_empty() && !provider.contains('"') && !id.is_empty();
-            named.then(|| format!("{provider}/{id}"))
-        })
-        .last()
-}
-
-/// The models pi lists in `answer`, what it printed for `models_question`,
-/// each as `provider/id`: a table under a line that heads it `provider
-/// model`, whatever a shell printed above. `None` when it lists none: pi has
-/// no login on this host, or said something else.
-pub(super) fn models(answer: &str) -> Option<Vec<String>> {
-    let mut listed = vec![];
-    let mut headed = false;
-    for line in answer.lines() {
-        let mut columns = line.split_whitespace();
-        let (Some(provider), Some(id)) = (columns.next(), columns.next()) else { continue };
-        if headed {
-            listed.push(format!("{provider}/{id}"));
-        } else {
-            headed = provider == "provider" && id == "model";
-        }
-    }
-    if listed.is_empty() { None } else { Some(listed) }
-}
-
-/// Whether `model`, as a caller writes it, is one of `listed`, the models pi
-/// lists on a host, as pi reads a model's name: a `provider/id`, an id, or a
-/// part of an id — in one provider, where it names one — whatever the case,
-/// with how hard to think after a `:` or not. pi takes more than this: a
-/// name it has no login for, and any name at all after a provider it knows.
-/// Neither would run a session here, and neither is known.
-pub(super) fn knows(listed: &[String], model: &str) -> bool {
-    let thinks = model.rsplit_once(':').filter(|(_, level)| THINKING.contains(level));
-    named(listed, model) || thinks.is_some_and(|(model, _)| named(listed, model))
-}
-
-/// Whether `model` is one of `listed` by its whole name, a `provider/id`,
-/// with how hard to think after a `:` or not.
-pub(super) fn names(listed: &[String], model: &str) -> bool {
-    let whole = |name: &str| listed.iter().any(|full| full.eq_ignore_ascii_case(name.trim()));
-    let thinks = model.rsplit_once(':').filter(|(_, level)| THINKING.contains(level));
-    whole(model) || thinks.is_some_and(|(model, _)| whole(model))
-}
-
-/// Whether `name` names one of `listed`, each a `provider/id`.
-fn named(listed: &[String], name: &str) -> bool {
-    let name = name.trim().to_lowercase();
-    if name.is_empty() {
-        return false;
-    }
-    let within = name.split_once('/').filter(|(_, part)| !part.is_empty());
-    listed.iter().any(|full| {
-        let full = full.to_lowercase();
-        let (provider, id) = full.split_once('/').unwrap_or(("", &full));
-        full == name || id.contains(&name) || within.is_some_and(|(of, part)| of == provider && id.contains(part))
-    })
 }
 
 /// One tool call, as the tool's extension passes on what pi describes to it
@@ -417,9 +173,6 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
         _ => Call::Other,
     })
 }
-
-/// The harness directory under a user's home.
-pub(super) const HOME: &str = ".pi/agent";
 
 /// Where pi keeps the session of `cwd`: one JSONL file for each session, in
 /// the directory it names from the worktree path.
@@ -489,72 +242,4 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
         compressed: false,
         replaces: None,
     }]
-}
-
-/// The names pi gives the counts of a message's usage.
-const USAGE_KEYS: Keys = Keys {
-    input: "input",
-    cache_read: "cacheRead",
-    cache_write: "cacheWrite",
-    output: "output",
-    reasoning: "reasoning",
-};
-
-/// What one pi session line says of usage: each assistant message, keyed by
-/// its id, as a repeated line repeats it.
-pub(super) fn usage(value: &Value, line: usize) -> Option<Usage> {
-    let message = &value["message"];
-    if value["type"] != "message" || message["role"] != "assistant" {
-        return None;
-    }
-    let usage = &message["usage"];
-    if !usage.is_object() {
-        return None;
-    }
-    let Some(counts) = Counts::read(usage, &USAGE_KEYS, false) else {
-        return Some(Usage::Uncounted);
-    };
-    Some(Usage::Message {
-        key: super::claude_code::message_key(value, line),
-        model: message["model"].as_str().unwrap_or("").to_string(),
-        counts,
-    })
-}
-
-/// What one pi session line says of a tool call: an assistant message's
-/// `toolCall` parts are calls, and a `toolResult` message what came back of
-/// the one its `toolCallId` names, `isError` where pi marks it an error (a
-/// command that exited other than 0 is one). pi starts no child session in
-/// its own file: a fork is a file of its own.
-pub(super) fn said(value: &Value) -> Vec<Said> {
-    let message = &value["message"];
-    if value["type"] != "message" {
-        return Vec::new();
-    }
-    match message["role"].as_str() {
-        Some("assistant") => {
-            let mut calls = Vec::new();
-            let Some(parts) = message["content"].as_array() else { return calls };
-            for part in parts {
-                if part["type"] != "toolCall" {
-                    continue;
-                }
-                let Some(id) = part["id"].as_str() else { continue };
-                let name = part["name"].as_str().unwrap_or("");
-                calls.push(Said::Call { id: id.to_string(), action: steps::action(name, &part["arguments"]) });
-            }
-            calls
-        }
-        Some("toolResult") => {
-            let Some(id) = message["toolCallId"].as_str() else { return Vec::new() };
-            let at = session::number_at(message["timestamp"].as_u64(), value["timestamp"].as_str());
-            vec![Said::Result {
-                id: id.to_string(),
-                result: steps::content(&message["content"]),
-                error: message["isError"] == true,
-                at,
-            }]
-        }
-        _ => Vec::new(),
-    }
 }
