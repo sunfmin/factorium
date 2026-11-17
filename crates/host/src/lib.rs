@@ -13,7 +13,7 @@ pub mod reading;
 pub mod shell;
 
 pub use brew::Brew;
-pub use git::Git;
+pub use git::{Git, Lag};
 pub use orca::{Delivery, Orca, Term};
 pub use procs::Proc;
 pub use reading::Reading;

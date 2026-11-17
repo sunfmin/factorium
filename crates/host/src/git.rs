@@ -201,3 +201,73 @@ impl Git {
         self.run(&["symbolic-ref", "--quiet", "--short", "HEAD"]).ok()
     }
 }
+
+/// How a local branch stands to the tip it follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Lag {
+    /// At the tip, ahead of it only, or absent: nothing to do.
+    Even,
+    /// Behind the tip by this many commits, and nothing of its own: it can
+    /// fast-forward.
+    Behind(u64),
+    /// Commits of its own not on the tip: left as it is.
+    Diverged { behind: u64, ours: u64 },
+    /// Behind, but checked out over changes not committed: left as it is.
+    Dirty { behind: u64 },
+}
+
+impl Git {
+    /// The worktree where local `branch` is checked out, if one has it.
+    fn checked_out(&self, branch: &str) -> Option<PathBuf> {
+        let list = self.run(&["worktree", "list", "--porcelain"]).ok()?;
+        let mut path = None;
+        for line in list.lines() {
+            if let Some(p) = line.strip_prefix("worktree ") {
+                path = Some(PathBuf::from(p));
+            } else if line.strip_prefix("branch refs/heads/") == Some(branch) {
+                return path;
+            }
+        }
+        None
+    }
+
+    /// How local `branch` stands to `tip`.
+    pub fn lag(&self, branch: &str, tip: &str) -> Result<Lag, String> {
+        let Ok(at) = self.sha(&format!("refs/heads/{branch}")) else { return Ok(Lag::Even) };
+        let behind = self.ahead(&at, tip)?;
+        if behind == 0 {
+            return Ok(Lag::Even);
+        }
+        let ours = self.ahead(tip, &at)?;
+        if ours > 0 {
+            return Ok(Lag::Diverged { behind, ours });
+        }
+        match self.checked_out(branch) {
+            Some(tree) if self.at(tree.clone()).dirty()? => Ok(Lag::Dirty { behind }),
+            _ => Ok(Lag::Behind(behind)),
+        }
+    }
+
+    /// Fast-forwards local `branch` to `tip`, and no further, where nothing
+    /// is lost: the worktree it is checked out in moves with it; one with
+    /// commits of its own or checked out over changes is left as it is.
+    /// Answers how it stood.
+    pub fn follow(&self, branch: &str, tip: &str) -> Result<Lag, String> {
+        let lag = self.lag(branch, tip)?;
+        if let Lag::Behind(_) = lag {
+            let tip = self.sha(tip)?;
+            match self.checked_out(branch) {
+                Some(tree) => self.at(tree).run(&["merge", "--ff-only", "--quiet", &tip])?,
+                None => {
+                    // Required to be what it was read as: one moved since is left.
+                    let at = self.sha(&format!("refs/heads/{branch}"))?;
+                    if !self.is_ancestor(&at, &tip) {
+                        return self.lag(branch, &tip);
+                    }
+                    self.run(&["update-ref", &format!("refs/heads/{branch}"), &tip, &at])?
+                }
+            };
+        }
+        Ok(lag)
+    }
+}
