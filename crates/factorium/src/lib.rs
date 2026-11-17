@@ -150,15 +150,37 @@ impl App {
 /// Why a session may not run the shell `line`, if it may not: a worker runs
 /// only `factorium worker …` and never pushes.
 pub fn refused(line: &str, worker: bool) -> Option<&'static str> {
-    let words: Vec<&str> =
-        line.split(|c: char| c.is_whitespace() || ";&|()".contains(c)).filter(|w| !w.is_empty()).collect();
-    for (i, w) in words.iter().enumerate() {
-        let next = words.get(i + 1).copied().unwrap_or("");
-        if worker && w.rsplit('/').next() == Some("factorium") && next != "worker" {
+    if !worker {
+        return None;
+    }
+    // Each command the line runs: what follows a separator, past variable
+    // assignments and the words that run the next one (`env`, `exec`, …).
+    for segment in line.split(|c: char| ";&|()\n`".contains(c) || c == '$') {
+        let mut words = segment.split_whitespace().peekable();
+        while let Some(w) = words.peek() {
+            let assigns = w.split_once('=').is_some_and(|(n, _)| !n.is_empty() && !n.starts_with('-'));
+            let runs_next = ["env", "exec", "command", "nohup", "time", "nice", "xargs"].contains(w);
+            if !(assigns || runs_next || (w.starts_with('-') && segment.trim_start().starts_with("env"))) {
+                break;
+            }
+            words.next();
+        }
+        let Some(command) = words.next() else { continue };
+        if command.rsplit('/').next() == Some("factorium") && words.next() != Some("worker") {
             return Some("a worker runs only `factorium worker …`");
         }
-        if worker && *w == "git" && next == "push" {
-            return Some("a worker does not push: `factorium worker done` lands your branch");
+        if command.rsplit('/').next() == Some("git") {
+            // The subcommand: past git's own options, `-C dir` and `-c x=y` taking a word.
+            while let Some(w) = words.next() {
+                if w == "-C" || w == "-c" {
+                    words.next();
+                } else if !w.starts_with('-') {
+                    if w == "push" {
+                        return Some("a worker does not push: `factorium worker done` lands your branch");
+                    }
+                    break;
+                }
+            }
         }
     }
     None
