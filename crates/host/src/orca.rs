@@ -84,14 +84,26 @@ impl Orca for OrcaCli {
     }
 
     fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
-        let sel = format!("path:{}", worktree.display());
-        let create = || orca(&["terminal", "create", "--worktree", &sel, "--title", title, "--command", line]);
+        let create =
+            |sel: &str| orca(&["terminal", "create", "--worktree", sel, "--title", title, "--command", line]);
         // A plain git directory (the watch's home) is no Orca workspace
-        // until Orca holds it as a repo.
-        let made = match create() {
+        // until Orca holds it as a repo, and Orca finds the repo's own
+        // worktree a moment after it is added.
+        let made = match create(&format!("path:{}", worktree.display())) {
             Err(e) if e.contains("selector_not_found") => {
-                orca(&["repo", "add", "--path", &worktree.to_string_lossy()])?;
-                create()?
+                let repo = orca(&["repo", "add", "--path", &worktree.to_string_lossy()])?;
+                let id = repo["repo"]["id"].as_str().ok_or("orca repo add gave no id")?;
+                let sel = format!("id:{id}::{}", worktree.display());
+                let mut tries = 0;
+                loop {
+                    match create(&sel) {
+                        Err(e) if e.contains("selector_not_found") && tries < 5 => {
+                            tries += 1;
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                        other => break other?,
+                    }
+                }
             }
             other => other?,
         };
