@@ -2,8 +2,9 @@
 //! promoted to the base branch, and the versions cut from it.
 //!
 //! The line decides what is due on its checkout now, and why not
-//! ([`Line::due`], neutral: [`crate::neutral::landing`]); its commands record what the app did and refuse what
-//! the line does not hold. The app does the git and gate work it is told.
+//! ([`Line::due`], neutral: [`crate::neutral::landing`]); its commands
+//! record what the app did and refuse what the line does not hold. The app
+//! does the git and gate work it is told.
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
