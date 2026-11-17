@@ -3,6 +3,7 @@
 //! daemon, which asks again next tick), run its steps, end it if it holds
 //! others up past the hold bound, and take it off the queue.
 
+use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,8 +36,9 @@ pub(crate) struct Job<'a> {
 pub(crate) enum Turn {
     /// Waits for it: a CLI command.
     Wait,
-    /// Asks once, keeping its place under `key` until the next tick asks
-    /// again: the daemon, whose tick never waits.
+    /// Asks once, keeping its place under `key` until a tick's
+    /// [`App::asking_once`] does not ask again: the daemon, whose tick never
+    /// waits.
     Once(String),
 }
 
@@ -87,9 +89,12 @@ impl App {
         ran.map(Some)
     }
 
-    /// Takes the daemon's waiting jobs that this tick did not ask for again
-    /// off the queue: what they were for is no longer due.
-    pub(crate) async fn heavy_forget_unasked(&self) -> Answer<()> {
+    /// One tick's asks of the queue: `asks` asks with [`Turn::Once`], and
+    /// then the daemon's waiting jobs it did not ask for again leave the
+    /// queue, as what they were for is no longer due. A failed `asks` keeps
+    /// its asks for the next tick's scope.
+    pub(crate) async fn asking_once<T>(&self, asks: impl Future<Output = Answer<T>>) -> Answer<T> {
+        let done = asks.await?;
         let gone: Vec<Uuid> = {
             let mut m = self.memory.lock().unwrap();
             let asked = std::mem::take(&mut m.asked);
@@ -100,7 +105,7 @@ impl App {
         for id in gone {
             self.submit::<EndHeavy>(End { id }).await?;
         }
-        Ok(())
+        Ok(done)
     }
 
     /// Queues `id` if it is not, and asks once to start it. Entries of

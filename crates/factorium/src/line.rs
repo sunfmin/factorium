@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
+use factorium_domain::heavy::LineJob;
 use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
@@ -137,9 +138,8 @@ impl App {
             failed,
         };
         // The steps share the clone, so they take one turn of the queue.
-        let what = factorium_domain::heavy::line_job(&c.name, "cut");
         let job = Job {
-            what,
+            what: LineJob::Cut.of(&c.name),
             worker: None,
             dir: &here.dir,
             steps: &cut.steps,

@@ -374,11 +374,13 @@ fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<Strin
         .map_err(|_| Refusal::new("not_utf8", format!("{} is not UTF-8 text", file.display())))
 }
 
+/// `s` as one word of the line `worker exclusive` runs: bare where a shell
+/// reads it as it is, so the queue shows the command as it was typed.
 fn shell_word(s: &str) -> String {
     if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-=:,@+".contains(c)) {
         s.into()
     } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
+        factorium_harness::quoted(s)
     }
 }
 

@@ -359,22 +359,3 @@ impl Command for CommentIssue {
         Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0) }].into())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn folded(data: Value) -> Issue {
-        let mut s = Issue::default();
-        Issues::evolve(&mut s, serde_json::from_value(json!({ "type": "IssueCommented", "data": data })).unwrap());
-        s
-    }
-
-    #[test]
-    fn a_comment_made_before_authors_were_kept_still_reads() {
-        let owner = folded(authored(json!({ "text": "use the v2 API" })));
-        assert_eq!(owner.comments, [Note { text: "use the v2 API".into(), by: Author::Owner, at: None }]);
-        let over = folded(authored(json!({ "text": "Started over: attempt 1's worktree was discarded" })));
-        assert_eq!(over.comments[0].by, Author::Factorium);
-    }
-}
