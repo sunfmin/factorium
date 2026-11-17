@@ -324,10 +324,13 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let meta = json!({"cwd": cwd, "id": "factorium"});
     let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
+    let pointer = json!({"type": "input_text", "text": crate::brief::brief_pointer(brief)});
+    let said = json!({"type": "message", "role": "user", "content": [pointer]});
+    body += &format!("{}\n", json!({"timestamp": iso, "type": "response_item", "payload": said}));
     let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
     body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": started}));
     if !open {
@@ -390,7 +393,7 @@ impl Kind for Codex {
         recorded_turn(cwd, text, Some(brief))
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, open, at)
+    fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, brief, open, at)
     }
 }

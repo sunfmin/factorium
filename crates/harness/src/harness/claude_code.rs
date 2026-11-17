@@ -351,14 +351,14 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let user = session::object(vec![
         ("type", "user".into()),
         ("timestamp", iso.clone().into()),
         ("cwd", cwd.into()),
         ("isSidechain", false.into()),
-        ("message", session::object(vec![("role", "user".into()), ("content", "brief".into())])),
+        ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
     ]);
     let mut body = format!("{user}\n");
     if !open {
@@ -427,7 +427,7 @@ impl Kind for ClaudeCode {
         recorded_turn(cwd, text, Some(brief))
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, open, at)
+    fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, brief, open, at)
     }
 }

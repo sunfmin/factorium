@@ -224,7 +224,7 @@ impl Kind for Dsh {
         recorded_turn(cwd, text)
     }
 
-    fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
+    fn stand_in(_cwd: &str, _brief: &str, open: bool, at: u64) -> String {
         stand_in(open, at)
     }
 }

@@ -10,8 +10,22 @@ use factorium::host::Host;
 /// Writes the session files a harness's stand-in describes for `cwd`, in
 /// the home of its sessions on `account`.
 pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, open: bool, at: u64) {
+    // The brief its session was handed: the watch's, in its home; a worker's,
+    // named as its worktree.
+    let data = w.dir.join("data");
+    let path = std::path::Path::new(cwd);
+    let brief = if path == data.join("watch") {
+        path.join("BRIEF.md")
+    } else {
+        data.join("briefs").join(format!("{}.md", path.file_name().unwrap().to_string_lossy()))
+    };
+    write_session_in(w, h, account, cwd, &brief.to_string_lossy(), open, at);
+}
+
+/// The stand-in session of `h` run in `dir` and handed `brief`.
+fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str, brief: &str, open: bool, at: u64) {
     let kept = w.dir.join("data").join("kept").join(h.key());
-    h.write_session(&h.home(&w.host.home(), account, &kept), cwd, open, at).unwrap();
+    h.write_session(&h.home(&w.host.home(), account, &kept), dir, brief, open, at).unwrap();
 }
 
 /// The harnesses that work only in their cwd, so start in the worktree.
@@ -64,10 +78,11 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         w.tick().await;
         assert_eq!(worker(&w.app).await["status"], "working", "{key}: its open turn keeps it from silence");
 
-        // Its turn ends; another worktree's session, still open, is not its.
+        // Its turn ends; another worktree's session, ended since, is not its:
+        // read as its, it would be idle 15 min, not 35.
         let ended = (w.app_now() / 1000) as u64;
         write_session(&w, h, None, cwd, false, ended);
-        write_session(&w, h, None, &format!("{cwd}-other"), true, ended + 60);
+        write_session(&w, h, None, &format!("{cwd}-other"), false, ended + 20 * 60);
         w.advance(25);
         w.tick().await;
         assert_eq!(worker(&w.app).await["status"], "working", "{key}: idle since its turn ended, within the bound");
@@ -848,8 +863,9 @@ async fn of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks() {
 
 #[tokio::test]
 async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
-    // Year's end at 23:59, a leap day, the day after: each end at :47.
-    for end in [1_830_297_587_u64, 1_835_440_487, 1_835_481_647] {
+    // Year's end at 23:59, a leap day, the day after, a month's first: each
+    // end at :47.
+    for end in [1_830_297_587_u64, 1_835_440_487, 1_835_481_647, 1_840_789_247] {
         let w = World::new();
         w.checkout("web").await;
         w.kit().await;
@@ -866,5 +882,29 @@ async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
         w.advance(1);
         w.tick().await;
         assert_eq!(worker(&w.app).await["status"], "waiting", "{end}: ended 30m13s ago");
+    }
+}
+
+#[tokio::test]
+async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer() {
+    for h in [Harness::ClaudeCode, Harness::Codex] {
+        // Open in the role's directory 45 min, handed `brief`: whether it
+        // keeps the worker from silence.
+        let working = async |brief: &str| {
+            let w = World::new();
+            w.checkout("web").await;
+            w.app.kit_set(&[format!("{}=run-{}", h.key(), h.key())]).await.unwrap();
+            w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+            w.tick().await;
+            let role = w.dir.join("data").join("role").join("worker");
+            let brief = w.dir.join("data").join("briefs").join(brief);
+            let now = (w.app_now() / 1000) as u64;
+            write_session_in(&w, h, None, &role.to_string_lossy(), &brief.to_string_lossy(), true, now);
+            w.advance(45);
+            w.tick().await;
+            worker(&w.app).await["status"] == "working"
+        };
+        assert!(working("web-1-1.md").await, "{}: its own brief", h.key());
+        assert!(!working("web-2-1.md").await, "{}: another worker's", h.key());
     }
 }

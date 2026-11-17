@@ -298,7 +298,7 @@ impl Kind for Pi {
         recorded_turn(cwd, text)
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+    fn stand_in(cwd: &str, _brief: &str, open: bool, at: u64) -> String {
         stand_in(cwd, open, at)
     }
 }

@@ -63,9 +63,10 @@ trait Kind {
     /// this session: a harness started elsewhere is known by its first
     /// prompt naming it.
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn>;
-    /// The session file it would write for the worktree `cwd`, its turn left
-    /// open when `open`, written at `at` (epoch seconds).
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String;
+    /// The session file it would write in `cwd` for the session handed
+    /// `brief`, its turn left open when `open`, written at `at` (epoch
+    /// seconds).
+    fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String;
 }
 
 /// Lists every harness once, as `Variant in module`, the module's [`Kind`]
