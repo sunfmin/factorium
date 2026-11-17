@@ -145,11 +145,11 @@ async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_
     let wk = worker(&w.app).await;
     let (cwd, id_) = (wk["worktree"].as_str().unwrap().to_string(), id(&wk));
     let now = (w.app_now() / 1000) as u64;
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, true, now);
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, true, now);
     w.advance(45);
     w.tick().await;
     assert_eq!(worker(&w.app).await["status"], "working", "its turn is open");
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, false, now + 60);
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, now + 60);
     w.tick().await;
     let silent =
         w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| id(x) == id_).cloned().unwrap();

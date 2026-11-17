@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::line::Line;
-use crate::start::{Launch, Start};
+use crate::start::{Home, Launch, Start};
 use crate::turn::Turn;
 
 mod claude_code;
@@ -122,29 +122,32 @@ impl Harness {
         each!(self, KEPT_LINKS).first().map(|link| link.kept)
     }
 
-    /// The variable that points it at a user configuration directory.
-    pub(crate) const fn config_variable(self) -> &'static str {
-        match self {
-            Harness::ClaudeCode => claude_code::CONFIG_DIR,
-            Harness::Pi => pi::USER_DIR,
-            Harness::Codex => codex::USER_DIR,
-            Harness::Dsh => dsh::USER_DIR,
-            Harness::Kimi => kimi::USER_DIR,
-            Harness::Grok => grok::USER_DIR,
-        }
+    /// Where its sessions keep their files on this host, decided once from
+    /// the host user's home `user_home`, the session's `account` and the
+    /// directory `kept` this host keeps for the harness: a login account's
+    /// own home, where its login is; else Claude Code's under the host
+    /// user's home, every other's the kept directory.
+    pub fn home(self, user_home: &Path, account: Option<&str>, kept: &Path) -> Home {
+        Home::new(match account {
+            Some(name) if self.logs_in() => crate::account::login_home(user_home, name),
+            _ if self == Harness::ClaudeCode => user_home.join(claude_code::HOME),
+            _ => kept.to_path_buf(),
+        })
     }
 
-    /// Readies the kept directory `start.kept` (the host user's login files
-    /// linked in) and answers the line a terminal runs to start a session as
+    /// Readies the session's home `start.home` (made, and the host user's
+    /// login files linked into a kept directory) and answers the line a terminal runs to start a session as
     /// `start` says, and what is typed at it once it runs to hand it its
     /// brief. Each harness starts in `start.dir` and is given the worktree,
     /// the hook, Orca's status report and the model; Grok works only in its
     /// cwd, so it starts in the worktree.
-    pub fn launch(self, start: &Start) -> Launch {
+    pub fn launch(self, start: &Start) -> std::io::Result<Launch> {
+        let home = start.home.path();
+        std::fs::create_dir_all(home)?;
         for link in each!(self, KEPT_LINKS) {
-            let (from, to) = (start.home.join(link.home), Path::new(start.kept).join(link.kept));
+            let (from, to) = (start.user_home.join(link.home), home.join(link.kept));
             if from.exists() && !to.exists() {
-                let _ = std::fs::create_dir_all(to.parent().unwrap_or(Path::new(start.kept)));
+                let _ = std::fs::create_dir_all(to.parent().unwrap_or(home));
                 let _ = std::os::unix::fs::symlink(&from, &to);
             }
         }
@@ -162,11 +165,11 @@ impl Harness {
         }
         let line = line.fixed(" && ").launch(start.command);
         let line = each!(self, added(line, start)).done();
-        match self {
+        Ok(match self {
             Harness::ClaudeCode => Launch { line: claude_code::brief_at_start(&line, start.brief), typed: None },
             Harness::Codex => Launch { line, typed: Some(codex::brief_line(start.brief)) },
             _ => Launch { line, typed: Some(crate::brief::brief_pointer(start.brief)) },
-        }
+        })
     }
 
     /// The variables that switch this harness, each set to 1.
@@ -212,20 +215,10 @@ impl Harness {
         }
     }
 
-    /// The directory its sessions are kept under: Claude Code's under the
-    /// host user's `home`, every other's under its `kept` directory.
-    fn root(self, home: &Path, kept: &Path) -> PathBuf {
-        match self {
-            Harness::ClaudeCode => home.join(claude_code::HOME),
-            _ => kept.to_path_buf(),
-        }
-    }
-
     /// The turn its session files record for the worktree `cwd` of the
-    /// session handed `brief`, read under the host user's `home` or the
-    /// `kept` directory (`launch`). `None`: no session says.
-    pub fn turn(self, home: &Path, kept: &Path, cwd: &str, brief: &str) -> Option<Turn> {
-        let root = self.root(home, kept);
+    /// session handed `brief`, read under its `home`. `None`: no session says.
+    pub fn turn(self, home: &Home, cwd: &str, brief: &str) -> Option<Turn> {
+        let root = home.path();
         let mut files = Vec::new();
         match each!(self, session_layout(cwd)) {
             SessionLayout::Files { dir, extension } => files_under(&root.join(dir), extension, false, &mut files),
@@ -254,15 +247,15 @@ impl Harness {
 
     /// The stand-in session: writes the session files this harness would
     /// for the worktree `cwd`, where `turn` reads them, with its turn left
-    /// open when `open`, written at `at` (epoch seconds).
-    pub fn write_session(self, home: &Path, kept: &Path, cwd: &str, open: bool, at: u64) -> std::io::Result<()> {
-        let root = self.root(home, kept);
+    /// open when `open`, written at `at` (epoch seconds), under its `home`.
+    pub fn write_session(self, home: &Home, cwd: &str, open: bool, at: u64) -> std::io::Result<()> {
+        let root = home.path();
         for f in each!(self, session_files(cwd, open, at)) {
             if let Some(name) = &f.replaces {
                 let _ = std::fs::remove_file(root.join(name));
             }
             let path = root.join(&f.path);
-            std::fs::create_dir_all(path.parent().unwrap_or(&root))?;
+            std::fs::create_dir_all(path.parent().unwrap_or(root))?;
             if f.compressed {
                 let fast = ruzstd::encoding::CompressionLevel::Fastest;
                 std::fs::write(&path, ruzstd::encoding::compress_to_vec(f.body.as_bytes(), fast))?;
