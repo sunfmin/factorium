@@ -102,6 +102,8 @@ pub struct FakeHost {
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
     pub brewed: Mutex<Vec<String>>,
+    /// The version Homebrew stays on whatever is upgraded, if it is stuck.
+    pub brew_stuck: Mutex<Option<String>>,
     /// The formula whose binary this program is, if any.
     pub running: Mutex<Option<String>>,
     pub home: PathBuf,
@@ -128,9 +130,12 @@ impl Host for FakeHost {
             _ => Err("mytokens: unknown".into()),
         }
     }
-    fn brew_upgrade(&self, formula: &str) -> Result<String, String> {
+    fn brew_upgrade(&self, formula: &str, version: &str) -> Result<String, String> {
         self.brewed.lock().unwrap().push(formula.into());
-        Ok(String::new())
+        match &*self.brew_stuck.lock().unwrap() {
+            Some(old) => Err(factorium::host::stale(formula, version, &format!("{formula} {old}"))),
+            None => Ok(String::new()),
+        }
     }
     fn binary_of(&self, formula: &str) -> Option<PathBuf> {
         let running = self.running.lock().unwrap();
@@ -206,6 +211,7 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             brewed: Mutex::default(),
+            brew_stuck: Mutex::default(),
             running: Mutex::default(),
             home: dir.join("home"),
         });
