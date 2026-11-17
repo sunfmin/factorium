@@ -60,7 +60,7 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let started = w.dir.join("gate-started");
     let toml = format!("[gate]\nfast = \"touch {} && sleep 30\"\n", started.display());
@@ -96,8 +96,8 @@ async fn a_cut_waits_its_turn_without_holding_the_tick_and_is_made_next_tick() {
     w.kit().await;
     // #2 keeps working all along: the checkout is never idle.
     w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
@@ -123,7 +123,7 @@ async fn a_queued_gate_no_longer_due_leaves_the_queue() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     done(&w, "a", "x").await;
     while_busy(&w, async {
