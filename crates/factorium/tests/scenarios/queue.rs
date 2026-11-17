@@ -181,12 +181,17 @@ async fn beside_what_runs_one_heavy_command_starts_per_reading() {
     w.host.reading.lock().unwrap().cpu_busy = 10;
     let cli = w.run();
     let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo next"));
+    let entry = async || {
+        let d = w.run().doctor().await.unwrap();
+        d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo next").cloned()
+    };
     let queued = async {
-        while !heavy(&w).await.contains(&"echo next".to_string()) {
+        while entry().await.is_none() {
             tokio::task::yield_now().await;
         }
     };
     tokio::select! { _ = &mut asks => panic!("two starts on one reading"), _ = queued => {} }
+    assert_eq!(entry().await.unwrap()["started_at"], json!(null), "it waits for a new reading");
     w.advance(1);
     let ran = tokio::time::timeout(STUCK, asks).await.expect("a new reading starts it");
     assert_eq!(ran.unwrap()["ok"], true);
