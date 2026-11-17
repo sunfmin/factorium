@@ -1,0 +1,279 @@
+//! The outbox: every message to a session — a landing's red, the watch's
+//! tell and restart, a comment, a round, the brief — goes one way, and the
+//! session's outbox, as `factorium outbox` answers it, says what was typed
+//! and how it went. One family of scenarios runs each kind of message
+//! through the same cases: idle, busy, behind a dialog, before its harness
+//! is up, and missed.
+
+use factorium_harness::Harness;
+use serde_json::{Value, json};
+
+use crate::harnesses::write_session;
+use crate::{ESCAPE, SHELL, UP, World, id, worker};
+
+/// The messages a worker's session is passed.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    Red,
+    Tell,
+    Restart,
+    Comment,
+}
+
+const KINDS: [Kind; 4] = [Kind::Red, Kind::Tell, Kind::Restart, Kind::Comment];
+
+impl Kind {
+    /// How the line typed for it opens.
+    fn opens(self) -> &'static str {
+        match self {
+            Kind::Red => "factorium: your landing was red. ",
+            Kind::Tell => "factorium (the watch): use v2",
+            Kind::Restart => "factorium (the watch): use v2. Then go on",
+            Kind::Comment => "factorium (a comment on your issue): use v2",
+        }
+    }
+
+    /// Gets a worker ready for it: a red needs red work asked to land; a
+    /// restart, a worker that waits.
+    async fn prepare(self, w: &World, wk: &Value) {
+        match self {
+            Kind::Red => {
+                w.commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "RED", "x");
+                w.app.worker_done(id(wk)).await.unwrap();
+            }
+            Kind::Restart => _ = w.app.worker_escalate(id(wk), "stuck").await.unwrap(),
+            _ => {}
+        }
+    }
+
+    /// Passes it; answers the command's answer (a red: the landing's).
+    async fn say(self, w: &World, wk: &Value, now: bool) -> factorium::Answer {
+        match self {
+            Kind::Red => Ok(w.tick().await.landed[0].clone()),
+            Kind::Tell => w.app.watch_tell(id(wk), "use v2", now).await,
+            Kind::Restart => w.app.watch_restart(id(wk), "use v2.", now).await,
+            Kind::Comment => w.app.issue_comment("web", 1, "use v2").await,
+        }
+    }
+}
+
+/// A checkout, a kit of `kit`, and a worker on issue 1.
+async fn working(w: &World, kit: &str) -> Value {
+    w.checkout("web").await;
+    w.app.kit_set(&[kit.into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    worker(&w.app).await
+}
+
+/// The last message of a worker's outbox.
+async fn last(w: &World, wk: &Value) -> Value {
+    let outbox = w.app.outbox_of(Some(id(wk))).await.unwrap();
+    outbox["messages"].as_array().unwrap().last().cloned().expect("a message")
+}
+
+const CLAUDE: &str = "claude-code=claude";
+
+#[tokio::test]
+async fn behind_a_running_turn_every_message_queues_and_only_now_stops_the_turn_first() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = working(&w, CLAUDE).await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.set_busy(handle, true, false);
+        let before = w.terminal(handle).sent.len();
+        kind.say(&w, &wk, false).await.unwrap();
+        assert_eq!(w.terminal(handle).sent.len(), before + 1, "{kind:?}: no key goes ahead of it");
+        assert!(w.terminal(handle).busy, "{kind:?}: its turn runs on");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued", "{kind:?}");
+        if matches!(kind, Kind::Tell | Kind::Restart) {
+            // With --now, the harness's own key goes first, then the text, and it reads it.
+            kind.prepare(&w, &wk).await;
+            assert_eq!(kind.say(&w, &wk, true).await.unwrap()["delivery"], "submitted", "{kind:?}");
+            let sent = w.terminal(handle).sent;
+            assert_eq!(sent[sent.len() - 2], ESCAPE, "{kind:?}: {sent:?}");
+            assert!(!w.terminal(handle).busy, "{kind:?}");
+        }
+    }
+}
+
+/// Claude Code's dialog after a turn ended, as two workers showed it on
+/// 2026-11-18 while their landing's red was typed at them.
+const AUTO_MODE_DIALOG: [&str; 4] = [
+    "Teach auto mode about your environment?",
+    "Claude Code reads this project, your recent Claude sessions, and optionally your shell history.",
+    "› Continue",
+    "←/→ to change · Enter to continue · Esc to cancel",
+];
+
+#[tokio::test]
+async fn a_known_dialog_is_dismissed_first_and_every_message_then_starts_a_turn_typed_once_as_its_sender_s() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = working(&w, CLAUDE).await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.open_dialog(handle, &AUTO_MODE_DIALOG);
+        let before = w.terminal(handle).sent.len();
+        kind.say(&w, &wk, false).await.unwrap();
+        let sent = w.terminal(handle).sent[before..].to_vec();
+        assert!(sent.len() == 2 && sent[0] == ESCAPE, "{kind:?}: {sent:?}");
+        assert!(sent[1].starts_with(kind.opens()) && !sent[1].contains('\n'), "{kind:?}: one line: {sent:?}");
+        assert!(!w.terminal(handle).dialog, "{kind:?}: dismissed");
+        let m = last(&w, &wk).await;
+        assert_eq!((&m["text"], &m["outcome"]["outcome"]), (&json!(sent[1]), &json!("submitted")), "{kind:?}");
+        assert_eq!(worker(&w.app).await["status"], "working", "{kind:?}");
+        assert!(w.app.doctor().await.unwrap()["findings"].as_array().unwrap().is_empty(), "{kind:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_message_an_unknown_dialog_takes_is_missed_and_its_worker_goes_to_the_watch_at_once() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = working(&w, CLAUDE).await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.open_dialog(handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+        let said = kind.say(&w, &wk, false).await.unwrap();
+        assert!(!w.terminal(handle).sent.contains(&ESCAPE.to_string()), "{kind:?}: no key is guessed");
+        let m = last(&w, &wk).await;
+        assert_eq!(m["outcome"]["outcome"], "missed", "{kind:?}");
+        let waiting = worker(&w.app).await;
+        assert_eq!(waiting["status"], "waiting", "{kind:?}: not 30 min of silence");
+        let why = waiting["why"].as_str().unwrap();
+        let what = if matches!(kind, Kind::Restart) { "stuck" } else { "did not reach" };
+        assert!(why.contains(what), "{kind:?}: {why}");
+        if !matches!(kind, Kind::Restart) {
+            assert!(why.contains("Enter to confirm"), "{kind:?}: {why}");
+        }
+        match kind {
+            Kind::Tell | Kind::Comment => assert_eq!(said["delivery"], "missed", "{kind:?}"),
+            Kind::Restart => assert_eq!(said["resumed"], false, "{kind:?}: it waits on"),
+            Kind::Red => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red_sends_its_worker_to_the_watch() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = working(&w, CLAUDE).await;
+        kind.prepare(&w, &wk).await;
+        *w.host.orca.refuse_send.lock().unwrap() = true;
+        let said = kind.say(&w, &wk, false).await;
+        let m = last(&w, &wk).await;
+        assert_eq!(m["outcome"]["outcome"], "not_typed", "{kind:?}");
+        assert!(m["outcome"]["why"].as_str().unwrap().contains("terminal_send_failed"), "{kind:?}: {m}");
+        match kind {
+            Kind::Tell | Kind::Restart => crate::refused(said, "orca"),
+            Kind::Comment => {
+                let said = said.unwrap();
+                assert_eq!(said["delivery"], "none");
+                assert!(said["undelivered"].as_str().unwrap().contains("terminal_send_failed"), "{said}");
+            }
+            Kind::Red => {
+                let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
+                assert!(why.contains("did not reach it") && why.contains("terminal_send_failed"), "{why}");
+            }
+        }
+        // Not typed, it is not tried again: whoever said it heard so.
+        *w.host.orca.refuse_send.lock().unwrap() = false;
+        let n = w.terminal(wk["terminal"].as_str().unwrap()).sent.len();
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(wk["terminal"].as_str().unwrap()).sent.len(), n, "{kind:?}");
+        if matches!(kind, Kind::Comment) {
+            // Its terminal gone, a comment says so.
+            w.kill_terminal(wk["terminal"].as_str().unwrap());
+            let said = kind.say(&w, &wk, false).await.unwrap();
+            assert!(said["undelivered"].as_str().unwrap().contains("gone"), "{said}");
+        }
+    }
+}
+
+/// A kimi worker whose terminal opens at its shell's prompt.
+async fn at_shell(w: &World) -> Value {
+    *w.host.orca.opens_at_shell.lock().unwrap() = true;
+    working(w, "kimi=kimi").await
+}
+
+#[tokio::test]
+async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_on_it() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = at_shell(&w).await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        let said = kind.say(&w, &wk, false).await;
+        assert!(w.terminal(handle).sent.is_empty(), "{kind:?}: the shell's prompt is not typed at");
+        let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+        match kind {
+            // In the brief, read once handed.
+            Kind::Comment => {
+                assert_eq!(said.unwrap()["delivery"], "brief");
+                assert!(brief.ends_with("\n## Comments since\n\n- use v2\n"), "{brief}");
+            }
+            Kind::Tell | Kind::Restart => crate::refused(said, "not_up"),
+            Kind::Red => {
+                let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
+                assert!(why.contains("did not reach it") && why.contains("not up"), "{why}");
+            }
+        }
+        // Up, the brief is typed, once, and nothing after it.
+        w.set_screen(handle, &[SHELL, "Welcome to Kimi Code!", UP]);
+        w.advance(1);
+        w.tick().await;
+        w.advance(1);
+        w.tick().await;
+        let sent = w.terminal(handle).sent;
+        assert!(sent.len() == 1 && sent[0].contains("web-1-1.md"), "{kind:?}: {sent:?}");
+        let outbox = w.app.outbox_of(Some(id(&wk))).await.unwrap();
+        assert_eq!(outbox["messages"][0]["from"], json!({ "kind": "brief" }), "the first message");
+        assert_eq!(outbox["messages"][0]["outcome"]["outcome"], "typed");
+        if matches!(kind, Kind::Comment) {
+            // Once handed, the next one is typed after it, not put in it.
+            assert_eq!(kind.say(&w, &wk, false).await.unwrap()["delivery"], "submitted");
+            assert_eq!(w.terminal(handle).sent.len(), 2);
+            let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+            assert_eq!(brief.matches("- use v2").count(), 1, "{brief}");
+        }
+    }
+}
+
+/// The watch's session writes its turn: closed.
+fn watch_idle(w: &World) {
+    let home = w.dir.join("data").join("watch");
+    let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
+    write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), false, at);
+}
+
+#[tokio::test]
+async fn a_round_the_watch_s_session_missed_is_passed_again_on_the_next_look() {
+    let w = World::new();
+    let wk = working(&w, CLAUDE).await;
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    watch_idle(&w);
+    let watch = w.app.outbox_of(None).await.unwrap()["terminal"].as_str().unwrap().to_string();
+    w.open_dialog(&watch, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+    w.advance(5);
+    assert_eq!(w.tick().await.watch.unwrap()["round"]["n"], 1);
+    let outbox = w.app.outbox_of(None).await.unwrap();
+    let m = &outbox["messages"][0];
+    assert_eq!((&m["from"], &m["outcome"]["outcome"]), (&json!({ "kind": "round", "n": 1 }), &json!("missed")));
+    assert!(m["text"].as_str().unwrap().starts_with("factorium round 1: "), "{m}");
+
+    w.host.orca.terminals.lock().unwrap().get_mut(&watch).unwrap().dialog = false;
+    w.set_screen(&watch, &[UP]);
+    w.advance(5);
+    w.tick().await;
+    let outbox = w.app.outbox_of(None).await.unwrap();
+    let m = &outbox["messages"][1];
+    assert_eq!((&m["from"]["n"], &m["outcome"]["outcome"]), (&json!(1), &json!("submitted")), "{outbox}");
+    w.advance(5);
+    w.tick().await;
+    assert_eq!(w.app.outbox_of(None).await.unwrap()["messages"].as_array().unwrap().len(), 2, "arrived: not again");
+    assert_eq!(w.terminal(&watch).sent.len(), 2);
+}

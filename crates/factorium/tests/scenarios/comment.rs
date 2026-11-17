@@ -1,11 +1,10 @@
-//! A comment on an issue reaches the worker on it exactly once: typed at
-//! its session, in its brief, or through the watch; and is never lost.
+//! A comment on an issue reaches the worker on it exactly once: through its
+//! session's outbox (typed, or in its brief: `outbox.rs`), or through the
+//! watch; and is never lost.
 
 use serde_json::json;
 
-use crate::{SHELL, UP, World, id, worker};
-
-const SAID: &str = "factorium (a comment on your issue): use the v2 API";
+use crate::{World, id, worker};
 
 /// A checkout, a Claude Code kit, and a worker on issue 1.
 async fn working(w: &World) -> serde_json::Value {
@@ -14,10 +13,6 @@ async fn working(w: &World) -> serde_json::Value {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     worker(&w.app).await
-}
-
-fn comments(shown: &serde_json::Value) -> usize {
-    shown["comments"].as_array().unwrap().len()
 }
 
 #[tokio::test]
@@ -29,60 +24,6 @@ async fn a_comment_with_no_worker_on_the_issue_is_only_recorded() {
     assert_eq!(shown["delivery"], "none");
     assert_eq!(shown["undelivered"], json!(null), "nothing failed: no one to tell");
     assert_eq!(shown["comments"], json!([{ "text": "use the v2 API", "by": "owner", "at": 1_800_000_000_000_i64 }]));
-}
-
-#[tokio::test]
-async fn a_comment_is_typed_at_the_working_worker_and_queues_behind_its_running_turn() {
-    let w = World::new();
-    let wk = working(&w).await;
-    let handle = wk["terminal"].as_str().unwrap();
-    let before = w.terminal(handle).sent.len();
-    let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
-    assert_eq!(shown["delivery"], "submitted");
-    assert_eq!(w.terminal(handle).sent[before..], [SAID.to_string()]);
-
-    // Busy in a turn: the comment waits behind it; nothing stops the turn.
-    w.set_busy(handle, true, false);
-    let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
-    assert_eq!(shown["delivery"], "queued");
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent[before + 1..], [SAID.to_string()], "no key goes ahead of it: {sent:?}");
-    assert!(w.terminal(handle).busy, "its turn runs on");
-    assert_eq!(comments(&shown), 2, "both recorded");
-}
-
-#[tokio::test]
-async fn a_comment_before_the_brief_is_handed_goes_in_the_brief_only() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&["kimi=kimi".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    *w.host.orca.opens_at_shell.lock().unwrap() = true;
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    let handle = wk["terminal"].as_str().unwrap();
-
-    let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
-    assert_eq!(shown["delivery"], "brief");
-    assert!(w.terminal(handle).sent.is_empty(), "not before the brief");
-    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
-    assert!(brief.ends_with("\n## Comments since\n\n- use the v2 API\n"), "{brief}");
-
-    // Its harness up, the brief is handed: the comment is in it, not typed again.
-    w.set_screen(handle, &[SHELL, "Welcome to Kimi Code!", UP]);
-    w.advance(1);
-    w.tick().await;
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent.len(), 1, "{sent:?}");
-    assert!(sent[0].contains("web-1-1.md") && !sent[0].contains("v2 API"), "{sent:?}");
-
-    // Once handed, the next comment is typed after it.
-    assert_eq!(w.app.issue_comment("web", 1, "and log it").await.unwrap()["delivery"], "submitted");
-    let sent = w.terminal(handle).sent;
-    assert_eq!(sent.len(), 2, "{sent:?}");
-    assert!(sent[1].ends_with("comment on your issue): and log it"), "{sent:?}");
-    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
-    assert!(!brief.contains("and log it"), "{brief}");
 }
 
 #[tokio::test]
@@ -119,22 +60,17 @@ async fn a_comment_for_a_waiting_worker_goes_to_its_watch_episode_not_its_sessio
     assert_eq!(next["episodes"][&key]["heard"], json!([]), "{next}");
 }
 
+/// How a comment is typed, or why not, is the outbox's (`outbox.rs`); the
+/// issue keeps it either way.
 #[tokio::test]
-async fn a_comment_that_cannot_be_typed_is_kept_and_says_why() {
+async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
     let w = World::new();
     let wk = working(&w).await;
-    let handle = wk["terminal"].as_str().unwrap();
     *w.host.orca.refuse_send.lock().unwrap() = true;
-    let shown = w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
-    assert_eq!(shown["delivery"], "none");
-    assert!(shown["undelivered"].as_str().unwrap().contains("terminal_send_failed"), "{shown}");
-    assert_eq!(shown["comments"][0]["text"], "use the v2 API");
-
+    assert_eq!(w.app.issue_comment("web", 1, "use the v2 API").await.unwrap()["delivery"], "none");
     *w.host.orca.refuse_send.lock().unwrap() = false;
-    w.kill_terminal(handle);
-    let shown = w.app.issue_comment("web", 1, "and log it").await.unwrap();
-    assert_eq!(shown["delivery"], "none");
-    assert!(shown["undelivered"].as_str().unwrap().contains("gone"), "{shown}");
+    w.kill_terminal(wk["terminal"].as_str().unwrap());
+    assert_eq!(w.app.issue_comment("web", 1, "and log it").await.unwrap()["delivery"], "none");
 
     // The next worker's brief carries both.
     w.app.issue_park("web", 1, "its session died").await.unwrap();

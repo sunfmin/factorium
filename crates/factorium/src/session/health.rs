@@ -69,10 +69,11 @@ impl App {
     ) -> Answer<Option<Value>> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started.clone() else { return Ok(None) };
-        if matches!(wk.status, Status::Ended | Status::Waiting) {
+        let Ok(session) = Self::worker_session(worker, &st) else { return Ok(None) };
+        if wk.status == Status::Ended {
             return Ok(None);
         }
-        let Ok(session) = Self::worker_session(worker, &st) else { return Ok(None) };
+        // Its brief held is tried again even while it waits: it is its brief.
         self.retry(&session).await?;
         if self.state::<Workers>(worker).await?.status == Status::Waiting {
             return Ok(None);

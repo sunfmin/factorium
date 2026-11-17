@@ -12,6 +12,7 @@ mod daemon;
 mod harnesses;
 mod kept;
 mod line;
+mod outbox;
 mod path;
 mod queue;
 mod stall;
