@@ -12,7 +12,7 @@ use crate::{Terminal, World, commit, id, worker};
 async fn one_worker(w: &World) -> Value {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     worker(&w.app).await
 }
@@ -38,7 +38,7 @@ async fn closing_or_parking_its_issue_closes_the_worker_s_terminal() {
     w.app.issue_close("web", 1, "not needed").await.unwrap();
     assert!(closed(&w, &wk));
 
-    w.app.issue_add("web", "u", "", false).await.unwrap();
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     w.app.issue_park("web", 2, "later").await.unwrap();
@@ -50,7 +50,7 @@ async fn a_used_up_account_closes_the_worker_s_terminal() {
     let w = World::new();
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     let screen = ["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."];
@@ -75,7 +75,7 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     let w = World::new();
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     *w.host.orca.refuse_send.lock().unwrap() = true;
     assert!(w.app.tick().await.is_err());
     let open: Vec<Terminal> =
