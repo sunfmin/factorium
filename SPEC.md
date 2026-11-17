@@ -130,6 +130,16 @@ episode carries it (`watch`); with no worker, or when delivery fails
 (`undelivered` says why), `none`. The next brief carries every comment.
 Comments factorium writes itself (start-over's) are typed at no one.
 
+An issue's comments are the one record of what is said about it, each
+with who wrote it (`owner`, `worker <id>`, `watch`, `factorium`) and when;
+`issue show` answers them. A worker's `escalate` text, and the text of
+`watch tell` and `watch restart`, become comments when they are typed,
+delivered or not. Each reaches the worker at most once: the line `tell` or
+`restart` types is its delivery, nothing types it again, and a worker's
+own escalation is typed back at no one. Comments made before authors and
+times were kept read as the owner's (start-over's as factorium's), with no
+time.
+
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH
 declared in it, restarted whenever it exits; `factorium stop` unloads it.
