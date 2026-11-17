@@ -11,6 +11,8 @@ use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "dsh";
+/// What a bare program is started with: nothing.
+pub(super) const STOCK_ARGUMENTS: &str = "";
 /// The variable that names DSH's user directory.
 pub(super) const USER_DIR: &str = "DSH_HOME";
 

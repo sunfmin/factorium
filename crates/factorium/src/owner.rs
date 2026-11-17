@@ -223,7 +223,13 @@ impl App {
     // ---- the kit and the accounts ----
 
     pub async fn kit(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
+        let mut kit = self.state::<Kits>(kit_id()).await?;
+        // The command that will run, as a launch makes it.
+        for e in &mut kit.entries {
+            if let Some(h) = factorium_harness::Harness::read(&e.harness) {
+                e.command = h.command(&e.command);
+            }
+        }
         Ok(json!({ "entries": kit.entries, "pins": kit.pins }))
     }
 
