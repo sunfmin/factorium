@@ -75,6 +75,7 @@ pub enum WatchEvent {
         #[serde(default)]
         account: Option<String>,
     },
+    WatchEnded,
     Looked {
         at: i64,
     },
@@ -123,6 +124,7 @@ impl Aggregate for Watches {
             WatchEvent::WatchStarted { terminal, harness, account } => {
                 (s.terminal, s.harness, s.account) = (Some(terminal), Some(harness), account)
             }
+            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account) = (None, None, None),
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
@@ -168,6 +170,20 @@ command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, no
         account: p.account.clone(),
     }])
 });
+
+command!(
+    /// The watch's session was closed: the next look starts a fresh one.
+    EndWatch,
+    "watch.end",
+    Watches,
+    (),
+    |_p| watch_id(),
+    |s, _p, _now| Ok::<_, factum_core::Rejection>(if s.terminal.is_some() {
+        vec![WatchEvent::WatchEnded]
+    } else {
+        Vec::new()
+    })
+);
 
 /// One finding, as a look hands it on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

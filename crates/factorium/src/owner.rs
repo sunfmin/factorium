@@ -63,6 +63,7 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EndHeavy>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
+        .command::<watch::EndWatch>()
         .command::<watch::LookNow>()
         .command::<watch::SendRound>()
         .command::<watch::FileReport>()
@@ -309,11 +310,32 @@ impl App {
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone();
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
+        seen.orphans = self.orphans(w.terminal.as_deref()).await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             seen.dead_letters.push((factorium_domain::tracker::TRACKER.into(), dead.len()));
         }
         Ok(seen)
+    }
+
+    /// Orca's terminals titled as factorium titles its sessions' (the
+    /// watch's, `<checkout>#<n>` of a listed checkout) that neither a live
+    /// worker nor the watch (`watch`) holds. Orca unreadable: none known.
+    async fn orphans(&self, watch: Option<&str>) -> Answer<Vec<(String, String)>> {
+        let Ok(terminals) = self.host.orca().terminals() else { return Ok(Vec::new()) };
+        let held: Vec<String> =
+            self.rows(tracker::workers(None, false)).await?.into_iter().map(|w| w.terminal).collect();
+        let listed: Vec<String> = self.rows(tracker::listed()).await?.into_iter().map(|c| c.name).collect();
+        let ours = |title: &str| {
+            title == crate::start::WATCH_TITLE
+                || title.rsplit_once('#').is_some_and(|(c, n)| {
+                    listed.iter().any(|l| l == c) && !n.is_empty() && n.chars().all(|d| d.is_ascii_digit())
+                })
+        };
+        Ok(terminals
+            .into_iter()
+            .filter(|(h, title)| ours(title) && Some(h.as_str()) != watch && !held.contains(h))
+            .collect())
     }
 
     /// The findings, each with its fix; the reading; and the owner's part of

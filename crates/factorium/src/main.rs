@@ -263,7 +263,7 @@ async fn run(cli: Cli) -> Answer {
             let stop = Arc::new(AtomicBool::new(false));
             app.run(&stop).await
         }
-        Top::Stop => app.stop(),
+        Top::Stop => app.stop().await,
         Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
