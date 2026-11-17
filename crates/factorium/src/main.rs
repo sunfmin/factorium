@@ -36,6 +36,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Top {
     /// Runs the daemon in the foreground until `factorium stop`.
+    /// When a cut installs the formula it runs from, it runs the new binary
+    /// in its place between ticks, as the same pid.
     Run,
     /// Stops the daemon.
     Stop,

@@ -29,6 +29,9 @@ pub trait Host: Send + Sync {
     fn mytokens(&self, args: &[&str]) -> Result<String, String>;
     /// Upgrades a Homebrew formula; answers what brew printed.
     fn brew_upgrade(&self, formula: &str) -> Result<String, String>;
+    /// If this program is the binary `formula` installs, where that binary
+    /// is found after an upgrade too; asked before the upgrade.
+    fn binary_of(&self, formula: &str) -> Option<std::path::PathBuf>;
     /// The user's home, where harnesses keep their sessions.
     fn home(&self) -> std::path::PathBuf;
 }
@@ -76,6 +79,14 @@ impl Host for Machine {
             return shell::output("brew", &["install", formula]);
         }
         shell::output("brew", &["upgrade", formula])
+    }
+
+    fn binary_of(&self, formula: &str) -> Option<std::path::PathBuf> {
+        // The opt prefix links whichever version is installed.
+        let prefix = shell::output("brew", &["--prefix", formula]).ok()?;
+        let me = std::env::current_exe().ok()?.canonicalize().ok()?;
+        let bin = std::path::Path::new(prefix.trim()).join("bin").join(me.file_name()?);
+        (bin.canonicalize().ok()? == me).then_some(bin)
     }
 
     fn home(&self) -> std::path::PathBuf {

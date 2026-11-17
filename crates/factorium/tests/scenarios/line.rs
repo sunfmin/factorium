@@ -115,3 +115,28 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     assert!(w.tick().await.lines.is_empty(), "not tried again on every tick");
     assert!(w.host.brewed.lock().unwrap().is_empty());
 }
+
+/// Lands, promotes and cuts one change of `web`, whose cut installs the
+/// formula `web`, while the program is `running`'s binary; answers the tick.
+async fn cut_while_running(running: &str) -> crate::Tick {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    *w.host.running.lock().unwrap() = Some(running.into());
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    t
+}
+
+#[tokio::test]
+async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
+    let t = cut_while_running("web").await;
+    assert_eq!(t.restart.as_deref(), Some("/brew/opt/web/bin/web"));
+    let t = cut_while_running("other").await;
+    assert_eq!(t.restart, None, "another formula's cut leaves the daemon as it is");
+}
