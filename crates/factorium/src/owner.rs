@@ -9,7 +9,7 @@ use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
+use factorium_domain::{daemon, doctor, gate, health, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
 use factum::{Model, Uuid, Value};
@@ -44,8 +44,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Hear>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()
-        .command::<worker::NoteLoad>()
-        .command::<worker::NoteQuiet>()
+        .command::<health::Observe>()
         .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()

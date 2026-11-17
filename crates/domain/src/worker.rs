@@ -135,6 +135,18 @@ pub enum WorkerEvent {
     },
     /// Its processes or its screen moved again, or its turn closed.
     Stirred,
+    /// Its processes held over their share past `hot_for`: what, and where
+    /// the evidence of them is.
+    WentHot {
+        what: String,
+        evidence: String,
+    },
+    /// Its account is used up, as its screen said: the account rests until
+    /// then, in ms.
+    UsedUp {
+        said: String,
+        until: i64,
+    },
     /// A comment on its issue came while it waits.
     WorkerHeard {
         text: String,
@@ -184,7 +196,7 @@ impl Aggregate for Workers {
             WorkerEvent::CameUnder => s.over_since = None,
             WorkerEvent::BriefHanded => s.handed = true,
             WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
-            WorkerEvent::SessionClosed { .. } => {}
+            WorkerEvent::SessionClosed { .. } | WorkerEvent::WentHot { .. } | WorkerEvent::UsedUp { .. } => {}
         }
     }
 
@@ -393,56 +405,3 @@ command!(EndWorker, "worker.end", Workers, Because, |p| p.worker, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::WorkerEnded { why: p.why.clone(), at: now.0 }])
 });
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Load {
-    pub worker: Uuid,
-    /// Whether its processes are over their share now.
-    pub over: bool,
-}
-
-command!(
-    /// Notes whether the worker's processes are over their share; the
-    /// first reading over starts its clock, one within stops it.
-    NoteLoad,
-    "worker.load",
-    Workers,
-    Load,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        Ok(match (p.over, s.over_since) {
-            (true, None) => vec![WorkerEvent::WentOver { at: now.0 }],
-            (false, Some(_)) => vec![WorkerEvent::CameUnder],
-            _ => Vec::new(),
-        })
-    }
-);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Quiet {
-    pub worker: Uuid,
-    /// The hash of its screen while its turn is open and its processes are
-    /// near idle; `None` otherwise.
-    pub screen: Option<u64>,
-}
-
-command!(
-    /// Notes whether the worker sits quiet in an open turn: the first such
-    /// reading, or one whose screen changed, starts its clock; any other
-    /// stops it.
-    NoteQuiet,
-    "worker.quiet",
-    Workers,
-    Quiet,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        Ok(match (p.screen, s.quiet) {
-            (Some(h), Some((was, _))) if h == was => Vec::new(),
-            (Some(h), _) => vec![WorkerEvent::WentQuiet { screen: h, at: now.0 }],
-            (None, Some(_)) => vec![WorkerEvent::Stirred],
-            (None, None) => Vec::new(),
-        })
-    }
-);

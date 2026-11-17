@@ -5,7 +5,7 @@
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
-use factorium_domain::hot;
+use factorium_domain::health;
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Move;
@@ -66,14 +66,10 @@ impl App {
         for w in self.live_workers().await? {
             let id = w.worker;
             let mine: Vec<_> = procs.iter().filter(|p| p.worker.as_deref() == Some(&id.to_string())).collect();
-            let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
             let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
-            let load = hot::Load {
-                cpu: core_percent / cores,
-                rss_kib: mine.iter().map(|p| p.rss_kib).sum(),
-                procs: mine.len() as u64,
-            };
-            if let Some(seen) = self.worker_health(id, &load, hot::quiet(core_percent), &settings).await? {
+            let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
+            let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
+            if let Some(seen) = self.worker_health(id, load, health::quiet(core_percent), &settings).await? {
                 t.seen.push(seen);
             }
         }

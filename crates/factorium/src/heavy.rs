@@ -45,7 +45,7 @@ impl App {
     /// added from their processes.
     pub(crate) fn reading(&self) -> Reading {
         let r = self.host.reading();
-        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
+        let cores = self.cores() as f64;
         let workers: f64 = self.host.processes().iter().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
         Reading {
             cpu_busy: r.cpu_busy,
@@ -53,6 +53,11 @@ impl App {
             disk_free: r.disk_free,
             workers_cpu: (workers / cores).round() as u64,
         }
+    }
+
+    /// How many cores the host has: a process's CPU is a percent of one.
+    pub(crate) fn cores(&self) -> usize {
+        std::thread::available_parallelism().map_or(1, |n| n.get())
     }
 
     /// Runs `job` when its turn comes: how each step ran, up to the first

@@ -1,0 +1,218 @@
+//! A live worker's health. Each tick the daemon makes one observation of a
+//! worker — what its session shows, what its processes hold — and one
+//! command, [`Observe`], records it and answers the verdict: wait for the
+//! watch and why, end it on a used-up account, or nothing. The rules and
+//! their clocks live here:
+//!
+//! - **up**: a harness not up five minutes after it started;
+//! - **hot**: processes over their share — of the CPU, of memory, of
+//!   process count — for `hot_for`;
+//! - **hung**: its turn open, its processes next to idle and its screen
+//!   unchanged past `silent_bound`;
+//! - **silent**: its turn closed, and no done, past `silent_bound`;
+//! - **quota**: its account used up; the account rests an hour.
+//!
+//! The two fixed bounds are fixed in SPEC.md §2, not settings.
+
+use factum_core::{Event, Uuid};
+use serde::{Deserialize, Serialize};
+
+use crate::settings::{Setting, Settings, Time};
+use crate::worker::{Status, Worker, WorkerEvent, Workers};
+use crate::{command, no};
+
+/// What one worker's processes held at one reading.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Load {
+    /// Percent of the whole CPU (all cores).
+    pub cpu: f64,
+    pub rss_kib: u64,
+    pub procs: u64,
+}
+
+/// How long a session's harness has to come up before its worker goes to
+/// the watch.
+const UP_BOUND_MS: i64 = 5 * 60 * 1000;
+
+/// How long a used-up account is left alone: its screen gives no time.
+const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
+
+/// Below this share of one core, a worker's processes together use next to
+/// no CPU: a command blocked, not working.
+const QUIET_CPU: f64 = 2.0;
+
+impl Load {
+    /// What processes holding `core_percent` of one core, `rss_kib` and
+    /// `procs` hold on a host of `cores`.
+    pub fn of(core_percent: f64, rss_kib: u64, procs: u64, cores: usize) -> Load {
+        Load { cpu: core_percent / cores as f64, rss_kib, procs }
+    }
+
+    /// What the load is over, if anything.
+    pub fn over(&self, s: &Settings) -> Option<String> {
+        if self.cpu > s.get(Setting::WorkerCpuShare) as f64 {
+            return Some(format!("cpu {:.0}% over its share of {}%", self.cpu, s.get(Setting::WorkerCpuShare)));
+        }
+        if self.rss_kib > s.get(Setting::WorkerMemoryGib) * (1 << 20) {
+            return Some(format!("memory {} GiB over {} GiB", self.rss_kib >> 20, s.get(Setting::WorkerMemoryGib)));
+        }
+        if self.procs > s.get(Setting::WorkerProcsMax) {
+            return Some(format!("{} processes, over {}", self.procs, s.get(Setting::WorkerProcsMax)));
+        }
+        None
+    }
+}
+
+/// Whether processes using `core_percent` of one core between them sit idle.
+pub fn quiet(core_percent: f64) -> bool {
+    core_percent < QUIET_CPU
+}
+
+/// What a session is doing, seen from outside.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Sight {
+    /// Its terminal is gone.
+    Gone,
+    /// Its account is used up: the line that says so.
+    Quota(String),
+    /// Its harness stopped: the line that says so.
+    Stopped(String),
+    /// Its harness is not up in its terminal (not yet, or no longer): why.
+    Down(String),
+    /// A turn is open: the hash of its screen.
+    Open(u64),
+    /// Its turn closed at this time, in ms; `None`: no session file says.
+    Closed(Option<i64>),
+}
+
+/// One look at one live worker.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Observation {
+    pub worker: Uuid,
+    pub sight: Sight,
+    pub load: Load,
+    /// Its processes sit next to idle.
+    pub quiet: bool,
+    /// Where the evidence of its processes goes, should it be hot.
+    pub evidence: String,
+    pub settings: Settings,
+}
+
+command!(
+    /// Records one observation of a worker and decides on it: its clocks
+    /// (over its share, quiet in an open turn) start or stop, and a rule
+    /// past its bound sends it to the watch or ends it.
+    Observe,
+    "worker.observe",
+    Workers,
+    Observation,
+    |p| p.worker,
+    |s, p, now| {
+        if s.started.is_none() {
+            return no("no_worker", "no such worker");
+        }
+        Ok(if matches!(s.status, Status::Ended | Status::Waiting) { Vec::new() } else { judge(s, p, now.0) })
+    }
+);
+
+/// What `o` makes of worker `w` at `now`.
+fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
+    let s = &o.settings;
+    let wait = |why: String| vec![WorkerEvent::WorkerWaits { why, at: now }];
+    let started = w.started.as_ref().map_or(now, |st| st.at);
+    let screen = match &o.sight {
+        Sight::Gone => return wait("its session's terminal is gone".into()),
+        Sight::Quota(said) => {
+            let until = now + QUOTA_REST_MS;
+            return vec![WorkerEvent::UsedUp { said: said.clone(), until }];
+        }
+        Sight::Stopped(said) => return wait(format!("its harness stopped: {said}")),
+        Sight::Down(why) if now - started > UP_BOUND_MS => {
+            let after = (now - started) / 60_000;
+            return wait(format!("its harness is not up {after} min after it started: {why}"));
+        }
+        Sight::Down(_) => return Vec::new(),
+        Sight::Open(h) => Some(*h),
+        Sight::Closed(_) => None,
+    };
+    let mut events = Vec::new();
+    // Hot: over its share for `hot_for`.
+    let over = o.load.over(s);
+    let over_since = match (&over, w.over_since) {
+        (Some(_), None) => {
+            events.push(WorkerEvent::WentOver { at: now });
+            Some(now)
+        }
+        (None, Some(_)) => {
+            events.push(WorkerEvent::CameUnder);
+            None
+        }
+        (_, since) => since,
+    };
+    if let (Some(what), Some(t)) = (&over, over_since)
+        && now - t >= s.ms(Time::HotFor)
+    {
+        events.push(WorkerEvent::WentHot { what: what.clone(), evidence: o.evidence.clone() });
+        events.extend(wait(format!("hot: {what}; evidence in {}", o.evidence)));
+        return events;
+    }
+    // Hung: quiet in an open turn on one screen past the silent bound.
+    let screen = screen.filter(|_| o.quiet && w.status == Status::Working);
+    let quiet_since = match (screen, w.quiet) {
+        (Some(h), Some((was, at))) if h == was => Some(at),
+        (Some(h), _) => {
+            events.push(WorkerEvent::WentQuiet { screen: h, at: now });
+            Some(now)
+        }
+        (None, Some(_)) => {
+            events.push(WorkerEvent::Stirred);
+            None
+        }
+        (None, None) => None,
+    };
+    if let Some(t) = quiet_since.filter(|t| now - t > s.ms(Time::SilentBound)) {
+        let mins = (now - t) / 60_000;
+        events.extend(wait(format!(
+            "hung for {mins} min: its turn is open, its processes use next to no CPU and its screen has not changed"
+        )));
+        return events;
+    }
+    // Silent: its turn closed, and no done, past the bound.
+    if let Sight::Closed(at) = o.sight {
+        let idle_since = at.map_or(w.since, |t| t.max(w.since));
+        if w.status == Status::Working && now - idle_since > s.ms(Time::SilentBound) {
+            let mins = (now - idle_since) / 60_000;
+            events.extend(wait(format!("silent for {mins} min without `factorium worker done`")));
+        }
+    }
+    events
+}
+
+/// What an observation decided, for the app to carry out.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Verdict {
+    /// Nothing to do.
+    Fine,
+    /// It waits for the watch, and why; hot, its processes' evidence is
+    /// written where the observation said.
+    Waits { why: String, hot: Option<String> },
+    /// Its account is used up, as its screen said: the account rests until
+    /// then (ms), and the worker ends.
+    UsedUp { said: String, until: i64 },
+}
+
+impl Verdict {
+    /// The verdict the events `Observe` recorded carry.
+    pub fn of(events: &[Event]) -> Verdict {
+        let mut hot = None;
+        for e in events {
+            match crate::tracker::decode(e) {
+                Ok(WorkerEvent::WentHot { evidence, .. }) => hot = Some(evidence),
+                Ok(WorkerEvent::UsedUp { said, until }) => return Verdict::UsedUp { said, until },
+                Ok(WorkerEvent::WorkerWaits { why, .. }) => return Verdict::Waits { why, hot },
+                _ => {}
+            }
+        }
+        Verdict::Fine
+    }
+}
