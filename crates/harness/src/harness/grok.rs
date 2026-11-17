@@ -34,7 +34,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .fixed(" ")
         .fixed(USER_DIR)
         .fixed("=")
-        .word(start.kept)
+        .word(start.home.dir())
         .fixed(" GROK_MEMORY=0")
         .fixed(" GROK_CLAUDE_HOOKS_ENABLED=0")
         .fixed(" GROK_CLAUDE_MCPS_ENABLED=0")

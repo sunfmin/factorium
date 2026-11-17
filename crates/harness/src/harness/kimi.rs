@@ -33,7 +33,7 @@ pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", 
 pub(super) const REFUSED: u8 = 2;
 
 pub(super) fn environment(line: Line, start: &Start) -> Line {
-    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.kept)
+    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.home.dir())
 }
 
 pub(super) fn added(line: Line, start: &Start) -> Line {

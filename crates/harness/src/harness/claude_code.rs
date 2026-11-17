@@ -17,11 +17,6 @@ use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "claude-code";
 
-/// The variable that points Claude Code at a user configuration directory
-/// other than `~/.claude`: its login, settings, skills and rules, and the
-/// `.claude.json` it keeps in the home itself while the variable is unset.
-pub(super) const CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
-
 /// The setting that answers the warning Claude Code opens with when it is
 /// started to work with nobody at its terminal: a session has nobody to accept
 /// it, and stops there. On a host whose user accepted it once, their settings
@@ -40,9 +35,8 @@ macro_rules! warning_accepted {
 pub(super) const NO_SUGGESTIONS: &str = "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";
 
 /// The environment a session in its start directory sets for Claude Code beyond the
-/// switches `ENVIRONMENT` names: its prompt suggestions off.
-/// And, where the start says the directory kept for it is its user
-/// configuration (`Start::kept_config`), its variable pointed there.
+/// switches `ENVIRONMENT` names: its prompt suggestions off. Its home is
+/// the host user's own (`Harness::home`), so nothing points it elsewhere.
 pub(super) fn environment(line: Line, _start: &Start) -> Line {
     line.fixed(" ").fixed(NO_SUGGESTIONS)
 }

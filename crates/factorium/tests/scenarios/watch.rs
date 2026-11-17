@@ -29,7 +29,7 @@ async fn escalated_alone(w: &World) -> serde_json::Value {
 fn watch_up(w: &World, open: bool) {
     let home = w.dir.join("data").join("watch");
     let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
-    write_session(w, Harness::ClaudeCode, &home.to_string_lossy(), open, at);
+    write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), open, at);
 }
 
 #[tokio::test]

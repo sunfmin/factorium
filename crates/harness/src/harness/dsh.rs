@@ -26,14 +26,16 @@ pub(super) const KEPT_LINKS: &[Link] = &[
 
 pub(super) fn environment(line: Line, start: &Start) -> Line {
     let line = line
-        .fixed(" DSH_HOME=")
-        .word(start.kept)
+        .fixed(" ")
+        .fixed(USER_DIR)
+        .fixed("=")
+        .word(start.home.dir())
         .fixed(" DSH_AGENTS_HOME=")
-        .word(&format!("{}/agents", start.kept))
+        .word(&format!("{}/agents", start.home.dir()))
         .fixed(" DSH_PERMISSION_MODE=danger-full-access");
     let line = line
         .fixed(" FACTORIUM_DSH_KEPT=")
-        .word(start.kept)
+        .word(start.home.dir())
         .fixed(" DSH_TUI_PROFILE=dsh-tui")
         .fixed(" FACTORIUM_GUARD=")
         .word(start.hook)
@@ -51,11 +53,11 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
     let launch = line.done();
     Line::new()
         .launch("sh ")
-        .word(&format!("{}/start.sh", start.kept))
+        .word(&format!("{}/start.sh", start.home.dir()))
         .fixed(" ")
         .word(&launch)
         .fixed(" ")
-        .word(start.kept)
+        .word(start.home.dir())
         .fixed(" ")
         .word(start.dir)
         .fixed(" ")

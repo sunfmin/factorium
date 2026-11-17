@@ -1,10 +1,9 @@
 //! What one session of a harness is started with (`Harness::launch`): the
 //! command that runs it, the directory it starts in, the worktree it works
-//! on, the hook run before each of its tool calls, its model, the directory
-//! kept for it and its brief. Whoever starts the session says each; nothing
-//! here knows why.
+//! on, the hook run before each of its tool calls, its model, its home and
+//! its brief. Whoever starts the session says each; nothing here knows why.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A directory's skills: the directory under it every harness reads one
 /// entry per skill from.
@@ -28,11 +27,10 @@ pub struct Start<'a> {
     /// The shell line run before each tool call; it refuses a call by
     /// exiting `Harness::refused`.
     pub hook: &'a str,
-    /// The directory this host keeps for the session's harness: its user
-    /// configuration, apart from the host user's.
-    pub kept: &'a str,
-    /// The host user's home, whose login files the kept directory links to.
-    pub home: &'a Path,
+    /// Where the session keeps its files (`Harness::home`).
+    pub home: &'a Home,
+    /// The host user's home, whose login files a kept directory links to.
+    pub user_home: &'a Path,
     /// The variables put in the session's environment, in this order, after
     /// the harness's own. Each value goes in as one word.
     pub env: Vec<(&'static str, String)>,
@@ -46,4 +44,29 @@ pub struct Start<'a> {
 pub struct Launch {
     pub line: String,
     pub typed: Option<String>,
+}
+
+/// Where a harness's sessions keep their configuration and session files on
+/// this host, as `Harness::home` decided it: the one place a session is
+/// started pointed at, and the one its turn is read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Home {
+    dir: PathBuf,
+    text: String,
+}
+
+impl Home {
+    pub(crate) fn new(dir: PathBuf) -> Home {
+        let text = dir.to_string_lossy().into_owned();
+        Home { dir, text }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The directory as one word of a start line.
+    pub(crate) fn dir(&self) -> &str {
+        &self.text
+    }
 }
