@@ -375,6 +375,48 @@ async fn a_codex_worker_s_line_has_the_real_guard_refuse_its_push_as_codex_descr
     assert_eq!(hook("git status --short").0, Some(0));
 }
 
+/// The guard as a daemon-started pi worker's line gives its extension, run as
+/// the extension runs it (`/bin/sh -c`, the call on stdin), by the built
+/// binary, on a call as pi 1.5.2 described it to the extension on a real host.
+/// The extension is the kept one, named on the line: pi loads it from there,
+/// not from the kept `extensions/`.
+#[tokio::test]
+async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_it() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["pi=pi".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    let home = w.dir.join("data").join("kept").join("pi");
+    let extension = home.join("factorium.js").to_string_lossy().into_owned();
+    assert!(line.contains(&format!("--extension '{extension}'")), "{line}");
+    assert!(std::fs::read_to_string(&extension).unwrap().contains("FACTORIUM_GUARD"));
+    let guard = quoted_word(&line, line.find("FACTORIUM_GUARD=").unwrap() + "FACTORIUM_GUARD=".len());
+    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let guard = guard.replace(&exe, env!("CARGO_BIN_EXE_factorium"));
+    assert!(guard.contains(" guard pi"), "{guard}");
+    let hook = |command: &str| {
+        use std::io::Write;
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", &guard])
+            .env("FACTORIUM_WORKER", id(&wk).to_string())
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let payload = serde_json::json!({"toolName": "bash", "input": {"command": command}});
+        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let (code, said) = hook("git push origin HEAD:refs/heads/probe-pi");
+    assert_eq!(code, Some(2), "the extension blocks on any but 0: {said}");
+    assert!(said.contains("a worker does not push"), "{said}");
+    assert_eq!(hook("git status --short").0, Some(0));
+}
+
 /// What a session's home must hold before its line runs, by harness: the
 /// file, and words in it that say it asks the guard. Claude Code and Codex
 /// are given their hooks on the line.
