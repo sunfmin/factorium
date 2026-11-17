@@ -16,6 +16,8 @@ use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "grok";
+/// What a bare program is started with: no approval prompts (its `auto-review` mode denies `factorium worker done`).
+pub(super) const STOCK_ARGUMENTS: &str = "--always-approve";
 
 pub(super) const MODEL: &str = "--model";
 /// On the launch line. Grok 1.0.70 accepts it and `--help` does not name it,

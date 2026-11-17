@@ -195,6 +195,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
         "harness.rs: enum Stop",
+        "harness.rs: fn command",
         "harness.rs: fn home",
         "harness.rs: fn launch",
         "harness.rs: fn read",
@@ -214,4 +215,27 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "turn.rs: enum Turn",
     ];
     assert_eq!(offered, expected);
+}
+
+#[tokio::test]
+async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_arguments() {
+    for (key, program, stock) in
+        [("grok", "/opt/grok/bin/grok", "--always-approve"), ("kimi", "/opt/kimi/kimi", "--auto")]
+    {
+        let w = World::new();
+        w.checkout("web").await;
+        let kit = w.app.kit_set(&[format!("{key}={program}")]).await.unwrap();
+        let runs = format!("{program} {stock}");
+        assert_eq!(kit["entries"][0]["command"], runs.as_str(), "{key}: kit set answers what will run");
+        assert_eq!(w.app.kit().await.unwrap()["entries"][0]["command"], runs.as_str(), "{key}: so does kit show");
+        w.app.issue_add("web", "t", "", false).await.unwrap();
+        w.tick().await;
+        let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
+        assert!(term.line.contains(&format!("&& {runs} ")), "{key}: {}", term.line);
+
+        // A command with arguments of its own is taken as given.
+        let given = format!("{program} --model-picker");
+        let kit = w.app.kit_set(&[format!("{key}={given}")]).await.unwrap();
+        assert_eq!(kit["entries"][0]["command"], given.as_str(), "{key}");
+    }
 }

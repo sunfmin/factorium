@@ -20,6 +20,8 @@ use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "pi";
+/// What a bare program is started with: nothing; `APPROVE` is always added.
+pub(super) const STOCK_ARGUMENTS: &str = "";
 
 /// pi's flag that answers, for one run, the question it asks before it loads
 /// what the directory it starts in holds of pi's own: a start directory's limits in pi's

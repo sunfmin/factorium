@@ -53,6 +53,8 @@ pub(super) fn account_quota(output: &[String]) -> Option<String> {
 }
 
 pub(super) const KEY: &str = "codex";
+/// What a bare program is started with: no approval prompts, no sandbox.
+pub(super) const STOCK_ARGUMENTS: &str = "--dangerously-bypass-approvals-and-sandbox";
 
 const ADD_DIR: &str = "--add-dir";
 /// One configuration key, `key=value` with the value in TOML.
