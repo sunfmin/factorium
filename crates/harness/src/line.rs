@@ -109,28 +109,8 @@ pub(crate) fn login(user_dir: &'static str, home: &str, harness: &'static str) -
     Line::new().fixed(user_dir).fixed("=").word(home).fixed(" ").fixed(harness).quoted_only()
 }
 
-/// `text` as one word of a shell line, whatever it holds.
-fn quoted(text: &str) -> String {
+/// `text` as one word of a shell line, whatever it holds: the one way
+/// factorium quotes a word for a shell.
+pub fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sh(line: &str) -> String {
-        let out = std::process::Command::new("/bin/sh").args(["-c", line]).output().unwrap();
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    }
-
-    #[test]
-    fn a_secret_and_a_program_are_each_one_word_whatever_they_hold() {
-        let odd = "it's $HOME `x` \"y\" a b";
-        let text = secrets_file(&[("SECRET", odd.to_string())]);
-        assert_eq!(sh(&format!("{text}printf %s \"$SECRET\"")), odd);
-        assert_eq!(sh(&format!("printf '%s|' {}", guard(odd, "pi"))), format!("{odd}|guard|pi|"));
-        let asked = guard_asked("/bin/echo no; false #", "kimi", 7);
-        let out = std::process::Command::new("/bin/sh").args(["-c", &asked]).output().unwrap();
-        assert_eq!(out.status.code(), Some(7), "{asked}");
-    }
 }

@@ -13,7 +13,7 @@ use crate::{World, id, worker};
 /// Long enough that only a broken rule gets there.
 pub(crate) const STUCK: Duration = Duration::from_secs(20);
 
-async fn until_file(path: &Path) {
+pub(crate) async fn until_file(path: &Path) {
     while !path.exists() {
         tokio::task::yield_now().await;
     }

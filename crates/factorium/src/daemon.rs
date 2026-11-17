@@ -76,21 +76,27 @@ impl App {
         // The lines: each checkout's landing, then its promotion and cut,
         // as its line says each is due.
         let checkouts = self.listed().await?;
-        for c in &checkouts {
-            if let Ok(did) = self.carry(c, Move::Land, false).await? {
-                t.landed.push(did);
-            }
-        }
-        for c in &checkouts {
-            for mv in [Move::Promote, Move::Cut] {
-                if let Ok(did) = self.carry(c, mv, false).await? {
-                    t.lines.push(did);
+        (t.landed, t.lines) = self
+            .asking_once(async {
+                let (mut landed, mut lines) = (Vec::new(), Vec::new());
+                for c in &checkouts {
+                    if let Ok(did) = self.carry(c, Move::Land, false).await? {
+                        landed.push(did);
+                    }
                 }
-            }
-            // The local base follows origin's as last fetched, whatever left it behind.
-            let git = self.host.git(&c.path);
-            t.lines.extend(crate::line::follow_base(c, &git, &format!("refs/remotes/origin/{}", c.base)));
-        }
+                for c in &checkouts {
+                    for mv in [Move::Promote, Move::Cut] {
+                        if let Ok(did) = self.carry(c, mv, false).await? {
+                            lines.push(did);
+                        }
+                    }
+                    // The local base follows origin's as last fetched, whatever left it behind.
+                    let git = self.host.git(&c.path);
+                    lines.extend(crate::line::follow_base(c, &git, &format!("refs/remotes/origin/{}", c.base)));
+                }
+                Ok((landed, lines))
+            })
+            .await?;
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
             let reading = self.reading();
@@ -114,7 +120,6 @@ impl App {
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
-        self.heavy_forget_unasked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = self.swapped().map(|b| b.to_string_lossy().into_owned());
         Ok(t)

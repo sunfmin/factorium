@@ -157,3 +157,27 @@ async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_on
     let want = format!("## Comments\n\n- worker {}: which API version?\n- watch: use the v2 API.\n", id(&wk));
     assert!(brief.contains(&want), "{brief}");
 }
+
+/// A comment kept before comments kept their author and time still reads:
+/// the owner's, unless its words are factorium's start-over, and with no time.
+#[tokio::test]
+async fn a_comment_kept_before_authors_were_kept_still_reads() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
+    w.app.issue_comment("web", 1, "Started over: attempt 1's worktree was discarded").await.unwrap();
+    // Rewritten as the first version of the event wrote them: text alone.
+    let old = "UPDATE events SET type_version = 1, data = json_object('text', json_extract(data, '$.text')) \
+               WHERE kind = 'IssueCommented'; DELETE FROM snapshots;";
+    let ran = std::process::Command::new("sqlite3").arg(&w.db).arg(old).output().unwrap();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    let shown = w.run().issue_show("web", 1).await.unwrap();
+    assert_eq!(
+        shown["comments"],
+        json!([
+            { "text": "use the v2 API", "by": "owner", "at": null },
+            { "text": "Started over: attempt 1's worktree was discarded", "by": "factorium", "at": null },
+        ])
+    );
+}

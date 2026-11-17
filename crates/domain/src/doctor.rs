@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::Daemon;
-use crate::heavy::Queue;
+use crate::declared::Kind;
+use crate::heavy::{LineJob, Queue};
 use crate::line::Line;
 use crate::settings::{Setting, Settings, Time};
 use crate::watch::Found;
@@ -195,7 +196,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
     let line_of = |c: &str| seen.lines.iter().find(|l| l.checkout == c);
     for (id, checkout, number, since) in &seen.landing {
         let held = line_of(checkout).is_some_and(|l| l.line.held.is_some());
-        if held || now - since <= stall || q.runs(checkout, "fast gate") {
+        if held || now - since <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
             continue;
         }
         add(
@@ -208,7 +209,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         if let Some(o) = line.unpromoted.first()
             && line.red.is_none()
             && now - o.at > s.ms(Time::PromotionBound)
-            && !q.runs(checkout, "slow gate")
+            && !q.runs(checkout, LineJob::Gate(Kind::Slow))
         {
             add(
                 format!("unpromoted:{checkout}"),
@@ -226,7 +227,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             && *cuts
             && line.cut_failed.is_none()
             && now - at > s.ms(Time::CutBound)
-            && !q.runs(checkout, "cut")
+            && !q.runs(checkout, LineJob::Cut)
         {
             add(
                 format!("uncut:{checkout}"),
