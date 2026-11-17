@@ -11,10 +11,9 @@ pub fn daemon_id() -> factum_core::Uuid {
     id("daemon")
 }
 
-/// Ticks that failed in a row: since when, how many, the last error.
+/// Ticks that failed in a row: how many, and the last error.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Failing {
-    pub since: i64,
     pub ticks: u64,
     pub error: String,
 }
@@ -50,8 +49,8 @@ impl Aggregate for Daemons {
             DaemonEvent::DaemonStarted { at, path, missing } => {
                 (s.started_at, s.path, s.missing) = (at, path, missing);
             }
-            DaemonEvent::TickFailed { at, error } => {
-                let f = s.failing.get_or_insert(Failing { since: at, ..Default::default() });
+            DaemonEvent::TickFailed { error, .. } => {
+                let f = s.failing.get_or_insert_with(Failing::default);
                 f.ticks += 1;
                 f.error = error;
             }

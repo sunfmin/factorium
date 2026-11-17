@@ -6,7 +6,7 @@
 exclude_re = [
   # Equivalent: a stream is named by its aggregate and its id, and these
   # aggregates have one stream each, so any id names it.
-  'replace (queue_id|kit_id|settings_id|watch_id) -> .* with Default::default\(\)',
+  'replace (queue_id|kit_id|settings_id|watch_id|daemon_id) -> .* with Default::default\(\)',
   # A projection's version only matters to a database made by an older
   # version; every scenario starts from an empty one.
   'replace <impl Projection for Tracker>::version -> u32 with [01]$',
