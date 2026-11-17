@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::Value;
 
 use crate::line::land;
-use crate::queue::{STUCK, heavy, running_on, while_busy};
+use crate::queue::{STUCK, heavy, running_on, until_file, while_busy};
 use crate::{UP, World, id, worker};
 
 /// The finding whose key is `key`, if doctor answers one.
@@ -176,6 +176,68 @@ async fn a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_q
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("the line moves");
     assert_eq!(cut["version"], "v0.1.0", "{cut}");
     assert_eq!(finding(&w, "uncut:web").await, None);
+}
+
+/// The worker of issue `number` of `web`, its commit of `file` (`text`),
+/// asking to land.
+async fn done(w: &World, number: u64, file: &str, text: &str) {
+    let wk = worker_of(w, number).await;
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
+    w.app.worker_done(id(&wk)).await.unwrap();
+}
+
+/// Doctor knows each line move by the name its heavy command is queued by:
+/// a move whose command runs long is no stall, and a landing waiting beside
+/// it, with no fast gate running for it, is one. #1 lands `declared`, whose
+/// `{long}` runs until the doctor has looked; after `minutes` the tick runs
+/// the move (a cut once promoted by hand); and `key` is the move's stall.
+async fn runs_long_beside_a_landing(w: &World, declared: &str, minutes: i64, key: &str) -> Vec<Value> {
+    // #2 keeps working: the checkout is never idle, so only the bound moves it.
+    working(w, &["a", "b"]).await;
+    let (started, release) = (w.dir.join("long-started"), w.dir.join("long-release"));
+    let long = format!("touch {}; while [ ! -e {} ]; do sleep 0.02; done", started.display(), release.display());
+    done(w, 1, "factorium.toml", &declared.replace("{long}", &long)).await;
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+    if key == "uncut:web" {
+        assert_eq!(w.app.promote("web").await.unwrap()["promoted"], "web");
+    }
+    w.advance(minutes);
+    let looks = async {
+        until_file(&started).await;
+        done(w, 2, "b", "x").await;
+        w.advance(11);
+        let landing = finding(w, &format!("landing:{}", id(&worker_of(w, 2).await))).await;
+        let stalled = finding(w, key).await;
+        std::fs::write(&release, "").unwrap();
+        (landing, stalled)
+    };
+    let (t, (landing, stalled)) =
+        tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), looks) }).await.expect("the long command ends");
+    assert_eq!(stalled, None, "its command runs");
+    let landing = landing.expect("no fast gate runs for #2");
+    assert!(landing["what"].as_str().unwrap().contains("web#2"), "{landing}");
+    t.lines
+}
+
+#[tokio::test]
+async fn a_promotion_whose_slow_gate_runs_long_is_no_stall_and_a_landing_beside_it_is_one() {
+    let w = World::new();
+    let lines = runs_long_beside_a_landing(&w, "[gate]\nslow = \"{long}\"\n", 61, "unpromoted:web").await;
+    assert!(lines.iter().any(|l| l["promoted"] == "web"), "{lines:?}");
+}
+
+#[tokio::test]
+async fn a_cut_that_runs_long_is_no_stall_and_a_landing_beside_it_is_one() {
+    let w = World::new();
+    let declared = "[cut]\nsteps = [\"{long}\"]\nformula = \"web\"\n";
+    let lines = runs_long_beside_a_landing(&w, declared, 24 * 60 + 1, "uncut:web").await;
+    assert!(lines.iter().any(|l| l["cut"] == "web"), "{lines:?}");
+}
+
+/// The worker of issue `number`.
+async fn worker_of(w: &World, number: u64) -> Value {
+    let all = w.app.workers(false).await.unwrap();
+    all.as_array().unwrap().iter().find(|x| x["number"] == number).cloned().unwrap()
 }
 
 #[tokio::test]

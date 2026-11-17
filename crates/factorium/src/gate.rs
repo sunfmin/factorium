@@ -59,7 +59,7 @@ impl App {
         };
         let (what, worker, turn) = match at {
             At::Commit { by_hand, .. } => (
-                heavy::line_job(checkout, &format!("{} gate", kind.as_str())),
+                heavy::LineJob::Gate(kind).of(checkout),
                 None,
                 if by_hand { Turn::Wait } else { Turn::Once(format!("gate:{checkout}:{tree}:{}", kind.as_str())) },
             ),
