@@ -184,6 +184,8 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
         );
     }
 
+    // `out`'s home is there, but it never logged in.
+    std::fs::create_dir_all(w.host.home().join(".agent-accounts").join("out")).unwrap();
     let doctor = w.app.doctor().await.unwrap();
     let skipped = doctor["accounts_skipped"].as_array().unwrap();
     let why = |secret: &str| {
@@ -197,7 +199,7 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
     assert!(why("agent-account-away").contains("its login is on `some-other-mac`"), "{doctor}");
     let home = w.host.home().join(".agent-accounts").join("out");
     let out = why("agent-account-out");
-    assert!(out.contains("not logged in here"), "{out}");
+    assert!(out.contains("not logged in here: no `auth.json` in"), "{out}");
     assert!(out.contains(&format!("CODEX_HOME='{}' codex", home.display())), "a login line for a person: {out}");
     assert!(why("agent-account-odd").contains("MACHINE"), "{doctor}");
     assert!(!doctor.to_string().contains("sk-ant-very-secret"));
