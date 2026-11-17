@@ -45,7 +45,7 @@ async fn a_codex_worker_runs_on_the_host_s_model_settings_and_no_other_setting_o
 }
 
 /// The shell word that opens at `at` in `line`, unquoted: `'…'` with `'\''` inside.
-fn quoted_word(line: &str, at: usize) -> String {
+pub fn quoted_word(line: &str, at: usize) -> String {
     let (mut word, mut rest) = (String::new(), &line[at + 1..]);
     loop {
         let end = rest.find('\'').unwrap();

@@ -108,10 +108,15 @@ async fn the_kit_takes_only_harnesses_factorium_starts_and_names_them_all() {
 
 /// A worker of `h` whose kit names a stand-in program, its line run as its
 /// terminal would: the worker, its line, and the directory the program
-/// started in and its environment.
-async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, HashMap<String, String>) {
-    let (program, ran) = (w.dir.join("program"), w.dir.join("ran"));
-    std::fs::write(&program, format!("#!/bin/sh\n{{ pwd -P; env -0; }} > '{}'\n", ran.display())).unwrap();
+/// started in, its environment and its arguments.
+async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, HashMap<String, String>, String) {
+    let (program, ran, args) = (w.dir.join("program"), w.dir.join("ran"), w.dir.join("args"));
+    let script = format!(
+        "#!/bin/sh\n{{ pwd -P; env -0; }} > '{}'\nprintf '%s\\n' \"$@\" > '{}'\n",
+        ran.display(),
+        args.display()
+    );
+    std::fs::write(&program, script).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
     w.app.kit_set(&[format!("{}={}", h.key(), program.display())]).await.unwrap();
@@ -125,7 +130,7 @@ async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, 
     let said = std::fs::read_to_string(&ran).unwrap();
     let (dir, env) = said.split_once('\n').unwrap();
     let env = env.split('\0').filter_map(|v| v.split_once('=')).map(|(k, v)| (k.into(), v.into())).collect();
-    (wk, line, PathBuf::from(dir), env)
+    (wk, line, PathBuf::from(dir), env, std::fs::read_to_string(&args).unwrap())
 }
 
 #[tokio::test]
@@ -137,7 +142,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         w.commit(&repo, RULES, "Always run the linter.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
-        let (wk, line, dir, env) = started(&w, h).await;
+        let (wk, line, dir, env, args) = started(&w, h).await;
         let kept = w.dir.join("data").join("kept").join(key);
         let home = h.home(&w.host.home(), None, &kept);
         let at = |path: &str| std::fs::canonicalize(path).unwrap();
@@ -145,15 +150,17 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         let role = role.to_string_lossy();
         assert!(std::fs::read_to_string(at(&role).join(RULES)).unwrap().contains("You are a factorium worker"));
 
-        // The guard is asked before each tool call: given on its line, or by
-        // what its home keeps, the line setting what that names.
-        let guard = format!("guard {key}");
+        // The guard is asked once before each tool call, this factorium as
+        // one word whatever its path holds: given its program on its line,
+        // or by what its home keeps, the line setting what that names.
+        let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        let guard = format!("'{}' guard {key}", exe.replace('\'', "'\\''"));
         match h.guards(&home) {
-            None => assert!(line.contains(&guard), "{key}: its line gives it the guard: {line}"),
+            None => assert_eq!(args.matches(&guard).count(), 1, "{key}: its program is given the guard: {args}"),
             Some(guards) => {
                 let set = |g: &String| g.strip_prefix('$').and_then(|name| env.get(name)).unwrap_or(g).clone();
                 let asked = guards.iter().map(set).filter(|g| g.contains(&guard)).count();
-                assert_eq!(asked, 1, "{key}: one guard before each tool call: {guards:?}");
+                assert_eq!(asked, 1, "{key}: one guard {guard:?} before each tool call: {guards:?}");
                 // A home it keeps is shared by every session of its harness
                 // on its account: its line names where this session's rules are.
                 assert_eq!(env.get("FACTORIUM_WORKTREE").map(|d| d.as_str()), Some(worktree), "{key}");
@@ -238,8 +245,10 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness/store.rs: fn write_session",
         "lib.rs: mod account",
         "lib.rs: use harness::{Harness, Stop}",
+        "lib.rs: use line::secrets_file",
         "lib.rs: use start::{Home, Kept, Launch, RULES, SKILLS, Start}",
         "lib.rs: use turn::Turn",
+        "line.rs: fn secrets_file",
         "start.rs: const RULES",
         "start.rs: const SKILLS",
         "start.rs: enum Kept",

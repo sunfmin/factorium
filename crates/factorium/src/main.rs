@@ -150,7 +150,8 @@ enum IssueCmd {
         #[arg(long)]
         closed: bool,
     },
-    /// Answers one issue.
+    /// Answers one issue, with its comments: what the owner, its workers,
+    /// the watch and factorium said about it, each with who and when (ms).
     Show { checkout: String, number: u64 },
     /// Changes an issue's title or body.
     Edit {
@@ -224,7 +225,8 @@ enum WorkerCmd {
     Gate,
     /// Asks to land your branch. Then stop: you are told if it is red.
     Done,
-    /// Hands you to the watch with what you need. Then stop.
+    /// Hands you to the watch with what you need, kept as a comment on your
+    /// issue. Then stop.
     Escalate { why: String },
     /// Runs a heavy command once the machine has room, after those queued
     /// before it. Exits with its exit code.
@@ -246,7 +248,8 @@ enum WatchCmd {
         #[arg(long)]
         human: Option<String>,
     },
-    /// Sends a waiting worker back to work, told `--text`.
+    /// Sends a waiting worker back to work, told `--text`, kept as a comment
+    /// on its issue.
     Restart {
         worker: Uuid,
         #[arg(long, default_value = "The watch looked at what stopped you; go on.")]
@@ -255,8 +258,9 @@ enum WatchCmd {
         #[arg(long)]
         now: bool,
     },
-    /// Types a line at a worker; answers `submitted` (it started a turn) or
-    /// `queued` (it waits behind the worker's running turn).
+    /// Types a line at a worker, kept as a comment on its issue; answers
+    /// `submitted` (it started a turn) or `queued` (it waits behind the
+    /// worker's running turn).
     Tell {
         worker: Uuid,
         text: String,

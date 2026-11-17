@@ -332,7 +332,9 @@ async fn starting_a_parked_issue_over_discards_its_kept_worktree_and_keeps_its_b
     assert_eq!(over["status"], "parked", "its state stays");
     assert_eq!(over["abandoned"], "factorium/web-1-1-abandoned");
     assert!(!tree.exists(), "the kept worktree is gone");
-    let comment = over["comments"].as_array().unwrap().last().unwrap().as_str().unwrap().to_string();
+    let last = over["comments"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["by"], "factorium", "{last}");
+    let comment = last["text"].as_str().unwrap().to_string();
     assert!(comment.contains("`factorium/web-1-1-abandoned`") && comment.contains("wrong approach"), "{comment}");
     // Nothing is lost: the commits and what was not committed are on it.
     let old = "factorium/web-1-1-abandoned";
@@ -516,7 +518,7 @@ async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
     let a = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
     assert!(!a.contains("## Comments"), "{a}");
     let b = std::fs::read_to_string(w.dir.join("data/briefs/web-2-1.md")).unwrap();
-    assert!(b.contains("## Comments\n\n- use the v2 API\n"), "{b}");
+    assert!(b.contains("## Comments\n\n- owner: use the v2 API\n"), "{b}");
 }
 
 #[tokio::test]

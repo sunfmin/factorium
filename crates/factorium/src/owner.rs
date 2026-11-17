@@ -10,13 +10,12 @@ use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
 use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
-use factorium_domain::{issue_id, line_id, worker_id};
+use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
 use factum::{Model, Uuid, Value};
 use serde_json::json;
 
-use crate::work::holds_own;
-use crate::{Answer, App, Refusal, fail};
+use crate::{Answer, App, Refusal};
 
 pub(crate) fn model() -> Model {
     Model::new()
@@ -165,7 +164,7 @@ impl App {
             "blocked_by": i.blocked_by,
             "reason": i.reason,
             "worker": i.worker,
-            "comments": i.comments,
+            "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
         }))
     }
 
@@ -214,37 +213,19 @@ impl App {
             ));
         }
         let c = self.checkout(checkout).await?;
-        let git = self.host.git(&c.path);
-        let last = match issue.attempts {
-            0 => None,
-            n => self.state::<worker::Workers>(worker_id(checkout, number, n)).await?.started,
-        };
-        let tip = git.fetch(&c.proving).ok();
-        let Some(st) = last.filter(|st| Path::new(&st.worktree).exists() && holds_own(&git, st, tip.as_deref())) else {
+        let Some((worktree, abandoned)) = self.discard_kept(&c, &issue).await? else {
             let mut shown = self.issue_show(checkout, number).await?;
             shown["discarded"] = json!(false);
             shown["said"] = json!("nothing was kept to discard: the next start begins from the proving tip");
             return Ok(shown);
         };
-        let tree = git.at(&st.worktree);
-        if tree.dirty().map_err(fail("git"))? {
-            tree.run(&["add", "-A"]).map_err(fail("git"))?;
-            let message = format!("Uncommitted work of {}, kept at start-over", st.branch);
-            tree.run(&["commit", "--quiet", "--no-verify", "-m", &message]).map_err(fail("git"))?;
-        }
-        let abandoned = format!("{}-abandoned", st.branch);
-        let head = tree.sha("HEAD").map_err(fail("git"))?;
-        git.run(&["branch", "--no-track", &abandoned, &head]).map_err(fail("git"))?;
-        let path = Path::new(&st.worktree);
-        self.host.orca().remove(path).map_err(fail("orca"))?;
-        git.forget(path, &st.branch);
         let text = format!(
             "Started over: attempt {}'s worktree was discarded; its branch is kept as `{abandoned}` (not landed). Why: {why}",
             issue.attempts
         );
-        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text }).await?;
+        self.note(checkout, number, Author::Factorium, &text).await?;
         let mut shown = self.issue_show(checkout, number).await?;
-        shown["discarded"] = json!(st.worktree);
+        shown["discarded"] = json!(worktree);
         shown["abandoned"] = json!(abandoned);
         Ok(shown)
     }
@@ -259,7 +240,7 @@ impl App {
     /// `delivery` says how; `undelivered`, why it did not reach the worker.
     /// Comments factorium writes itself are recorded only.
     pub async fn issue_comment(&self, checkout: &str, number: u64, text: &str) -> Answer {
-        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into() }).await?;
+        self.note(checkout, number, Author::Owner, text).await?;
         let (delivery, why) = match self.issue(checkout, number).await?.worker {
             Some(worker) => self.pass_comment(worker, text).await?,
             None => ("none", None),
@@ -270,6 +251,14 @@ impl App {
             shown["undelivered"] = json!(why);
         }
         Ok(shown)
+    }
+
+    /// Records a comment on an issue, the one record of what is said about
+    /// it: by the owner, its workers, the watch, and factorium. Recording
+    /// passes it to no one.
+    pub(crate) async fn note(&self, checkout: &str, number: u64, by: Author, text: &str) -> Answer<()> {
+        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into(), by }).await?;
+        Ok(())
     }
 
     /// Makes issue `number` wait for issue `by` of the same checkout, or,

@@ -6,6 +6,7 @@
 mod daemon;
 mod gate;
 mod heavy;
+mod kept;
 mod launch;
 mod line;
 mod owner;

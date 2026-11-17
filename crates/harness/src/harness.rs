@@ -213,7 +213,7 @@ impl Harness {
     /// once, its home being `home`: the harness, told that home.
     pub(crate) fn login_line(self, home: &Path) -> String {
         let Login::Machine { user_dir } = self.login() else { return String::new() };
-        format!("{user_dir}={} {}", crate::line::quoted(&home.to_string_lossy()), self.key())
+        crate::line::login(user_dir, &home.to_string_lossy(), self.key())
     }
 
     /// How an account of it is logged in.
@@ -345,6 +345,10 @@ fn launch<K: Kind>(start: &Start) -> Result<Launch, String> {
     }
     let line = K::added(line.fixed(" && ").launch(&command::<K>(start.command)), start).done();
     let (line, typed) = K::briefed(line, start.brief);
+    let line = match start.secrets {
+        Some(file) => crate::line::secrets_first(file, &line),
+        None => line,
+    };
     Ok(Launch { kept, line, typed })
 }
 
@@ -353,6 +357,6 @@ fn command<K: Kind>(given: &str) -> String {
     if K::STOCK_ARGUMENTS.is_empty() || given.contains(char::is_whitespace) {
         given.to_string()
     } else {
-        format!("{given} {}", K::STOCK_ARGUMENTS)
+        Line::new().launch(given).fixed(" ").fixed(K::STOCK_ARGUMENTS).done()
     }
 }

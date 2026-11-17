@@ -4,6 +4,7 @@
 use factorium_harness::Harness;
 
 use crate::harnesses::write_session;
+use crate::one_harness::quoted_word;
 use crate::{World, worker};
 use factorium::host::Host;
 
@@ -34,7 +35,9 @@ async fn an_account_is_usable_only_by_the_way_its_harness_logs_in() {
 
 #[tokio::test]
 async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_read() {
-    let w = World::new();
+    // A data directory a shell would split, or end a quote in: the secrets
+    // file's path is one word of the line all the same.
+    let w = World::on("it's a dir $HOME/factorium.db");
     w.host.tokens.lock().unwrap().insert(
         "agent-account-team".into(),
         r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
@@ -42,7 +45,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let secrets = w.dir.join("data").join("secrets");
+    let secrets = w.db.parent().unwrap().join("secrets");
     *w.host.orca.refuse_open.lock().unwrap() = true;
     let refused = w.app.tick().await.unwrap_err();
     assert!(refused.message.contains("orca terminal create: terminal_create_failed"), "not the kit's: {refused:?}");
@@ -67,7 +70,8 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     assert!(!line.contains(&format!("{bin}::")), "{line}");
     // What the shell does with the line's start: read the secret, remove the file.
     let parts: Vec<&str> = line.splitn(3, " && ").collect();
-    let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
+    let file = quoted_word(parts[0], 2);
+    assert!(file.starts_with(&secrets.to_string_lossy().into_owned()), "{file}");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let shell = format!("{} && {} && printenv CLAUDE_CODE_OAUTH_TOKEN", parts[0], parts[1]);

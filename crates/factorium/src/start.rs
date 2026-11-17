@@ -1,10 +1,8 @@
 //! Starting sessions: a worker on an issue, and the watch. A worker resumes
 //! in the worktree its issue's last attempt kept, if that one holds work
-//! that is nowhere else ([`holds_own`]); else it gets a worktree branched
-//! from the proving tip. Either way it gets its brief; the session itself is
+//! that is nowhere else; else it gets a worktree branched from the proving
+//! tip ([`crate::kept`]). Either way it gets its brief; the session itself is
 //! opened as [`crate::launch`] says.
-
-use std::path::{Path, PathBuf};
 
 use factorium_domain::issue::{Take, TakeIssue};
 use factorium_domain::watch::{self, StartWatch};
@@ -13,8 +11,8 @@ use factorium_domain::worker_id;
 use factorium_host::Term;
 use serde_json::json;
 
+use crate::kept::Resumed;
 use crate::launch::{Opened, Pick, Role};
-use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
 impl App {
@@ -25,12 +23,10 @@ impl App {
         let issue = self.issue(checkout, number).await?;
         let attempt = issue.attempts + 1;
         let worker = worker_id(checkout, number, attempt);
-        let before = match issue.attempts {
-            0 => None,
-            last => self.state::<w::Workers>(worker_id(checkout, number, last)).await?.started,
-        };
+        // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.
+        let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
         self.submit::<TakeIssue>(Take { checkout: checkout.into(), number, worker }).await?;
-        match self.open_worker(&c, &issue, attempt, worker, &pick, before) {
+        match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
             Ok(st) => {
                 let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
                 self.submit::<w::StartWorker>(w::Start { worker, started: st }).await?;
@@ -45,34 +41,18 @@ impl App {
         }
     }
 
-    fn open_worker(
+    async fn open_worker(
         &self,
         c: &factorium_domain::checkout::Checkout,
         issue: &factorium_domain::issue::Issue,
         attempt: u32,
         worker: factum::Uuid,
         pick: &Pick,
-        before: Option<Started>,
+        tip: String,
     ) -> Answer<Started> {
-        let git = self.host.git(&c.path);
-        let tip = git.fetch(&c.proving).map_err(fail("git"))?;
         let name = format!("{}-{}-{attempt}", c.name, issue.number);
-        let kept = before.filter(|b| Path::new(&b.worktree).exists() && holds_own(&git, b, Some(&tip)));
-        let (path, branch, resumed) = match kept {
-            Some(b) => {
-                let here = git.at(&b.worktree);
-                let resumed = Resumed {
-                    commits: here.commits(&tip, &b.branch).map_err(fail("git"))?,
-                    changes: here.changes().map_err(fail("git"))?,
-                };
-                (PathBuf::from(b.worktree), b.branch, Some(resumed))
-            }
-            None => {
-                let branch = format!("factorium/{name}");
-                let made = self.host.orca().worktree(Path::new(&c.path), &name, &branch, &tip).map_err(fail("orca"))?;
-                (made.path, made.branch, None)
-            }
-        };
+        let next = self.next_worktree(c, issue, &name, &tip).await?;
+        let (path, branch, resumed) = (next.path, next.branch, next.resumed);
         let title = format!("{}#{}", c.name, issue.number);
         let brief = worker_brief(c, issue, &branch, resumed.as_ref());
         let role = Role::Worker { id: worker, worktree: &path, name: &name, title: &title, brief: &brief };
@@ -123,14 +103,6 @@ impl App {
     }
 }
 
-/// What a resumed worktree holds that is nowhere else, as it was found.
-struct Resumed {
-    /// Its branch's commits not on the proving tip, newest first.
-    commits: Vec<String>,
-    /// Its files with changes not committed.
-    changes: Vec<String>,
-}
-
 /// The brief a worker is handed: its issue, what an earlier attempt left in
 /// its worktree, and how it finishes.
 fn worker_brief(
@@ -143,7 +115,7 @@ fn worker_brief(
     if !i.comments.is_empty() {
         b.push_str("\n## Comments\n\n");
         for comment in &i.comments {
-            b.push_str(&format!("- {comment}\n"));
+            b.push_str(&format!("- {}: {}\n", comment.by, comment.text));
         }
     }
     let made = match resumed {
