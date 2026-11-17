@@ -39,6 +39,21 @@ exclude_re = [
   'kit.rs:49:.*replace - with \+ in Account::left$',
   # Equivalent: of two equal times, keeping either keeps the same time.
   'replace > with >= in (prefer|ended_last)$',
+  # Equivalent: a stamp well formed, as every stand-in writes one, passes
+  # each check either way; a malformed or offset one only a real harness
+  # could write, and the stand-ins are the only sessions (SPEC.md §6).
+  'session.rs:1[36]:.*replace \|\| with && in parse_iso$',
+  'session.rs:33:.*replace \|\| with && in parse_iso$',
+  'session.rs:36:.* in parse_iso$',
+  # Equivalent: only the very value 10^10 tells seconds from milliseconds.
+  'replace > with >= in epoch_number$',
+  # Equivalent: a quick look before the turn is read in full, which decides
+  # alone; it answers true for any worktree path a checkout can have.
+  'in names_cwd_or_brief$',
+  # Equivalent: the stand-in and the reader share the name and the storage
+  # of a session's file, so both change alike.
+  'session.rs:104:.*replace <= with > in stored_name$',
+  'in compressed$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',

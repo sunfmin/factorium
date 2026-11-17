@@ -840,3 +840,26 @@ async fn of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks() {
     assert!(!both(&[(false, 5)], &[(false, 59)]).await, "it ended a minute ago");
     assert!(both(&[(false, 5)], &[(false, 6)]).await, "it ended 54 min ago");
 }
+
+#[tokio::test]
+async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
+    // Year's end at 23:59, a leap day, the day after: each end at :47.
+    for end in [1_830_297_587_u64, 1_835_440_487, 1_835_481_647] {
+        let w = World::new();
+        w.checkout("web").await;
+        w.kit().await;
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        let minute = end - 47;
+        w.advance(((minute - 600 - (w.app_now() / 1000) as u64) / 60) as i64);
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        write_session(&w, Harness::ClaudeCode, None, wk["worktree"].as_str().unwrap(), false, end);
+        // The silent bound is 30 min: 47s short of it, then 13s past it.
+        w.advance(40);
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["status"], "working", "{end}: ended 29m13s ago");
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["status"], "waiting", "{end}: ended 30m13s ago");
+    }
+}
