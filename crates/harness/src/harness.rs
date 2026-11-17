@@ -108,6 +108,18 @@ impl Harness {
         each!(self, KEPT_LINKS).first().map(|link| link.kept)
     }
 
+    /// The line a person runs on a login account's machine to log it in
+    /// once, its home being `home`: the harness, told that home.
+    pub(crate) fn login_line(self, home: &Path) -> String {
+        let dir = match self {
+            Harness::Codex => codex::USER_DIR,
+            Harness::Grok => grok::USER_DIR,
+            Harness::Kimi => kimi::USER_DIR,
+            _ => return String::new(),
+        };
+        format!("{dir}={} {}", crate::line::quoted(&home.to_string_lossy()), self.key())
+    }
+
     /// Where its sessions keep their files on this host, decided once from
     /// the host user's home `user_home`, the session's `account` and the
     /// directory `kept` this host keeps for the harness: a login account's

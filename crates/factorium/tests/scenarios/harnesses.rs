@@ -110,6 +110,60 @@ fn this_machine() -> String {
 }
 
 #[tokio::test]
+async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_the_rest() {
+    let w = World::new();
+    let codex = |machine: &str| format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{machine}"}}}}"#);
+    {
+        let mut tokens = w.host.tokens.lock().unwrap();
+        tokens.insert("agent-account-away".into(), codex("some-other-mac"));
+        tokens.insert("agent-account-out".into(), codex(&this_machine()));
+        tokens.insert("agent-account-odd".into(), r#"{"fields":{"HARNESS":"codex"}}"#.into());
+        tokens.insert(
+            "agent-account-team".into(),
+            r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+        );
+    }
+
+    let doctor = w.app.doctor().await.unwrap();
+    let skipped = doctor["accounts_skipped"].as_array().unwrap();
+    let why = |secret: &str| {
+        let s = skipped.iter().find(|s| s["secret"] == secret).unwrap_or_else(|| panic!("{secret}: {doctor}"));
+        s["why"].as_str().unwrap().to_string()
+    };
+    assert_eq!(skipped.len(), 3, "the token account is usable: {doctor}");
+    assert!(why("agent-account-away").contains("its login is on `some-other-mac`"), "{doctor}");
+    let home = w.host.home().join(".agent-accounts").join("out");
+    let out = why("agent-account-out");
+    assert!(out.contains("not logged in here"), "{out}");
+    assert!(out.contains(&format!("CODEX_HOME='{}' codex", home.display())), "a login line for a person: {out}");
+    assert!(why("agent-account-odd").contains("MACHINE"), "{doctor}");
+    assert!(!doctor.to_string().contains("sk-ant-very-secret"));
+    assert_eq!(doctor["findings"], serde_json::json!([]), "an account here or not is no finding for the watch");
+    let accounts = w.app.accounts().await.unwrap();
+    let names: Vec<&str> = accounts.as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["team"]);
+
+    // Logged in, it is usable here and a session starts on it.
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("auth.json"), "{}").unwrap();
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["accounts_skipped"].as_array().unwrap().iter().all(|s| s["secret"] != "agent-account-out"));
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["account"], "out");
+}
+
+#[tokio::test]
+async fn doctor_says_when_mytokens_lists_no_account() {
+    let w = World::new();
+    w.host.missing.lock().unwrap().push("mytokens".into());
+    let doctor = w.app.doctor().await.unwrap();
+    assert_eq!(doctor["accounts_skipped"][0]["secret"], "mytokens", "{doctor}");
+}
+
+#[tokio::test]
 async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_there() {
     let w = World::new();
     let account = w.host.home().join(".agent-accounts").join("night");
@@ -325,9 +379,11 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     }
     offered.sort();
     let expected = [
-        "account.rs: fn usable",
+        "account.rs: fn here",
+        "account.rs: struct Here",
+        "account.rs: struct Skipped",
         "account.rs: struct Usable",
-        "account.rs: trait Source",
+        "account.rs: type Mytokens",
         "harness.rs: const fn key",
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
