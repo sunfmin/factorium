@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::issue::{Author, ReleaseIssue, Take};
+use factorium_domain::issue::Author;
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
@@ -82,23 +82,5 @@ impl App {
         let job = Job { what: cmd.into(), worker, dir, steps: &steps, env: &[], limit };
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
-    }
-
-    /// Ends a worker and frees its issue; its worktree goes if `remove` and
-    /// it holds nothing that is nowhere else ([`crate::kept`]).
-    pub(crate) async fn end_worker(&self, worker: Uuid, why: &str, remove: bool) -> Answer<()> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started else { return Ok(()) };
-        self.close_worker_session(worker, &st).await?;
-        if wk.status != Status::Ended {
-            self.submit::<w::EndWorker>(w::Because { worker, why: why.into() }).await?;
-        }
-        let take = Take { checkout: st.checkout.clone(), number: st.number, worker };
-        match self.submit::<ReleaseIssue>(take).await {
-            Ok(()) => {}
-            Err(r) if r.code == "no_issue" || r.code == "ended" => {}
-            Err(r) => return Err(r),
-        }
-        self.release_worker(worker, remove).await
     }
 }

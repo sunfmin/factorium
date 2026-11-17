@@ -7,6 +7,7 @@
 
 mod accounts;
 mod admission;
+mod base;
 mod bounds;
 mod comment;
 mod daemon;
@@ -558,6 +559,20 @@ impl World {
             into.lock().unwrap().push(doctor.join().unwrap());
         }));
         found
+    }
+
+    /// The database refuses to record events of `kind` while `refuses`,
+    /// as a full disk or a failing one would: the write is aborted.
+    pub fn db_refuses(&self, kind: &str, refuses: bool) {
+        let db = rusqlite::Connection::open(&self.db).unwrap();
+        db.execute_batch("DROP TRIGGER IF EXISTS refuses").unwrap();
+        if refuses {
+            let sql = format!(
+                "CREATE TRIGGER refuses BEFORE INSERT ON events WHEN NEW.kind = '{kind}' \
+                 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END"
+            );
+            db.execute_batch(&sql).unwrap();
+        }
     }
 
     pub fn set_screen(&self, handle: &str, lines: &[&str]) {

@@ -10,6 +10,7 @@ mod health;
 mod launch;
 mod outbox;
 
+use factorium_domain::doctor::{Terminal, Unclosed};
 use factorium_domain::health::Sight;
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, EndWatch, Watch, Watches, watch_id};
@@ -160,16 +161,16 @@ impl App {
         Err(refused.map_or(still.clone(), |r| format!("Orca refused to close it ({r}); {still}")))
     }
 
-    /// Closes a worker's terminal and records how that went. Run before the
-    /// worker is recorded ended: Orca lists a terminal until its close
-    /// returns (seconds, for an agent's), and an ended worker's listed
-    /// terminal is an orphan, which the watch would close in its stead.
-    pub(crate) async fn close_worker_session(&self, worker: Uuid, st: &w::Started) -> Answer<()> {
+    /// Closes a worker's terminal and records how that went; answers why it
+    /// is not closed, if it is not. Run before the worker is recorded
+    /// ended ([`App::finish`]).
+    pub(crate) async fn close_worker_session(&self, worker: Uuid, st: &w::Started) -> Answer<Option<String>> {
         let failed = self.close_terminal(&st.terminal).err();
-        match self.submit::<w::NoteClosed>(w::Closed { worker, failed }).await {
-            // An ended worker's record stays as it was; Orca's list shows the rest.
-            Err(r) if r.code == "ended" => Ok(()),
-            other => other,
+        match self.submit::<w::NoteClosed>(w::Closed { worker, failed: failed.clone() }).await {
+            // An ended worker's record stays as it was, and one never
+            // recorded started has none: Orca's list shows the rest.
+            Err(r) if r.code == "ended" || r.code == "no_worker" => Ok(failed),
+            other => other.map(|()| failed),
         }
     }
 
@@ -192,31 +193,33 @@ impl App {
     /// known, and every failed close as recorded.
     pub(crate) async fn orphans(&self, watch: &Watch) -> Answer<Orphans> {
         let (mut opened, mut held) = (watch.opened.clone(), Vec::new());
-        let mut unclosed: Vec<(String, String, String)> =
-            watch.unclosed.iter().map(|(t, why)| (t.clone(), launch::WATCH_TITLE.into(), why.clone())).collect();
+        let unclose =
+            |handle: &str, title: String, why: &str| Unclosed { handle: handle.into(), title, why: why.into() };
+        let mut unclosed: Vec<Unclosed> =
+            watch.unclosed.iter().map(|(t, why)| unclose(t, launch::WATCH_TITLE.into(), why)).collect();
         for r in self.rows(tracker::workers(None, true)).await? {
             if r.state.status != Status::Ended {
                 held.push(r.terminal.clone());
             }
             if let Some(why) = r.close_failed {
-                unclosed.push((r.terminal.clone(), format!("{}#{}", r.checkout, r.number), why));
+                unclosed.push(unclose(&r.terminal, format!("{}#{}", r.checkout, r.number), &why));
             }
             opened.push(r.terminal);
         }
         held.extend(watch.terminal.clone());
         let Ok(listed) = self.terminals() else { return Ok((Vec::new(), unclosed)) };
-        unclosed.retain(|(h, _, _)| listed.iter().any(|(l, _)| l == h) && !held.contains(h));
+        unclosed.retain(|u| listed.iter().any(|(l, _)| *l == u.handle) && !held.contains(&u.handle));
         let orphans = listed
             .into_iter()
-            .filter(|(h, _)| opened.contains(h) && !held.contains(h) && !unclosed.iter().any(|(u, _, _)| u == h))
+            .filter(|(h, _)| opened.contains(h) && !held.contains(h) && !unclosed.iter().any(|u| u.handle == *h))
+            .map(|(handle, title)| Terminal { handle, title })
             .collect();
         Ok((orphans, unclosed))
     }
 }
 
-/// Doctor's orphans, (handle, title), and the terminals whose close failed,
-/// (handle, title, why).
-pub(crate) type Orphans = (Vec<(String, String)>, Vec<(String, String, String)>);
+/// Doctor's orphans and the terminals whose close failed.
+pub(crate) type Orphans = (Vec<Terminal>, Vec<Unclosed>);
 
 /// A screen's hash: whether it changed between two looks.
 fn hash(screen: &[String]) -> u64 {

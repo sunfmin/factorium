@@ -11,7 +11,6 @@ use factorium_domain::issue::Issue;
 use factorium_domain::worker::{Started, Workers};
 use factorium_domain::worker_id;
 use factorium_host::Git;
-use factum::Uuid;
 
 use crate::{Answer, App, fail};
 
@@ -69,13 +68,11 @@ impl App {
 
     /// Frees an ended worker's worktree: it goes if `remove` and it holds
     /// nothing that is nowhere else.
-    pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started else { return Ok(()) };
+    pub(crate) async fn release_worker(&self, st: &Started, remove: bool) -> Answer<()> {
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
-        if remove && !holds_own(&git, &st, tip(&git, &c).as_deref()) {
-            self.remove_worktree(&git, &st)?;
+        if remove && !holds_own(&git, st, tip(&git, &c).as_deref()) {
+            self.remove_worktree(&git, st)?;
         }
         Ok(())
     }

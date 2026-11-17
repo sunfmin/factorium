@@ -3,6 +3,8 @@
 //! and why not ([`Line::due`]). The caller does the git and gate work, and
 //! records what it did as [`LineEvent`]s.
 
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -115,22 +117,56 @@ pub struct Look {
     pub idle: bool,
     /// Of those asking to land, the one that asked first.
     pub asks: Option<Uuid>,
-    /// How long the oldest unpromoted landing waits at most, ms.
-    pub promotion_bound: i64,
-    /// How long the oldest uncut promotion waits at most, ms.
-    pub cut_bound: i64,
+    pub bounds: Bounds,
     /// Asked for by hand: the bounds and a red tip or failed cut do not hold it.
     pub by_hand: bool,
 }
 
-impl Look {
-    /// Whether what began at `since` has waited `bound` ms.
-    fn waited(&self, since: i64, bound: i64) -> bool {
-        self.now - since >= bound
+/// How long what the line owes waits at most, ms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bounds {
+    /// The oldest unpromoted landing.
+    pub promotion: i64,
+    /// The oldest uncut promotion.
+    pub cut: i64,
+}
+
+/// What the line owes, a promotion or a cut: since when, its bound, and
+/// how the wait so far stands to that bound. A move owed is due once it
+/// has waited its bound, and overdue past it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owed {
+    pub since: i64,
+    /// The bound, ms.
+    pub bound: i64,
+    pub wait: Ordering,
+}
+
+impl Owed {
+    /// It has waited its bound: due however busy the repo is.
+    pub fn due(&self) -> bool {
+        self.wait.is_ge()
+    }
+
+    /// It has waited past its bound.
+    pub fn overdue(&self) -> bool {
+        self.wait.is_gt()
     }
 }
 
 impl Line {
+    /// What the line owes of `mv` at `now`: a promotion of its oldest
+    /// unpromoted landing, a cut of its oldest uncut promotion. A landing
+    /// is asked for, not owed.
+    pub fn owed(&self, mv: Move, now: i64, bounds: &Bounds) -> Option<Owed> {
+        let (since, bound) = match mv {
+            Move::Land => return None,
+            Move::Promote => (self.unpromoted.first()?.at, bounds.promotion),
+            Move::Cut => (*self.uncut.first()?, bounds.cut),
+        };
+        Some(Owed { since, bound, wait: (now - since).cmp(&bound) })
+    }
+
     /// Whether `mv` is due now, or why not, in one call. `tip` reads the
     /// proving tip: it is called only for a promotion due on everything
     /// else, which is then judged on that tip, and its error is passed up
@@ -161,8 +197,10 @@ impl Line {
 
     /// Whether a promotion is due on everything but the proving tip.
     fn promotable(&self, look: &Look) -> Result<(), NotDue> {
-        let Some(oldest) = self.unpromoted.first() else { return Err(NotDue::NothingToPromote) };
-        if !(look.by_hand || look.idle || look.waited(oldest.at, look.promotion_bound)) {
+        let Some(owed) = self.owed(Move::Promote, look.now, &look.bounds) else {
+            return Err(NotDue::NothingToPromote);
+        };
+        if !(look.by_hand || look.idle || owed.due()) {
             return Err(NotDue::Busy);
         }
         Ok(())
@@ -177,14 +215,14 @@ impl Line {
     }
 
     fn cut(&self, look: &Look) -> Result<Due, NotDue> {
-        let Some(&oldest) = self.uncut.first() else {
+        let Some(owed) = self.owed(Move::Cut, look.now, &look.bounds) else {
             return Err(NotDue::NothingToCut);
         };
         if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
             return Err(NotDue::CutFailed { version: version.clone(), why: why.clone() });
         }
         let settled = look.idle && self.unpromoted.is_empty();
-        if !(look.by_hand || settled || look.waited(oldest, look.cut_bound)) {
+        if !(look.by_hand || settled || owed.due()) {
             return Err(NotDue::Unsettled);
         }
         Ok(Due::Cut)

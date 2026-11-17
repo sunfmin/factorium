@@ -9,7 +9,7 @@
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
-pub use crate::neutral::landing::{Due, Landing, Line, LineEvent, Move, NotDue};
+pub use crate::neutral::landing::{Bounds, Due, Landing, Line, LineEvent, Move, NotDue, Owed};
 use crate::settings::{Settings, Time};
 use crate::worker::Status;
 use crate::{command, line_id, no};
@@ -34,10 +34,14 @@ pub fn look(now: i64, settings: &Settings, workers: &[(Uuid, Status)], by_hand: 
         now,
         idle: workers.iter().all(|(_, s)| *s == Status::Waiting),
         asks: workers.iter().find(|(_, s)| *s == Status::Landing).map(|(w, _)| *w),
-        promotion_bound: settings.ms(Time::PromotionBound),
-        cut_bound: settings.ms(Time::CutBound),
+        bounds: bounds(settings),
         by_hand,
     }
+}
+
+/// How long what the line owes waits at most, from the settings.
+pub fn bounds(settings: &Settings) -> Bounds {
+    Bounds { promotion: settings.ms(Time::PromotionBound), cut: settings.ms(Time::CutBound) }
 }
 
 /// Why a move is not due, in the words the CLI answers.
