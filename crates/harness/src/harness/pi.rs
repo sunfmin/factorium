@@ -73,6 +73,12 @@ fn kept(_start: &Start) -> Vec<(&'static str, String)> {
     vec![(EXTENSION_FILE, include_str!("pi/extension.js").to_string())]
 }
 
+/// The guard line the kept extension runs: its variable's, where it reads it.
+fn guards(home: &std::path::Path) -> Vec<String> {
+    let extension = std::fs::read_to_string(home.join(EXTENSION_FILE)).unwrap_or_default();
+    extension.contains(GUARD_ENV).then(|| format!("${GUARD_ENV}")).into_iter().collect()
+}
+
 /// The tool pi runs shell lines with.
 const SHELL_TOOL: &str = "bash";
 /// The exit code with which the guard refuses a call of pi's: the tool's
@@ -264,6 +270,12 @@ impl Kind for Pi {
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(kept(start))
+    }
+
+    const TOLD_IN: Option<&'static str> = None;
+
+    fn guards(home: &std::path::Path) -> Option<Vec<String>> {
+        Some(guards(home))
     }
 
     fn start_dir<'a>(start: &Start<'a>) -> &'a str {

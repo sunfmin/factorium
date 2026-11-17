@@ -32,6 +32,13 @@ const KEPT_LINKS: &[Link] = &[
 
 /// The plugin that asks the guard, as the overlay names it.
 const PLUGIN: &str = "factorium.mjs";
+/// The overlay that mounts it, and the script the line starts DSH through.
+const OVERLAY: &str = "factorium.patch.yml";
+const START: &str = "start.sh";
+/// What the overlay injects the plugin as.
+const INJECTED: &str = "factoriumGuard";
+/// The variable the plugin reads the line that runs the guard from.
+const GUARD_ENV: &str = "FACTORIUM_GUARD";
 
 /// What the host keeps for DSH beside the links: the tool's profile, which
 /// loads none of the host user's patches; the overlay that mounts nothing
@@ -42,11 +49,21 @@ fn kept(start: &Start) -> Vec<(&'static str, String)> {
     vec![
         ("profiles/dsh-tui/package.json", include_str!("dsh/profile.json").into()),
         ("profiles/dsh-tui/cordis.yml", "[]\n".into()),
-        ("factorium.patch.yml", include_str!("dsh/overlay.yml").replace("@FACTORIUM_DSH_PLUGIN@", &plugin)),
+        (OVERLAY, include_str!("dsh/overlay.yml").replace("@FACTORIUM_DSH_PLUGIN@", &plugin)),
         ("sandbox.patch.yml", include_str!("dsh/sandbox.yml").into()),
         (PLUGIN, include_str!("dsh/plugin.mjs").into()),
-        ("start.sh", include_str!("dsh/start.sh").into()),
+        (START, include_str!("dsh/start.sh").into()),
     ]
+}
+
+/// The guard line the kept plugin runs, its variable's: where the start
+/// script starts DSH on the overlay, the overlay injects the plugin by its
+/// kept path, and the plugin reads the variable.
+fn guards(home: &std::path::Path) -> Vec<String> {
+    let read = |file: &str| std::fs::read_to_string(home.join(file)).unwrap_or_default();
+    let (overlay, plugin) = (read(OVERLAY), format!("{}/{PLUGIN}", home.display()).replace('\'', "''"));
+    let mounted = overlay.contains(INJECTED) && overlay.contains(&plugin) && read(START).contains(OVERLAY);
+    (mounted && read(PLUGIN).contains(GUARD_ENV)).then(|| format!("${GUARD_ENV}")).into_iter().collect()
 }
 
 fn environment(line: Line, start: &Start) -> Line {
@@ -62,7 +79,9 @@ fn environment(line: Line, start: &Start) -> Line {
         .fixed(" FACTORIUM_DSH_KEPT=")
         .word(start.home.dir())
         .fixed(" DSH_TUI_PROFILE=dsh-tui")
-        .fixed(" FACTORIUM_GUARD=")
+        .fixed(" ")
+        .fixed(GUARD_ENV)
+        .fixed("=")
         .word(&start.hook(Harness::Dsh))
         .fixed(" ")
         .fixed(WORKTREE_ENV)
@@ -189,6 +208,12 @@ impl Kind for Dsh {
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(kept(start))
+    }
+
+    const TOLD_IN: Option<&'static str> = None;
+
+    fn guards(home: &std::path::Path) -> Option<Vec<String>> {
+        Some(guards(home))
     }
 
     fn start_dir<'a>(start: &Start<'a>) -> &'a str {
