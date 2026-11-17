@@ -10,6 +10,7 @@ mod bounds;
 mod comment;
 mod daemon;
 mod harnesses;
+mod kept;
 mod line;
 mod path;
 mod queue;
