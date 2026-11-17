@@ -175,6 +175,16 @@ enum IssueCmd {
     Park { checkout: String, number: u64, reason: String },
     /// Readies a parked issue.
     Ready { checkout: String, number: u64 },
+    /// Starts an issue over: removes the worktree its last attempt kept, so
+    /// the next start begins from proving; the old branch is kept as
+    /// `<branch>-abandoned` and named in a comment with the why. Refused
+    /// while a worker is on it (park first); ready or parked stays as it is.
+    StartOver {
+        checkout: String,
+        number: u64,
+        #[arg(long)]
+        why: String,
+    },
     /// Adds a comment, which the next worker's brief carries.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another of its checkout (`--undo`: stop).
@@ -284,6 +294,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
             IssueCmd::Park { checkout, number, reason } => app.issue_park(&checkout, number, &reason).await,
             IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
+            IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
             IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
             IssueCmd::Block { checkout, number, by, undo } => app.issue_block(&checkout, number, by, undo).await,
         },

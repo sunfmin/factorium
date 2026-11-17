@@ -1,5 +1,5 @@
 //! The proving line's three moves: a landing merges a worker's branch onto
-//! the proving         if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) { and pushes it once the fast gate is green; a promotion
+//! the proving tip and pushes it once the fast gate is green; a promotion
 //! fast-forwards the base branch to the proving tip once the slow gate is
 //! green; a cut makes a version from the base tip. Each push requires the
 //! tip it read. Each runs in its own clone of the checkout under the data directory.
