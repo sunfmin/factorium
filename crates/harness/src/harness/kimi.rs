@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
-use crate::harness::Call;
+use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
@@ -49,7 +49,7 @@ const SYSTEM: &str = "SYSTEM.md";
 /// and works in another.
 fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
     let user = std::fs::read_to_string(start.user_home.join(USER_CONFIG)).ok();
-    let config = configuration(user.as_deref(), start.hook)?;
+    let config = configuration(user.as_deref(), &start.hook_asked(Harness::Kimi))?;
     Ok(vec![(SKIP_MIGRATION, String::new()), (CONFIG, config), (SYSTEM, format!("${{base_prompt}}\n\n{TOLD}"))])
 }
 
@@ -68,7 +68,7 @@ fn configuration(user: Option<&str>, guard: &str) -> Result<String, String> {
     table.insert("default_plan_mode".into(), Toml::from(false));
     table.insert("auto_session_title".into(), Toml::from(false));
     table.insert("builtin_product_skills".into(), Toml::from(false));
-    let mut hooks = vec![hook("PreToolUse", &guard_asked(guard), None)];
+    let mut hooks = vec![hook("PreToolUse", guard, None)];
     for event in STATE_EVENTS {
         hooks.push(hook(event, REPORT, Some(10)));
     }
@@ -108,14 +108,6 @@ const STATE_EVENTS: [&str; 17] = [
     "Notification",
 ];
 
-/// Kimi's hooks fail open on an unreadable or failed guard: every such
-/// outcome is turned into the refusal code, with the guard's reason on stderr.
-fn guard_asked(guard: &str) -> String {
-    format!(
-        "said=$({guard} 2>&1 >/dev/null) && exit 0; \
-         printf '%s\\n' \"${{said:-factorium guard: it could not be asked}}\" >&2; exit {REFUSED}"
-    )
-}
 
 /// Tells Orca of the session's state through the hook Orca installs for
 /// Kimi, where it did; prints nothing and succeeds.

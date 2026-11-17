@@ -137,7 +137,9 @@ async fn an_account_is_usable_only_by_the_way_its_harness_logs_in() {
 
 #[tokio::test]
 async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_read() {
-    let w = World::new();
+    // A data directory a shell would split, or end a quote in: the secrets
+    // file's path is one word of the line all the same.
+    let w = World::on("it's a dir $HOME/factorium.db");
     w.host.tokens.lock().unwrap().insert(
         "agent-account-team".into(),
         r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
@@ -145,7 +147,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let secrets = w.dir.join("data").join("secrets");
+    let secrets = w.db.parent().unwrap().join("secrets");
     *w.host.orca.refuse_open.lock().unwrap() = true;
     let refused = w.app.tick().await.unwrap_err();
     assert!(refused.message.contains("orca terminal create: terminal_create_failed"), "not the kit's: {refused:?}");
@@ -170,13 +172,55 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     assert!(!line.contains(&format!("{bin}::")), "{line}");
     // What the shell does with the line's start: read the secret, remove the file.
     let parts: Vec<&str> = line.splitn(3, " && ").collect();
-    let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
+    let file = quoted_word(parts[0], 2);
+    assert!(file.starts_with(&secrets.to_string_lossy().into_owned()), "{file}");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let shell = format!("{} && {} && printenv CLAUDE_CODE_OAUTH_TOKEN", parts[0], parts[1]);
     let out = std::process::Command::new("sh").args(["-c", &shell]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sk-ant-very-secret");
     assert!(!std::path::Path::new(&file).exists());
+}
+
+/// Every harness's session is given the guard hook as one line builder
+/// makes it: this factorium as one word, whatever its path holds, asked as
+/// `guard <harness>`.
+#[tokio::test]
+async fn every_harness_s_guard_hook_names_this_factorium_as_one_word() {
+    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let hook_of = |key: &str| format!("'{}' guard {key}", exe.replace('\'', "'\\''"));
+    for h in Harness::all() {
+        let key = h.key();
+        let w = World::new();
+        w.checkout("web").await;
+        w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let line = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap()).line;
+        let kept = w.dir.join("data").join("kept").join(key).join("config.toml");
+        let hooks: Vec<String> = match key {
+            "claude-code" => {
+                let settings: serde_json::Value =
+                    serde_json::from_str(&quoted_word(&line, line.find("--settings '").unwrap() + 11)).unwrap();
+                let before = settings["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+                before.iter().map(|hook| hook["command"].as_str().unwrap().to_string()).collect()
+            }
+            "codex" => {
+                let config: toml::Value = quoted_word(&line, line.find("'hooks=").unwrap()).parse().unwrap();
+                let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+                before.iter().map(|hook| hook["command"].as_str().unwrap().to_string()).collect()
+            }
+            "pi" => vec![quoted_word(&line, line.find("FACTORIUM_GUARD=").unwrap() + 16)],
+            // DSH's start line is one word of its start script's.
+            "dsh" => {
+                let inner = quoted_word(&line, line.find("/start.sh' ").unwrap() + 11);
+                vec![quoted_word(&inner, inner.find("FACTORIUM_GUARD=").unwrap() + 16)]
+            }
+            _ => guard_hooks(key, &std::fs::read_to_string(&kept).unwrap().parse().unwrap()),
+        };
+        let guard: Vec<&String> = hooks.iter().filter(|hook| hook.contains(&hook_of(key))).collect();
+        assert_eq!(guard.len(), 1, "{key}: one guard hook, {:?}, in {hooks:?}", hook_of(key));
+    }
 }
 
 /// This machine's name, as an account's `MACHINE` names it.
@@ -650,8 +694,10 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness/store.rs: fn write_session",
         "lib.rs: mod account",
         "lib.rs: use harness::{Harness, Stop}",
+        "lib.rs: use line::secrets_file",
         "lib.rs: use start::{Home, Kept, Launch, RULES, SKILLS, Start}",
         "lib.rs: use turn::Turn",
+        "line.rs: fn secrets_file",
         "start.rs: const RULES",
         "start.rs: const SKILLS",
         "start.rs: enum Kept",

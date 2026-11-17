@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
-use crate::harness::Call;
+use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
@@ -78,7 +78,7 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/grok-hook.sh\"; \
 /// What the host keeps for Grok beside the links: the configuration, and
 /// where its rules are.
 fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
-    Ok(vec![(CONFIG, configuration(start.hook)?), (TOLD_FILE, TOLD.into())])
+    Ok(vec![(CONFIG, configuration(&start.hook_asked(Harness::Grok))?), (TOLD_FILE, TOLD.into())])
 }
 
 /// The configuration a session gets. The host user's Grok config is not
@@ -103,7 +103,7 @@ fn configuration(guard: &str) -> Result<String, String> {
         Toml::Array(vec![Toml::Table([("hooks".to_string(), Toml::Array(hooks))].into_iter().collect())])
     };
     let mut hooks = toml::map::Map::new();
-    hooks.insert("PreToolUse".into(), group(vec![command(&guard_asked(guard)), command(REPORT)]));
+    hooks.insert("PreToolUse".into(), group(vec![command(guard), command(REPORT)]));
 
     for event in STATE_EVENTS {
         hooks.insert(event.into(), group(vec![command(REPORT)]));
@@ -115,14 +115,6 @@ fn configuration(guard: &str) -> Result<String, String> {
     toml::to_string_pretty(&Toml::Table(table)).map_err(|error| error.to_string())
 }
 
-/// Grok's hooks fail open on an unreadable or failed guard: every such
-/// outcome is turned into the refusal code, with the guard's reason on stderr.
-fn guard_asked(guard: &str) -> String {
-    format!(
-        "said=$({guard} 2>&1 >/dev/null) && exit 0; \
-         printf '%s\\n' \"${{said:-factorium guard: it could not be asked}}\" >&2; exit {REFUSED}"
-    )
-}
 
 fn environment(line: Line, start: &Start) -> Line {
     let line = line

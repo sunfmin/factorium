@@ -12,7 +12,7 @@ use serde_json::json;
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
-use crate::harness::Call;
+use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::RULES;
 use crate::start::Start;
@@ -109,15 +109,6 @@ const TOLD_OPENS: &str = "factorium started you, and gives you the rules below. 
      them as you do under the rules of the directory you started in.";
 const REPO_S_OWN: &str = "The repo's own rules";
 
-/// Wraps the guard line. Codex refuses a call only when a hook exits
-/// `REFUSED` having said why, and makes it on any other failure, so a
-/// refusal, a missing guard and a silent failure all end the same way here.
-const GUARD_ASKED: (&str, &str) = (
-    "said=$(",
-    " 2>&1 >/dev/null) && exit 0; \
-     printf '%s\\n' \"${said:-factorium guard: it could not be asked}\" >&2; exit 2",
-);
-
 /// Tells orca of the session's state, through the hook orca installs for
 /// Codex, where it did. It prints nothing and succeeds: Codex takes a hook's
 /// output for an answer, and only the guard answers.
@@ -153,8 +144,7 @@ fn trusted(dir: &str) -> String {
 /// The guard before every tool call, and `report` at every state change, as
 /// one configuration key. Codex adds them to the start directory's own hooks.
 fn added_hooks(guard: &str, report: &str) -> String {
-    let (before, after) = GUARD_ASKED;
-    let guard = format!("{{type=\"command\",command={}}}", toml_text(&format!("{before}{guard}{after}")));
+    let guard = format!("{{type=\"command\",command={}}}", toml_text(guard));
     let report = format!("{{type=\"command\",command={},timeout={REPORT_TIMEOUT}}}", toml_text(report));
     let mut hooks = format!("{HOOKS}={{{BEFORE_A_CALL}=[{{hooks=[{guard},{report}]}}]");
     for event in STATE_EVENTS {
@@ -234,7 +224,7 @@ fn added(line: Line, start: &Start) -> Line {
         Some(told) => line.fixed(" ").fixed(CONFIG).fixed(" ").word(&told),
         None => line,
     };
-    let mut line = isolated(line.fixed(" ").fixed(CONFIG).fixed(" ").word(&added_hooks(start.hook, REPORT)));
+    let mut line = isolated(line.fixed(" ").fixed(CONFIG).fixed(" ").word(&added_hooks(&start.hook_asked(Harness::Codex), REPORT)));
     for key in host_model(start) {
         line = line.fixed(" ").fixed(CONFIG).fixed(" ").word(&key);
     }
