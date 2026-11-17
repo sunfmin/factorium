@@ -64,6 +64,10 @@ pub struct Watch {
     /// The line still to be typed at its session to hand it its brief.
     #[serde(default)]
     pub unhanded: Option<String>,
+    /// The terminals its sessions were started in, the latest `KEPT`: the
+    /// only watch terminals this database's factorium calls its own.
+    #[serde(default)]
+    pub opened: Vec<String>,
 }
 
 /// How many reports the watch keeps in its state.
@@ -129,6 +133,9 @@ impl Aggregate for Watches {
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
             WatchEvent::WatchStarted { terminal, harness, account, typed } => {
+                s.opened.push(terminal.clone());
+                let extra = s.opened.len().saturating_sub(KEPT);
+                s.opened.drain(..extra);
                 (s.terminal, s.harness, s.account, s.unhanded) = (Some(terminal), Some(harness), account, typed)
             }
             WatchEvent::BriefHanded => s.unhanded = None,
