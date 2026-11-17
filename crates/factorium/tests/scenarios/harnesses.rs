@@ -579,15 +579,15 @@ async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() 
     let w = World::new();
     let wk = at_shell(&w).await;
     let handle = wk["terminal"].as_str().unwrap();
-    w.advance(4);
+    w.advance(5);
     w.tick().await;
-    assert_eq!(worker(&w.app).await["status"], "working", "it may yet come up");
-    w.advance(2);
+    assert_eq!(worker(&w.app).await["status"], "working", "it may yet come up: 5 min is the bound");
+    w.advance(1);
     w.tick().await;
     let waiting = worker(&w.app).await;
     assert_eq!(waiting["status"], "waiting");
     let why = waiting["why"].as_str().unwrap();
-    assert!(why.contains("not up") && why.contains("shell's"), "{why}");
+    assert!(why.contains("not up 6 min after it started") && why.contains("shell's"), "{why}");
     assert!(w.terminal(handle).sent.is_empty());
 
     // Up, handed its brief, then its program exits back to the shell.

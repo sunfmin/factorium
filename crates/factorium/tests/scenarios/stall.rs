@@ -172,8 +172,11 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     w.advance(20);
     w.tick().await;
     assert_eq!(status().await, "working", "its screen changed 20 min ago");
-    // Idle and its screen still: hung past the silent bound of 30 min.
-    w.advance(11);
+    // Idle and its screen still: hung once past the silent bound of 30 min.
+    w.advance(10);
+    w.tick().await;
+    assert_eq!(status().await, "working", "30 min is the bound, not past it");
+    w.advance(1);
     w.tick().await;
     let hung = worker(&w.app).await;
     assert_eq!(hung["status"], "waiting");

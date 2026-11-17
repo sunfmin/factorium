@@ -30,6 +30,9 @@ exclude_re = [
   # Who ran a command is recorded as each event's principal for a person
   # reading the log; no command answers it.
   'replace Caller::by -> &.static str with',
+  # Equivalent: picking a harness is refused only as `no_harness`, short
+  # of the database failing, which no scenario can make it do.
+  'replace match guard r.code == "no_harness" with true in App::ensure_watch',
   # Equivalent: releasing an issue is refused only as `ended` (a closed
   # issue); `no_issue` cannot happen for a worker's own issue.
   'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
