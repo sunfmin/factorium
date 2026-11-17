@@ -47,8 +47,8 @@ enum Seen {
     Stopped(String),
     /// Its harness is not up in its terminal (not yet, or no longer): why.
     Down(String),
-    /// A turn is open.
-    Open,
+    /// A turn is open: the hash of its screen.
+    Open(u64),
     /// Its turn closed at this time, in ms; `None`: no session file says.
     Closed(Option<i64>),
 }
@@ -97,7 +97,7 @@ impl App {
             return Seen::Down(why);
         }
         match s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief) {
-            Some(Turn::Open { .. }) => Seen::Open,
+            Some(Turn::Open { .. }) => Seen::Open(hash(&screen)),
             Some(Turn::Closed { since, .. }) => Seen::Closed(Some(since as i64 * 1000)),
             None => Seen::Closed(None),
         }
@@ -160,12 +160,39 @@ impl App {
         matches!(self.see(&s), Seen::Closed(Some(_))).then_some(s)
     }
 
-    /// Looks at one live worker, whose processes hold `load`; answers what
-    /// it found, if anything.
+    /// Hung: its turn open, its processes near idle (`quiet`) and its
+    /// screen unchanged past the silent bound — a command blocked on what
+    /// never comes. Answers why it waits, if it does.
+    async fn hung(
+        &self,
+        wk: &w::Worker,
+        worker: Uuid,
+        seen: &Seen,
+        quiet: bool,
+        s: &Settings,
+    ) -> Answer<Option<String>> {
+        let screen = match seen {
+            Seen::Open(h) if quiet && wk.status == Status::Working => Some(*h),
+            _ => None,
+        };
+        self.submit::<w::NoteQuiet>(w::Quiet { worker, screen }).await?;
+        let since = self.state::<Workers>(worker).await?.quiet.map(|(_, at)| at);
+        let now = self.now();
+        Ok(since.filter(|t| now - t > s.ms(Time::SilentBound)).map(|t| {
+            format!(
+                "hung for {} min: its turn is open, its processes use next to no CPU and its screen has not changed",
+                (now - t) / 60_000
+            )
+        }))
+    }
+
+    /// Looks at one live worker, whose processes hold `load` and are near
+    /// idle if `quiet`; answers what it found, if anything.
     pub(crate) async fn worker_health(
         &self,
         worker: Uuid,
         load: &hot::Load,
+        quiet: bool,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
         let wk = self.state::<Workers>(worker).await?;
@@ -206,6 +233,9 @@ impl App {
             let evidence = self.evidence(worker);
             return wait(format!("hot: {what}; evidence in {}", evidence.display())).await;
         }
+        if let Some(why) = self.hung(&wk, worker, &seen, quiet, settings).await? {
+            return wait(why).await;
+        }
         // Silent: its turn ended, and no done, past the bound.
         let idle_since = match seen {
             Seen::Closed(at) => at.map_or(wk.since, |t| t.max(wk.since)),
@@ -232,4 +262,12 @@ impl App {
         let _ = std::fs::write(&path, format!("    pid    ppid    cpu       rss command\n{}\n", procs.join("\n")));
         path
     }
+}
+
+/// A screen's hash: whether it changed between two looks.
+fn hash(screen: &[String]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    screen.hash(&mut h);
+    h.finish()
 }

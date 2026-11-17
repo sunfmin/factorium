@@ -11,6 +11,7 @@ mod harnesses;
 mod line;
 mod path;
 mod queue;
+mod stall;
 mod terminals;
 mod tracker;
 mod watch;

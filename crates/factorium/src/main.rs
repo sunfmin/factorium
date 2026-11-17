@@ -64,6 +64,10 @@ enum Top {
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
     Cut { checkout: String },
+    /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
+    /// queue, waiting or running: one that does not move and holds the rest
+    /// up. Its owner, if it still asks, queues again behind the rest.
+    Unqueue { entry: Uuid },
     /// Holds a checkout's landings (`--why`), or releases them (`--release`).
     Hold {
         checkout: String,
@@ -287,6 +291,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
         Top::Doctor => app.doctor().await,
         Top::Promote { checkout } => app.promote(&checkout).await,
         Top::Cut { checkout } => app.cut(&checkout).await,
+        Top::Unqueue { entry } => app.unqueue(entry).await,
         Top::Hold { checkout, why, release } => app.hold(&checkout, if release { None } else { why.as_deref() }).await,
         Top::Kit(k) => match k {
             KitCmd::Show => app.kit().await,

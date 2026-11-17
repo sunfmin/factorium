@@ -9,7 +9,7 @@ use factorium::host::Host;
 use crate::{World, id, worker};
 
 /// Lands one commit of `file` through a worker; answers the landed commit.
-async fn land(w: &World, number: u64, file: &str) -> String {
+pub(crate) async fn land(w: &World, number: u64, file: &str) -> String {
     let wk = w
         .app
         .workers(false)

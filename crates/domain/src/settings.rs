@@ -21,6 +21,7 @@ pub enum Time {
     HotFor,
     SilentBound,
     HoldBound,
+    StallBound,
     PromotionBound,
     CutBound,
     LookEvery,
@@ -67,7 +68,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 17] = [
+const ALL: [Setting; 18] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -79,6 +80,7 @@ const ALL: [Setting; 17] = [
     S::Time(T::HotFor),
     S::Time(T::SilentBound),
     S::Time(T::HoldBound),
+    S::Time(T::StallBound),
     S::Time(T::PromotionBound),
     S::Time(T::CutBound),
     S::Time(T::LookEvery),
@@ -112,8 +114,9 @@ impl Setting {
             S::WorkerProcsMax => ("worker_procs_max", 400, Count, "one worker past this many processes is hot"),
             S::TickFailuresMax => ("tick_failures_max", 3, Count, "this many ticks failing in a row go to the watch"),
             S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
-            S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done goes to the watch"),
+            S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done, or hung with its turn open, goes to the watch"),
             S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),
+            S::Time(T::StallBound) => ("stall_bound", 600, Seconds, "a heavy queue that starts nothing, or a landing no gate runs for, this long goes to the watch"),
             S::Time(T::PromotionBound) => ("promotion_bound", 3600, Seconds, "the oldest unpromoted landing waits at most this long"),
             S::Time(T::CutBound) => ("cut_bound", 86400, Seconds, "the oldest uncut promotion waits at most this long"),
             S::Time(T::LookEvery) => ("look_every", 300, Seconds, "the watch's look runs this often"),
