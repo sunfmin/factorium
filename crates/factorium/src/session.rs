@@ -133,10 +133,17 @@ impl App {
         if wait {
             let _ = self.host.orca().ready(&st.terminal);
         }
-        if self.type_at(&Self::worker_session(st), typed).is_ok() {
-            self.submit::<w::HandBrief>(w::Of { worker }).await?;
+        match self.type_at(&Self::worker_session(st), typed) {
+            Ok(()) => self.submit::<w::HandBrief>(w::Of { worker }).await,
+            // Typed once the harness is up, on a later look.
+            Err(r) if r.code == "not_up" || !wait => Ok(()),
+            // Up, yet Orca would not type at it: the start fails, and what
+            // factorium opened, factorium closes.
+            Err(r) => {
+                self.end_worker(worker, &format!("its brief could not be typed: {}", r.message), true).await?;
+                Err(r)
+            }
         }
-        Ok(())
     }
 
     /// Hands the watch's session its brief if it is still to be typed and

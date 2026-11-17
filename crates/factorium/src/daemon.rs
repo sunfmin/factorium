@@ -4,17 +4,19 @@
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
+use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::hot;
 use factorium_domain::issue::Status as IssueStatus;
+use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
-use factorium_domain::watch::{Held, NoteAdmission};
+use factorium_domain::watch::{EndWatch, Held, NoteAdmission, Watches, watch_id};
 use factorium_domain::worker::Status as WorkerStatus;
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{Answer, App};
+use crate::{Answer, App, Refusal};
 
 /// What one tick did.
 #[derive(Debug, Default, Serialize)]
@@ -40,8 +42,22 @@ impl App {
         self.rows(tracker::workers(None, false)).await
     }
 
-    /// One pass of the daemon.
+    /// One pass of the daemon, recorded: a failing one adds to the run of
+    /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
+        let done = self.pass().await;
+        let error = done.as_ref().err().map(Refusal::to_string);
+        self.submit::<NoteTick>(Ticked { error }).await?;
+        if done.is_err() {
+            let settings = self.settings().await.unwrap_or_default();
+            if let Err(e) = self.look_if_due(&settings).await {
+                eprintln!("look: {e}");
+            }
+        }
+        done
+    }
+
+    async fn pass(&self) -> Answer<Tick> {
         let mut t = Tick::default();
         self.engine.settle().await?;
         let settings = self.settings().await?;
@@ -105,6 +121,7 @@ impl App {
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
+        self.heavy_forget_unasked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = t.lines.iter().find_map(|l| l["restart"].as_str().map(String::from));
         Ok(t)
@@ -142,10 +159,34 @@ impl App {
         }
     }
 
-    /// `factorium run`: ticks until stopped.
+    /// The daemon starts: the programs it needs are looked for on its PATH
+    /// once, and what is missing is recorded for doctor, not met tick by tick.
+    pub async fn daemon_start(&self) -> Answer {
+        let kit = self.state::<Kits>(kit_id()).await?;
+        let mut needed = vec!["git".to_string(), "orca".to_string()];
+        for e in &kit.entries {
+            let program = e.command.split_whitespace().next().unwrap_or_default().to_string();
+            if !program.is_empty() && !needed.contains(&program) {
+                needed.push(program);
+            }
+        }
+        let missing: Vec<String> = needed.into_iter().filter(|p| !self.host.programs().found(p)).collect();
+        let path = std::env::var("PATH").unwrap_or_default();
+        self.submit::<StartDaemon>(Start { path: path.clone(), missing: missing.clone() }).await?;
+        Ok(json!({ "path": path, "missing": missing }))
+    }
+
+    /// `factorium run`: ticks until stopped. One daemon runs: another that
+    /// is alive is refused.
     pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
         let pid = self.dir(&["daemon.pid"]);
-        std::fs::write(&pid, std::process::id().to_string()).map_err(|e| crate::Refusal::new("io", e.to_string()))?;
+        if let Some(n) = self.daemon_pid()
+            && n != std::process::id()
+        {
+            return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
+        }
+        std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
+        eprintln!("started: {}", self.daemon_start().await?);
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             match self.tick().await {
@@ -174,18 +215,33 @@ impl App {
         Ok(json!({ "stopped": true, "ticks": ticks }))
     }
 
-    /// `factorium stop`: ends the running daemon.
-    pub fn stop(&self) -> Answer {
-        let pid = self.dir(&["daemon.pid"]);
-        let Ok(said) = std::fs::read_to_string(&pid) else {
-            return Ok(json!({ "stopped": false, "why": "no daemon runs" }));
+    /// The pid of the daemon running now, if one is.
+    pub(crate) fn daemon_pid(&self) -> Option<u32> {
+        let said = std::fs::read_to_string(self.dir(&["daemon.pid"])).ok()?;
+        said.trim().parse().ok().filter(|n| *n != 0 && self.host.alive(*n))
+    }
+
+    /// `factorium stop`: ends the running daemon (run by the service, the
+    /// service is unloaded, so that launchd does not start it again), then
+    /// closes the watch's terminal and records it has no session, so the next
+    /// daemon starts a fresh one. Workers' sessions go on; the next daemon
+    /// watches them.
+    pub async fn stop(&self) -> Answer {
+        let mut answer = if let Some(service) = self.service_loaded() {
+            self.service_stop(&service)?
+        } else if let Some(n) = self.daemon_pid() {
+            let _ = std::process::Command::new("kill").arg(n.to_string()).status();
+            json!({ "stopped": true, "pid": n })
+        } else {
+            let _ = std::fs::remove_file(self.dir(&["daemon.pid"]));
+            json!({ "stopped": false, "why": "no daemon runs" })
         };
-        let n: u32 = said.trim().parse().unwrap_or(0);
-        if n == 0 || !self.host.alive(n) {
-            let _ = std::fs::remove_file(&pid);
-            return Ok(json!({ "stopped": false, "why": "no daemon runs" }));
+        let watch = self.state::<Watches>(watch_id()).await?;
+        if let Some(t) = &watch.terminal {
+            self.host.orca().close(t);
+            self.submit::<EndWatch>(()).await?;
         }
-        let _ = std::process::Command::new("kill").arg(n.to_string()).status();
-        Ok(json!({ "stopped": true, "pid": n }))
+        answer["watch_closed"] = json!(watch.terminal);
+        Ok(answer)
     }
 }

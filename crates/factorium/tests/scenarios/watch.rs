@@ -18,7 +18,7 @@ async fn escalated(w: &World) -> serde_json::Value {
 async fn escalated_alone(w: &World) -> serde_json::Value {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
@@ -103,7 +103,7 @@ async fn a_round_past_its_bound_ends_and_the_next_episode_gets_one() {
     escalated(&w).await;
     w.advance(5);
     w.tick().await;
-    w.app.issue_add("web", "u", "", false).await.unwrap();
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
     let second =
         w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned().unwrap();
@@ -123,7 +123,7 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());

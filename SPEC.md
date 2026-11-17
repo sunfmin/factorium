@@ -47,7 +47,9 @@ watch's look and the operator's view.
 
 ## 2. The issue's path
 
-1. `factorium issue add` makes an issue, ready unless it says otherwise.
+1. `factorium issue add` makes an issue, ready unless it says otherwise,
+   with the issues it waits for (`--blocked-by N`, repeatable) recorded
+   with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
 3. The worker's worktree is branched from the proving tip; its harness and
@@ -94,9 +96,17 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/block`, `doctor`, `promote`, `cut`, `hold` (landings), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
+
+The daemon runs as a launchd agent (`factorium service install`,
+defined in `packaging/factorium.plist`) with the installing shell's PATH
+declared in it, restarted whenever it exits; `factorium stop` unloads it,
+and a cut's restart execs in place as the same pid. At start it looks for
+git, orca and the kit's harnesses; a missing one is a finding. A failing
+tick is recorded, and `tick_failures_max` of them in a row is a finding;
+the watch still looks when a tick fails.
 
 The help in the binary is the manual (as in afkconvoy): every command's
 `--help` says what it does and what it answers. Answers are JSON.

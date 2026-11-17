@@ -6,9 +6,12 @@
 //! the scenario moves it.
 
 mod admission;
+mod daemon;
 mod harnesses;
 mod line;
 mod path;
+mod queue;
+mod terminals;
 mod tracker;
 mod watch;
 
@@ -34,6 +37,8 @@ pub struct Terminal {
     pub sent: Vec<String>,
     pub screen: Vec<String>,
     pub alive: bool,
+    /// Closed through Orca: its tab is gone, not only its program.
+    pub closed: bool,
 }
 
 /// A terminal's screen at its shell's prompt, as zsh draws it.
@@ -53,6 +58,8 @@ pub struct FakeOrca {
     /// Terminals open at their shell's prompt while set, their harness not
     /// up; else at the harness's own screen.
     pub opens_at_shell: Mutex<bool>,
+    /// Orca refuses to type at terminals while set.
+    pub refuse_send: Mutex<bool>,
     /// While set, `orca` prints no answer, only this on stderr (its runtime is down).
     pub down: Mutex<Option<String>>,
     /// The repos and worktrees Orca holds, by id.
@@ -162,8 +169,15 @@ impl FakeOrca {
                 let mut t = self.terminals.lock().unwrap();
                 if verb == "close" && args.contains(&"--all") {
                     let worktree = path_of(flag(args, "--worktree"));
-                    t.values_mut().filter(|t| Some(&t.worktree) == worktree.as_ref()).for_each(|t| t.alive = false);
+                    for t in t.values_mut().filter(|t| Some(&t.worktree) == worktree.as_ref()) {
+                        (t.alive, t.closed) = (false, true);
+                    }
                     return answer(json!({ "closed": true }));
+                }
+                if verb == "list" {
+                    let open = t.iter().filter(|(_, t)| !t.closed);
+                    let rows: Vec<Value> = open.map(|(h, t)| json!({ "handle": h, "title": t.title })).collect();
+                    return answer(json!({ "terminals": rows }));
                 }
                 let handle = flag(args, "--terminal");
                 let Some(term) = t.get_mut(handle) else { return error("terminal_handle_stale") };
@@ -173,12 +187,13 @@ impl FakeOrca {
                         answer(json!({ "terminal": { "handle": handle, "status": status, "tail": term.screen } }))
                     }
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
+                    "send" if *self.refuse_send.lock().unwrap() => error("terminal_send_failed"),
                     "send" if term.alive => {
                         term.sent.push(flag(args, "--text").into());
                         answer(json!({ "terminal": { "handle": handle }, "sent": true }))
                     }
                     "close" => {
-                        term.alive = false;
+                        (term.alive, term.closed) = (false, true);
                         answer(json!({ "closed": true }))
                     }
                     _ => error("terminal_exited"),
@@ -249,6 +264,10 @@ pub struct FakeHost {
     pub procs: Mutex<Vec<Proc>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
+    /// Programs not found on PATH.
+    pub missing: Mutex<Vec<String>>,
+    /// Whether launchd has the service loaded.
+    pub service: Mutex<bool>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
     pub home: PathBuf,
@@ -278,8 +297,22 @@ impl Programs for FakeHost {
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
             }
             "sleep" => Said { ok: true, ..Default::default() },
+            "launchctl" => {
+                let mut loaded = self.service.lock().unwrap();
+                let ok = match args[0] {
+                    "print" => *loaded,
+                    "bootstrap" => !std::mem::replace(&mut *loaded, true),
+                    "bootout" => std::mem::replace(&mut *loaded, false),
+                    _ => false,
+                };
+                Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }
+            }
             _ => Said { ok: false, out: String::new(), err: format!("{program}: not found") },
         }
+    }
+
+    fn found(&self, program: &str) -> bool {
+        !self.missing.lock().unwrap().iter().any(|m| m == program)
     }
 }
 
@@ -374,6 +407,8 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             ran: Mutex::default(),
+            missing: Mutex::default(),
+            service: Mutex::default(),
             home: dir.join("home"),
             root: dir.clone(),
         });

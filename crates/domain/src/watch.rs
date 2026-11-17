@@ -82,6 +82,7 @@ pub enum WatchEvent {
     },
     /// Its brief was typed at its session.
     BriefHanded,
+    WatchEnded,
     Looked {
         at: i64,
     },
@@ -131,6 +132,7 @@ impl Aggregate for Watches {
                 (s.terminal, s.harness, s.account, s.unhanded) = (Some(terminal), Some(harness), account, typed)
             }
             WatchEvent::BriefHanded => s.unhanded = None,
+            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account, s.unhanded) = (None, None, None, None),
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
@@ -195,6 +197,20 @@ command!(
     |_p| watch_id(),
     |s, p, _now| Ok::<_, factum_core::Rejection>(if s.unhanded.is_some() && s.terminal.as_ref() == Some(&p.terminal) {
         vec![WatchEvent::BriefHanded]
+    } else {
+        Vec::new()
+    })
+);
+
+command!(
+    /// The watch's session was closed: the next look starts a fresh one.
+    EndWatch,
+    "watch.end",
+    Watches,
+    (),
+    |_p| watch_id(),
+    |s, _p, _now| Ok::<_, factum_core::Rejection>(if s.terminal.is_some() {
+        vec![WatchEvent::WatchEnded]
     } else {
         Vec::new()
     })

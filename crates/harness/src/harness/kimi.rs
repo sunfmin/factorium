@@ -1,7 +1,7 @@
 //! Kimi Code, as a harness: its isolated data home carries only the host's
-//! providers and models, the start directory's limits and the added hooks.
-//! Kimi has no project-level hook configuration, so each start gets a
-//! generated home of its own.
+//! providers and models, the guard and the report, and where its rules are.
+//! Kimi has no project-level hook configuration, so its home's configuration
+//! is generated at each start, and is the only way it gets the guard.
 
 use serde::{Deserialize, Deserializer};
 
@@ -10,8 +10,9 @@ use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
-use crate::start::Start;
+use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
+use toml::Value as Toml;
 
 pub(super) const KEY: &str = "kimi";
 
@@ -27,8 +28,108 @@ pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", 
 
 pub(super) const REFUSED: u8 = 2;
 
+/// The file whose being in its user directory answers the question Kimi
+/// Code opens a fresh one with: whether to migrate kimi-cli's configuration.
+const SKIP_MIGRATION: &str = ".skip-migration-from-kimi-cli";
+/// The host user's Kimi config, of which a session keeps only model routing.
+const USER_CONFIG: &str = ".kimi-code/config.toml";
+/// Its configuration, and the system prompt it is told, in its user directory.
+const CONFIG: &str = "config.toml";
+const SYSTEM: &str = "SYSTEM.md";
+
+/// What the host keeps for Kimi beside the links: the migration declined,
+/// the configuration, and its own prompt (`${base_prompt}`) then where its
+/// rules are: it starts in a directory whose rules file it does not read,
+/// and works in another.
+pub(super) fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+    let user = std::fs::read_to_string(start.user_home.join(USER_CONFIG)).ok();
+    let config = configuration(user.as_deref(), start.hook)?;
+    Ok(vec![(SKIP_MIGRATION, String::new()), (CONFIG, config), (SYSTEM, format!("${{base_prompt}}\n\n{TOLD}"))])
+}
+
+/// The configuration a session gets: of the host user's `user` only model
+/// routing, then the tool's settings, the guard `guard` and the report.
+fn configuration(user: Option<&str>, guard: &str) -> Result<String, String> {
+    let mut config = match user {
+        Some(text) if !text.trim().is_empty() => {
+            text.parse::<Toml>().map_err(|error| format!("the host user's Kimi config: {error}"))?
+        }
+        _ => Toml::Table(Default::default()),
+    };
+    let table = config.as_table_mut().ok_or("the host user's Kimi config is not a table")?;
+    table.retain(|key, _| matches!(key, "default_model" | "providers" | "models" | "secondary_model"));
+    table.insert("default_permission_mode".into(), Toml::from("auto"));
+    table.insert("default_plan_mode".into(), Toml::from(false));
+    table.insert("auto_session_title".into(), Toml::from(false));
+    table.insert("builtin_product_skills".into(), Toml::from(false));
+    let mut hooks = vec![hook("PreToolUse", &guard_asked(guard), None)];
+    for event in STATE_EVENTS {
+        hooks.push(hook(event, REPORT, Some(10)));
+    }
+    table.insert("hooks".into(), Toml::Array(hooks));
+    toml::to_string_pretty(&config).map_err(|error| error.to_string())
+}
+
+fn hook(event: &str, command: &str, timeout: Option<i64>) -> Toml {
+    let mut hook = toml::map::Map::new();
+    hook.insert("event".into(), Toml::from(event));
+    hook.insert("command".into(), Toml::from(command));
+    if let Some(timeout) = timeout {
+        hook.insert("timeout".into(), Toml::from(timeout));
+    }
+    Toml::Table(hook)
+}
+
+/// The events at which a session's state changes, besides `PreToolUse`:
+/// each runs `REPORT`.
+const STATE_EVENTS: [&str; 17] = [
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "TurnStarted",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionRequest",
+    "PermissionResult",
+    "SubagentStart",
+    "SubagentStop",
+    "TaskStarted",
+    "Stop",
+    "StopFailure",
+    "Interrupt",
+    "PreCompact",
+    "PostCompact",
+    "Notification",
+];
+
+/// Kimi's hooks fail open on an unreadable or failed guard: every such
+/// outcome is turned into the refusal code, with the guard's reason on stderr.
+fn guard_asked(guard: &str) -> String {
+    format!(
+        "said=$({guard} 2>&1 >/dev/null) && exit 0; \
+         printf '%s\\n' \"${{said:-factorium guard: it could not be asked}}\" >&2; exit {REFUSED}"
+    )
+}
+
+/// Tells Orca of the session's state through the hook Orca installs for
+/// Kimi, where it did; prints nothing and succeeds.
+const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/kimi-hook.sh\"; if [ -x \"$hook\" ]; \
+     then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0";
+
+/// `line` with Kimi's home, and where its rules are (`TOLD`).
 pub(super) fn environment(line: Line, start: &Start) -> Line {
-    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.home.dir())
+    line.fixed(" ")
+        .fixed(USER_DIR)
+        .fixed("=")
+        .word(start.home.dir())
+        .fixed(" ")
+        .fixed(WORKTREE_ENV)
+        .fixed("=")
+        .word(start.worktree)
+        .fixed(" ")
+        .fixed(START_DIR_ENV)
+        .fixed("=")
+        .word(start.dir)
 }
 
 pub(super) fn added(line: Line, start: &Start) -> Line {

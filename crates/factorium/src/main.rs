@@ -35,12 +35,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`.
-    /// When a cut installs the formula it runs from, it runs the new binary
-    /// in its place between ticks, as the same pid.
+    /// Runs the daemon in the foreground until `factorium stop`; refused
+    /// while another runs. At start it looks for git, orca and the kit's
+    /// harnesses on its PATH; what is missing is a finding. When a cut
+    /// installs the formula it runs from, it runs the new binary in its place
+    /// between ticks, as the same pid. As a service, launchd runs it.
     Run,
-    /// Stops the daemon.
+    /// Stops the daemon; run as the service, unloads the service.
     Stop,
+    /// The daemon as a launchd agent, kept running and restarted when it exits.
+    #[command(subcommand)]
+    Service(ServiceCmd),
     /// Runs one pass of the daemon and answers what it did.
     Tick,
     /// The repos on the list.
@@ -91,6 +96,18 @@ enum Top {
 }
 
 #[derive(Subcommand)]
+enum ServiceCmd {
+    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
+    /// and this database, and loads it (in place of one loaded before).
+    /// Run it from a shell that finds git, orca and the kit's harnesses.
+    Install,
+    /// Unloads the agent and deletes its file.
+    Remove,
+    /// Answers the agent's definition as `install` would write it.
+    Show,
+}
+
+#[derive(Subcommand)]
 enum CheckoutCmd {
     /// Puts a repo on the list. It needs an `origin` holding the base; a
     /// proving branch origin lacks is made at the base.
@@ -122,6 +139,9 @@ enum IssueCmd {
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
+        /// An issue of the checkout it waits for; repeat for each.
+        #[arg(long = "blocked-by", value_name = "N")]
+        blocked_by: Vec<u64>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -260,7 +280,12 @@ async fn run(cli: Cli) -> Answer {
             let stop = Arc::new(AtomicBool::new(false));
             app.run(&stop).await
         }
-        Top::Stop => app.stop(),
+        Top::Stop => app.stop().await,
+        Top::Service(s) => match s {
+            ServiceCmd::Install => app.service_install(),
+            ServiceCmd::Remove => app.service_remove(),
+            ServiceCmd::Show => app.service_show(),
+        },
         Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
@@ -268,9 +293,9 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, body_file, parked } => {
+            IssueCmd::Add { checkout, title, body, body_file, parked, blocked_by } => {
                 let body = body_text(body, body_file)?.unwrap_or_default();
-                app.issue_add(&checkout, &title, &body, parked).await
+                app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
             }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,

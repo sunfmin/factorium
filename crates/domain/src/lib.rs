@@ -6,6 +6,7 @@
 
 pub mod admission;
 pub mod checkout;
+pub mod daemon;
 pub mod declared;
 pub mod doctor;
 pub mod gate;
