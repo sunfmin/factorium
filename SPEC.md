@@ -47,7 +47,9 @@ watch's look and the operator's view.
 
 ## 2. The issue's path
 
-1. `factorium issue add` makes an issue, ready unless it says otherwise.
+1. `factorium issue add` makes an issue, ready unless it says otherwise,
+   with the issues it waits for (`--blocked-by N`, repeatable) recorded
+   with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
 3. The worker's worktree is branched from the proving tip; its harness and

@@ -19,6 +19,8 @@ use crate::{Answer, App, Refusal, fail};
 
 /// The rules every worker is given, beside the repo's own.
 const WORKER_RULES: &str = include_str!("worker_rules.md");
+/// The title of the watch's terminal; a worker's is `<checkout>#<n>`.
+pub(crate) const WATCH_TITLE: &str = "factorium watch";
 /// The rules the watch is given.
 const WATCH_RULES: &str = include_str!("watch_rules.md");
 
@@ -130,7 +132,11 @@ impl App {
         if let Some(typed) = typed {
             // Past a minute it is typed anyway, as a person would.
             let _ = self.host.orca().ready(&terminal);
-            self.host.orca().send(&terminal, &typed).map_err(fail("orca"))?;
+            if let Err(e) = self.host.orca().send(&terminal, &typed) {
+                // No session holds it: what factorium opens, factorium closes.
+                self.host.orca().close(&terminal);
+                return Err(Refusal::new("orca", e));
+            }
         }
         Ok(terminal)
     }
@@ -260,7 +266,7 @@ impl App {
             env,
             secrets,
             brief: &brief,
-            title: "factorium watch",
+            title: WATCH_TITLE,
         };
         let terminal = self.launch(launch)?;
         self.submit::<StartWatch>(watch::Started {

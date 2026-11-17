@@ -10,6 +10,7 @@ mod harnesses;
 mod line;
 mod path;
 mod queue;
+mod terminals;
 mod tracker;
 mod watch;
 
@@ -35,6 +36,8 @@ pub struct Terminal {
     pub sent: Vec<String>,
     pub screen: Vec<String>,
     pub alive: bool,
+    /// Closed through Orca: its tab is gone, not only its program.
+    pub closed: bool,
 }
 
 /// Orca as `orca … --json` answers: its envelopes are shaped as Orca 1.4
@@ -46,6 +49,8 @@ pub struct FakeOrca {
     pub removed: Mutex<Vec<PathBuf>>,
     /// Orca refuses to open terminals while set.
     pub refuse_open: Mutex<bool>,
+    /// Orca refuses to type at terminals while set.
+    pub refuse_send: Mutex<bool>,
     /// While set, `orca` prints no answer, only this on stderr (its runtime is down).
     pub down: Mutex<Option<String>>,
     /// The repos and worktrees Orca holds, by id.
@@ -153,8 +158,15 @@ impl FakeOrca {
                 let mut t = self.terminals.lock().unwrap();
                 if verb == "close" && args.contains(&"--all") {
                     let worktree = path_of(flag(args, "--worktree"));
-                    t.values_mut().filter(|t| Some(&t.worktree) == worktree.as_ref()).for_each(|t| t.alive = false);
+                    for t in t.values_mut().filter(|t| Some(&t.worktree) == worktree.as_ref()) {
+                        (t.alive, t.closed) = (false, true);
+                    }
                     return answer(json!({ "closed": true }));
+                }
+                if verb == "list" {
+                    let open = t.iter().filter(|(_, t)| !t.closed);
+                    let rows: Vec<Value> = open.map(|(h, t)| json!({ "handle": h, "title": t.title })).collect();
+                    return answer(json!({ "terminals": rows }));
                 }
                 let handle = flag(args, "--terminal");
                 let Some(term) = t.get_mut(handle) else { return error("terminal_handle_stale") };
@@ -164,12 +176,13 @@ impl FakeOrca {
                         answer(json!({ "terminal": { "handle": handle, "status": status, "tail": term.screen } }))
                     }
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
+                    "send" if *self.refuse_send.lock().unwrap() => error("terminal_send_failed"),
                     "send" if term.alive => {
                         term.sent.push(flag(args, "--text").into());
                         answer(json!({ "terminal": { "handle": handle }, "sent": true }))
                     }
                     "close" => {
-                        term.alive = false;
+                        (term.alive, term.closed) = (false, true);
                         answer(json!({ "closed": true }))
                     }
                     _ => error("terminal_exited"),

@@ -122,6 +122,9 @@ enum IssueCmd {
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
+        /// An issue of the checkout it waits for; repeat for each.
+        #[arg(long = "blocked-by", value_name = "N")]
+        blocked_by: Vec<u64>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -260,7 +263,7 @@ async fn run(cli: Cli) -> Answer {
             let stop = Arc::new(AtomicBool::new(false));
             app.run(&stop).await
         }
-        Top::Stop => app.stop(),
+        Top::Stop => app.stop().await,
         Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
@@ -268,9 +271,9 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, body_file, parked } => {
+            IssueCmd::Add { checkout, title, body, body_file, parked, blocked_by } => {
                 let body = body_text(body, body_file)?.unwrap_or_default();
-                app.issue_add(&checkout, &title, &body, parked).await
+                app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
             }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,

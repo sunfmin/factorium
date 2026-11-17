@@ -15,7 +15,7 @@ how to fix it. Then:
    - `factorium watch restart <worker> --text "<what to do>"` — send a
      waiting worker back to work (one whose session is gone is started again)
    - `factorium issue park|close|edit|comment|block …`, `factorium issue add`
-     for new work, `factorium hold <checkout> --why …` / `--release`
+     for new work (`--blocked-by N` for each issue it waits for), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`
 3. Report: `factorium watch report --text "what you found and did"`; add
