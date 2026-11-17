@@ -241,3 +241,66 @@ async fn only_a_well_formed_account_secret_is_an_account() {
     let names: Vec<_> = w.app.accounts().await.unwrap().as_array().unwrap().iter().map(|a| a["name"].clone()).collect();
     assert_eq!(names, [serde_json::json!("one"), serde_json::json!("two")]);
 }
+
+#[tokio::test]
+async fn a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile() {
+    let w = World::new();
+    let account = w.host.home.join(".agent-accounts").join("night");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::write(account.join("auth.json"), "{}").unwrap();
+    let fields = format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{}"}}}}"#, this_machine());
+    w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields);
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert_eq!(wk["account"], "night");
+    w.set_screen(
+        wk["terminal"].as_str().unwrap(),
+        &["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."],
+    );
+    let at = w.app_now();
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["ended"], "quota");
+    assert!(t.started.is_none() && t.held.as_deref().unwrap().contains("every account is used up"), "{t:?}");
+    let night = w.app.accounts().await.unwrap()[0].clone();
+    assert_eq!((night["left"].as_f64(), night["limited_until"].as_i64()), (Some(0.0), Some(at + 3_600_000)));
+    w.advance(59);
+    assert!(w.tick().await.started.is_none(), "still resting");
+    w.advance(1);
+    assert_eq!(w.app.accounts().await.unwrap()[0]["left"], 100.0);
+    assert!(w.tick().await.started.is_some(), "rested");
+}
+
+#[tokio::test]
+async fn a_pinned_checkout_starts_only_on_its_harness() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["claude-code=claude".into(), "codex=codex".into()]).await.unwrap();
+    w.app.kit_pin("web", Some("codex")).await.unwrap();
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let line = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap()).line;
+    assert!(line.contains("codex") && !line.contains("&& claude"), "{line}");
+}
+
+#[tokio::test]
+async fn the_watch_starts_on_its_account_s_secret() {
+    let w = World::new();
+    w.host.tokens.lock().unwrap().insert(
+        "agent-account-team".into(),
+        r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+    );
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    w.app.worker_escalate(crate::id(&worker(&w.app).await), "which API version?").await.unwrap();
+    w.advance(5);
+    w.tick().await;
+    let t = w.host.orca.terminals.lock().unwrap();
+    let watch = t.values().find(|t| t.title == "factorium watch").expect("the watch's terminal");
+    let reads = watch.line.starts_with(". ") && watch.line.contains("/data/secrets/");
+    assert!(reads && !watch.line.contains("sk-ant"), "it reads its secret from a file first");
+}

@@ -329,3 +329,16 @@ async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
     assert_eq!(w.app.stop().unwrap(), json!({ "stopped": false, "why": "no daemon runs" }));
     assert!(!pid.exists());
 }
+
+#[tokio::test]
+async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "factorium.toml", "[gate]\nslow = \"true\"\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
