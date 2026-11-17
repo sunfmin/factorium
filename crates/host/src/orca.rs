@@ -84,8 +84,7 @@ impl Orca for OrcaCli {
     }
 
     fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
-        let create =
-            |sel: &str| orca(&["terminal", "create", "--worktree", sel, "--title", title, "--command", line]);
+        let create = |sel: &str| orca(&["terminal", "create", "--worktree", sel, "--title", title, "--command", line]);
         // A plain git directory (the watch's home) is no Orca workspace
         // until Orca holds it as a repo, and Orca finds the repo's own
         // worktree a moment after it is added.

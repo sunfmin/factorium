@@ -84,7 +84,10 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("sk-ant-very-secret"), "{line}");
     let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
-    assert!(line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")), "factorium by name: {line}");
+    assert!(
+        line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")),
+        "factorium by name: {line}"
+    );
     // What the shell does with the line's start: read the secret, remove the file.
     let parts: Vec<&str> = line.splitn(3, " && ").collect();
     let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();
