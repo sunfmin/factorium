@@ -240,7 +240,7 @@ impl App {
         let here: Vec<(String, String)> = accounts.iter().map(|(n, h, _)| (n.clone(), h.clone())).collect();
         let Ok(choice) = kit.choose("", self.now(), &here) else { return Ok(None) };
         let Some(harness) = Harness::read(&choice.entry.harness) else { return Ok(None) };
-        let home = self.dir(&["watch"]);
+        let (home, brief) = self.watch_home();
         if !home.join(".git").exists() {
             std::fs::create_dir_all(&home).map_err(|e| Refusal::new("io", e.to_string()))?;
             Git::at(&home).run(&["init", "--quiet"]).map_err(fail("git"))?;
@@ -250,7 +250,6 @@ impl App {
         }
         let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
         std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
-        let brief = home.join("BRIEF.md");
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let mut secrets = Vec::new();
         let env = vec![("FACTORIUM_WATCH", "1".to_string())];

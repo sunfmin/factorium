@@ -32,8 +32,8 @@ async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound() {
     w.kit().await;
     // #2 keeps working all along: it is never silent.
     w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let main = w.remote_tip("web", "main");
@@ -51,7 +51,7 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let main = w.remote_tip("web", "main");
     let wk = worker(&w.app).await;
@@ -72,8 +72,8 @@ async fn promote_and_cut_by_hand_run_now() {
     w.checkout("web").await;
     w.kit().await;
     assert_eq!(w.app.promote("web").await.unwrap()["promoted"], json!(null));
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let landed = land(&w, 1, "a").await;
@@ -101,7 +101,7 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
     commit(&clone, "factorium.toml", toml);
     git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let t = {
         let wk = worker(&w.app).await;
@@ -121,7 +121,7 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
 async fn cut_one(w: &World) -> crate::Tick {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
@@ -182,7 +182,7 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     let landing = w.dir.join("data").join("landing").join("web");
     std::fs::create_dir_all(landing.parent().unwrap()).unwrap();
     git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");

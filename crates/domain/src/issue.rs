@@ -132,6 +132,9 @@ pub struct Open {
     pub body: String,
     #[serde(default)]
     pub parked: bool,
+    /// The issues of its checkout it waits for from the start.
+    #[serde(default)]
+    pub blocked_by: Vec<u64>,
 }
 
 pub struct OpenIssue;
@@ -155,14 +158,21 @@ impl Command for OpenIssue {
         if p.title.trim().is_empty() {
             return Err(Rejection::new("no_title", "an issue needs a title"));
         }
-        Ok(vec![IssueEvent::IssueOpened {
+        if p.blocked_by.contains(&p.number) {
+            return Err(Rejection::new("blocks_itself", "an issue cannot wait for itself"));
+        }
+        let mut events = vec![IssueEvent::IssueOpened {
             checkout: p.checkout.clone(),
             number: p.number,
             title: p.title.trim().to_string(),
             body: p.body.clone(),
             parked: p.parked,
-        }]
-        .into())
+        }];
+        let mut blockers = p.blocked_by.clone();
+        blockers.sort_unstable();
+        blockers.dedup();
+        events.extend(blockers.into_iter().map(|number| IssueEvent::BlockedBy { number }));
+        Ok(events.into())
     }
 }
 

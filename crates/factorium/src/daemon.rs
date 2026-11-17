@@ -56,7 +56,7 @@ impl App {
                 rss_kib: mine.iter().map(|p| p.rss_kib).sum(),
                 procs: mine.len() as u64,
             };
-            if let Some(seen) = self.observe(id, &load, &settings).await? {
+            if let Some(seen) = self.worker_health(id, &load, &settings).await? {
                 t.seen.push(seen);
             }
         }

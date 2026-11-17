@@ -40,6 +40,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Wait>()
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
+        .command::<worker::NoteLoad>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()
@@ -106,13 +107,25 @@ impl App {
 
     // ---- issues ----
 
-    /// Makes an issue numbered one past the checkout's last.
-    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool) -> Answer {
+    /// Makes an issue numbered one past the checkout's last, waiting from
+    /// the start for the issues of the checkout in `blocked_by`, so no tick
+    /// sees it ready without them.
+    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool, blocked_by: &[u64]) -> Answer {
         self.checkout(checkout).await?;
+        for by in blocked_by {
+            self.issue(checkout, *by).await?;
+        }
         loop {
             let last = self.rows(tracker::last_issue(checkout)).await?;
             let number = last.first().map_or(0, |r| r.number) + 1;
-            let open = Open { checkout: checkout.into(), number, title: title.into(), body: body.into(), parked };
+            let open = Open {
+                checkout: checkout.into(),
+                number,
+                title: title.into(),
+                body: body.into(),
+                parked,
+                blocked_by: blocked_by.to_vec(),
+            };
             match self.submit::<OpenIssue>(&open).await {
                 // Another command took the number first: take the next.
                 Err(r) if r.code == "number_taken" => continue,

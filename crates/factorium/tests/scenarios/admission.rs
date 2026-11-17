@@ -11,8 +11,8 @@ use crate::{GIB, World, id, worker};
 async fn ready(w: &World) {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
 }
 
 #[tokio::test]
@@ -56,8 +56,8 @@ async fn memory_disk_and_the_workers_share_each_hold_admission() {
 async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     assert!(w.tick().await.held.unwrap().starts_with("kit"));
     w.kit().await;
     assert!(w.tick().await.started.is_some());
@@ -86,6 +86,33 @@ async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
     assert!(hot["status"] == "waiting" && why.starts_with("hot: cpu"), "{hot}");
     let evidence = PathBuf::from(why.rsplit("evidence in ").next().unwrap());
     assert!(std::fs::read_to_string(evidence).unwrap().contains("cargo build"));
+}
+
+#[tokio::test]
+async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_within_its_share() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    let tag = Some(wk["worker"].as_str().unwrap().to_string());
+    let busy = Proc { pid: 77, ppid: 1, cpu: 60.0 * cores, rss_kib: 10, command: "cargo build".into(), worker: tag };
+    let idle = Proc { cpu: 0.0, ..busy.clone() };
+    *w.host.procs.lock().unwrap() = vec![busy.clone()];
+    w.host.reading.lock().unwrap().cpu_busy = 95;
+    w.tick().await;
+    *w.host.procs.lock().unwrap() = vec![idle];
+    w.advance(3);
+    w.tick().await;
+    *w.host.procs.lock().unwrap() = vec![busy];
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "its clock started again when it went over again");
+    // The daemon restarts: a new run on the same database keeps the clock.
+    let again = w.run();
+    w.advance(3);
+    again.tick().await.unwrap();
+    let hot = worker(&again).await;
+    assert!(hot["status"] == "waiting" && hot["why"].as_str().unwrap().starts_with("hot: cpu"), "{hot}");
 }
 
 #[tokio::test]
@@ -167,7 +194,7 @@ impl World {
 async fn one_working(w: &World) -> String {
     w.checkout("web").await;
     w.kit().await;
-    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     worker(&w.app).await["terminal"].as_str().unwrap().to_string()
 }
