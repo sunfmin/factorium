@@ -302,6 +302,27 @@ async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_
     assert!(line.contains(&format!("{}/CLAUDE.md", wk["worktree"].as_str().unwrap())), "{line}");
 }
 
+#[tokio::test]
+async fn a_codex_worker_runs_on_the_host_s_model_settings_and_no_other_setting_of_theirs() {
+    for (kit, model) in [("codex=codex", "model=\"gpt-host\""), ("codex=codex@gpt-kit", "--model 'gpt-kit'")] {
+        let w = World::new();
+        w.checkout("web").await;
+        let user = w.host.home().join(".codex");
+        std::fs::create_dir_all(&user).unwrap();
+        let config = "model = \"gpt-host\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"mine\"\n\
+             [tui]\nscreen_reader_detection_done = true\n[projects.\"/elsewhere\"]\ntrust_level = \"trusted\"\n";
+        std::fs::write(user.join("config.toml"), config).unwrap();
+        w.app.kit_set(&[kit.into()]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let line = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap()).line;
+        assert!(line.contains(model) && line.contains("model_reasoning_effort=\"high\""), "{kit}: {line}");
+        for other in ["gpt-host\" --model", "model_provider", "screen_reader", "/elsewhere"] {
+            assert!(!line.contains(other), "{kit}: no {other} of the host's: {line}");
+        }
+    }
+}
+
 /// What a session's home must hold before its line runs, by harness: the
 /// file, and words in it that say it asks the guard. Claude Code and Codex
 /// are given their hooks on the line.
