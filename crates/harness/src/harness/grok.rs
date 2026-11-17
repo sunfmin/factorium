@@ -8,8 +8,9 @@
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
@@ -243,11 +244,9 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-/// The events file a stand-in writes for this turn, and the summary beside
-/// it. The summary is not the turn.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The events a stand-in writes for this turn.
+pub(super) fn stand_in(open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
-    let dir = format!("sessions/{}/factorium-turn", dir_name(cwd));
     let mut body = format!(
         "{}\n",
         session::object(vec![
@@ -260,30 +259,14 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
     if !open {
         body.push_str(&format!(
             "{}\n",
-            session::object(vec![
-                ("ts", iso.clone().into()),
-                ("type", "turn_ended".into()),
-                ("outcome", "completed".into()),
-            ])
+            session::object(vec![("ts", iso.into()), ("type", "turn_ended".into()), ("outcome", "completed".into())])
         ));
     }
-    vec![
-        SessionFile { path: format!("{dir}/{EVENTS}"), body, compressed: false, replaces: None },
-        SessionFile {
-            path: format!("{dir}/summary.json"),
-            body: session::object(vec![(
-                "info",
-                session::object(vec![("cwd", cwd.into()), ("created_at", iso.into())]),
-            )])
-            .to_string(),
-            compressed: false,
-            replaces: None,
-        },
-    ]
+    body
 }
 
 /// Where Grok keeps the session of `cwd`: one events file in each session
 /// directory under the worktree's directory.
-pub(super) fn session_layout(cwd: &str) -> SessionLayout {
-    SessionLayout::Named { dir: format!("sessions/{}", dir_name(cwd)), name: EVENTS }
+pub(super) fn layout(cwd: &str) -> Layout {
+    Layout::Named { dir: format!("sessions/{}", dir_name(cwd)), name: EVENTS }
 }

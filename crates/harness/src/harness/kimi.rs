@@ -5,19 +5,14 @@
 
 use serde::{Deserialize, Deserializer};
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 use toml::Value as Toml;
-
-/// One session file the index names.
-pub(super) struct Indexed {
-    /// Absolute, or relative to the harness directory.
-    pub(super) file: String,
-}
 
 pub(super) const KEY: &str = "kimi";
 
@@ -199,13 +194,10 @@ pub(super) fn account_quota(output: &[String]) -> Option<String> {
     )
 }
 
-pub(super) const INDEX: &str = "session_index.jsonl";
-const WIRE: &str = "agents/main/wire.jsonl";
-
-/// Where Kimi keeps the sessions of every worktree: one index. The index
-/// names each session file.
-pub(super) fn session_layout(_cwd: &str) -> SessionLayout {
-    SessionLayout::Index { file: INDEX.into() }
+/// Where Kimi keeps the sessions of every worktree: one index names each
+/// worktree's session directories, and each holds its wire.
+pub(super) fn layout() -> Layout {
+    Layout::Index { index: "session_index.jsonl", name: "agents/main/wire.jsonl" }
 }
 
 /// The turn `text`, one session's wire, records. The worktree was named by
@@ -226,9 +218,10 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-/// `existing` with this worktree's line replaced. Lines for other worktrees,
-/// and a line that is not JSON, stay.
-pub(super) fn session_index(cwd: &str, existing: &str) -> String {
+/// The index `existing` with this worktree's line replaced by one naming
+/// its session directory `dir`. Lines for other worktrees, and a line that
+/// is not JSON, stay.
+pub(super) fn session_index(cwd: &str, existing: &str, dir: &str) -> String {
     let mut kept = String::new();
     for line in existing.lines() {
         if line.trim().is_empty() {
@@ -245,11 +238,10 @@ pub(super) fn session_index(cwd: &str, existing: &str) -> String {
         kept.push_str(line);
         kept.push('\n');
     }
-    let session = format!("sessions/factorium-{}", session::mark(cwd));
     kept.push_str(
         &session::object(vec![
             ("sessionId", session::mark(cwd).into()),
-            ("sessionDir", session.into()),
+            ("sessionDir", dir.into()),
             ("workDir", cwd.into()),
         ])
         .to_string(),
@@ -258,8 +250,8 @@ pub(super) fn session_index(cwd: &str, existing: &str) -> String {
     kept
 }
 
-/// The wire a stand-in writes for this turn. The index is `session_index`.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The wire a stand-in writes for this turn.
+pub(super) fn stand_in(open: bool, at: u64) -> String {
     let ms = at.saturating_mul(1000);
     let mut body = format!(
         "{}\n",
@@ -281,24 +273,14 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
             ])
         ));
     }
-    vec![SessionFile {
-        path: format!("sessions/factorium-{}/{WIRE}", session::mark(cwd)),
-        body,
-        compressed: false,
-        replaces: None,
-    }]
+    body
 }
 
-/// The session files the index names.
-pub(super) fn indexed_sessions(index: &str) -> Vec<Indexed> {
-    let mut out = Vec::new();
-    for value in json_lines(index) {
-        let Some(session) = value["sessionDir"].as_str() else { continue };
-        if session.is_empty() {
-            continue;
-        }
-        let file = std::path::Path::new(session).join(WIRE);
-        out.push(Indexed { file: file.to_string_lossy().into_owned() });
-    }
-    out
+/// The session directories `index` names for the worktree `cwd`: absolute,
+/// or relative to the harness directory.
+pub(super) fn session_dirs(index: &str, cwd: &str) -> Vec<String> {
+    json_lines(index)
+        .filter(|value| value["workDir"].as_str().is_some_and(|dir| session::same_cwd(dir, cwd)))
+        .filter_map(|value| value["sessionDir"].as_str().filter(|dir| !dir.is_empty()).map(str::to_string))
+        .collect()
 }

@@ -1,6 +1,6 @@
 //! Every harness: a worker of it starts with its own start line and brief,
-//! and its session files — written by the harness's own stand-in — say
-//! whether its turn is open.
+//! and its session files — written by the harness's own stand-in where its
+//! reader looks — say whether its turn is open or closed, and whose it is.
 
 use factorium_harness::Harness;
 
@@ -51,6 +51,18 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         w.advance(45);
         w.tick().await;
         assert_eq!(worker(&w.app).await["status"], "working", "{key}: its open turn keeps it from silence");
+
+        // Its turn ends; another worktree's session, still open, is not its.
+        let ended = (w.app_now() / 1000) as u64;
+        write_session(&w, h, None, cwd, false, ended);
+        write_session(&w, h, None, &format!("{cwd}-other"), true, ended + 60);
+        w.advance(25);
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["status"], "working", "{key}: idle since its turn ended, within the bound");
+        w.advance(10);
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        assert_eq!(wk["status"], "waiting", "{key}: its closed turn, past the bound, is silence: {wk}");
     }
 }
 
@@ -282,8 +294,8 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: fn read",
         "harness.rs: fn shell_call",
         "harness.rs: fn stopped",
-        "harness.rs: fn turn",
-        "harness.rs: fn write_session",
+        "harness/store.rs: fn turn",
+        "harness/store.rs: fn write_session",
         "lib.rs: mod account",
         "lib.rs: use harness::{Harness, Stop}",
         "lib.rs: use start::{Home, Kept, Launch, RULES, SKILLS, Start}",
