@@ -222,3 +222,23 @@ async fn an_escalation_waits_for_the_watch() {
     );
     refused(w.app.worker_done(id(&wk)).await, "nothing");
 }
+
+#[tokio::test]
+async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    let start = factum::Clock::now(&*w.clock).0;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert_eq!((wk["started_at"].clone(), wk["since"].clone()), (json!(start), json!(start)));
+
+    w.advance(5);
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let landing = worker(&w.app).await;
+    assert_eq!(landing["status"], "landing");
+    assert_eq!(landing["since"], json!(start + 5 * 60_000));
+    assert_eq!(landing["started_at"], json!(start), "the start stays put");
+}
