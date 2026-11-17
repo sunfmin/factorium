@@ -15,6 +15,6 @@ mod start;
 mod turn;
 
 pub use harness::{Harness, Stop};
-pub use line::secrets_file;
+pub use line::{quoted, secrets_file};
 pub use start::{Home, Kept, Launch, RULES, SKILLS, Start};
 pub use turn::Turn;

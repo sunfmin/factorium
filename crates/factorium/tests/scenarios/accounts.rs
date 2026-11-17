@@ -38,10 +38,10 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     // A data directory a shell would split, or end a quote in: the secrets
     // file's path is one word of the line all the same.
     let w = World::on("it's a dir $HOME/factorium.db");
-    w.host.tokens.lock().unwrap().insert(
-        "agent-account-team".into(),
-        r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
-    );
+    // A secret a shell would split, expand or end a quote in: one value all the same.
+    let secret = "sk-ant-it's $HOME `x` \"very\" secret";
+    let fields = serde_json::json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": secret}});
+    w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
@@ -59,7 +59,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     let wk = worker(&w.app).await;
     assert_eq!(wk["account"], "team");
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
-    assert!(!line.contains("sk-ant-very-secret"), "{line}");
+    assert!(!line.contains("sk-ant-"), "{line}");
     let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
     assert!(
         line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")),
@@ -76,7 +76,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let shell = format!("{} && {} && printenv CLAUDE_CODE_OAUTH_TOKEN", parts[0], parts[1]);
     let out = std::process::Command::new("sh").args(["-c", &shell]).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "sk-ant-very-secret");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end_matches('\n'), secret);
     assert!(!std::path::Path::new(&file).exists());
 }
 
