@@ -105,6 +105,7 @@ impl App {
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
+        self.heavy_forget_unasked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = t.lines.iter().find_map(|l| l["restart"].as_str().map(String::from));
         Ok(t)

@@ -7,6 +7,7 @@ mod admission;
 mod harnesses;
 mod line;
 mod path;
+mod queue;
 mod tracker;
 mod watch;
 

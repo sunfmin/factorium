@@ -4,6 +4,7 @@
 //! so what they see is what the CLI prints.
 
 mod daemon;
+mod gate;
 mod heavy;
 mod line;
 mod owner;
@@ -74,10 +75,13 @@ pub fn default_db() -> PathBuf {
 }
 
 /// What the daemon remembers between ticks and keeps nowhere else: when a
-/// worker went over its share, and when the last look ran.
+/// worker went over its share, and which of its heavy jobs wait in the
+/// queue and which this tick asked for.
 #[derive(Default)]
 struct Memory {
     over: std::collections::BTreeMap<Uuid, i64>,
+    queued: std::collections::BTreeSet<Uuid>,
+    asked: std::collections::BTreeSet<Uuid>,
 }
 
 pub struct App {
