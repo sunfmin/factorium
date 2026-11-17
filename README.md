@@ -58,3 +58,14 @@ formula = "web"
 ## Develop
 
 `./gate.sh`: fmt, clippy, the per-crate line budgets, and the tests (60s cap).
+
+`./mutants.sh`: mutation testing (SPEC.md §6), too slow for the gate. Run
+it after changing a rule or a scenario, before the change lands; pass
+`-f <file>` to mutate only what you touched. Each mutant is caught or
+missed, with its seconds; a missed one gets a scenario that catches it, or,
+if it cannot be reached from the outermost layer, a line in
+`.cargo/mutants.toml` saying why. It installs cargo-mutants 27.1.0 into
+`~/.cargo/bin` if needed, and leaves the tree as it found it. In a worker
+each shard of at most 40 mutants of one file is its own heavy command, a
+few minutes long; the whole tree takes hours, so run it file by file
+(`-f`), never inside one `factorium worker exclusive`.

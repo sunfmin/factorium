@@ -85,7 +85,8 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
     let (t, after) =
         tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), others) }).await.expect("the gate is ended");
     let red = t.landed[0]["red"].as_str().unwrap();
-    assert!(red.contains("held others up past the hold bound"), "{red}");
+    assert!(red.contains("held others up past the hold bound of 1800s"), "{red}");
+    assert!(!red.contains("past its limit"), "ended by the hold bound, not its own limit: {red}");
     assert_eq!(after.unwrap()["ok"], true, "the waiting command runs once the gate is ended");
 }
 
@@ -160,6 +161,68 @@ async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_n
     .await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "its gate starts on the next tick");
     assert_eq!(heavy(&w).await, Vec::<String>::new());
+}
+
+/// Stages a heavy command that started and whose asker went away: its
+/// entry runs on, and no hold-bound check ends it.
+pub(crate) async fn running_on(w: &World) {
+    let started = w.dir.join("running-on");
+    let cli = w.run();
+    let line = format!("touch {}; sleep 1", started.display());
+    let mut runs = std::pin::pin!(cli.worker_exclusive(None, &w.dir, &line));
+    tokio::select! { _ = &mut runs => panic!("it ended before its asker went"), _ = until_file(&started) => {} }
+}
+
+#[tokio::test]
+async fn beside_what_runs_one_heavy_command_starts_per_reading() {
+    let w = World::new();
+    running_on(&w).await;
+    // Room, but the reading is the one the running command started on.
+    w.host.reading.lock().unwrap().cpu_busy = 10;
+    let cli = w.run();
+    let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo next"));
+    let entry = async || {
+        let d = w.run().doctor().await.unwrap();
+        d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo next").cloned()
+    };
+    let queued = async {
+        while entry().await.is_none() {
+            tokio::task::yield_now().await;
+        }
+    };
+    tokio::select! { _ = &mut asks => panic!("two starts on one reading"), _ = queued => {} }
+    assert_eq!(entry().await.unwrap()["started_at"], json!(null), "it waits for a new reading");
+    w.advance(1);
+    let ran = tokio::time::timeout(STUCK, asks).await.expect("a new reading starts it");
+    assert_eq!(ran.unwrap()["ok"], true);
+}
+
+#[tokio::test]
+async fn a_landing_whose_gate_runs_long_is_no_stall() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let (started, release) = (w.dir.join("gate-started"), w.dir.join("gate-release"));
+    let toml = format!(
+        "[gate]\nfast = \"touch {}; while [ ! -e {} ]; do sleep 0.02; done\"\n",
+        started.display(),
+        release.display()
+    );
+    done(&w, "factorium.toml", &toml).await;
+    let me = id(&worker(&w.app).await);
+    let looks = async {
+        until_file(&started).await;
+        w.advance(11);
+        let d = w.run().doctor().await.unwrap();
+        std::fs::write(&release, "").unwrap();
+        d
+    };
+    let (t, d) = tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), looks) }).await.expect("the gate ends");
+    let keys: Vec<_> = d["findings"].as_array().unwrap().iter().map(|f| f["key"].clone()).collect();
+    assert!(!keys.contains(&json!(format!("landing:{me}"))), "its gate runs: {keys:?}");
+    assert_eq!(t.landed[0]["landed"], "web#1");
 }
 
 #[tokio::test]

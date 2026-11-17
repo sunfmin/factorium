@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::Value;
 
 use crate::line::land;
-use crate::queue::{STUCK, heavy, while_busy};
+use crate::queue::{STUCK, heavy, running_on, while_busy};
 use crate::{UP, World, id, worker};
 
 /// The finding whose key is `key`, if doctor answers one.
@@ -57,10 +57,14 @@ async fn a_heavy_queue_that_starts_nothing_past_the_stall_bound_is_a_finding_unt
     let w = World::new();
     let stale = forgotten_entry(&w).await;
     let key = format!("queue:{stale}");
-    w.advance(9);
-    assert_eq!(finding(&w, &key).await, None, "within the stall bound of 10 min");
-    w.advance(2);
+    w.advance(10);
+    assert_eq!(finding(&w, &key).await, None, "at the stall bound of 10 min, not past it");
+    w.advance(1);
     let found = finding(&w, &key).await.expect("nothing runs and its oldest has waited 11 min");
+    assert!(
+        found["what"].as_str().unwrap().contains("started nothing for 11 min: 1 waiting and nothing runs"),
+        "{found}"
+    );
     assert!(found["what"].as_str().unwrap().contains("echo forgotten"), "{found}");
     assert!(found["fix"].as_str().unwrap().contains("factorium unqueue"), "{found}");
 
@@ -70,6 +74,34 @@ async fn a_heavy_queue_that_starts_nothing_past_the_stall_bound_is_a_finding_unt
     assert_eq!(next.expect("the queue moves").unwrap()["ok"], true);
     assert_eq!(finding(&w, &key).await, None);
     assert_eq!(w.run().unqueue(stale).await.unwrap_err().code, "no_entry");
+}
+
+#[tokio::test]
+async fn a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_and_the_stall_bound() {
+    let w = World::new();
+    // No room: nothing starts beside what runs.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    running_on(&w).await;
+    let cli = w.run();
+    let waiting = {
+        let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo behind"));
+        let queued = async {
+            while !heavy(&w).await.contains(&"echo behind".to_string()) {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! { _ = &mut asks => panic!("it ran beside the running one"), _ = queued => {} }
+        let d = w.run().doctor().await.unwrap();
+        let e = d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo behind").cloned().unwrap();
+        e["id"].as_str().unwrap().to_string()
+    };
+    let key = format!("queue:{waiting}");
+    // The hold bound (30 min) and the stall bound (10 min) after it queued.
+    w.advance(40);
+    assert_eq!(finding(&w, &key).await, None, "what runs may yet end");
+    w.advance(1);
+    let found = finding(&w, &key).await.expect("past both bounds");
+    assert!(found["what"].as_str().unwrap().contains("for 41 min: 1 waiting and running: `"), "{found}");
 }
 
 #[tokio::test]
@@ -90,6 +122,11 @@ async fn a_landing_no_gate_runs_for_past_the_stall_bound_is_a_finding_and_lands_
     let found = finding(&w, &key).await.expect("landing 11 min and no gate runs");
     let what = found["what"].as_str().unwrap();
     assert!(what.contains("web#1") && what.contains(&stale.to_string()), "it names what holds it: {found}");
+    assert!(what.contains("waited 11 min to land") && what.contains("queued 11 min ago"), "{found}");
+    // Held, its landings wait by the operator's word, not by a stall.
+    w.app.hold("web", Some("repairs")).await.unwrap();
+    assert_eq!(finding(&w, &key).await, None);
+    w.app.hold("web", None).await.unwrap();
 
     w.run().unqueue(stale).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
@@ -103,10 +140,10 @@ async fn a_landing_unpromoted_past_the_promotion_bound_is_a_finding_and_is_promo
     working(&w, &["a", "b"]).await;
     let landed = land(&w, 1, "a").await;
     let stale = forgotten_entry(&w).await;
-    w.advance(59);
+    w.advance(60);
     w.tick().await;
-    assert_eq!(finding(&w, "unpromoted:web").await, None, "within the promotion bound");
-    w.advance(2);
+    assert_eq!(finding(&w, "unpromoted:web").await, None, "at the promotion bound, not past it");
+    w.advance(1);
     let t = w.tick().await;
     assert!(t.lines.is_empty(), "its slow gate waits behind the forgotten entry: {:?}", t.lines);
     let found = finding(&w, "unpromoted:web").await.expect("past the promotion bound and no promotion runs");
@@ -126,10 +163,10 @@ async fn a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_q
     land(&w, 1, "a").await;
     assert_eq!(w.app.promote("web").await.unwrap()["promoted"], "web");
     let stale = forgotten_entry(&w).await;
-    w.advance(24 * 60 - 1);
+    w.advance(24 * 60);
     w.tick().await;
-    assert_eq!(finding(&w, "uncut:web").await, None, "within the cut bound");
-    w.advance(2);
+    assert_eq!(finding(&w, "uncut:web").await, None, "at the cut bound, not past it");
+    w.advance(1);
     assert!(w.tick().await.lines.is_empty(), "the cut waits behind the forgotten entry");
     let found = finding(&w, "uncut:web").await.expect("past the cut bound and no cut runs");
     assert!(found["fix"].as_str().unwrap().contains("factorium cut web"), "{found}");
@@ -157,8 +194,9 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     };
     let status = || async { worker(&w.app).await["status"].as_str().unwrap().to_string() };
 
-    // Busy in its turn: working, however long.
-    cpu(30.0);
+    // Busy in its turn: working, however long. 2% of a core is the least
+    // that is not idle.
+    cpu(2.0);
     w.tick().await;
     w.advance(31);
     w.tick().await;
@@ -172,8 +210,11 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     w.advance(20);
     w.tick().await;
     assert_eq!(status().await, "working", "its screen changed 20 min ago");
-    // Idle and its screen still: hung past the silent bound of 30 min.
-    w.advance(11);
+    // Idle and its screen still: hung once past the silent bound of 30 min.
+    w.advance(10);
+    w.tick().await;
+    assert_eq!(status().await, "working", "30 min is the bound, not past it");
+    w.advance(1);
     w.tick().await;
     let hung = worker(&w.app).await;
     assert_eq!(hung["status"], "waiting");

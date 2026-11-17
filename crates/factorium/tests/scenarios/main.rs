@@ -6,6 +6,7 @@
 //! the scenario moves it.
 
 mod admission;
+mod bounds;
 mod daemon;
 mod harnesses;
 mod line;
@@ -78,6 +79,10 @@ pub struct FakeOrca {
     held: Mutex<BTreeMap<String, PathBuf>>,
     /// Repos Orca was just given: their own worktree is not found once yet.
     finding: Mutex<Vec<PathBuf>>,
+    /// While set, a repo Orca was just given is never found.
+    pub never_found: Mutex<bool>,
+    /// Orca refuses to remove worktrees while set.
+    pub refuse_rm: Mutex<bool>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -135,6 +140,13 @@ impl FakeOrca {
             ("worktree", "rm") => {
                 let path = path_of(flag(args, "--worktree")).unwrap();
                 self.removed.lock().unwrap().push(path.clone());
+                // A worktree gone from disk is gone from Orca too.
+                if !path.exists() {
+                    return error("selector_not_found");
+                }
+                if *self.refuse_rm.lock().unwrap() {
+                    return error("worktree_remove_failed");
+                }
                 if path.exists()
                     && let Err(e) = git_of(root, &path, &["worktree", "remove", "--force", &path.to_string_lossy()])
                 {
@@ -152,7 +164,9 @@ impl FakeOrca {
                         let mut finding = self.finding.lock().unwrap();
                         match finding.iter().position(|p| p == Path::new(path)) {
                             Some(i) => {
-                                finding.remove(i);
+                                if !*self.never_found.lock().unwrap() {
+                                    finding.remove(i);
+                                }
                                 return error("selector_not_found");
                             }
                             None => PathBuf::from(path),
@@ -343,11 +357,15 @@ impl Programs for FakeHost {
             }
             "sleep" => Said { ok: true, ..Default::default() },
             "launchctl" => {
+                // As launchd: this user's GUI domain, the agent by its label.
+                use std::os::unix::fs::MetadataExt;
+                let domain = format!("gui/{}", std::fs::metadata(&self.root).unwrap().uid());
+                let target = format!("{domain}/com.github.sunfmin.factorium");
                 let mut loaded = self.service.lock().unwrap();
-                let ok = match args[0] {
-                    "print" => *loaded,
-                    "bootstrap" => !std::mem::replace(&mut *loaded, true),
-                    "bootout" => std::mem::replace(&mut *loaded, false),
+                let ok = match args {
+                    ["print", t] if *t == target => *loaded,
+                    ["bootstrap", d, _] if *d == domain => !std::mem::replace(&mut *loaded, true),
+                    ["bootout", t] if *t == target => std::mem::replace(&mut *loaded, false),
                     _ => false,
                 };
                 Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }

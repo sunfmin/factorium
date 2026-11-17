@@ -120,9 +120,9 @@ const SESSION_FILE: &str = "session.v4.jsonl.zstd";
 
 /// The turn `text` records. The worktree is the directory the file was in.
 /// DeepSeek Harness records no child session.
-fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(_cwd: &str, text: &str) -> Option<Turn> {
     let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 fn note(value: &serde_json::Value) -> Option<Note> {
@@ -224,10 +224,10 @@ impl Kind for Dsh {
     }
 
     fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None)
+        recorded_turn(cwd, text)
     }
 
-    fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
+    fn stand_in(_cwd: &str, _brief: &str, open: bool, at: u64) -> String {
         stand_in(open, at)
     }
 

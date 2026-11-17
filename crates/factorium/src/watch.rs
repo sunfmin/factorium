@@ -17,7 +17,7 @@ impl App {
     /// round is sent to the watch's session.
     pub(crate) async fn look_if_due(&self, settings: &Settings) -> Answer<Option<Value>> {
         let before = self.state::<Watches>(watch_id()).await?;
-        if before.last_look > 0 && self.now() - before.last_look < settings.ms(Time::LookEvery) {
+        if self.now() - before.last_look < settings.ms(Time::LookEvery) {
             return Ok(None);
         }
         self.look(settings).await.map(Some)

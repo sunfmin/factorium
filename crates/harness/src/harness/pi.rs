@@ -188,7 +188,7 @@ fn layout(cwd: &str) -> Layout {
 
 /// The turn `text` records for `cwd`. A session header for another worktree
 /// is not this file. pi records no child session.
-fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str) -> Option<Turn> {
     let mut notes = Vec::new();
     for value in json_lines(text) {
         if value["type"] == "session" && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
@@ -199,7 +199,7 @@ fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn>
             notes.push(note);
         }
     }
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 fn note(value: &Value) -> Option<Note> {
@@ -298,10 +298,10 @@ impl Kind for Pi {
     }
 
     fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None)
+        recorded_turn(cwd, text)
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+    fn stand_in(cwd: &str, _brief: &str, open: bool, at: u64) -> String {
         stand_in(cwd, open, at)
     }
 

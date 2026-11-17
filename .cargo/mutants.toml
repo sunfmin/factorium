@@ -1,0 +1,111 @@
+# What ./mutants.sh skips, and why: each mutant here cannot be reached from
+# the outermost layer (SPEC.md §6), so no scenario or binary test can catch
+# it. A pattern names the mutant by what it does; where that names a
+# caught one too, by its line as well, so a moved line shows up as missed
+# again. Every other setting is in ./mutants.sh.
+exclude_re = [
+  # Equivalent: a stream is named by its aggregate and its id, and these
+  # aggregates have one stream each, so any id names it.
+  'replace (queue_id|kit_id|settings_id|watch_id|daemon_id) -> .* with Default::default\(\)',
+  # A projection's version only matters to a database made by an older
+  # version; every scenario starts from an empty one.
+  'replace <impl Projection for Tracker>::version -> u32 with [01]$',
+  # Equivalent: `sh -c ""` exits 0, as the default fast gate `true` does.
+  'replace nothing -> String with String::new\(\)',
+  # Time limits only show on a command that runs past them in real time,
+  # and no scenario waits on real time: a gate's limit, exclusive's limit,
+  # and the hold bound, which a running heavy command checks every 5 real
+  # seconds.
+  'replace (fast_limit|slow_limit) -> u64 with 1$',
+  'replace \* with [/+] in App::worker_exclusive',
+  'in Queue::overheld$',
+  'replace Queue::overheld -> bool with',
+  # Equivalent: starting a heavy command is refused only with "wait".
+  'replace match guard r.code == "wait" with true in App::take_turn',
+  # A dead process's entry under the very id being asked for is met only by
+  # a daemon that crashed and came back as a new pid, its gate still
+  # queued: two daemon processes and a gate, which the binary tests' daemon
+  # (no Orca, so no worker to land) cannot be given.
+  'heavy.rs:106:.*replace && with \|\| in App::take_turn$',
+  # Who ran a command is recorded as each event's principal for a person
+  # reading the log; no command answers it.
+  'replace Caller::by -> &.static str with',
+  # Equivalent: picking a harness is refused only as `no_harness`, short
+  # of the database failing, which no scenario can make it do.
+  'replace match guard r.code == "no_harness" with true in App::ensure_watch',
+  # Usage windows are never read: nothing submits ReadWindows, so an
+  # account's windows are always empty.
+  'kit.rs:48:.* in Account::left$',
+  'kit.rs:49:.*replace - with \+ in Account::left$',
+  # Equivalent: of two equal times, keeping either keeps the same time.
+  'replace > with >= in (prefer|ended_last)$',
+  # Equivalent: a stamp well formed, as every stand-in writes one, passes
+  # each check either way; a malformed or offset one only a real harness
+  # could write, and the stand-ins are the only sessions (SPEC.md §6).
+  'session.rs:1[36]:.*replace \|\| with && in parse_iso$',
+  'session.rs:33:.*replace \|\| with && in parse_iso$',
+  'session.rs:36:.* in parse_iso$',
+  'session.rs:13:20:.*replace < with (==|<=) in parse_iso$',
+  'session.rs:30:(28|48):.* in parse_iso$',
+  # Equivalent for every date of this century, the scenarios' (2000-2099):
+  # these terms of the civil-date arithmetic are 0 there.
+  'session.rs:70:(56|78):.* in civil_from_days$',
+  'session.rs:71:73:.* in civil_from_days$',
+  'session.rs:86:58:.* in days_from_civil$',
+  # Equivalent: a month off by one comes out as the day past its end (April
+  # 31 for May 1), which days_from_civil reads back as the same day.
+  'session.rs:72:40:.*replace \+ with - in civil_from_days$',
+  'session.rs:122:.* in wrapped_dir$',
+  # A user's words named by `type` alone, as no stand-in writes them: each
+  # names its user by `role`, as the line that hands the brief does.
+  'session.rs:169:(65|75|94):.* in user_texts$',
+  # Equivalent: only the very value 10^10 tells seconds from milliseconds.
+  'replace > with >= in epoch_number$',
+  # Equivalent: a quick look before the turn is read in full, which decides
+  # alone; it answers true for any worktree path a checkout can have.
+  'names_cwd_or_brief',
+  # Equivalent: the stand-in and the reader share the name and the storage
+  # of a session's file, so both change alike.
+  'session.rs:105:.*replace <= with > in stored_name$',
+  'in compressed$',
+  'replace compressed -> bool with false$',
+  # The host's own readings and processes: scenarios stand in for them in
+  # process (SPEC.md §6), and the binary tests' daemon has no worker whose
+  # processes or share of the host it reads.
+  'replace <impl Host for Machine>::(reading|processes) ->',
+  'procs.rs:.*replace (list|parse) ->',
+  'procs.rs:.* in parse$',
+  # The same for the host's reading of its CPU, memory and disk: only a
+  # mutant that keeps the binary sampling forever shows.
+  'reading.rs:.*replace (read|disk|load_share|memory_free|ticks|Cpu::busy) ->',
+  'reading.rs:.* in (disk|load_share|memory_free)$',
+  'reading.rs:(46|63|67|76):.*',
+  'reading.rs:37:.*replace (> with (==|>=)|>= with <) in Cpu::busy$',
+  'reading.rs:40:(31|35):.*',
+  'reading.rs:40:88:.*replace < with (<=|==) in Cpu::busy$',
+  'reading.rs:68:22:.*replace \+ with \* in ticks$',
+  # Only those readings run a program to read its output this way.
+  'shell.rs:.*replace output -> ',
+  # Equivalent: Orca's exit status and its answer's `ok` agree.
+  'replace \|\| with && in Orca.*::call$',
+  # Equivalent: releasing an issue is refused only as `ended` (a closed
+  # issue); `no_issue` cannot happen for a worker's own issue.
+  'match guard r.code == "no_issue" \|\| r.code == "ended" with true in App::end_worker',
+  'replace == with != in App::end_worker',
+  # Redundant guards: an ended or landed worker's stream has ended, which
+  # the engine refuses before `live` runs, and the app looks the worker up
+  # before submitting, so `live`'s arms and `ending` each hold alone.
+  'replace <impl Aggregate for Workers>::ending -> bool with false',
+  'replace live -> Result<\(\), Rejection> with Ok\(\(\)\)',
+  'delete match arm \((None, _|_, Status::Ended)\) in live',
+  # Equivalent: quoting a word that needs no quotes runs the same.
+  'replace \|\| with && in shell_word',
+  # Which part of a busy tick is non-empty only decides that it is printed,
+  # and only by the daemon binary, whose tests have no Orca: its ticks
+  # start, land, carry and see nothing. (An idle tick printing nothing is
+  # held.)
+  'daemon.rs:207:.*replace \|\| with && in App::run$',
+  # A refusal's text form is printed only for a daemon tick that fails,
+  # which the binary tests' daemon cannot be made to do.
+  'replace <impl std::fmt::Display for Refusal>::fmt',
+]

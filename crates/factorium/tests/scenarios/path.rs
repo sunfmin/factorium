@@ -11,7 +11,7 @@ use crate::{World, id, refused, worker};
 #[tokio::test]
 async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let w = World::new();
-    w.checkout("web").await;
+    let web = w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "Add a greeting", "Say hello.", false, &[]).await.unwrap();
     let base = w.remote_tip("web", "proving");
@@ -22,6 +22,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let wk = worker(&w.app).await;
     let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
     assert_eq!(w.git(&tree, &["rev-parse", "HEAD"]).unwrap(), base, "branched from the proving tip");
+    let branch = w.git(&tree, &["branch", "--show-current"]).unwrap();
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], wk["worker"]);
     let term = w.terminal(wk["terminal"].as_str().unwrap());
     assert_eq!(term.worktree, tree);
@@ -52,6 +53,8 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     assert!(!w.terminal("term-1").alive, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
+    let left = w.git(&web, &["branch", "--list", &branch]).unwrap();
+    assert!(left.trim().is_empty(), "its branch goes: {branch}");
 
     // Idle, the same tick promoted and cut.
     assert_eq!(w.remote_tip("web", "main"), landed);
@@ -96,6 +99,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"));
+    assert_eq!(t.landed[0]["status"], "working", "back to work");
     assert_eq!(w.remote_tip("web", "proving"), proving, "nothing red lands");
     let again = worker(&w.app).await;
     assert_eq!(again["status"], "working");
@@ -476,4 +480,93 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     let ended = w.app.workers(true).await.unwrap()[0].clone();
     assert_eq!(row(&ended), (json!("ended"), json!("its issue closed: not needed"), json!(at + 60_000)));
+}
+
+#[tokio::test]
+async fn a_closed_issue_takes_no_more_commands() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["checkout"], "web");
+    w.app.issue_close("web", 1, "done elsewhere").await.unwrap();
+    refused(w.app.issue_comment("web", 1, "one more thing").await, "ended");
+}
+
+#[tokio::test]
+async fn an_issue_of_a_removed_checkout_starts_no_worker() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.app.checkout_remove("web").await.unwrap();
+    let t = w.tick().await;
+    assert_eq!((t.started, t.held), (None, None));
+}
+
+#[tokio::test]
+async fn a_brief_carries_the_issue_s_comments_and_only_then_their_heading() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.app.issue_comment("web", 2, "use the v2 API").await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let a = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+    assert!(!a.contains("## Comments"), "{a}");
+    let b = std::fs::read_to_string(w.dir.join("data/briefs/web-2-1.md")).unwrap();
+    assert!(b.contains("## Comments\n\n- use the v2 API\n"), "{b}");
+}
+
+#[tokio::test]
+async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
+    let w = World::new();
+    assert_eq!(w.app.stop().await.unwrap()["why"], "no daemon runs");
+    let pid = w.dir.join("data/daemon.pid");
+    // A pid no process has (macOS gives at most 99998).
+    std::fs::write(&pid, "999999").unwrap();
+    assert_eq!(w.app.stop().await.unwrap(), json!({ "stopped": false, "why": "no daemon runs", "watch_closed": null }));
+    assert!(!pid.exists());
+}
+
+#[tokio::test]
+async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "factorium.toml", "[gate]\nslow = \"true\"\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+/// `web` with one worker at work, no commit of its own; answers its worktree.
+async fn one_worker(w: &World) -> PathBuf {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    PathBuf::from(worker(&w.app).await["worktree"].as_str().unwrap())
+}
+
+#[tokio::test]
+async fn a_closed_issue_s_worktree_is_removed_through_orca_even_once_gone_from_disk() {
+    let w = World::new();
+    let tree = one_worker(&w).await;
+    std::fs::remove_dir_all(&tree).unwrap();
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+    assert!(w.host.orca.removed.lock().unwrap().contains(&tree), "Orca forgets it");
+}
+
+#[tokio::test]
+async fn orca_refusing_to_remove_a_worktree_is_an_error_and_the_worktree_stays() {
+    let w = World::new();
+    let tree = one_worker(&w).await;
+    *w.host.orca.refuse_rm.lock().unwrap() = true;
+    let refused = w.app.issue_close("web", 1, "not needed").await.unwrap_err();
+    assert!(refused.message.contains("orca worktree rm: worktree_remove_failed"), "{refused:?}");
+    assert!(tree.exists());
 }

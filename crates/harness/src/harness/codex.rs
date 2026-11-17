@@ -258,7 +258,7 @@ fn layout() -> Layout {
 
 /// The turn `text` records for `cwd`, or for the session handed `brief`
 /// when it started elsewhere. A header is required.
-fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
     let mut saw_header = false;
     let mut notes = Vec::new();
     for value in json_lines(text) {
@@ -276,7 +276,7 @@ fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&
     if !saw_header {
         return None;
     }
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 /// Whether the first brief pointer in the opening user messages (after any
@@ -324,10 +324,13 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let meta = json!({"cwd": cwd, "id": "factorium"});
     let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
+    let pointer = json!({"type": "input_text", "text": crate::brief::brief_pointer(brief)});
+    let said = json!({"type": "message", "role": "user", "content": [pointer]});
+    body += &format!("{}\n", json!({"timestamp": iso, "type": "response_item", "payload": said}));
     let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
     body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": started}));
     if !open {
@@ -390,11 +393,11 @@ impl Kind for Codex {
     }
 
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None, Some(brief))
+        recorded_turn(cwd, text, Some(brief))
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, open, at)
+    fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, brief, open, at)
     }
 
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {

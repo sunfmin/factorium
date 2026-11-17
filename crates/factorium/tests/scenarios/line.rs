@@ -66,6 +66,19 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let doctor = w.app.doctor().await.unwrap();
     assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"));
     assert!(w.tick().await.lines.is_empty(), "the same tip is not gated again");
+    let again = w.app.promote("web").await.unwrap();
+    assert!(again["red"].is_string(), "by hand it is gated again: {again}");
+
+    // A new tip, the red fixed: promoted.
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    w.git(&tree, &["rm", "-q", "SLOWRED"]).unwrap();
+    w.git(&tree, &["commit", "-q", "-m", "green"]).unwrap();
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
 }
 
 #[tokio::test]
@@ -95,7 +108,7 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     let web = w.checkout("web").await;
     w.kit().await;
     // The repo now declares a cut whose step fails.
-    let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"exit 7\"]\n";
+    let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"true\", \"exit 7\"]\n";
     let clone = w.dir.join("edit");
     w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
     w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
@@ -341,4 +354,91 @@ async fn factorium_commits_as_the_hosts_own_identity_or_as_itself_on_a_fresh_hos
     w.tick().await;
     let landed = land(&w, 2, "b").await;
     assert_eq!(author(&landed), "Ann <ann@host>", "the host's config is its home's");
+}
+
+/// `web` with two workers at work, neither silent while the scenario runs.
+async fn two_working(w: &World) {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+}
+
+#[tokio::test]
+async fn a_promotion_takes_every_landing_up_to_its_tip() {
+    let w = World::new();
+    two_working(&w).await;
+    land(&w, 1, "a").await;
+    // #2 lands: idle, so the same tick promotes both and, nothing left unpromoted, cuts.
+    let wk = w.app.workers(false).await.unwrap()[0].clone();
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "b", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
+}
+
+#[tokio::test]
+async fn a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound() {
+    let w = World::new();
+    two_working(&w).await;
+    land(&w, 1, "a").await;
+    assert!(w.app.promote("web").await.unwrap()["promoted"].is_string());
+    w.advance(24 * 60 - 1);
+    assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, under a day");
+    w.advance(1);
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
+}
+
+#[tokio::test]
+async fn a_checkout_is_idle_whatever_another_checkout_s_workers_do() {
+    let w = World::new();
+    w.checkout("api").await;
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "w", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    // api's worker works on; web's lands, and web is idle.
+    let all = w.app.workers(false).await.unwrap();
+    let web = all.as_array().unwrap().iter().find(|x| x["checkout"] == "web").cloned().unwrap();
+    w.commit(&PathBuf::from(web["worktree"].as_str().unwrap()), "w", "x");
+    w.app.worker_done(id(&web)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+}
+
+#[tokio::test]
+async fn holding_one_checkout_s_landings_holds_no_other_s() {
+    let w = World::new();
+    w.checkout("api").await;
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.app.hold("web", Some("repairs")).await.unwrap();
+    let wk = worker(&w.app).await;
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "api#1");
+    assert_eq!(w.app.hold("api", None).await.unwrap()["held"], json!(null));
+}
+
+#[tokio::test]
+async fn an_ended_worker_s_worktree_stays_while_it_holds_commits_nowhere_else() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    w.commit(&tree, "a", "x");
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+    assert!(tree.exists(), "its commit is nowhere else");
 }

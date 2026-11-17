@@ -40,14 +40,15 @@ pub(crate) fn parse_iso(text: &str) -> Option<u64> {
     Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
-/// `at` as an ISO-8601 stamp in UTC, whole seconds.
+/// `at` as an ISO-8601 stamp in UTC with milliseconds, as the harnesses
+/// write theirs.
 pub(super) fn format_iso(at: u64) -> String {
     let (year, month, day) = civil_from_days((at / 86_400) as i64);
     let rest = at % 86_400;
     let hour = rest / 3600;
     let minute = (rest % 3600) / 60;
     let second = rest % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.000Z")
 }
 
 /// Epoch seconds. A value past year 2286 is milliseconds.
@@ -142,8 +143,8 @@ pub(super) fn json_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
 }
 
 /// The turn `notes` leave, in the order the session wrote them.
-pub(super) fn turn_of(notes: &[Note], not_before: Option<u64>) -> Option<Turn> {
-    latest(notes, not_before)
+pub(super) fn turn_of(notes: &[Note]) -> Option<Turn> {
+    latest(notes)
 }
 
 /// The first brief pointer in a user message: whether it names exactly
@@ -158,17 +159,11 @@ pub(super) fn brief_match(line: &Value, brief: &str) -> Option<bool> {
         .map(|said| said == expected)
 }
 
-/// What one session line gives the model as the user's words. Claude Code
-/// writes a line typed mid-turn as a `queued_command` attachment once its
-/// model has it, and a `queue-operation` line while it only waits in the
-/// queue. Every harness here writes a message at its prompt with the start directory
-/// or the type `user`, at the top of the line, under `message` or under
-/// `payload`; Codex also as a `user_message` event.
+/// What one session line gives the model as the user's words. Every harness
+/// here writes a message at its prompt with the start directory or the type
+/// `user`, at the top of the line, under `message` or under `payload`; Codex
+/// also as a `user_message` event.
 fn user_texts(line: &Value) -> Vec<&str> {
-    let attachment = &line["attachment"];
-    if line["type"] == "attachment" && attachment["type"] == "queued_command" {
-        return attachment["prompt"].as_str().into_iter().collect();
-    }
     let mut said = Vec::new();
     for message in [line, &line["message"], &line["payload"]] {
         let user = message["role"] == "user" || message["type"] == "user" || message["type"] == "user_message";

@@ -89,3 +89,34 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     w.app.service_remove().unwrap();
     assert!(!file.exists() && !*w.host.service.lock().unwrap());
 }
+
+#[tokio::test]
+async fn a_program_two_kit_entries_need_is_missing_once() {
+    let w = World::new();
+    w.app.kit_set(&["claude-code=claude".into(), "codex=claude --x".into()]).await.unwrap();
+    *w.host.missing.lock().unwrap() = vec!["claude".into()];
+    assert_eq!(w.app.daemon_start().await.unwrap()["missing"], json!(["claude"]));
+}
+
+#[tokio::test]
+async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
+    let w = World::new();
+    // A daemon that runs a newly installed binary keeps its pid, and its file.
+    std::fs::write(w.dir.join("data/daemon.pid"), std::process::id().to_string()).unwrap();
+    let ran = w.app.run(&AtomicBool::new(true)).await.unwrap();
+    assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
+}
+
+#[tokio::test]
+async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
+    let w = World::new();
+    w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
+    let stop = AtomicBool::new(false);
+    let stopping = async {
+        // Within the first tick's wait.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    };
+    let (ran, ()) = tokio::join!(w.app.run(&stop), stopping);
+    assert_eq!(ran.unwrap()["ticks"], 1);
+}

@@ -233,7 +233,7 @@ fn layout() -> Layout {
 
 /// The turn for `cwd`, or for the session its initial brief pointer names
 /// when Claude Code starts in a start directory. A sidechain is a child session.
-fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
     let named = brief.is_some_and(|brief| names_brief(text, brief));
     // Each line is read once, into only what a turn needs: a long session
     // is tens of megabytes of tool output nobody looks at here
@@ -255,7 +255,7 @@ fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&
         return None;
     }
     let notes: Vec<Note> = entries.iter().filter_map(|entry| note(cwd, entry, named)).collect();
-    session::turn_of(&notes, not_before)
+    session::turn_of(&notes)
 }
 
 /// What a turn reads of one session line. Every other field is skipped
@@ -392,14 +392,14 @@ fn prompted(text: &str, said: &str, since: u64) -> bool {
 }
 
 /// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let user = session::object(vec![
         ("type", "user".into()),
         ("timestamp", iso.clone().into()),
         ("cwd", cwd.into()),
         ("isSidechain", false.into()),
-        ("message", session::object(vec![("role", "user".into()), ("content", "brief".into())])),
+        ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
     ]);
     let mut body = format!("{user}\n");
     if !open {
@@ -468,11 +468,11 @@ impl Kind for ClaudeCode {
     }
 
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, None, Some(brief))
+        recorded_turn(cwd, text, Some(brief))
     }
 
-    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, open, at)
+    fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, brief, open, at)
     }
 
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {

@@ -11,7 +11,6 @@ use factorium_domain::watch::{self, StartWatch};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_host::Term;
-use factum::Value;
 use serde_json::json;
 
 use crate::launch::{Opened, Pick, Role};
@@ -180,9 +179,4 @@ fn worker_brief(
          `factorium worker escalate \"what you need\"` and stop.\n"
     ));
     b
-}
-
-/// A started worker's view, for answers.
-pub(crate) fn _shown(st: &Started) -> Value {
-    json!(st)
 }

@@ -85,12 +85,12 @@ impl Harness {
         each!(self, |K| prompted::<K>(home.path(), cwd, brief, said, since))
     }
 
-    /// The stand-in session: writes the session file this harness would
-    /// for the worktree `cwd`, where `turn` reads it, with its turn left
-    /// open when `open`, written at `at` (epoch seconds), under its `home`.
-    /// A stand-in written again for `cwd` replaces the one before.
-    pub fn write_session(self, home: &Home, cwd: &str, open: bool, at: u64) -> std::io::Result<()> {
-        each!(self, |K| write_session::<K>(home.path(), cwd, open, at))
+    /// The stand-in session: writes the session file this harness would in
+    /// `cwd` for the session handed `brief`, where `turn` reads it, with its
+    /// turn left open when `open`, written at `at` (epoch seconds), under its
+    /// `home`. A stand-in written again for `cwd` replaces the one before.
+    pub fn write_session(self, home: &Home, cwd: &str, brief: &str, open: bool, at: u64) -> std::io::Result<()> {
+        each!(self, |K| write_session::<K>(home.path(), cwd, brief, open, at))
     }
 }
 
@@ -119,10 +119,10 @@ fn prompted<K: Kind>(root: &Path, cwd: &str, brief: &str, said: &str, since: u64
     Some(texts.any(|text| K::prompted(&text, said, since) == Some(true)))
 }
 
-fn write_session<K: Kind>(root: &Path, cwd: &str, open: bool, at: u64) -> std::io::Result<()> {
+fn write_session<K: Kind>(root: &Path, cwd: &str, brief: &str, open: bool, at: u64) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
     let path = K::layout(cwd).stand_in(root, cwd)?;
-    let body = K::stand_in(cwd, open, at);
+    let body = K::stand_in(cwd, brief, open, at);
     std::fs::create_dir_all(path.parent().unwrap_or(root))?;
     if compressed(&path) {
         let fast = ruzstd::encoding::CompressionLevel::Fastest;
