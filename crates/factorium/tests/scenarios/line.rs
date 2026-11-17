@@ -65,7 +65,9 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     assert_eq!(w.remote_tip("web", "main"), main);
     let doctor = w.app.doctor().await.unwrap();
     assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"));
+    w.advance(61);
     assert!(w.tick().await.lines.is_empty(), "the same tip is not gated again");
+    assert_eq!(w.remote_tip("web", "main"), main, "nor promoted while it is the red one");
     let again = w.app.promote("web").await.unwrap();
     assert!(again["red"].is_string(), "by hand it is gated again: {again}");
 

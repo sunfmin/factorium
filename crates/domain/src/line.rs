@@ -85,11 +85,12 @@ pub enum Move {
     Cut,
 }
 
-/// What is due: the move, and for a landing the worker it lands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What is due: the move, for a landing the worker it lands, and for a
+/// promotion the proving tip it was judged on.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Due {
     Land(Uuid),
-    Promote,
+    Promote(String),
     Cut,
 }
 
@@ -101,9 +102,6 @@ pub struct Look<'a> {
     pub workers: &'a [(Uuid, Status)],
     /// Asked for by hand: the bounds and a red tip or failed cut do not hold it.
     pub by_hand: bool,
-    /// The proving tip, once read. A promotion is asked without it first,
-    /// so the tip is read only when everything else is due.
-    pub tip: Option<&'a str>,
 }
 
 impl Look<'_> {
@@ -119,46 +117,68 @@ impl Look<'_> {
 }
 
 impl Line {
-    /// Whether `mv` is due on this checkout now, or why not.
-    pub fn due(&self, mv: Move, look: &Look) -> Result<Due, String> {
+    /// Whether `mv` is due on this checkout now, or why not, in one call.
+    /// `tip` reads the proving tip: it is called only for a promotion due
+    /// on everything else, which is then judged on that tip, and its error
+    /// is passed up as it is.
+    pub fn due<E>(
+        &self,
+        mv: Move,
+        look: &Look,
+        tip: impl FnOnce() -> Result<String, E>,
+    ) -> Result<Result<Due, String>, E> {
         match mv {
-            Move::Land => {
-                if let Some(why) = &self.held {
-                    return Err(format!("landings are held: {why}"));
-                }
-                // One landing per checkout at a time: the one that asked first.
-                let first = look.workers.iter().find(|(_, s)| *s == Status::Landing);
-                first.map(|(w, _)| Due::Land(*w)).ok_or_else(|| "no worker asks to land".into())
-            }
-            Move::Promote => {
-                let Some(oldest) = self.unpromoted.first() else { return Err("nothing to promote".into()) };
-                if !(look.by_hand || look.idle() || look.waited(oldest.at, Time::PromotionBound)) {
-                    return Err("the checkout is busy and its oldest landing waits within the promotion bound".into());
-                }
-                match (&self.red, look.tip) {
-                    (Some((red, why)), Some(tip)) if red == tip && !look.by_hand => {
-                        Err(format!("the slow gate is red on the proving tip {tip}: {why}"))
-                    }
-                    _ => Ok(Due::Promote),
-                }
-            }
-            Move::Cut => {
-                let Some(&oldest) = self.uncut.first() else {
-                    return Err("nothing promoted since the last cut".into());
-                };
-                if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
-                    return Err(format!("cutting {version} failed; a cut by hand tries again: {why}"));
-                }
-                let settled = look.idle() && self.unpromoted.is_empty();
-                if !(look.by_hand || settled || look.waited(oldest, Time::CutBound)) {
-                    return Err(
-                        "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound"
-                            .into(),
-                    );
-                }
-                Ok(Due::Cut)
-            }
+            Move::Land => Ok(self.landing(look)),
+            Move::Promote => match self.promotable(look) {
+                Ok(()) => Ok(self.on_tip(look, tip()?)),
+                Err(why) => Ok(Err(why)),
+            },
+            Move::Cut => Ok(self.cut(look)),
         }
+    }
+
+    fn landing(&self, look: &Look) -> Result<Due, String> {
+        if let Some(why) = &self.held {
+            return Err(format!("landings are held: {why}"));
+        }
+        // One landing per checkout at a time: the one that asked first.
+        let first = look.workers.iter().find(|(_, s)| *s == Status::Landing);
+        first.map(|(w, _)| Due::Land(*w)).ok_or_else(|| "no worker asks to land".into())
+    }
+
+    /// Whether a promotion is due on everything but the proving tip.
+    fn promotable(&self, look: &Look) -> Result<(), String> {
+        let Some(oldest) = self.unpromoted.first() else { return Err("nothing to promote".into()) };
+        if !(look.by_hand || look.idle() || look.waited(oldest.at, Time::PromotionBound)) {
+            return Err("the checkout is busy and its oldest landing waits within the promotion bound".into());
+        }
+        Ok(())
+    }
+
+    /// A promotion onto `tip`: not while it is the tip the slow gate found red.
+    fn on_tip(&self, look: &Look, tip: String) -> Result<Due, String> {
+        match &self.red {
+            Some((red, why)) if *red == tip && !look.by_hand => {
+                Err(format!("the slow gate is red on the proving tip {tip}: {why}"))
+            }
+            _ => Ok(Due::Promote(tip)),
+        }
+    }
+
+    fn cut(&self, look: &Look) -> Result<Due, String> {
+        let Some(&oldest) = self.uncut.first() else {
+            return Err("nothing promoted since the last cut".into());
+        };
+        if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
+            return Err(format!("cutting {version} failed; a cut by hand tries again: {why}"));
+        }
+        let settled = look.idle() && self.unpromoted.is_empty();
+        if !(look.by_hand || settled || look.waited(oldest, Time::CutBound)) {
+            return Err(
+                "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound".into()
+            );
+        }
+        Ok(Due::Cut)
     }
 }
 

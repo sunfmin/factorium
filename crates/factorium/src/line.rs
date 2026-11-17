@@ -40,18 +40,12 @@ impl App {
             .filter(|w| w.checkout == c.name)
             .map(|w| (w.worker, w.state.status))
             .collect();
-        let look = Look { now: self.now(), settings: &settings, workers: &workers, by_hand, tip: None };
-        match l.due(mv, &look) {
+        let look = Look { now: self.now(), settings: &settings, workers: &workers, by_hand };
+        let git = self.host.git(&c.path);
+        match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
             Err(why) => Ok(Err(why)),
             Ok(Due::Land(worker)) => self.land(c, worker).await,
-            Ok(Due::Promote) => {
-                let git = self.host.git(&c.path);
-                let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-                if let Err(why) = l.due(mv, &Look { tip: Some(&tip), ..look }) {
-                    return Ok(Err(why));
-                }
-                self.promote_tip(c, &git, tip, by_hand).await
-            }
+            Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand).await,
             Ok(Due::Cut) => self.cut_base(c, by_hand).await,
         }
     }
