@@ -252,8 +252,8 @@ impl App {
         let (mut installed, mut restart) = (None, None);
         if let Some(formula) = &cut.formula {
             // The daemon's own formula: it runs the new binary once the tick ends.
-            restart = self.host.binary_of(formula);
-            if let Err(e) = self.host.brew_upgrade(formula, &version) {
+            restart = self.host.brew().binary_of(formula);
+            if let Err(e) = self.host.brew().upgrade(formula, &version) {
                 self.submit::<line::FailCut>(fail_cut(format!("installing {formula} failed: {e}"))).await?;
                 return Ok(Some(json!({ "cut": c.name, "version": version, "failed": e })));
             }

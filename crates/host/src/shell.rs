@@ -89,13 +89,49 @@ pub fn kill_group(pid: u32) {
     let _ = Command::new("kill").args(["-KILL", "--", &group]).stderr(Stdio::null()).status();
 }
 
+/// What a program answered: whether it succeeded, and what it printed on
+/// each stream.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Said {
+    pub ok: bool,
+    pub out: String,
+    pub err: String,
+}
+
+impl Said {
+    /// What it printed, or why it failed (`program args: stderr`).
+    pub fn result(self, program: &str, args: &[&str]) -> Result<String, String> {
+        match self.ok {
+            true => Ok(self.out),
+            false => Err(format!("{program} {}: {}", args.join(" "), self.err.trim())),
+        }
+    }
+}
+
+/// Running a program to its end and reading its answer: the one way the app
+/// reaches orca, brew and mytokens. A scenario stands in here with recorded
+/// answers, so what the app makes of them runs as it does for real.
+pub trait Programs: Send + Sync {
+    fn run(&self, program: &str, args: &[&str]) -> Said;
+}
+
+/// The real programs, found on `PATH`.
+pub struct System;
+
+impl Programs for System {
+    fn run(&self, program: &str, args: &[&str]) -> Said {
+        match Command::new(program).args(args).stdin(Stdio::null()).output() {
+            Ok(out) => Said {
+                ok: out.status.success(),
+                out: String::from_utf8_lossy(&out.stdout).into_owned(),
+                err: String::from_utf8_lossy(&out.stderr).into_owned(),
+            },
+            Err(e) => Said { ok: false, out: String::new(), err: format!("{program}: {e}") },
+        }
+    }
+}
+
 /// Runs a program to its end; its output, or why it failed.
 pub fn output(program: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new(program).args(args).stdin(Stdio::null()).output().map_err(|e| format!("{program}: {e}"))?;
-    let said = String::from_utf8_lossy(&out.stdout).into_owned();
-    if out.status.success() {
-        Ok(said)
-    } else {
-        Err(format!("{program} {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
-    }
+    System.run(program, args).result(program, args)
 }

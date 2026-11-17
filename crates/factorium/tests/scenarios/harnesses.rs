@@ -52,6 +52,18 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         assert!(term.line.contains("FACTORIUM_WORKER"), "{key}: the worker is named in its environment");
         let briefed = term.line.contains("web-1-1.md") || term.sent.iter().any(|s| s.contains("web-1-1.md"));
         assert!(briefed, "{key}: handed its brief");
+        if !term.sent.is_empty() {
+            // A typed brief waits for the session to be up: sent sooner, the shell takes it.
+            let handle = wk["terminal"].as_str().unwrap();
+            let ran = w.host.ran.lock().unwrap().clone();
+            let at = |verb: &str| {
+                ran.iter().position(|r| r.starts_with(&format!("orca terminal {verb} --terminal {handle} ")))
+            };
+            assert!(
+                at("wait").is_some() && at("wait") < at("send"),
+                "{key}: the brief is typed once its session is up"
+            );
+        }
 
         let h = Harness::read(key).unwrap();
         let cwd = wk["worktree"].as_str().unwrap();
