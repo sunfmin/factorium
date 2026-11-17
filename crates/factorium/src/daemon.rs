@@ -7,9 +7,10 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::hot;
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::settings::{Settings, Time};
-use factorium_domain::tracker::{CHECKOUTS, ISSUES, WORKERS};
+use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
-use factum::{Op, Query, Uuid, Value};
+use factorium_domain::worker::Status as WorkerStatus;
+use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
@@ -32,12 +33,11 @@ pub struct Tick {
 
 impl App {
     async fn listed(&self) -> Answer<Vec<Checkout>> {
-        let rows = self.rows(Query::table(CHECKOUTS).filter("listed", Op::Eq, true).order_by("name", false)).await?;
-        Ok(rows.into_iter().filter_map(|r| serde_json::from_value(r).ok()).collect())
+        self.rows(tracker::listed()).await
     }
 
-    async fn live_workers(&self) -> Answer<Vec<Value>> {
-        self.rows(Query::table(WORKERS).filter("status", Op::Ne, "ended").order_by("since", false)).await
+    async fn live_workers(&self) -> Answer<Vec<WorkerRow>> {
+        self.rows(tracker::workers(None, false)).await
     }
 
     /// One pass of the daemon.
@@ -48,7 +48,7 @@ impl App {
         // Workers: their sessions, and their share of the host.
         let procs = self.host.processes();
         for w in self.live_workers().await? {
-            let id: Uuid = serde_json::from_value(w["worker"].clone()).unwrap_or_default();
+            let id = w.worker;
             let mine: Vec<_> = procs.iter().filter(|p| p.worker.as_deref() == Some(&id.to_string())).collect();
             let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
             let load = hot::Load {
@@ -64,18 +64,17 @@ impl App {
         let workers = self.live_workers().await?;
         let checkouts = self.listed().await?;
         for c in &checkouts {
-            let landing = workers.iter().find(|w| w["checkout"] == c.name.as_str() && w["status"] == "landing");
-            if let Some(w) = landing {
-                let id: Uuid = serde_json::from_value(w["worker"].clone()).unwrap_or_default();
-                if let Some(did) = self.land(id).await? {
-                    t.landed.push(did);
-                }
+            let landing = workers.iter().find(|w| w.checkout == c.name && w.state.status == WorkerStatus::Landing);
+            if let Some(w) = landing
+                && let Some(did) = self.land(w.worker).await?
+            {
+                t.landed.push(did);
             }
         }
         // Promotions and cuts, when the checkout is idle or a bound passed.
         let workers = self.live_workers().await?;
         for c in &checkouts {
-            let idle = !workers.iter().any(|w| w["checkout"] == c.name.as_str() && w["status"] != "waiting");
+            let idle = !workers.iter().any(|w| w.checkout == c.name && w.state.status != WorkerStatus::Waiting);
             if let Some(did) = self.promote_if_due(c, idle, false).await? {
                 t.lines.push(did);
             }
@@ -113,12 +112,9 @@ impl App {
 
     /// The oldest ready issue no worker holds and nothing open blocks.
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
-        let q = Query::table(ISSUES).filter("status", Op::Eq, "ready").filter("taken", Op::Eq, false);
-        let rows = self.rows(q.order_by("checkout", false).order_by("number", false)).await?;
         let mut checked = std::collections::BTreeSet::new();
-        for r in rows {
-            let (checkout, number) =
-                (r["checkout"].as_str().unwrap_or_default().to_string(), r["number"].as_u64().unwrap_or(0));
+        for r in self.rows(tracker::untaken()).await? {
+            let (checkout, number) = (r.checkout, r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;
             }

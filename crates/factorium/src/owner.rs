@@ -8,10 +8,10 @@ use factorium_domain::issue::*;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
-use factorium_domain::tracker::{CHECKOUTS, ISSUES, Tracker, WORKERS};
+use factorium_domain::tracker::{self, Tracker, shown};
 use factorium_domain::{doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
-use factum::{Model, Op, Query, Value};
+use factum::{Model, Value};
 use serde_json::json;
 
 use crate::{Answer, App, Refusal};
@@ -70,15 +70,6 @@ pub(crate) fn model() -> Model {
         .projection(Tracker)
 }
 
-fn without(mut row: Value, fields: &[&str]) -> Value {
-    if let Some(o) = row.as_object_mut() {
-        for f in fields {
-            o.remove(*f);
-        }
-    }
-    row
-}
-
 impl App {
     // ---- checkouts ----
 
@@ -109,8 +100,7 @@ impl App {
     }
 
     pub async fn checkout_list(&self) -> Answer {
-        let rows = self.rows(Query::table(CHECKOUTS).filter("listed", Op::Eq, true).order_by("name", false)).await?;
-        Ok(Value::Array(rows.into_iter().map(|r| without(r, &["listed"])).collect()))
+        Ok(shown(&self.rows(tracker::listed()).await?))
     }
 
     // ---- issues ----
@@ -119,10 +109,8 @@ impl App {
     pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool) -> Answer {
         self.checkout(checkout).await?;
         loop {
-            let last = self
-                .rows(Query::table(ISSUES).filter("checkout", Op::Eq, checkout).order_by("number", true).limit(1))
-                .await?;
-            let number = last.first().and_then(|r| r["number"].as_u64()).unwrap_or(0) + 1;
+            let last = self.rows(tracker::last_issue(checkout)).await?;
+            let number = last.first().map_or(0, |r| r.number) + 1;
             let open = Open { checkout: checkout.into(), number, title: title.into(), body: body.into(), parked };
             match self.submit::<OpenIssue>(&open).await {
                 // Another command took the number first: take the next.
@@ -136,15 +124,7 @@ impl App {
     /// The issues of a checkout, or of every checkout; open ones unless
     /// `closed` says to list the closed ones too.
     pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
-        let mut q = Query::table(ISSUES);
-        if let Some(c) = checkout {
-            q = q.filter("checkout", Op::Eq, c);
-        }
-        if !closed {
-            q = q.filter("status", Op::Ne, "closed");
-        }
-        let rows = self.rows(q.order_by("checkout", false).order_by("number", false)).await?;
-        Ok(Value::Array(rows.into_iter().map(|r| without(r, &["taken"])).collect()))
+        Ok(shown(&self.rows(tracker::issues(checkout, closed)).await?))
     }
 
     pub(crate) async fn issue(&self, checkout: &str, number: u64) -> Answer<Issue> {
@@ -218,11 +198,7 @@ impl App {
 
     /// The workers, live ones unless `all`.
     pub async fn workers(&self, all: bool) -> Answer {
-        let mut q = Query::table(WORKERS);
-        if !all {
-            q = q.filter("status", Op::Ne, "ended");
-        }
-        Ok(Value::Array(self.rows(q.order_by("since", false)).await?))
+        Ok(shown(&self.rows(tracker::workers(None, all)).await?))
     }
 
     // ---- the kit and the accounts ----
@@ -300,16 +276,12 @@ impl App {
     /// What doctor reads, from the database and a reading.
     pub(crate) async fn seen(&self) -> Answer<doctor::Seen> {
         let mut seen = doctor::Seen::default();
-        for w in self.rows(Query::table(WORKERS).filter("status", Op::Eq, "waiting")).await? {
-            let issue = format!("{}#{}", w["checkout"].as_str().unwrap_or(""), w["number"]);
-            seen.waiting.push((
-                w["worker"].as_str().unwrap_or("").into(),
-                issue,
-                w["why"].as_str().unwrap_or("").into(),
-            ));
+        for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
+            let issue = format!("{}#{}", w.checkout, w.number);
+            seen.waiting.push((w.worker.to_string(), issue, w.state.why.unwrap_or_default()));
         }
-        for c in self.rows(Query::table(CHECKOUTS).filter("listed", Op::Eq, true)).await? {
-            let name = c["name"].as_str().unwrap_or_default();
+        for c in self.rows(tracker::listed()).await? {
+            let name = c.name.as_str();
             let l = self.state::<Lines>(line_id(name)).await?;
             if let Some((tip, why)) = l.red {
                 seen.red_promotions.push((name.into(), tip, why));
