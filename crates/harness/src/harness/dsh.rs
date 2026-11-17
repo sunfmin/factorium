@@ -2,8 +2,9 @@
 //! added plugin asks the guard and reports running/idle to the session backend.
 use serde::{Deserialize, Deserializer};
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::Start;
@@ -103,9 +104,8 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-/// One session file a stand-in writes for this turn. The body is the text;
-/// it is stored compressed.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The session a stand-in writes for this turn, before it is compressed.
+pub(super) fn stand_in(open: bool, at: u64) -> String {
     let ms = at.saturating_mul(1000);
     let mut body = format!(
         "{}\n",
@@ -131,16 +131,11 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
             ])
         ));
     }
-    vec![SessionFile {
-        path: format!("sessions/{}/session-factorium/{SESSION_FILE}", session::wrapped_dir(cwd)),
-        body,
-        compressed: true,
-        replaces: None,
-    }]
+    body
 }
 
 /// Where DeepSeek Harness keeps the session of `cwd`: one compressed file
 /// in each session directory under the worktree's directory.
-pub(super) fn session_layout(cwd: &str) -> SessionLayout {
-    SessionLayout::Named { dir: format!("sessions/{}", session::wrapped_dir(cwd)), name: SESSION_FILE }
+pub(super) fn layout(cwd: &str) -> Layout {
+    Layout::Named { dir: format!("sessions/{}", session::wrapped_dir(cwd)), name: SESSION_FILE }
 }
