@@ -259,3 +259,90 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     ];
     assert_eq!(offered, expected);
 }
+
+/// Each harness's start, as it is written: its line, what is typed at it, the
+/// files its home keeps, and the hooks its line gives it as the harness reads
+/// them, the world's paths, this factorium and the host's `PATH` named. A
+/// change to how a harness is started shows here, in `starts.txt`; one that
+/// keeps every start as it was leaves it as it is. The repo has rules and the
+/// kit names a model, so every part a start may hold is written.
+#[tokio::test]
+async fn each_harness_starts_as_it_is_written() {
+    let mut written = String::new();
+    for &h in Harness::all() {
+        let key = h.key();
+        let w = World::new();
+        let repo = w.repo("web");
+        w.commit(&repo, RULES, "Always run the \"linter\" \\ first.\n");
+        w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+        w.app.kit_set(&[format!("{key}=given@model-1")]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
+        written += &format!("== {key}\nline: {}\n", term.line);
+        for sent in &term.sent {
+            written += &format!("typed: {sent}\n");
+        }
+        for hook in hooks_given(&term.line) {
+            written += &format!("hook: {hook}\n");
+        }
+        let mut kept = Vec::new();
+        let mut files = vec![w.data().kept(key)];
+        while let Some(path) = files.pop() {
+            let kind = std::fs::symlink_metadata(&path).map(|m| m.file_type());
+            if kind.as_ref().is_ok_and(|k| k.is_dir()) {
+                files.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+            } else if kind.is_ok_and(|k| k.is_file()) {
+                kept.push((path.clone(), std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+        kept.sort();
+        for (path, text) in kept {
+            written += &format!("-- {}\n{text}\n", path.display());
+        }
+        let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        written = written.replace(&exe, "<factorium>").replace(&*w.dir.to_string_lossy(), "<world>");
+        written = written.replace(&std::env::var("PATH").unwrap_or_default(), "<path>");
+        // What the session's PATH puts before the host's is the build's.
+        while let Some(at) = written.find("PATH='") {
+            let from = at + written[at..].find('/').unwrap();
+            let to = from + written[from..].find(":<path>").unwrap();
+            written.replace_range(at..to, "PATH=<bin>");
+        }
+    }
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scenarios/starts.txt");
+    if std::env::var_os("FACTORIUM_WRITE_STARTS").is_some() {
+        std::fs::write(&file, &written).unwrap();
+    }
+    assert_eq!(written, std::fs::read_to_string(&file).unwrap_or_default(), "a start changed: {}", file.display());
+}
+
+/// The hook commands a start `line` hands its program as settings, as the
+/// harness reads them: each `command` in a JSON `--settings` or a TOML
+/// `--config` key, in order. The program `given` prints its arguments.
+fn hooks_given(line: &str) -> Vec<String> {
+    let line = format!("given() {{ printf '%s\\0' \"$@\"; }}; {line}");
+    let out = std::process::Command::new("sh").args(["-c", &line]).output().unwrap();
+    let args: Vec<String> = String::from_utf8_lossy(&out.stdout).split('\0').map(String::from).collect();
+    let mut found = Vec::new();
+    for pair in args.windows(2) {
+        let value: Option<serde_json::Value> = match pair[0].as_str() {
+            "--settings" => serde_json::from_str(&pair[1]).ok(),
+            "--config" => pair[1].parse::<toml::Table>().ok().and_then(|t| serde_json::to_value(t).ok()),
+            _ => None,
+        };
+        let mut values: Vec<serde_json::Value> = value.into_iter().collect();
+        while let Some(value) = values.pop() {
+            match value {
+                serde_json::Value::Object(map) => {
+                    found.extend(map.get("command").and_then(|c| c.as_str()).map(String::from));
+                    values.extend(map.into_iter().map(|(_, v)| v).rev());
+                }
+                serde_json::Value::Array(items) => values.extend(items.into_iter().rev()),
+                _ => {}
+            }
+        }
+    }
+    found
+}

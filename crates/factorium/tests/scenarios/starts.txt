@@ -1,0 +1,546 @@
+== claude-code
+line: cd '<world>/data/role/worker' && export CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_SANDBOXED=1 CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --dangerously-skip-permissions --add-dir '<world>/worktrees/web-1-1' --add-dir '<world>/data/role/worker' --setting-sources project --settings '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"'\''<factorium>'\'' guard claude-code"},{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"SessionStart":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"PostToolUse":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"PostToolUseFailure":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"SubagentStart":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"SubagentStop":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"TeammateIdle":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"PostCompact":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"Stop":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"StopFailure":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi","timeout":10}]}]},"skipDangerousModePermissionPrompt":true,"skillOverrides":{"auto-mode-setup":"off"}}' --model 'model-1' -- 'Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.'
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: '<factorium>' guard claude-code
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+hook: hook="${HOME-}/.orca/agent-hooks/claude-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi
+== pi
+line: cd '<world>/data/role/worker' && export PI_CODING_AGENT_DIR='<world>/data/kept/pi' FACTORIUM_GUARD=''\''<factorium>'\'' guard pi' FACTORIUM_WORKTREE='<world>/worktrees/web-1-1' FACTORIUM_ADDED_DIR='<world>/data/role/worker' FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --approve --no-skills --skill '<world>/data/role/worker/.claude/skills' --extension '<world>/data/kept/pi/factorium.js' --model 'model-1'
+typed: Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.
+-- <world>/data/kept/pi/factorium.js
+// factorium's extension for pi: what the tool adds to a pi
+// session that pi takes on no flag. The tool carries this file, keeps it in
+// its own user directory for pi, and names it on the line that
+// starts the session; nothing else loads it.
+//
+//   - The guard is asked before every tool call, with the
+//     call as pi describes it. The guard, not this file, decides. A call the guard did not allow is
+//     refused, with what the guard said; so is one it could not be asked of.
+//   - The rules of the worktree, and the added rules, are loaded as pi
+//     loads a rules file. pi finds the start directory's own, in the directory it starts
+//     in; the worktree and the added directory are others.
+//
+// It is plain JavaScript and imports nothing of pi's: only what Node has.
+import { spawnSync } from "node:child_process"
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+
+// The variables the start puts these in (`factorium_harness::harness::pi`).
+const GUARD_ENV = "FACTORIUM_GUARD"
+const WORKTREE_ENV = "FACTORIUM_WORKTREE"
+const ADDED_ENV = "FACTORIUM_ADDED_DIR"
+// Where a directory keeps its rules: the first of these it has, as pi reads
+// the directory it starts in.
+const RULES = ["AGENTS.md", "CLAUDE.md"]
+// Where the added directory keeps its rules (`factorium_harness::start::RULES`).
+const ADDED_RULES = ["CLAUDE.md"]
+// How long the guard is given to answer one call, in milliseconds.
+const GUARD_TIMEOUT = 60000
+
+function fact(name) {
+  const value = process.env[name]
+  if (!value) throw new Error(`factorium: ${name} is not set: nothing is allowed unread`)
+  return value
+}
+
+export default function (pi) {
+  // The guard answers with its exit status: 0 allows the call, and anything
+  // else — a refusal, a guard that is not there, one that did not answer in
+  // time — refuses it. A handler that throws refuses the call too.
+  pi.on("tool_call", (event, ctx) => {
+    const described = JSON.stringify({ toolName: event.toolName, input: event.input ?? {} })
+    const asked = spawnSync("/bin/sh", ["-c", fact(GUARD_ENV)], {
+      input: described,
+      cwd: ctx.cwd,
+      encoding: "utf8",
+      timeout: GUARD_TIMEOUT,
+    })
+    if (!asked.error && asked.status === 0) return undefined
+    const said = (asked.stderr ?? "").trim()
+    const failed = asked.error ? `: ${asked.error.message}` : ""
+    return { block: true, reason: said || `factorium guard: it could not be asked${failed}` }
+  })
+
+  pi.on("before_agent_start", (event) => {
+    const loaded = event.systemPromptOptions.contextFiles
+    const kept = [
+      [fact(WORKTREE_ENV), RULES],
+      [fact(ADDED_ENV), ADDED_RULES],
+    ]
+    for (const [dir, names] of kept) {
+      for (const name of names) {
+        const path = join(dir, name)
+        if (!existsSync(path)) continue
+        if (!loaded.some((file) => file.path === path)) {
+          loaded.push({ path, content: readFileSync(path, "utf8") })
+        }
+        break
+      }
+    }
+  })
+}
+
+== codex
+line: cd '<world>/data/role/worker' && export CODEX_HOME='<world>/data/kept/codex' FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --dangerously-bypass-approvals-and-sandbox --add-dir '<world>/worktrees/web-1-1' --dangerously-bypass-hook-trust --config 'projects={"<world>/data/role/worker"={trust_level="trusted"}}' --config 'project_doc_fallback_filenames=["CLAUDE.md"]' --config 'project_root_markers=[]' --config 'developer_instructions="factorium started you, and gives you the rules below. You work under them as you do under the rules of the directory you started in.\u000A\u000A# The repo'\''s own rules: <world>/worktrees/web-1-1/CLAUDE.md\u000A\u000A<rules>\u000AAlways run the \"linter\" \\ first.\u000A</rules>"' --config 'hooks={PreToolUse=[{hooks=[{type="command",command="said=$('\''<factorium>'\'' guard codex 2>&1 >/dev/null) && exit 0; printf '\''%s\\n'\'' \"${said:-factorium guard: it could not be asked}\" >&2; exit 2"},{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],SessionStart=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],UserPromptSubmit=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],PermissionRequest=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],PostToolUse=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],SubagentStart=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],SubagentStop=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}],Stop=[{hooks=[{type="command",command="hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0",timeout=10}]}]}' --config features.memories=false --config skills.bundled.enabled=false --model 'model-1'
+typed: /goal Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm. Mark this goal complete once the brief's outcome stands.
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: said=$('<factorium>' guard codex 2>&1 >/dev/null) && exit 0; printf '%s\n' "${said:-factorium guard: it could not be asked}" >&2; exit 2
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+hook: hook="${HOME-}/.orca/agent-hooks/codex-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0
+== dsh
+line: sh '<world>/data/kept/dsh/start.sh' 'cd '\''<world>/data/role/worker'\'' && export DSH_HOME='\''<world>/data/kept/dsh'\'' DSH_AGENTS_HOME='\''<world>/data/kept/dsh/agents'\'' DSH_PERMISSION_MODE=danger-full-access FACTORIUM_DSH_KEPT='\''<world>/data/kept/dsh'\'' DSH_TUI_PROFILE=dsh-tui FACTORIUM_GUARD='\'''\''\'\'''\''<factorium>'\''\'\'''\'' guard dsh'\'' FACTORIUM_WORKTREE='\''<world>/worktrees/web-1-1'\'' FACTORIUM_ADDED_DIR='\''<world>/data/role/worker'\'' FACTORIUM_DSH_MODEL='\''model-1'\'' FACTORIUM_WORKER='\''8a675016-732a-5a3c-a418-d453556e1d43'\'' FACTORIUM_DB='\''<world>/data/factorium.db'\'' PATH=<bin>:<path>'\'' && given' '<world>/data/kept/dsh' '<world>/data/role/worker' '<world>/worktrees/web-1-1' 'kept' 'Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.'
+-- <world>/data/kept/dsh/factorium.mjs
+// No DSH imports: a plugin loaded by absolute filename cannot resolve them.
+import { spawnSync } from 'node:child_process'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import http from 'node:http'
+export const name = 'factorium'
+export const inject = ['systemPrompt']
+
+function fact(name) {
+  const value = process.env[name]
+  if (!value) throw new Error(`factorium: ${name} is missing; refusing DSH session`)
+  return value
+}
+
+// The endpoint is a shell environment file. Read only its literal Orca
+// assignments, never execute it or accept a remote HTTP destination.
+function endpoint() {
+  const env = { ...process.env }
+  if (env.ORCA_AGENT_HOOK_ENDPOINT) {
+    let text
+    try { text = readFileSync(env.ORCA_AGENT_HOOK_ENDPOINT, 'utf8') }
+    catch { return env }
+    for (const line of text.split(/\r?\n/)) {
+      const match = /^(?:export )?(ORCA_AGENT_HOOK_(?:PORT|TOKEN|ENV|VERSION))=(.*)$/.exec(line.trim())
+      if (!match) continue
+      const value = match[2].replace(/^(['"])(.*)\1$/, '$2')
+      env[match[1]] = value
+    }
+  }
+  return env
+}
+
+async function report(event, agent) {
+  const env = endpoint()
+  const port = Number(env.ORCA_AGENT_HOOK_PORT)
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || !env.ORCA_AGENT_HOOK_TOKEN) return
+  const form = new URLSearchParams({
+    paneKey: env.ORCA_PANE_KEY ?? env.ORCA_AGENT_PANE ?? '',
+    launchToken: env.ORCA_AGENT_LAUNCH_TOKEN ?? env.ORCA_AGENT_LAUNCH ?? '',
+    tabId: env.ORCA_TAB_ID ?? '', worktreeId: env.ORCA_WORKTREE_ID ?? '',
+    env: env.ORCA_AGENT_HOOK_ENV ?? '', version: env.ORCA_AGENT_HOOK_VERSION ?? '',
+    payload: JSON.stringify({ hook_event_name: event, session_id: agent?.id ?? '', cwd: process.cwd() }),
+  }).toString()
+  await new Promise(resolve => {
+    const req = http.request({ hostname: '127.0.0.1', port, path: '/hook/dsh', method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(form), 'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN },
+    }, res => { res.resume(); res.on('end', resolve) })
+    req.setTimeout(1500, () => req.destroy())
+    req.on('error', resolve)
+    req.end(form)
+  })
+}
+
+function rules(dir, names) {
+  for (const name of names) {
+    const path = join(dir, name)
+    if (existsSync(path)) return `\n${path}:\n${readFileSync(path, 'utf8')}\n`
+  }
+  return ''
+}
+
+function skills(dirs) {
+  const named = new Map()
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    for (const entry of readdirSync(dir).sort()) {
+      const path = join(dir, entry, 'SKILL.md')
+      if (!existsSync(path) || named.has(entry)) continue
+      named.set(entry, `${entry}: ${path}\n${readFileSync(path, 'utf8').split('---')[1] ?? ''}`)
+    }
+  }
+  return '\nAvailable skills (read the named SKILL.md before applying one):\n' + [...named.values()].join('\n')
+}
+
+export function apply(ctx) {
+  const guard = fact('FACTORIUM_GUARD')
+  const worktree = fact('FACTORIUM_WORKTREE')
+  const added = fact('FACTORIUM_ADDED_DIR')
+  const home = process.env.FACTORIUM_DSH_KEPT || fact('DSH_HOME')
+  const dir = process.cwd()
+  ctx.on('tools/pre-execute', (exec, next) => {
+    const asked = spawnSync('sh', ['-c', guard], {
+      cwd: worktree, input: JSON.stringify({ name: exec.name, arguments: exec.arguments }),
+      encoding: 'utf8', timeout: 60000,
+    })
+    if (asked.error || asked.status !== 0) return {
+      kind: 'deny', reason: asked.stderr?.trim() || `factorium guard: ${asked.error?.message ?? 'could not be asked'}`,
+    }
+    return next()
+  })
+  // agent/status also fires for interrupted turns; turn-stopping does not.
+  // Serialize reports and aggregate agents: one idle subagent cannot stop a
+  // session whose parent or another subagent is still running.
+  const running = new Set()
+  let reports = Promise.resolve()
+  const tell = (event, agent) => {
+    reports = reports.catch(() => {}).then(() => report(event, agent))
+    return reports
+  }
+  // The tool waits for tui-idle before sending the first brief. Creation
+  // starts idle and emits no status transition, so announce that initial
+  // state explicitly. A child created during a turn cannot mark it idle.
+  ctx.on('agent/created', ({ agent }) => {
+    if (running.size === 0) {
+      tell('SessionStart', agent)
+      return tell('Stop', agent)
+    }
+    return reports
+  })
+  ctx.on('agent/status', ({ agent, status }) => {
+    const wasRunning = running.size > 0
+    if (status === 'running') running.add(agent.id)
+    else if (status === 'idle') running.delete(agent.id)
+    const isRunning = running.size > 0
+    if (wasRunning !== isRunning) {
+      tell(isRunning ? 'UserPromptSubmit' : 'Stop', agent)
+    }
+    return reports
+  })
+  ctx.on('agent/disposed', ({ agent }) => {
+    if (running.delete(agent.id) && running.size === 0) return tell('Stop', agent)
+    return reports
+  })
+  const text = rules(join(home, 'agents'), ['AGENTS.md']) + rules(home, ['AGENTS.md']) +
+    '\nThe brief, start directory, added and repo rules take precedence over host user rules.\n' +
+    rules(dir, ['CLAUDE.md']) + rules(added, ['CLAUDE.md']) + rules(worktree, ['AGENTS.md', 'CLAUDE.md']) +
+    skills([join(dir, '.claude/skills'), join(home, 'host-skills'), join(home, 'host-agents-skills')])
+  ctx.systemPrompt.section({ name: 'factorium-rules', order: 0, text })
+  ctx.on('agent/request', async (_event, next) => {
+    const config = await next()
+    const model = process.env.FACTORIUM_DSH_MODEL
+    return model ? { ...config, model } : config
+  })
+  // Retain the middleware's continuation: ignoring it prevents every turn.
+  ctx.on('agent/pre-step', (_event, next) => next())
+  // Loader dependencies on this service keep the TUI and agent loop from
+  // mounting if import, injection or apply failed. Disposal also withdraws
+  // the service, so a plugin unload cannot leave an unguarded session running.
+  ctx.provide('factoriumGuard', true)
+}
+
+-- <world>/data/kept/dsh/factorium.patch.yml
+# Required loader services are additive to each plugin's own dependencies.
+# No TUI or agent loop can mount before the guard has installed its listeners.
+- id: agent-loop
+  inject: [factoriumGuard]
+- id: dsh-tui
+  inject: [factoriumGuard]
+# The TUI disables this base row in favor of preset discovery. Restore it
+# with explicit roots, start directory first, under a distinct provider name. User
+# skills live outside default discovery so preset providers cannot shadow
+# a start directory's skill in their own scope. Equal-rank roots keep list order.
+- id: skill-filesystem
+  disabled: false
+  config:
+    providerName: factorium-start
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.claude/skills', (process.env.FACTORIUM_DSH_KEPT || process.env.DSH_HOME) + '/host-skills', (process.env.FACTORIUM_DSH_KEPT || process.env.DSH_HOME) + '/host-agents-skills']"
+- insert:
+    - id: factorium
+      name: '<world>/data/kept/dsh/factorium.mjs'
+
+-- <world>/data/kept/dsh/profiles/dsh-tui/cordis.yml
+[]
+
+-- <world>/data/kept/dsh/profiles/dsh-tui/package.json
+{"name":"factorium-dsh","private":true,"dependencies":{"@deepseek-harness-tui/dsh-tui":"*"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-harness-tui/dsh-tui"]}}}
+
+-- <world>/data/kept/dsh/sandbox.patch.yml
+- id: approval
+  config:
+    policy: never
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.env.FACTORIUM_WORKTREE
+
+-- <world>/data/kept/dsh/start.sh
+#!/bin/sh
+# Keep the host's launch command opaque and append DSH's arguments as words.
+# The worktree is the workspace target and the brief the first prompt: a
+# launch with a first prompt opens no first-run guide, launchpad or home.
+# The native loader dependency, not this wrapper, enforces guard activation.
+set -eu
+launch=$1
+kept=$2
+role=$3
+worktree=$4
+profile=$5
+brief=$6
+for file in factorium.mjs factorium.patch.yml; do
+    if [ ! -r "$kept/$file" ]; then
+        echo "factorium: DSH guard file $file is missing; refusing session" >&2
+        exit 1
+    fi
+done
+set --
+if [ "$profile" = kept ]; then
+    set -- --patch "$kept/sandbox.patch.yml"
+fi
+if [ -f "$role/.dsh/cordis.patch.yml" ]; then
+    set -- "$@" --patch "$role/.dsh/cordis.patch.yml"
+fi
+set -- "$@" --patch "$kept/factorium.patch.yml" "$worktree" "$brief"
+exec sh -c "$launch \"\$@\"" factorium-dsh "$@"
+
+== kimi
+line: cd '<world>/data/role/worker' && export KIMI_CODE_TRUST_WORKSPACE=1 KIMI_CODE_NO_AUTO_UPDATE=1 KIMI_DISABLE_TELEMETRY=1 KIMI_CODE_HOME='<world>/data/kept/kimi' FACTORIUM_WORKTREE='<world>/worktrees/web-1-1' FACTORIUM_ADDED_DIR='<world>/data/role/worker' FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --auto --add-dir '<world>/worktrees/web-1-1' --add-dir '<world>/data/role/worker' --skills-dir '<world>/data/role/worker/.claude/skills' --model 'model-1'
+typed: Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.
+-- <world>/data/kept/kimi/.skip-migration-from-kimi-cli
+
+-- <world>/data/kept/kimi/SYSTEM.md
+${base_prompt}
+
+factorium started you. Before anything else, read your rules and work under them as under rules you were given: first the file CLAUDE.md in the directory the environment variable FACTORIUM_ADDED_DIR names (your role's rules), then the repo's own rules, the file AGENTS.md in the worktree the environment variable FACTORIUM_WORKTREE names, or CLAUDE.md there if it has no AGENTS.md. Your skills are the directories under .claude/skills in the FACTORIUM_ADDED_DIR directory: read a skill's SKILL.md before you apply it.
+
+-- <world>/data/kept/kimi/config.toml
+auto_session_title = false
+builtin_product_skills = false
+default_permission_mode = "auto"
+default_plan_mode = false
+
+[[hooks]]
+command = '''said=$('<factorium>' guard kimi 2>&1 >/dev/null) && exit 0; printf '%s\n' "${said:-factorium guard: it could not be asked}" >&2; exit 2'''
+event = "PreToolUse"
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "SessionStart"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "SessionEnd"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "UserPromptSubmit"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "TurnStarted"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PostToolUse"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PostToolUseFailure"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PermissionRequest"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PermissionResult"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "SubagentStart"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "SubagentStop"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "TaskStarted"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "Stop"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "StopFailure"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "Interrupt"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PreCompact"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "PostCompact"
+timeout = 10
+
+[[hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/kimi-hook.sh"; if [ -x "$hook" ]; then /bin/sh "$hook"; else cat; fi >/dev/null 2>&1; exit 0'
+event = "Notification"
+timeout = 10
+
+== grok
+line: cd '<world>/worktrees/web-1-1' && export GROK_HOME='<world>/data/kept/grok' FACTORIUM_WORKTREE='<world>/worktrees/web-1-1' FACTORIUM_ADDED_DIR='<world>/data/role/worker' GROK_MEMORY=0 GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CLAUDE_MCPS_ENABLED=0 GROK_CURSOR_HOOKS_ENABLED=0 GROK_CURSOR_MCPS_ENABLED=0 GROK_CLAUDE_RULES_ENABLED=0 GROK_CLAUDE_AGENTS_ENABLED=0 GROK_CURSOR_RULES_ENABLED=0 GROK_CURSOR_AGENTS_ENABLED=0 GROK_CURSOR_SKILLS_ENABLED=0 FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --always-approve --trust --model 'model-1'
+typed: Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.
+-- <world>/data/kept/grok/config.toml
+[compat.claude]
+agents = false
+hooks = false
+mcps = false
+rules = false
+
+[compat.cursor]
+agents = false
+hooks = false
+mcps = false
+rules = false
+skills = false
+
+[[hooks.Notification]]
+
+[[hooks.Notification.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.PostCompact]]
+
+[[hooks.PostCompact.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.PostToolUse]]
+
+[[hooks.PostToolUse.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.PostToolUseFailure]]
+
+[[hooks.PostToolUseFailure.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.PreCompact]]
+
+[[hooks.PreCompact.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.PreToolUse]]
+
+[[hooks.PreToolUse.hooks]]
+command = '''said=$('<factorium>' guard grok 2>&1 >/dev/null) && exit 0; printf '%s\n' "${said:-factorium guard: it could not be asked}" >&2; exit 2'''
+timeout = 10
+type = "command"
+
+[[hooks.PreToolUse.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.SessionEnd]]
+
+[[hooks.SessionEnd.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.StopFailure]]
+
+[[hooks.StopFailure.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.SubagentStart]]
+
+[[hooks.SubagentStart.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.SubagentStop]]
+
+[[hooks.SubagentStop.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+command = 'hook="${HOME-}/.orca/agent-hooks/grok-hook.sh"; if [ -x "$hook" ]; then ORCA_HOOK_AGENT_PID="$PPID" /bin/sh "$hook"; else cat >/dev/null; fi; exit 0'
+timeout = 10
+type = "command"
+
+[skills]
+ignore = [
+    "~/.claude/skills",
+    "~/.claude/commands",
+    "~/.agents/skills",
+    "~/.agents/commands",
+    "~/.cursor/skills",
+    "~/.grok/skills",
+    "~/.grok/commands",
+]
+
+-- <world>/data/kept/grok/rules/told.md
+factorium started you. Before anything else, read your rules and work under them as under rules you were given: first the file CLAUDE.md in the directory the environment variable FACTORIUM_ADDED_DIR names (your role's rules), then the repo's own rules, the file AGENTS.md in the worktree the environment variable FACTORIUM_WORKTREE names, or CLAUDE.md there if it has no AGENTS.md. Your skills are the directories under .claude/skills in the FACTORIUM_ADDED_DIR directory: read a skill's SKILL.md before you apply it.
+
