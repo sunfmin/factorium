@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use factorium_domain::hot;
 use factorium_domain::kit::{AccountNote, LimitAccount};
-use factorium_domain::settings::Settings;
+use factorium_domain::settings::{Settings, Time};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::{Harness, Stop, Turn};
 use factum::{Uuid, Value};
@@ -74,7 +74,7 @@ impl App {
                 Some(Turn::Open { .. }) => None,
                 None => Some(wk.since),
             };
-            if let Some(t) = idle_since.filter(|t| now - t > settings.ms("silent_bound")) {
+            if let Some(t) = idle_since.filter(|t| now - t > settings.ms(Time::SilentBound)) {
                 return wait(format!("silent for {} min without `factorium worker done`", (now - t) / 60_000)).await;
             }
         }

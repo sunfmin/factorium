@@ -18,10 +18,10 @@ use std::sync::{Arc, Mutex};
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{self, Declared};
 use factorium_domain::settings::{HostSettings, Settings, settings_id};
-use factorium_domain::tracker::TRACKER;
+use factorium_domain::tracker::{Rows, TRACKER};
 use factorium_domain::{checkout::Checkouts, checkout_id};
 use factorium_host::{Git, Host};
-use factum::{Aggregate, By, Clock, Command, Engine, Query, StreamId, Submission, Uuid, Value};
+use factum::{Aggregate, By, Clock, Command, Engine, StreamId, Submission, Uuid, Value};
 use factum_sqlite::SqliteStore;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -83,9 +83,9 @@ struct Memory {
 pub struct App {
     engine: Engine<SqliteStore>,
     host: Arc<dyn Host>,
-    /// The directory beside the database: briefs, worktrees of the lines,
-    /// the watch's home, evidence.
-    data: PathBuf,
+    /// The database it was opened on. Its directory holds the rest: briefs,
+    /// worktrees of the lines, the watch's home, evidence.
+    db: PathBuf,
     by: By,
     memory: Mutex<Memory>,
 }
@@ -94,13 +94,16 @@ impl App {
     /// Opens the database at `db`, making it if it is not there. `by` names
     /// who runs the commands, as the events record it.
     pub fn open(db: &Path, clock: Arc<dyn Clock>, by: &str, host: Arc<dyn Host>) -> Answer<App> {
+        // Absolute: sessions are told it, and they run in other directories.
+        let db = std::path::absolute(db)
+            .map_err(|e| Refusal::new("no_database", format!("cannot place {}: {e}", db.display())))?;
         let data = db.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         std::fs::create_dir_all(&data)
             .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
-        let store = SqliteStore::open(db)
+        let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, data, by: By::Principal(by.into()), memory: Default::default() })
+        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
     }
 
     fn now(&self) -> i64 {
@@ -122,9 +125,10 @@ impl App {
         Ok(serde_json::from_value(state).unwrap_or_default())
     }
 
-    async fn rows(&self, query: Query) -> Answer<Vec<Value>> {
+    async fn rows<R: DeserializeOwned>(&self, rows: Rows<R>) -> Answer<Vec<R>> {
         self.engine.settle().await?;
-        Ok(self.engine.query(TRACKER, &query).await?.into_iter().map(|(_, row)| row).collect())
+        let found = self.engine.query(TRACKER, &rows.query).await?.into_iter().map(|(_, row)| row).collect();
+        Rows::read(found).map_err(|e| Refusal::new("bad_row", e))
     }
 
     async fn settings(&self) -> Answer<Settings> {
@@ -143,7 +147,8 @@ impl App {
     }
 
     fn dir(&self, parts: &[&str]) -> PathBuf {
-        parts.iter().fold(self.data.clone(), |p, s| p.join(s))
+        let data = self.db.parent().unwrap_or(Path::new("."));
+        parts.iter().fold(data.to_path_buf(), |p, s| p.join(s))
     }
 }
 

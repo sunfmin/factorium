@@ -81,6 +81,7 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let (ok, settings) = run(&dir, &["settings", "silent_bound"]);
     assert!(ok);
     assert_eq!(settings["value"], 1800);
+    assert_eq!(settings["unit"], "seconds");
 }
 
 #[test]
