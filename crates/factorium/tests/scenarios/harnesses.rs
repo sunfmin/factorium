@@ -73,11 +73,21 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false).await.unwrap();
+    let secrets = w.dir.join("data").join("secrets");
+    *w.host.orca.refuse_open.lock().unwrap() = true;
+    let _ = w.app.tick().await;
+    assert_eq!(std::fs::read_dir(&secrets).unwrap().count(), 0, "a terminal that never opened leaves no secret");
+    *w.host.orca.refuse_open.lock().unwrap() = false;
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!(wk["account"], "team");
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("sk-ant-very-secret"), "{line}");
+    let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
+    assert!(
+        line.contains(&format!("PATH='{bin}:")) || line.contains(&format!("PATH={bin}:")),
+        "factorium by name: {line}"
+    );
     // What the shell does with the line's start: read the secret, remove the file.
     let parts: Vec<&str> = line.splitn(3, " && ").collect();
     let file = parts[0].strip_prefix(". ").unwrap().trim_matches('\'').to_string();

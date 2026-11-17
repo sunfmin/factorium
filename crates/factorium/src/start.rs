@@ -78,9 +78,9 @@ impl App {
     /// `line`, reading `secrets` first from a file only this user may read,
     /// which it removes: a secret on a command line shows in `ps`, in the
     /// terminal's scrollback and in any error naming the line.
-    fn secrets_first(&self, secrets: &[(&'static str, String)], line: String) -> Answer<String> {
+    fn secrets_first(&self, secrets: &[(&'static str, String)], line: String) -> Answer<(String, Option<PathBuf>)> {
         if secrets.is_empty() {
-            return Ok(line);
+            return Ok((line, None));
         }
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         let io = |e: std::io::Error| Refusal::new("io", e.to_string());
@@ -90,8 +90,8 @@ impl App {
         let text: String = secrets.iter().map(|(n, v)| format!("export {n}={}\n", shell_word(v))).collect();
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
         std::io::Write::write_all(&mut f, text.as_bytes()).map_err(io)?;
-        let file = shell_word(&file.to_string_lossy());
-        Ok(format!(". {file} && rm -f {file} && {line}"))
+        let word = shell_word(&file.to_string_lossy());
+        Ok((format!(". {word} && rm -f {word} && {line}"), Some(file)))
     }
 
     /// The directory a role's sessions start in, holding its rules.
@@ -128,6 +128,12 @@ impl App {
             added: None,
             own: own_rules.as_deref().map(|text| Rules { file: &own_file, text }),
         };
+        // The session runs factorium by name: this one.
+        let mut env = l.env;
+        let path = std::env::var("PATH").unwrap_or_default();
+        if let Some(bin) = Path::new(&exe).parent() {
+            env.push(("PATH", format!("{}:{path}", bin.display())));
+        }
         let start = Start {
             dir: &dir,
             worktree: &worktree,
@@ -141,7 +147,7 @@ impl App {
             dsh_profile: Default::default(),
             shadowed: &[],
             told,
-            env: l.env,
+            env,
         };
         let line = l.harness.start_line(l.command, &start);
         let brief = l.brief.to_string_lossy();
@@ -149,8 +155,12 @@ impl App {
             BriefAtStart::Started(line) => (line, None),
             BriefAtStart::Typed(typed) => (line, Some(typed)),
         };
-        let line = self.secrets_first(&l.secrets, line)?;
-        let terminal = self.host.orca().open(l.worktree, l.title, &line).map_err(fail("orca"))?;
+        let (line, secret) = self.secrets_first(&l.secrets, line)?;
+        let opened = self.host.orca().open(l.worktree, l.title, &line);
+        if let (Err(_), Some(file)) = (&opened, &secret) {
+            let _ = std::fs::remove_file(file);
+        }
+        let terminal = opened.map_err(fail("orca"))?;
         if let Some(typed) = typed {
             self.host.orca().send(&terminal, &typed).map_err(fail("orca"))?;
         }

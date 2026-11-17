@@ -39,6 +39,8 @@ pub struct Terminal {
 pub struct FakeOrca {
     pub terminals: Mutex<BTreeMap<String, Terminal>>,
     pub removed: Mutex<Vec<PathBuf>>,
+    /// Orca refuses to open terminals while set.
+    pub refuse_open: Mutex<bool>,
     root: PathBuf,
 }
 
@@ -58,6 +60,9 @@ impl Orca for FakeOrca {
     }
 
     fn open(&self, worktree: &Path, title: &str, line: &str) -> Result<String, String> {
+        if *self.refuse_open.lock().unwrap() {
+            return Err("orca terminal create: refused".into());
+        }
         let mut t = self.terminals.lock().unwrap();
         let handle = format!("term-{}", t.len() + 1);
         let term = Terminal {
