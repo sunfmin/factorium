@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "factorium"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "clap",
  "factorium-domain",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "factorium-domain"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "factum-core",
  "serde",
@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "factorium-harness"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "gethostname",
  "ruzstd",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "factorium-host"
-version = "0.1.0"
+version = "0.1.7"
 dependencies = [
  "libc",
  "serde",
