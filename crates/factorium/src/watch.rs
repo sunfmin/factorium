@@ -5,7 +5,6 @@ use factorium_domain::doctor;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, SendRound, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_harness::{Harness, Turn};
 use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
@@ -30,16 +29,7 @@ impl App {
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
         let started = self.state::<Watches>(watch_id()).await?;
-        let ready = match (&terminal, started.harness) {
-            (Some(_), Some(h)) => Harness::read(&h).is_some_and(|h| {
-                let home = self.dir(&["watch"]);
-                let brief = home.join("BRIEF.md");
-                let turn =
-                    self.turn_of(h, started.account.as_deref(), &home.to_string_lossy(), &brief.to_string_lossy());
-                matches!(turn, Some(Turn::Closed { .. }))
-            }),
-            _ => false,
-        };
+        let ready = self.watch_ready(&started, terminal.as_deref());
         self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
         let mut after = self.state::<Watches>(watch_id()).await?;
         // The running round, typed once at each watch session, when it can take it.

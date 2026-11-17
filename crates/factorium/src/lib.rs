@@ -13,7 +13,7 @@ mod watch;
 mod work;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{self, Declared};
@@ -73,13 +73,6 @@ pub fn default_db() -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
-/// What the daemon remembers between ticks and keeps nowhere else: when a
-/// worker went over its share, and when the last look ran.
-#[derive(Default)]
-struct Memory {
-    over: std::collections::BTreeMap<Uuid, i64>,
-}
-
 pub struct App {
     engine: Engine<SqliteStore>,
     host: Arc<dyn Host>,
@@ -87,7 +80,6 @@ pub struct App {
     /// worktrees of the lines, the watch's home, evidence.
     db: PathBuf,
     by: By,
-    memory: Mutex<Memory>,
 }
 
 impl App {
@@ -103,7 +95,7 @@ impl App {
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
+        Ok(App { engine, host, db, by: By::Principal(by.into()) })
     }
 
     fn now(&self) -> i64 {
