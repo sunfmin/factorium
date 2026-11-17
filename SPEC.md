@@ -109,8 +109,12 @@ worker run only `factorium worker …` and lets only the watch run
 
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH
-declared in it, restarted whenever it exits; `factorium stop` unloads it,
-and a cut's restart execs in place as the same pid. At start it looks for
+declared in it, restarted whenever it exits; `factorium stop` unloads it.
+A daemon Homebrew installed notes its formula's link at start; once the
+link names another version (a cut by the daemon, by `factorium cut`, or
+by hand), it execs the link between ticks, as the same pid. So no session
+stops it: the guard refuses `stop` to the watch, which lives under the
+daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
 tick is recorded, and `tick_failures_max` of them in a row is a finding;
 the watch still looks when a tick fails.

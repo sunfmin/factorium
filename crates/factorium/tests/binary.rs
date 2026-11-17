@@ -115,6 +115,18 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
 }
 
 #[test]
+fn neither_the_watch_nor_a_worker_stops_the_daemon() {
+    let dir = Dir::new();
+    for role in [("FACTORIUM_WATCH", "1"), ("FACTORIUM_WORKER", WORKER)] {
+        let (ok, answer) = run_with(&dir, &[role], &["stop"]);
+        assert!(!ok);
+        assert_eq!(answer["error"]["code"], "guarded", "{answer}");
+        let why = answer["error"]["message"].as_str().unwrap();
+        assert!(why.contains("swaps to a newly installed binary on its own"), "{why}");
+    }
+}
+
+#[test]
 fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     let as_role = |line: &str, role: Option<(&str, &str)>| -> Option<i32> {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
@@ -138,6 +150,7 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_ne!(hook("FOO=1 /usr/local/bin/factorium promote web", true), Some(0));
     assert_ne!(hook("make | env X=1 factorium cut web", true), Some(0));
     assert_ne!(hook("git -C ../web push", true), Some(0));
+    assert_ne!(as_role("factorium stop && factorium run", Some(("FACTORIUM_WATCH", "1"))), Some(0));
     assert_eq!(hook("factorium issue close web 1", false), Some(0), "the owner's own session");
     // The hook judges a factorium line as the command line does, each by its role.
     let watch = Some(("FACTORIUM_WATCH", "1"));

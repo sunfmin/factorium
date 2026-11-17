@@ -73,6 +73,12 @@ impl Caller {
     pub fn may_run(&self, command: &str) -> Answer<()> {
         match (command, self) {
             ("worker" | "guard", _) => Ok(()),
+            // The watch lives under the daemon: stopping it ends the watch too.
+            ("stop", Caller::Worker(_) | Caller::Watch) => Err(Refusal::new(
+                "guarded",
+                "the daemon is not stopped from a session: it swaps to a newly installed binary on its own, \
+                 between ticks, after any cut (`factorium cut` included)",
+            )),
             (_, Caller::Worker(_)) => Err(Refusal::new("guarded", "a worker runs only `factorium worker …`")),
             ("watch", Caller::Owner) => Err(Refusal::new("guarded", "only the watch runs `factorium watch …`")),
             _ => Ok(()),

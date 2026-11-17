@@ -249,6 +249,7 @@ impl FakeBrew {
             ["install" | "upgrade", _] => {
                 if let Some(v) = self.tap.get(&formula).filter(|_| !self.stuck) {
                     self.installed.insert(formula.clone(), v.clone());
+                    link(root, &formula, v);
                 }
                 text(true, format!("==> {} {formula}\n", args[0]))
             }
@@ -256,6 +257,22 @@ impl FakeBrew {
             _ => text(false, String::new()),
         }
     }
+}
+
+/// Homebrew's layout, where a scenario made one for `formula`: version `v`
+/// in the cellar, its binaries copied from the version before, and the opt
+/// link moved to it.
+fn link(root: &Path, formula: &str, v: &str) {
+    let cellar = root.join("brew/Cellar").join(formula);
+    let opt = root.join("brew/opt").join(formula);
+    let Ok(was) = opt.canonicalize() else { return };
+    std::fs::create_dir_all(cellar.join(v)).unwrap();
+    Command::new("cp")
+        .args(["-R", &was.join("bin").to_string_lossy(), &cellar.join(v).to_string_lossy()])
+        .status()
+        .unwrap();
+    std::fs::remove_file(&opt).unwrap();
+    std::os::unix::fs::symlink(cellar.join(v), &opt).unwrap();
 }
 
 /// The machine as a scenario has it.
@@ -506,14 +523,17 @@ pub fn refused(answer: Answer, code: &str) {
 }
 
 impl World {
-    /// Makes this program the binary Homebrew links for `formula`; answers
-    /// where Homebrew has it.
-    pub fn running_as(&self, formula: &str) -> PathBuf {
-        let me = std::env::current_exe().unwrap();
-        let bin = self.dir.join("brew/opt").join(formula).join("bin");
+    /// Makes the daemon `app` run as version 0.0.9 of `formula`, as
+    /// Homebrew installs it; answers the link Homebrew keeps to it.
+    pub fn running_as(&self, app: &App, formula: &str) -> PathBuf {
+        let bin = self.dir.join("brew/Cellar").join(formula).join("0.0.9/bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let bin = bin.join(me.file_name().unwrap());
-        std::os::unix::fs::symlink(&me, &bin).unwrap();
-        bin
+        std::fs::write(bin.join("factorium"), "a binary").unwrap();
+        let opt = self.dir.join("brew/opt").join(formula);
+        std::fs::create_dir_all(opt.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(bin.parent().unwrap(), &opt).unwrap();
+        self.host.brew.lock().unwrap().installed.insert(formula.into(), "0.0.9".into());
+        app.runs_as(&bin.join("factorium").canonicalize().unwrap());
+        opt.join("bin/factorium")
     }
 }
