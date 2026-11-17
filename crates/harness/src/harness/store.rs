@@ -80,6 +80,26 @@ impl Harness {
         crate::turn::prefer(&turns)
     }
 
+    /// Whether the session of the worktree `cwd` handed `brief`, read under
+    /// its `home`, took `said` as a prompt at or after `since` (epoch
+    /// seconds): `Some(false)` when it holds it queued or has it not.
+    /// `None`: this harness's session files do not say.
+    pub fn prompted(self, home: &Home, cwd: &str, brief: &str, said: &str, since: u64) -> Option<bool> {
+        let took = match self {
+            Harness::ClaudeCode => claude_code::prompted,
+            _ => return None,
+        };
+        // Only a file written since then can hold it: the rest go unread.
+        let since_then = |f: &&PathBuf| {
+            let modified = std::fs::metadata(f).and_then(|m| m.modified()).ok();
+            modified.and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).is_some_and(|m| m.as_secs() >= since)
+        };
+        let files = self.layout(cwd).sessions(home.path(), cwd);
+        let mut texts =
+            files.iter().filter(since_then).filter_map(|f| read(f)).filter(|text| self.could_record(cwd, text, brief));
+        Some(texts.any(|text| took(&text, said, since)))
+    }
+
     /// The stand-in session: writes the session file this harness would
     /// for the worktree `cwd`, where `turn` reads it, with its turn left
     /// open when `open`, written at `at` (epoch seconds), under its `home`.

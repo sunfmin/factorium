@@ -17,6 +17,8 @@ pub(super) const STOCK_ARGUMENTS: &str = "";
 pub(super) const USER_DIR: &str = "DSH_HOME";
 
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape.
+pub(super) const INTERRUPT: &str = "\x1b";
 /// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
 /// program having exited and been started again): typed text answers it.
 pub(super) const ASKS_FIRST: &str = "进入安全模式";

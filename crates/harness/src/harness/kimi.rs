@@ -29,6 +29,8 @@ pub(super) const ENVIRONMENT: [&str; 3] =
 pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", kept: "credentials" }];
 
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape.
+pub(super) const INTERRUPT: &str = "\x1b";
 
 /// The file whose being in its user directory answers the question Kimi
 /// Code opens a fresh one with: whether to migrate kimi-cli's configuration.

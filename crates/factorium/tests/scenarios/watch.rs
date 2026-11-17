@@ -1,6 +1,7 @@
 //! The watch: its session, its look, episodes and rounds, its report, and
 //! what it does with its commands.
 
+use factorium::host::Host;
 use factorium_harness::Harness;
 use serde_json::json;
 
@@ -76,7 +77,7 @@ async fn an_escalation_becomes_an_episode_and_one_round_sent_to_the_watch() {
     assert_eq!(w.terminal(&watch_terminal(&w)).sent.len(), 1);
 
     // Sent back to work, the worker's episode closes.
-    w.app.watch_restart(id(&wk), "Use v2.").await.unwrap();
+    w.app.watch_restart(id(&wk), "Use v2.", false).await.unwrap();
     assert_eq!(worker(&w.app).await["status"], "working");
     assert!(w.terminal(wk["terminal"].as_str().unwrap()).sent.last().unwrap().contains("Use v2."));
     w.advance(5);
@@ -128,7 +129,7 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     let wk = worker(&w.app).await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     w.tick().await;
-    let r = w.app.watch_restart(id(&wk), "go on").await.unwrap();
+    let r = w.app.watch_restart(id(&wk), "go on", false).await.unwrap();
     assert_eq!(r["ended"], true);
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["issue"], "web#1");
@@ -163,7 +164,7 @@ async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_secon
     w.advance(5);
     w.tick().await;
     *w.host.orca.down.lock().unwrap() = Some("orca: the runtime is not running".into());
-    crate::refused(w.app.watch_restart(id(&wk), "go on").await, "orca");
+    crate::refused(w.app.watch_restart(id(&wk), "go on", false).await, "orca");
     w.advance(5);
     w.tick().await;
     *w.host.orca.down.lock().unwrap() = None;
@@ -183,4 +184,93 @@ async fn the_worker_and_the_watch_are_told_the_database_the_app_was_opened_on() 
     assert!(watch.line.contains(&format!("FACTORIUM_DB='{db}'")), "{}", watch.line);
     let rules = std::fs::read_to_string(w.dir.join("data/watch/CLAUDE.md")).unwrap();
     assert!(rules.contains(&format!("The database is {db}.")), "{rules}");
+}
+
+#[tokio::test]
+async fn a_tell_to_a_busy_worker_answers_queued_and_now_interrupts_it_first() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let handle = wk["terminal"].as_str().unwrap();
+
+    let idle = w.app.watch_tell(id(&wk), "hi", false).await.unwrap();
+    assert_eq!(idle["delivery"], "submitted", "an idle worker reads it at once");
+
+    // Stuck in a call that never returns, the worker only queues the text.
+    w.set_busy(handle, true, false);
+    let before = w.terminal(handle).sent.len();
+    let told = w.app.watch_tell(id(&wk), "stop waiting on the FIFO", false).await.unwrap();
+    assert_eq!(told["delivery"], "queued");
+    let sent = w.terminal(handle).sent;
+    assert_eq!(sent.len(), before + 1, "no key goes ahead of a plain tell: {sent:?}");
+
+    // With --now, Claude Code's Escape goes first, then the text, and it reads it.
+    let told = w.app.watch_tell(id(&wk), "stop waiting on the FIFO", true).await.unwrap();
+    assert_eq!(told["delivery"], "submitted");
+    let sent = w.terminal(handle).sent;
+    assert_eq!(sent[sent.len() - 2], crate::ESCAPE, "{sent:?}");
+    assert!(sent[sent.len() - 1].contains("stop waiting on the FIFO"), "{sent:?}");
+    assert!(!w.terminal(handle).busy);
+
+    // A restart says the same.
+    w.app.worker_escalate(id(&wk), "stuck").await.unwrap();
+    w.set_busy(handle, true, false);
+    assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["delivery"], "queued");
+    w.app.worker_escalate(id(&wk), "stuck").await.unwrap();
+    let restarted = w.app.watch_restart(id(&wk), "go on", true).await.unwrap();
+    assert_eq!(restarted["delivery"], "submitted");
+    assert_eq!(w.terminal(handle).sent.iter().filter(|s| *s == crate::ESCAPE).count(), 2);
+}
+
+/// A session file's stamp after any tell a scenario sends.
+const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
+
+#[tokio::test]
+async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_took_it() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+    w.set_busy(handle, true, true);
+    let line = |kind: &str, at: &str, body: serde_json::Value| {
+        let mut l = json!({ "type": kind, "timestamp": at, "cwd": cwd, "isSidechain": false });
+        l.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+        l.to_string()
+    };
+    let said = "factorium (the watch): look at the FIFO";
+    // Queued behind a turn whose tools still answer: no prompt of its own yet.
+    let queued = [
+        line("queue-operation", NEXT_CENTURY, json!({ "operation": "enqueue", "content": said })),
+        line(
+            "user",
+            NEXT_CENTURY,
+            json!({ "message": { "role": "user", "content": [{ "type": "tool_result", "content": said }] } }),
+        ),
+    ];
+    let file = w.host.home().join(".claude/projects/web/session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // Written now by the world's clock, as the session would be.
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+    let write = |file: &std::path::Path, text: &str| {
+        std::fs::write(file, text).unwrap();
+        std::fs::File::options().write(true).open(file).unwrap().set_modified(now).unwrap();
+    };
+    write(&file, &queued.join("\n"));
+    assert_eq!(w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap()["delivery"], "queued");
+
+    // The same words taken long before this tell are not this tell.
+    let long_ago = line("user", "2000-01-01T00:00:00.000Z", json!({ "message": { "role": "user", "content": said } }));
+    write(&file, &format!("{}\n{long_ago}\n", queued.join("\n")));
+    assert_eq!(w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap()["delivery"], "queued");
+
+    // Taken as its prompt: the session's own file says so where Orca saw nothing.
+    let took = line("user", NEXT_CENTURY, json!({ "message": { "role": "user", "content": said } }));
+    write(&file, &format!("{}\n{took}\n", queued.join("\n")));
+    assert_eq!(w.app.watch_tell(id(&wk), "look at the FIFO", true).await.unwrap()["delivery"], "submitted");
 }

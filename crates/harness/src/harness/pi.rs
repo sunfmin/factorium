@@ -78,6 +78,8 @@ const SHELL_TOOL: &str = "bash";
 /// The exit code with which the guard refuses a call of pi's: the tool's
 /// extension takes any but 0 for a refusal.
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape.
+pub(super) const INTERRUPT: &str = "\x1b";
 
 /// `line`, which exports a session's environment, with what pi and the
 /// the tool's extension read from it: the user directory the host keeps, the

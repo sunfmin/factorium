@@ -33,6 +33,8 @@ pub(super) const ENVIRONMENT: [&str; 0] = [];
 pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".grok/auth.json", kept: "auth.json" }];
 
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape.
+pub(super) const INTERRUPT: &str = "\x1b";
 
 /// Its configuration, and the rules it is told, in its user directory.
 const CONFIG: &str = "config.toml";

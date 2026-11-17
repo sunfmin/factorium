@@ -107,6 +107,9 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -
 const SHELL_TOOL: &str = "Bash";
 /// The exit code that tells Claude Code a hook refuses the call.
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape. Text
+/// queued behind the turn is then submitted as the next turn.
+pub(super) const INTERRUPT: &str = "\x1b";
 
 /// `text` as a JSON string, quotes and all.
 fn json_text(text: &str) -> String {
@@ -344,6 +347,32 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
         "assistant" if entry.message.as_deref() == Some("end_turn") => Some(Note { marker: Marker::End, at, child }),
         _ => None,
     }
+}
+
+/// One session line, read only as far as a typed prompt needs.
+#[derive(Deserialize)]
+struct Typed {
+    #[serde(rename = "type")]
+    kind: String,
+    timestamp: String,
+    message: Said,
+}
+
+#[derive(Deserialize)]
+struct Said {
+    content: serde_json::Value,
+}
+
+/// Whether the session file `text` took `said` as the user's prompt, at or
+/// after `since`. Text typed while a turn runs is written first as a
+/// `queue-operation` and becomes a `user` line only once a turn reads it;
+/// a tool's result is a `user` line too, but its content is no string.
+pub(super) fn prompted(text: &str, said: &str, since: u64) -> bool {
+    text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
+        t.kind == "user"
+            && t.message.content.as_str().map(str::trim) == Some(said.trim())
+            && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
+    })
 }
 
 /// The session a stand-in writes for this turn.

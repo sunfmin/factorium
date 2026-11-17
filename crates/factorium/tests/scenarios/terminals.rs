@@ -66,7 +66,7 @@ async fn the_watch_restarting_a_worker_whose_session_is_gone_closes_its_terminal
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     w.tick().await;
     assert!(!closed(&w, &wk), "its program ended; its tab stays until closed");
-    assert_eq!(w.app.watch_restart(id(&wk), "go on").await.unwrap()["ended"], true);
+    assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["ended"], true);
     assert!(closed(&w, &wk));
 }
 

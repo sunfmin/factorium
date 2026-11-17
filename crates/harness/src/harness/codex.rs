@@ -119,6 +119,8 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x
 /// The shell tool. `apply_patch` is handed a `command` too, and is another.
 const SHELL_TOOL: &str = "Bash";
 pub(super) const REFUSED: u8 = 2;
+/// The key that stops its running turn, typed without Enter: Escape.
+pub(super) const INTERRUPT: &str = "\x1b";
 
 /// `text` as a TOML string, quotes and all.
 fn toml_text(text: &str) -> String {

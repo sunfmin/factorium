@@ -26,6 +26,28 @@ pub enum Term {
     Unreadable(String),
 }
 
+/// Whether a line typed at an agent reached it, as Orca watched it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Delivery {
+    /// It started a turn: the agent reads it now.
+    Submitted,
+    /// No turn started while Orca watched: the agent holds it, if at all,
+    /// until its running turn ends.
+    Queued,
+}
+
+impl Delivery {
+    pub const fn word(self) -> &'static str {
+        match self {
+            Delivery::Submitted => "submitted",
+            Delivery::Queued => "queued",
+        }
+    }
+}
+
+/// How long, in seconds, a delivery watches for its line to start a turn.
+const SUBMIT_WAIT: u32 = 10;
+
 /// Orca, reached through the programs the host runs.
 pub struct Orca<'a>(pub &'a dyn Programs);
 
@@ -134,7 +156,13 @@ impl Orca<'_> {
     /// be up and its screen to settle. Text sent before then goes to the
     /// shell, ahead of the line Orca types to start the program.
     pub fn ready(&self, terminal: &str) -> Result<(), String> {
-        let wait = ["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", "60000"];
+        self.settle(terminal, 60_000)
+    }
+
+    /// Waits up to `ms` for a terminal's program to sit idle at its prompt.
+    fn settle(&self, terminal: &str, ms: u32) -> Result<(), String> {
+        let ms = ms.to_string();
+        let wait = ["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", &ms];
         self.call(&wait).map(|_| ()).map_err(String::from)
     }
 
@@ -143,6 +171,31 @@ impl Orca<'_> {
         self.call(&["terminal", "send", "--terminal", terminal, "--text", text, "--enter"])
             .map(|_| ())
             .map_err(String::from)
+    }
+
+    /// Types `text` and Enter at an agent's terminal and watches, up to
+    /// `SUBMIT_WAIT` seconds, whether it started a turn. `interrupt`: first
+    /// types that key (no Enter) to stop the agent's running turn, and waits
+    /// for its prompt to be idle. Orca never resends a prompt it watched.
+    pub fn deliver(&self, terminal: &str, text: &str, interrupt: Option<&str>) -> Result<Delivery, String> {
+        if let Some(key) = interrupt {
+            self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
+            self.settle(terminal, 30_000)?;
+        }
+        let wait = SUBMIT_WAIT.to_string();
+        let sent = self.call(&[
+            "terminal",
+            "send",
+            "--terminal",
+            terminal,
+            "--text",
+            text,
+            "--enter",
+            "--wait-submit",
+            &wait,
+        ])?;
+        let stages = sent["send"]["prompt"]["stages"].as_array().cloned().unwrap_or_default();
+        Ok(if stages.iter().any(|s| s == "turn_started") { Delivery::Submitted } else { Delivery::Queued })
     }
 
     /// The terminal now.

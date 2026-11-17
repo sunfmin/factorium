@@ -194,6 +194,12 @@ impl Harness {
         each!(self, REFUSED)
     }
 
+    /// The key that, typed without Enter, stops its running turn and leaves
+    /// it at its prompt.
+    pub const fn interrupt(self) -> &'static str {
+        each!(self, INTERRUPT)
+    }
+
     /// Why `screen`, the end of a session's terminal, is not this harness's
     /// own screen up, ready to be typed at: blank, a shell's prompt (its
     /// program not started yet, or exited), or a question it asks before its
