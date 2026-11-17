@@ -11,6 +11,7 @@ use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
 use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
+use factorium_harness::Harness;
 use factum::{Model, Uuid, Value};
 use serde_json::json;
 
@@ -244,6 +245,9 @@ impl App {
             Ok(Entry { harness: h.trim().into(), command: command.trim().into(), model })
         };
         let entries = entries.iter().map(parse).collect::<Answer<Vec<_>>>()?;
+        for e in &entries {
+            known(&e.harness)?;
+        }
         self.submit::<SetTheKit>(SetKit { entries }).await?;
         self.kit().await
     }
@@ -251,6 +255,7 @@ impl App {
     /// Pins a checkout to one harness of the kit, or unpins it.
     pub async fn kit_pin(&self, checkout: &str, harness: Option<&str>) -> Answer {
         self.checkout(checkout).await?;
+        harness.map(known).transpose()?;
         self.submit::<PinCheckout>(Pin { checkout: checkout.into(), harness: harness.map(Into::into) }).await?;
         self.kit().await
     }
@@ -385,4 +390,13 @@ impl App {
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))
     }
+}
+
+/// Refuses `harness` unless it names a harness factorium starts.
+fn known(harness: &str) -> Answer<()> {
+    if Harness::read(harness).is_some() {
+        return Ok(());
+    }
+    let keys: Vec<&str> = Harness::all().iter().map(|h| h.key()).collect();
+    Err(Refusal::new("no_harness", format!("{harness} is none of {}", keys.join(", "))))
 }

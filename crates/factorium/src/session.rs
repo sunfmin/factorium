@@ -60,14 +60,15 @@ impl App {
     }
 
     /// A worker's session.
-    pub(crate) fn worker_session(st: &w::Started) -> Session {
-        Session {
+    pub(crate) fn worker_session(st: &w::Started) -> Answer<Session> {
+        let harness = Harness::read(&st.harness).ok_or_else(|| Refusal::new("no_harness", st.harness.clone()))?;
+        Ok(Session {
             terminal: st.terminal.clone(),
-            harness: Harness::read(&st.harness).unwrap_or(Harness::ClaudeCode),
+            harness,
             account: st.account.clone(),
             cwd: st.worktree.clone(),
             brief: st.brief.clone(),
-        }
+        })
     }
 
     /// The watch's session, if one was started.
@@ -126,7 +127,7 @@ impl App {
         if wait {
             let _ = self.host.orca().ready(&st.terminal);
         }
-        match self.type_at(&Self::worker_session(st), typed) {
+        match self.type_at(&Self::worker_session(st)?, typed) {
             Ok(()) => self.submit::<w::HandBrief>(w::Of { worker }).await,
             // Typed once the harness is up, on a later look.
             Err(r) if r.code == "not_up" || !wait => Ok(()),
@@ -206,7 +207,8 @@ impl App {
             self.submit::<w::Wait>(w::Because { worker, why: why.clone() }).await?;
             Ok::<_, crate::Refusal>(Some(json!({ "worker": worker, "waits": why })))
         };
-        let seen = match self.see(&Self::worker_session(&st)) {
+        let Ok(session) = Self::worker_session(&st) else { return Ok(None) };
+        let seen = match self.see(&session) {
             Seen::Unknown => return Ok(None),
             Seen::Gone => return wait("its session's terminal is gone".into()).await,
             Seen::Quota(quota) => {

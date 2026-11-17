@@ -101,7 +101,7 @@ impl App {
         );
         // A brief never handed goes first: the word is about its work.
         self.hand_worker_brief(worker, false).await?;
-        self.type_at(&Self::worker_session(&st), &one_line(&line))?;
+        self.type_at(&Self::worker_session(&st)?, &one_line(&line))?;
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true }))
     }
@@ -110,7 +110,7 @@ impl App {
     pub async fn watch_tell(&self, worker: Uuid, text: &str) -> Answer {
         let st =
             self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
-        self.type_at(&Self::worker_session(&st), &one_line(&format!("factorium (the watch): {text}")))?;
+        self.type_at(&Self::worker_session(&st)?, &one_line(&format!("factorium (the watch): {text}")))?;
         Ok(json!({ "worker": worker, "told": text }))
     }
 

@@ -105,7 +105,7 @@ impl App {
                 "factorium: your landing was red. {why}\nFix it, commit, and run `factorium worker done` again."
             );
             if let Some(st) = &wk.started {
-                let _ = self.type_at(&Self::worker_session(st), &one_line(&text));
+                let _ = Self::worker_session(st).and_then(|s| self.type_at(&s, &one_line(&text)));
             }
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))

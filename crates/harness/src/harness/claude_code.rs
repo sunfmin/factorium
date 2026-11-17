@@ -8,7 +8,7 @@
 use serde::de::{Error, IgnoredAny};
 use serde::{Deserialize, Deserializer};
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -16,9 +16,13 @@ use crate::line::Line;
 use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
 
-pub(super) const KEY: &str = "claude-code";
+const KEY: &str = "claude-code";
 /// What a bare program is started with: no permission prompts.
-pub(super) const STOCK_ARGUMENTS: &str = "--dangerously-skip-permissions";
+const STOCK_ARGUMENTS: &str = "--dangerously-skip-permissions";
+
+/// The field holding an account's token, which `claude setup-token` made:
+/// also the variable a session is given it in.
+const TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// The setting that answers the warning Claude Code opens with when it is
 /// started to work with nobody at its terminal: a session has nobody to accept
@@ -35,12 +39,12 @@ macro_rules! warning_accepted {
 /// suggestion for a person's word. The variable wins
 /// over every settings file, and is set in the launch, so the host user's own
 /// settings are left as they are.
-pub(super) const NO_SUGGESTIONS: &str = "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";
+const NO_SUGGESTIONS: &str = "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";
 
 /// The environment a session in its start directory sets for Claude Code beyond the
 /// switches `ENVIRONMENT` names: its prompt suggestions off. Its home is
 /// the host user's own (`Harness::home`), so nothing points it elsewhere.
-pub(super) fn environment(line: Line, _start: &Start) -> Line {
+fn environment(line: Line, _start: &Start) -> Line {
     line.fixed(" ").fixed(NO_SUGGESTIONS)
 }
 
@@ -49,7 +53,7 @@ const ADD_DIR: &str = "--add-dir";
 /// Claude Code's flag for which settings it loads.
 const SETTING_SOURCES: &str = "--setting-sources";
 /// Claude Code's flag for the model of the session.
-pub(super) const MODEL: &str = "--model";
+const MODEL: &str = "--model";
 /// Claude Code's flag for settings added to those it loads.
 const SETTINGS: &str = "--settings";
 
@@ -87,13 +91,13 @@ const ADDED_RULES: &str = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD";
 /// this host: a start directory is what its repo says, the same on every host.
 const NO_MEMORY: &str = "CLAUDE_CODE_DISABLE_AUTO_MEMORY";
 /// The variables a session's environment sets for Claude Code.
-pub(super) const ENVIRONMENT: [&str; 3] = [ADDED_RULES, NO_MEMORY, "CLAUDE_CODE_SANDBOXED"];
+const ENVIRONMENT: [&str; 3] = [ADDED_RULES, NO_MEMORY, "CLAUDE_CODE_SANDBOXED"];
 
 /// What a host keeps for Claude Code: the host user's skills and rules, as
 /// a directory added to a session's holds them, and nothing else. Claude Code
 /// loads the skills and the rules of an added directory, and not its
 /// settings; a skill of the start directory's wins over one of the same name there.
-pub(super) const KEPT_LINKS: &[Link] = &[];
+const KEPT_LINKS: &[Link] = &[];
 
 /// The shell line that tells orca of a session's state: the hook orca installs
 /// on its host for Claude Code, which reads the event on standard input and
@@ -106,7 +110,7 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -
 /// The tool Claude Code runs shell lines with.
 const SHELL_TOOL: &str = "Bash";
 /// The exit code that tells Claude Code a hook refuses the call.
-pub(super) const REFUSED: u8 = 2;
+const REFUSED: u8 = 2;
 
 /// `text` as a JSON string, quotes and all.
 fn json_text(text: &str) -> String {
@@ -147,7 +151,7 @@ fn added_settings(guard: &str, report: &str) -> String {
 /// given to put a session in its start directory: the worktree and the added directory's copy added,
 /// and the host user's skills and rules where it is given them; the user's
 /// settings left out, the guard and the report added, and the caller's model.
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(ADD_DIR)
@@ -175,7 +179,7 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
 /// The start `line` with the brief pointer to `brief` as the session's first
 /// prompt. `--` ends its flags first: `--add-dir` takes every word after it,
 /// so a prompt after it alone would be read as a directory.
-pub(super) fn brief_at_start(line: &str, brief: &str) -> String {
+fn brief_at_start(line: &str, brief: &str) -> String {
     Line::new().launch(line).fixed(" -- ").word(&crate::brief::brief_pointer(brief)).done()
 }
 
@@ -195,7 +199,7 @@ struct Input {
 }
 
 /// The tool call `described` to a hook, as the guard judges one.
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     Ok(match described.tool_input.command {
         Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
@@ -204,17 +208,17 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
 }
 
 /// The harness directory under a user's home.
-pub(super) const HOME: &str = ".claude";
+const HOME: &str = ".claude";
 
 /// Sessions are filed under the directory Claude Code starts in, which is
 /// the start directory for a bound session. The session identifies its worktree.
-pub(super) fn layout() -> Layout {
+fn layout() -> Layout {
     Layout::Tree { dir: "projects".into(), extension: "jsonl" }
 }
 
 /// The turn for `cwd`, or for the session its initial brief pointer names
 /// when Claude Code starts in a start directory. A sidechain is a child session.
-pub(super) fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, not_before: Option<u64>, brief: Option<&str>) -> Option<Turn> {
     let named = brief.is_some_and(|brief| names_brief(text, brief));
     // Each line is read once, into only what a turn needs: a long session
     // is tens of megabytes of tool output nobody looks at here
@@ -316,7 +320,7 @@ fn stop_reason<'de, D: Deserializer<'de>>(message: D) -> Result<Option<String>, 
 /// The first primary user message must be this session's brief pointer.
 /// Tool results, queued input, replies and later mentions cannot associate
 /// another session's session. The pointer match is shared with Codex.
-pub(super) fn names_brief(text: &str, brief: &str) -> bool {
+fn names_brief(text: &str, brief: &str) -> bool {
     for value in json_lines(text) {
         if value["isSidechain"] == true {
             continue;
@@ -347,7 +351,7 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
 }
 
 /// The session a stand-in writes for this turn.
-pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let user = session::object(vec![
         ("type", "user".into()),
@@ -368,4 +372,62 @@ pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
         body.push_str(&format!("{end}\n"));
     }
     body
+}
+
+/// Claude Code, as a harness: what its module says of it.
+pub(super) struct ClaudeCode;
+
+impl Kind for ClaudeCode {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Token(TOKEN);
+    const USER_HOME: Option<&'static str> = Some(HOME);
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
+    const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
+    const REFUSED: u8 = REFUSED;
+
+    fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.dir
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
+        (brief_at_start(&line, brief), None)
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(_screen: &[String]) -> Option<Stop> {
+        None
+    }
+
+    fn layout(_cwd: &str) -> Layout {
+        layout()
+    }
+
+    fn could_record(cwd: &str, text: &str, brief: &str) -> bool {
+        session::names_cwd_or_brief(cwd, text, brief)
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None, Some(brief))
+    }
+
+    fn stand_in(cwd: &str, open: bool, at: u64) -> String {
+        stand_in(cwd, open, at)
+    }
 }

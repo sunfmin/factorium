@@ -1,8 +1,8 @@
 //! The engine accounts a session may start on, read from mytokens, their one
 //! home: several per harness, each one mytokens secret named
 //! `agent-account-<name>`, whose fields say its harness and its credential —
-//! a Claude Code token, or the machine a refreshing login of Codex, Grok or
-//! Kimi Code is bound to.
+//! a token, or the machine a refreshing login is bound to, as its harness
+//! logs in (`Harness::login`).
 //!
 //! A credential's value goes only into the environment a session starts with
 //! ([`Usable::env`]): nothing here prints it or writes it anywhere, and
@@ -12,6 +12,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use crate::Harness;
+use crate::harness::Login;
 
 /// What the name of every account's mytokens secret starts with; the rest is
 /// the account's name.
@@ -28,9 +29,6 @@ const HARNESS: &str = "HARNESS";
 const SESSIONS: &str = "SESSIONS";
 /// The field that names the machine a refreshing login is bound to.
 const MACHINE: &str = "MACHINE";
-/// The field holding a Claude Code account's token, which `claude
-/// setup-token` made: also the variable a session is given it in.
-const CLAUDE_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// mytokens run with these arguments: what it printed, or why it failed.
 /// The why never holds what it printed.
@@ -64,9 +62,9 @@ pub struct Usable {
 
 /// How an account's sessions are logged in.
 enum Credential {
-    /// A Claude Code token: a year long, refreshed never, usable on several
+    /// A token, in the field and variable `field`, usable on several
     /// machines at once.
-    Token(String),
+    Token { field: &'static str, token: String },
     /// A refreshing login in a file of the account's home on one machine,
     /// whose refresh token no other machine may share.
     Login { machine: String },
@@ -81,7 +79,7 @@ struct Account {
 }
 
 /// The accounts `mytokens` holds, as this machine can use them now under
-/// the user's home `user_home`: a Claude Code token anywhere, a login on its
+/// the user's home `user_home`: a token anywhere, a login on its
 /// own machine once it is logged in there. Every secret named as an account
 /// is one or the other.
 pub fn here(mytokens: Mytokens, user_home: &Path) -> Here {
@@ -143,7 +141,7 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
     };
     let mut harness = None;
     let mut machine = None;
-    let mut token = None;
+    let mut others = Vec::new();
     for (field, value) in fields {
         let Some(text) = value.as_str() else {
             return Err(format!("its field `{field}` holds no text"));
@@ -156,30 +154,33 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
                     .map_err(|_| format!("its `{SESSIONS}` is no whole number of one or more"))?;
             }
             MACHINE if !text.is_empty() => machine = Some(text.to_string()),
-            CLAUDE_TOKEN if !text.is_empty() => token = Some(text.to_string()),
-            MACHINE | CLAUDE_TOKEN => return Err(format!("its `{field}` is empty")),
-            other => return Err(format!("`{other}` is no field of an account")),
+            MACHINE => return Err(format!("its `{field}` is empty")),
+            other => others.push((other, text)),
         }
     }
     let Some(harness) = harness else {
         return Err(format!("it names no `{HARNESS}`"));
     };
-    let credential = match (harness, token, machine) {
-        (Harness::ClaudeCode, Some(token), None) => Credential::Token(token),
-        (Harness::ClaudeCode, None, _) => {
-            return Err(format!("a Claude Code account holds its token, `{CLAUDE_TOKEN}`"));
+    let mut token = None;
+    for (field, text) in others {
+        match harness.login() {
+            Login::Token(own) if own == field && !text.is_empty() => token = Some((own, text.to_string())),
+            Login::Token(own) if own == field => return Err(format!("its `{field}` is empty")),
+            _ => return Err(format!("`{field}` is no field of a {} account", harness.key())),
         }
-        (Harness::ClaudeCode, Some(_), Some(_)) => {
-            return Err(format!("a Claude Code account's token is bound to no machine: it names no `{MACHINE}`"));
+    }
+    let key = harness.key();
+    let credential = match (harness.login(), token, machine) {
+        (Login::Token(_), Some((field, token)), None) => Credential::Token { field, token },
+        (Login::Token(field), None, _) => return Err(format!("a {key} account holds its token, `{field}`")),
+        (Login::Token(_), Some(_), Some(_)) => {
+            return Err(format!("a {key} account's token is bound to no machine: it names no `{MACHINE}`"));
         }
-        (harness, None, Some(machine)) if harness.logs_in() => Credential::Login { machine },
-        (harness, _, _) if harness.logs_in() => {
-            return Err(format!(
-                "a {} account names the one `{MACHINE}` its login is on, and holds no token",
-                harness.key()
-            ));
+        (Login::Machine { .. }, None, Some(machine)) => Credential::Login { machine },
+        (Login::Machine { .. }, ..) => {
+            return Err(format!("a {key} account names the one `{MACHINE}` its login is on, and holds no token"));
         }
-        (harness, _, _) => return Err(format!("{} takes no account", harness.key())),
+        (Login::Unused, ..) => return Err(format!("{key} takes no account")),
     };
     Ok(Account { name: name.to_string(), harness, credential })
 }
@@ -187,13 +188,13 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
 impl Account {
     /// The environment a session on it starts with on the machine `here`
     /// (`Err`: this machine's name is unknown), the user's home being
-    /// `user_home`; `Err`: why it cannot start here now. A Claude Code token
+    /// `user_home`; `Err`: why it cannot start here now. A token
     /// goes in alone; a login, on its machine, needs nothing: it is its home
     /// ([`login_home`]), found logged in by its login file there, which the
     /// session's home is (`Harness::home`).
     fn env(&self, here: Result<&str, &str>, user_home: &Path) -> Result<Vec<(&'static str, String)>, String> {
         let machine = match &self.credential {
-            Credential::Token(token) => return Ok(vec![(CLAUDE_TOKEN, token.clone())]),
+            Credential::Token { field, token } => return Ok(vec![(*field, token.clone())]),
             Credential::Login { machine } => machine,
         };
         let here = here.map_err(|e| format!("its login is on `{machine}`, and {e}"))?;
