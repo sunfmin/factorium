@@ -9,7 +9,7 @@ deals with everything that goes wrong.
 
 It succeeds afkconvoy and is built on factum. Guild depends on its crates.
 
-Status: approved 2026-11-17. Building phase 1.
+Status: approved 2026-11-17. Phase 1 done; building phase 2.
 
 ## 1. Concepts
 
