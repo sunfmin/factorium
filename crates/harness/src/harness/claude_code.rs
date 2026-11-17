@@ -8,8 +8,9 @@
 use serde::de::{Error, IgnoredAny};
 use serde::{Deserialize, Deserializer};
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::Start;
@@ -205,23 +206,8 @@ pub(super) const HOME: &str = ".claude";
 
 /// Sessions are filed under the directory Claude Code starts in, which is
 /// the start directory for a bound session. The session identifies its worktree.
-pub(super) fn session_layout(_cwd: &str) -> SessionLayout {
-    SessionLayout::Tree { dir: "projects".into(), extension: "jsonl" }
-}
-
-/// The directory Claude Code files `cwd`'s sessions under: every character
-/// that is not an ASCII letter or digit turned into `-` (one per UTF-16 unit,
-/// as Claude Code's JavaScript replaces), so
-/// `/Users/felix/.guild/instances/x_y` → `-Users-felix--guild-instances-x-y`.
-fn dir_name(cwd: &str) -> String {
-    let natural = cwd
-        .chars()
-        .flat_map(|ch| match ch.is_ascii_alphanumeric() {
-            true => std::iter::repeat_n(ch, 1),
-            false => std::iter::repeat_n('-', ch.len_utf16()),
-        })
-        .collect();
-    session::stored_name(natural, cwd)
+pub(super) fn layout() -> Layout {
+    Layout::Tree { dir: "projects".into(), extension: "jsonl" }
 }
 
 /// The turn for `cwd`, or for the session its initial brief pointer names
@@ -358,8 +344,8 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
     }
 }
 
-/// One session file a stand-in writes for this turn.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The session a stand-in writes for this turn.
+pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let user = session::object(vec![
         ("type", "user".into()),
@@ -379,10 +365,5 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
         ]);
         body.push_str(&format!("{end}\n"));
     }
-    vec![SessionFile {
-        path: format!("projects/{}/factorium-turn.jsonl", dir_name(cwd)),
-        body,
-        compressed: false,
-        replaces: None,
-    }]
+    body
 }
