@@ -171,3 +171,16 @@ async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_secon
     assert_eq!(sessions, 1, "its session may yet run");
     assert_eq!(worker(&w.app).await["status"], "waiting", "the worker is not ended");
 }
+
+#[tokio::test]
+async fn the_worker_and_the_watch_are_told_the_database_the_app_was_opened_on() {
+    let w = World::on("other.db");
+    let wk = escalated_alone(&w).await;
+    let db = w.db.to_string_lossy().into_owned();
+    let worker = w.terminal(wk["terminal"].as_str().unwrap());
+    assert!(worker.line.contains(&format!("FACTORIUM_DB='{db}'")), "{}", worker.line);
+    let watch = w.terminal(&watch_terminal(&w));
+    assert!(watch.line.contains(&format!("FACTORIUM_DB='{db}'")), "{}", watch.line);
+    let rules = std::fs::read_to_string(w.dir.join("data/watch/CLAUDE.md")).unwrap();
+    assert!(rules.contains(&format!("The database is {db}.")), "{rules}");
+}

@@ -12,6 +12,7 @@ use factorium_domain::declared::Kind;
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id};
 use factorium_domain::issue::{Because, CloseIssue};
 use factorium_domain::line::{self, Lines, next_version};
+use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_domain::{id, line_id};
 use factorium_host::Git;
@@ -173,7 +174,7 @@ impl App {
     pub(crate) async fn promote_if_due(&self, c: &Checkout, idle: bool, force: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let Some(oldest) = l.unpromoted.first() else { return Ok(None) };
-        let bound = self.settings().await?.ms("promotion_bound");
+        let bound = self.settings().await?.ms(Time::PromotionBound);
         if !(force || idle || self.now() - oldest.at >= bound) {
             return Ok(None);
         }
@@ -210,7 +211,7 @@ impl App {
         if l.cut_failed.is_some() && !force {
             return Ok(None);
         }
-        let bound = self.settings().await?.ms("cut_bound");
+        let bound = self.settings().await?.ms(Time::CutBound);
         if !(force || (idle && l.unpromoted.is_empty()) || self.now() - oldest >= bound) {
             return Ok(None);
         }

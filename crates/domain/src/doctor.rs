@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::settings::Settings;
+use crate::settings::{Settings, Time};
 use crate::watch::Found;
 
 /// What doctor reads.
@@ -52,7 +52,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         );
     }
     if let Some((since, why)) = &seen.held
-        && now - since >= s.ms("held_for")
+        && now - since >= s.ms(Time::HeldFor)
     {
         add(
             format!("held:{}", why.split(':').next().unwrap_or(why)),
