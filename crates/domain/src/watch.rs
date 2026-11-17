@@ -61,6 +61,9 @@ pub struct Watch {
     pub held: Option<(i64, String)>,
     /// The report whose owner's part the owner has seen.
     pub seen: u64,
+    /// The line still to be typed at its session to hand it its brief.
+    #[serde(default)]
+    pub unhanded: Option<String>,
 }
 
 /// How many reports the watch keeps in its state.
@@ -74,7 +77,11 @@ pub enum WatchEvent {
         harness: String,
         #[serde(default)]
         account: Option<String>,
+        #[serde(default)]
+        typed: Option<String>,
     },
+    /// Its brief was typed at its session.
+    BriefHanded,
     Looked {
         at: i64,
     },
@@ -120,9 +127,10 @@ impl Aggregate for Watches {
 
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
-            WatchEvent::WatchStarted { terminal, harness, account } => {
-                (s.terminal, s.harness, s.account) = (Some(terminal), Some(harness), account)
+            WatchEvent::WatchStarted { terminal, harness, account, typed } => {
+                (s.terminal, s.harness, s.account, s.unhanded) = (Some(terminal), Some(harness), account, typed)
             }
+            WatchEvent::BriefHanded => s.unhanded = None,
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at } => {
                 s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
@@ -159,6 +167,8 @@ pub struct Started {
     pub terminal: String,
     pub harness: String,
     pub account: Option<String>,
+    /// The line typed at it to hand it its brief, once its harness is up.
+    pub typed: Option<String>,
 }
 
 command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, now| {
@@ -166,8 +176,29 @@ command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, no
         terminal: p.terminal.clone(),
         harness: p.harness.clone(),
         account: p.account.clone(),
+        typed: p.typed.clone(),
     }])
 });
+
+/// Which watch terminal.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct At {
+    pub terminal: String,
+}
+
+command!(
+    /// Its brief was typed at the watch's `terminal`, its harness up.
+    HandWatchBrief,
+    "watch.handed",
+    Watches,
+    At,
+    |_p| watch_id(),
+    |s, p, _now| Ok::<_, factum_core::Rejection>(if s.unhanded.is_some() && s.terminal.as_ref() == Some(&p.terminal) {
+        vec![WatchEvent::BriefHanded]
+    } else {
+        Vec::new()
+    })
+);
 
 /// One finding, as a look hands it on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

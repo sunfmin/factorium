@@ -9,26 +9,30 @@ use std::path::PathBuf;
 use factorium_domain::hot;
 use factorium_domain::kit::{AccountNote, LimitAccount};
 use factorium_domain::settings::{Settings, Time};
-use factorium_domain::watch::Watch;
+use factorium_domain::watch::{At, HandWatchBrief, Watch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::{Harness, Home, Stop, Turn};
 use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
 
-use crate::{Answer, App};
+use crate::{Answer, App, Refusal};
 
 /// How long a used-up account is left alone when its screen gave no time.
 const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
 
+/// How long a session's harness has to come up before its worker goes to
+/// the watch.
+const UP_BOUND_MS: i64 = 5 * 60 * 1000;
+
 /// One harness session, as it was started.
-struct Session<'a> {
-    terminal: &'a str,
+pub(crate) struct Session {
+    terminal: String,
     harness: Harness,
-    account: Option<&'a str>,
+    account: Option<String>,
     /// Its working directory, and the brief it was handed.
-    cwd: &'a str,
-    brief: &'a str,
+    cwd: String,
+    brief: String,
 }
 
 /// What a session is doing, seen from outside.
@@ -41,6 +45,8 @@ enum Seen {
     Quota(String),
     /// Its harness stopped: the line that says so.
     Stopped(String),
+    /// Its harness is not up in its terminal (not yet, or no longer): why.
+    Down(String),
     /// A turn is open.
     Open,
     /// Its turn closed at this time, in ms; `None`: no session file says.
@@ -60,8 +66,31 @@ impl App {
         (home, brief)
     }
 
+    /// A worker's session.
+    pub(crate) fn worker_session(st: &w::Started) -> Session {
+        Session {
+            terminal: st.terminal.clone(),
+            harness: Harness::read(&st.harness).unwrap_or(Harness::ClaudeCode),
+            account: st.account.clone(),
+            cwd: st.worktree.clone(),
+            brief: st.brief.clone(),
+        }
+    }
+
+    /// The watch's session, if one was started.
+    fn watch_session(&self, watch: &Watch) -> Option<Session> {
+        let (home, brief) = self.watch_home();
+        Some(Session {
+            terminal: watch.terminal.clone()?,
+            harness: watch.harness.as_deref().and_then(Harness::read)?,
+            account: watch.account.clone(),
+            cwd: home.to_string_lossy().into_owned(),
+            brief: brief.to_string_lossy().into_owned(),
+        })
+    }
+
     fn see(&self, s: &Session) -> Seen {
-        let screen = match self.host.orca().screen(s.terminal) {
+        let screen = match self.host.orca().screen(&s.terminal) {
             Term::Running(screen) => screen,
             Term::Exited => return Seen::Gone,
             Term::Unreadable(_) => return Seen::Unknown,
@@ -71,23 +100,64 @@ impl App {
             Some(Stop::Refused(said)) => return Seen::Stopped(said),
             None => {}
         }
-        match s.harness.turn(&self.session_home(s.harness, s.account), s.cwd, s.brief) {
+        if let Some(why) = s.harness.not_up(&screen) {
+            return Seen::Down(why);
+        }
+        match s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief) {
             Some(Turn::Open { .. }) => Seen::Open,
             Some(Turn::Closed { since, .. }) => Seen::Closed(Some(since as i64 * 1000)),
             None => Seen::Closed(None),
         }
     }
 
-    /// Whether the watch's session, on `terminal`, is up and idle: it can
-    /// take a round.
-    pub(crate) fn watch_ready(&self, watch: &Watch, terminal: Option<&str>) -> bool {
-        let (Some(terminal), Some(harness)) = (terminal, watch.harness.as_deref().and_then(Harness::read)) else {
-            return false;
+    /// Types `text` and Enter at a session, only once its harness's own
+    /// screen is up there: typed at a shell, a line is a command it runs.
+    pub(crate) fn type_at(&self, s: &Session, text: &str) -> Answer<()> {
+        let orca = self.host.orca();
+        let screen = match orca.screen(&s.terminal) {
+            Term::Running(screen) => screen,
+            Term::Exited => return Err(Refusal::new("gone", "its session's terminal is gone")),
+            Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
         };
-        let (home, brief) = self.watch_home();
-        let (cwd, brief) = (home.to_string_lossy(), brief.to_string_lossy());
-        let session = Session { terminal, harness, account: watch.account.as_deref(), cwd: &cwd, brief: &brief };
-        matches!(self.see(&session), Seen::Closed(Some(_)))
+        if let Some(why) = s.harness.not_up(&screen) {
+            return Err(Refusal::new("not_up", format!("its harness is not up: {why}")));
+        }
+        orca.send(&s.terminal, text).map_err(crate::fail("orca"))
+    }
+
+    /// Hands a worker its brief if it is still to be typed and its harness
+    /// is up; `wait`: first gives the harness up to a minute to settle.
+    pub(crate) async fn hand_worker_brief(&self, worker: Uuid, wait: bool) -> Answer<()> {
+        let wk = self.state::<Workers>(worker).await?;
+        let (Some(st), Some(typed)) = (&wk.started, wk.unhanded()) else { return Ok(()) };
+        if wait {
+            let _ = self.host.orca().ready(&st.terminal);
+        }
+        if self.type_at(&Self::worker_session(st), typed).is_ok() {
+            self.submit::<w::HandBrief>(w::Of { worker }).await?;
+        }
+        Ok(())
+    }
+
+    /// Hands the watch's session its brief if it is still to be typed and
+    /// its harness is up; `wait` as for a worker.
+    pub(crate) async fn hand_watch_brief(&self, wait: bool) -> Answer<()> {
+        let watch = self.state::<Watches>(watch_id()).await?;
+        let (Some(s), Some(typed)) = (self.watch_session(&watch), &watch.unhanded) else { return Ok(()) };
+        if wait {
+            let _ = self.host.orca().ready(&s.terminal);
+        }
+        if self.type_at(&s, typed).is_ok() {
+            self.submit::<HandWatchBrief>(At { terminal: s.terminal.clone() }).await?;
+        }
+        Ok(())
+    }
+
+    /// The watch's session, when it is up, handed its brief, and idle: it
+    /// can take a round.
+    pub(crate) fn watch_ready(&self, watch: &Watch) -> Option<Session> {
+        let s = self.watch_session(watch).filter(|_| watch.unhanded.is_none())?;
+        matches!(self.see(&s), Seen::Closed(Some(_))).then_some(s)
     }
 
     /// Looks at one live worker, whose processes hold `load`; answers what
@@ -103,20 +173,13 @@ impl App {
         if matches!(wk.status, Status::Ended | Status::Waiting) {
             return Ok(None);
         }
-        let harness = Harness::read(&st.harness).unwrap_or(Harness::ClaudeCode);
+        self.hand_worker_brief(worker, false).await?;
         let now = self.now();
         let wait = |why: String| async move {
             self.submit::<w::Wait>(w::Because { worker, why: why.clone() }).await?;
             Ok::<_, crate::Refusal>(Some(json!({ "worker": worker, "waits": why })))
         };
-        let session = Session {
-            terminal: &st.terminal,
-            harness,
-            account: st.account.as_deref(),
-            cwd: &st.worktree,
-            brief: &st.brief,
-        };
-        let seen = match self.see(&session) {
+        let seen = match self.see(&Self::worker_session(&st)) {
             Seen::Unknown => return Ok(None),
             Seen::Gone => return wait("its session's terminal is gone".into()).await,
             Seen::Quota(quota) => {
@@ -128,6 +191,11 @@ impl App {
                 return Ok(Some(json!({ "worker": worker, "ended": "quota", "said": quota })));
             }
             Seen::Stopped(said) => return wait(format!("its harness stopped: {said}")).await,
+            Seen::Down(why) if now - st.at > UP_BOUND_MS => {
+                let after = (now - st.at) / 60_000;
+                return wait(format!("its harness is not up {after} min after it started: {why}")).await;
+            }
+            Seen::Down(_) => return Ok(None),
             seen => seen,
         };
         // Hot: over its share for `hot_for`, by the clock the database keeps.

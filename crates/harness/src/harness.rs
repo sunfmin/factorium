@@ -170,6 +170,21 @@ impl Harness {
         each!(self, REFUSED)
     }
 
+    /// Why `screen`, the end of a session's terminal, is not this harness's
+    /// own screen up, ready to be typed at: blank, a shell's prompt (its
+    /// program not started yet, or exited), or a question it asks before its
+    /// screen is up. `None`: it is up.
+    pub fn not_up(self, screen: &[String]) -> Option<String> {
+        let Some(row) = crate::screen::last_row(screen) else { return Some("its screen is blank".into()) };
+        if crate::screen::shell_prompt(row) {
+            return Some(format!("its screen is a shell's: {row}"));
+        }
+        match self {
+            Harness::Dsh if row.contains(dsh::ASKS_FIRST) => Some(format!("it asks before it starts: {row}")),
+            _ => None,
+        }
+    }
+
     /// What `screen`, the end of a session's terminal, says stopped it.
     pub fn stopped(self, screen: &[String]) -> Option<Stop> {
         let quota = match self {
