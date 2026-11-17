@@ -4,7 +4,7 @@
 //! green; a cut makes a version from the base tip. Each push requires the
 //! tip it read. Each runs in its own clone of the checkout under the data directory.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
@@ -19,7 +19,6 @@ use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
-use crate::work::holds_own;
 use crate::{Answer, App, fail};
 
 /// What one move did, or why it did not run now.
@@ -117,21 +116,6 @@ impl App {
     /// the watch would close in its stead.
     pub(crate) fn close_session(&self, st: &Started) {
         self.host.orca().close(&st.terminal);
-    }
-
-    /// Frees an ended worker's worktree: it goes if `remove` and it holds
-    /// nothing that is nowhere else ([`holds_own`]).
-    pub(crate) async fn release_worker(&self, worker: Uuid, remove: bool) -> Answer<()> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started else { return Ok(()) };
-        let c = self.checkout(&st.checkout).await?;
-        let git = self.host.git(&c.path);
-        if remove && !holds_own(&git, &st, git.fetch(&c.proving).ok().as_deref()) {
-            let path = PathBuf::from(&st.worktree);
-            self.host.orca().remove(&path).map_err(fail("orca"))?;
-            git.forget(&path, &st.branch);
-        }
-        Ok(())
     }
 
     /// Promotes the proving `tip` of `c`: its slow gate, then the base

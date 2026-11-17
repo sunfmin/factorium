@@ -70,7 +70,13 @@ watch's look and the operator's view.
    (no turn starts and none runs) goes to the watch at once.
 6. Green: the issue closes, the worker ends, its worktree is removed
    unless it holds work that is nowhere else: the one test that also
-   decides where its issue's next start begins (step 3).
+   decides where its issue's next start begins (step 3). It is read
+   against the last attempt that started, and only a worktree still on
+   disk is resumed or discarded. When the proving tip cannot be read, what
+   a worktree holds is unknown, so it is held: a worker that ends keeps
+   its worktree, start-over discards it (keeping its branch, as below), and
+   a start, which has no tip to begin from either way, refuses and takes
+   nothing.
    A kept worktree that went bad is discarded on purpose with
    `issue start-over <checkout> <n> --why …`, only while no worker is on
    the issue: its uncommitted changes are committed, its branch is kept as
