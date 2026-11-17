@@ -78,6 +78,8 @@ mutate() {
   0 | 2 | 3) ;;
   *) cat "$out/$dir.console" >&2; failed=$code; return ;;
   esac
+  # A file with no mutants leaves no outcomes.
+  [ -f "$out/$dir/mutants.out/outcomes.json" ] || return 0
   jq -r '.outcomes[] | select(.scenario != "Baseline")
     | [ (if .summary == "CaughtMutant" or .summary == "Timeout" then "caught"
          elif .summary == "MissedMutant" then "missed"

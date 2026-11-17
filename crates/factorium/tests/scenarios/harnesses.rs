@@ -215,3 +215,29 @@ async fn a_kit_entry_names_a_model_after_its_last_at_and_only_a_harness_factoriu
     let no = w.app.kit_set(&["nope=nope".into()]).await.unwrap_err();
     assert_eq!(no.code, "no_harness");
 }
+
+#[tokio::test]
+async fn only_a_well_formed_account_secret_is_an_account() {
+    let w = World::new();
+    let token = |t: &str| format!(r#"{{"fields":{{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"{t}"}}}}"#);
+    let secrets = [
+        ("agent-account-one", token("a")),
+        ("agent-account-two", token("b")),
+        // Not an account's secret, though it holds one's fields.
+        ("deploy-key", token("c")),
+        // No plain directory name.
+        ("agent-account-.hidden", token("d")),
+        ("agent-account-x:y", token("e")),
+        // An empty token is none.
+        ("agent-account-empty", token("")),
+        // pi takes no account, wherever its login is.
+        ("agent-account-pi", format!(r#"{{"fields":{{"HARNESS":"pi","MACHINE":"{}"}}}}"#, this_machine())),
+    ];
+    let mut t = w.host.tokens.lock().unwrap();
+    for (name, json) in &secrets {
+        t.insert(name.to_string(), json.clone());
+    }
+    drop(t);
+    let names: Vec<_> = w.app.accounts().await.unwrap().as_array().unwrap().iter().map(|a| a["name"].clone()).collect();
+    assert_eq!(names, [serde_json::json!("one"), serde_json::json!("two")]);
+}

@@ -287,6 +287,7 @@ async fn a_closed_issue_takes_no_more_commands() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "t", "", false).await.unwrap();
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["checkout"], "web");
     w.app.issue_close("web", 1, "done elsewhere").await.unwrap();
     refused(w.app.issue_comment("web", 1, "one more thing").await, "ended");
 }
