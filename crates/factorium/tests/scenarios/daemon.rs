@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::{Value, json};
 
-use crate::{World, commit, id, worker};
+use crate::{World, id, worker};
 
 async fn finding(w: &World, key: &str) -> Option<Value> {
     let d = w.run().doctor().await.unwrap();
@@ -21,7 +21,7 @@ async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
-    commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    w.commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     // Its remote is gone: every landing's fetch fails.
     let remote = w.dir.join("remotes/web.git");

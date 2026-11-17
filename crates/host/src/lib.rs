@@ -29,7 +29,7 @@ pub trait Host: Send + Sync {
     fn processes(&self) -> Vec<Proc>;
     /// Whether process `pid` is alive.
     fn alive(&self, pid: u32) -> bool;
-    /// The user's home, where harnesses keep their sessions.
+    /// The user's home, where harnesses keep their sessions and git its config.
     fn home(&self) -> std::path::PathBuf;
 }
 
@@ -37,6 +37,11 @@ impl dyn Host + '_ {
     /// Terminals and the worktrees they run in.
     pub fn orca(&self) -> Orca<'_> {
         Orca(self.programs())
+    }
+
+    /// git in `dir`, as this host runs it.
+    pub fn git(&self, dir: impl Into<std::path::PathBuf>) -> Git {
+        Git::new(self.home(), dir)
     }
 
     /// Homebrew.

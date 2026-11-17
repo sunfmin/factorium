@@ -82,6 +82,20 @@ impl Harness {
         ALL.into_iter().find(|harness| harness.key() == key)
     }
 
+    /// The launch command a kit entry's `given` command runs as. A bare
+    /// program (a path or a name, no arguments) gets this harness's stock
+    /// arguments, as its stock command would: naming where a program is must
+    /// not drop the flags a worker relies on. A command with arguments of its
+    /// own is taken as given.
+    pub fn command(self, given: &str) -> String {
+        let (given, stock) = (given.trim(), each!(self, STOCK_ARGUMENTS));
+        if stock.is_empty() || given.contains(char::is_whitespace) {
+            given.to_string()
+        } else {
+            format!("{given} {stock}")
+        }
+    }
+
     /// Whether its login refreshes and is bound to one machine, so that an
     /// account of it names that machine.
     pub(crate) const fn logs_in(self) -> bool {
@@ -145,11 +159,13 @@ impl Harness {
         for (name, value) in &start.env {
             line = line.fixed(" ").fixed(name).fixed("=").word(value);
         }
-        let line = line.fixed(" && ").launch(start.command);
+        let line = line.fixed(" && ").launch(&self.command(start.command));
         let line = each!(self, added(line, start)).done();
         Ok(match self {
             Harness::ClaudeCode => Launch { kept, line: claude_code::brief_at_start(&line, start.brief), typed: None },
             Harness::Codex => Launch { kept, line, typed: Some(codex::brief_line(start.brief)) },
+            // Its start script hands it the brief as its first prompt.
+            Harness::Dsh => Launch { kept, line, typed: None },
             _ => Launch { kept, line, typed: Some(crate::brief::brief_pointer(start.brief)) },
         })
     }
@@ -178,6 +194,21 @@ impl Harness {
     /// hook's stderr is shown to the session.
     pub const fn refused(self) -> u8 {
         each!(self, REFUSED)
+    }
+
+    /// Why `screen`, the end of a session's terminal, is not this harness's
+    /// own screen up, ready to be typed at: blank, a shell's prompt (its
+    /// program not started yet, or exited), or a question it asks before its
+    /// screen is up. `None`: it is up.
+    pub fn not_up(self, screen: &[String]) -> Option<String> {
+        let Some(row) = crate::screen::last_row(screen) else { return Some("its screen is blank".into()) };
+        if crate::screen::shell_prompt(row) {
+            return Some(format!("its screen is a shell's: {row}"));
+        }
+        match self {
+            Harness::Dsh if row.contains(dsh::ASKS_FIRST) => Some(format!("it asks before it starts: {row}")),
+            _ => None,
+        }
     }
 
     /// What `screen`, the end of a session's terminal, says stopped it.

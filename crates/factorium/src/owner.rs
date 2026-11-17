@@ -41,6 +41,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteLoad>()
+        .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()
@@ -69,6 +70,7 @@ pub(crate) fn model() -> Model {
         .command::<watch::EndWatch>()
         .command::<watch::LookNow>()
         .command::<watch::SendRound>()
+        .command::<watch::HandWatchBrief>()
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
@@ -84,7 +86,7 @@ impl App {
     pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
-        let git = factorium_host::Git::at(&path);
+        let git = self.host.git(&path);
         let base_tip = git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
         if git.fetch(proving).is_err() {
             git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
@@ -221,7 +223,13 @@ impl App {
     // ---- the kit and the accounts ----
 
     pub async fn kit(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
+        let mut kit = self.state::<Kits>(kit_id()).await?;
+        // The command that will run, as a launch makes it.
+        for e in &mut kit.entries {
+            if let Some(h) = factorium_harness::Harness::read(&e.harness) {
+                e.command = h.command(&e.command);
+            }
+        }
         Ok(json!({ "entries": kit.entries, "pins": kit.pins }))
     }
 
@@ -331,7 +339,7 @@ impl App {
             self.rows(tracker::workers(None, false)).await?.into_iter().map(|w| w.terminal).collect();
         let listed: Vec<String> = self.rows(tracker::listed()).await?.into_iter().map(|c| c.name).collect();
         let ours = |title: &str| {
-            title == crate::start::WATCH_TITLE
+            title == crate::launch::WATCH_TITLE
                 || title.rsplit_once('#').is_some_and(|(c, n)| {
                     listed.iter().any(|l| l == c) && !n.is_empty() && n.chars().all(|d| d.is_ascii_digit())
                 })
