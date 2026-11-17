@@ -118,9 +118,13 @@ impl App {
     }
 
     async fn submit<C: Command>(&self, params: impl Serialize) -> Answer<()> {
+        self.decide::<C>(params).await.map(drop)
+    }
+
+    /// Submits command `C`; answers the events it recorded.
+    async fn decide<C: Command>(&self, params: impl Serialize) -> Answer<Vec<factum::Event>> {
         let submission = Submission::new(C::NAME, params, Uuid::now_v7(), self.by.clone());
-        self.engine.submit(submission).await?;
-        Ok(())
+        Ok(self.engine.submit(submission).await?.events)
     }
 
     /// The state of the stream `id` of aggregate `A`.
