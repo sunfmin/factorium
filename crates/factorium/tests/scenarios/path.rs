@@ -1,0 +1,224 @@
+//! The issue's path: a ready issue gets a worker in its own worktree; its
+//! `done` lands it on the proving branch through the fast gate; the issue
+//! closes and the worker ends; the base is promoted and a version cut.
+
+use std::path::PathBuf;
+
+use serde_json::json;
+
+use crate::{World, commit, git, id, refused, worker};
+
+#[tokio::test]
+async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "Add a greeting", "Say hello.", false).await.unwrap();
+    let base = w.remote_tip("web", "proving");
+
+    let t = w.tick().await;
+    let started = t.started.expect("a worker started");
+    assert_eq!(started["issue"], "web#1");
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    assert_eq!(git(&tree, &["rev-parse", "HEAD"]).unwrap(), base, "branched from the proving tip");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], wk["worker"]);
+    let term = w.terminal(wk["terminal"].as_str().unwrap());
+    assert_eq!(term.worktree, tree);
+    assert!(term.line.contains("claude --dangerously-skip-permissions"), "{}", term.line);
+    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+    assert!(
+        brief.contains("Add a greeting") && brief.contains("Say hello.") && brief.contains("factorium worker done")
+    );
+    assert!(term.line.contains("web-1-1.md"), "the brief is handed at start: {}", term.line);
+
+    // A second tick starts nothing more: the issue is held.
+    assert!(w.tick().await.started.is_none());
+
+    commit(&tree, "hello.txt", "hello\n");
+    let gate = w.app.worker_gate(id(&wk)).await.unwrap();
+    assert_eq!((gate["green"].clone(), gate["ran"].clone()), (json!(true), json!(null)));
+    assert_eq!(w.app.worker_gate(id(&wk)).await.unwrap()["ran"], false, "a green tree is not gated twice");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(worker(&w.app).await["status"], "landing");
+
+    let t = w.tick().await;
+    assert_eq!(t.landed[0]["landed"], "web#1");
+    let landed = t.landed[0]["commit"].as_str().unwrap().to_string();
+    assert_eq!(w.remote_tip("web", "proving"), landed);
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
+    assert!(issue["reason"].as_str().unwrap().contains(&landed));
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert!(!w.terminal("term-1").alive, "its session ends");
+    assert!(!tree.exists(), "its worktree goes");
+
+    // Idle, the same tick promoted and cut.
+    assert_eq!(w.remote_tip("web", "main"), landed);
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"));
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut");
+    assert_eq!(cut["version"], "v0.1.0");
+    assert!(git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
+    assert_eq!(*w.host.brewed.lock().unwrap(), vec!["web".to_string()]);
+}
+
+#[tokio::test]
+async fn done_takes_only_committed_work_of_its_own() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    refused(w.app.worker_done(id(&wk)).await, "nothing");
+    std::fs::write(tree.join("loose"), "x").unwrap();
+    refused(w.app.worker_done(id(&wk)).await, "dirty");
+    git(&tree, &["add", "-A"]).unwrap();
+    git(&tree, &["commit", "-qm", "x"]).unwrap();
+    w.app.worker_done(id(&wk)).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    let proving = w.remote_tip("web", "proving");
+
+    commit(&tree, "RED", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"));
+    assert_eq!(w.remote_tip("web", "proving"), proving, "nothing red lands");
+    let again = worker(&w.app).await;
+    assert_eq!(again["status"], "working");
+    let told = w.terminal(wk["terminal"].as_str().unwrap()).sent;
+    assert!(told.last().unwrap().contains("landing was red"), "{told:?}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "ready");
+
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    assert!(waiting["why"].as_str().unwrap().starts_with("red twice"));
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("red twice"));
+}
+
+#[tokio::test]
+async fn a_red_landing_then_a_fix_lands() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    commit(&tree, "RED", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    git(&tree, &["rm", "-q", "RED"]).unwrap();
+    git(&tree, &["commit", "-qm", "fix"]).unwrap();
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+#[tokio::test]
+async fn a_branch_that_does_not_merge_is_red() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let tree = PathBuf::from(wk["worktree"].as_str().unwrap());
+    commit(&tree, "README", "mine\n");
+    // The proving branch moves under it, the same file changed.
+    let other = w.dir.join("other");
+    let remote = w.dir.join("remotes/web.git");
+    git(&w.dir, &["clone", "-q", "-b", "proving", &remote.to_string_lossy(), &other.to_string_lossy()]).unwrap();
+    commit(&other, "README", "theirs\n");
+    git(&other, &["push", "-q", "origin", "HEAD:proving"]).unwrap();
+
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
+}
+
+#[tokio::test]
+async fn blocked_and_parked_issues_wait_and_the_oldest_ready_one_starts_first() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "first", "", false).await.unwrap();
+    w.app.issue_add("web", "second", "", false).await.unwrap();
+    w.app.issue_add("web", "parked", "", true).await.unwrap();
+    w.app.issue_block("web", 1, 2, false).await.unwrap();
+
+    assert_eq!(w.tick().await.started.unwrap()["issue"], "web#2", "#1 waits for #2");
+    assert!(w.tick().await.started.is_none(), "#1 waits, #3 is parked");
+    w.app.issue_close("web", 2, "done").await.unwrap();
+    assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1");
+}
+
+#[tokio::test]
+async fn closing_or_parking_an_issue_ends_its_worker() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "b", "", false).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let ws = w.app.workers(false).await.unwrap();
+    let (a, b) = (ws[0].clone(), ws[1].clone());
+    let b_tree = PathBuf::from(b["worktree"].as_str().unwrap());
+    w.app.issue_close("web", a["number"].as_u64().unwrap(), "not needed").await.unwrap();
+    w.app.issue_park("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert!(!w.terminal(a["terminal"].as_str().unwrap()).alive);
+    assert!(!w.terminal(b["terminal"].as_str().unwrap()).alive);
+    assert!(b_tree.exists(), "a parked issue's worktree stays");
+    w.app.issue_ready("web", b["number"].as_u64().unwrap()).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", b["number"].as_u64().unwrap(), 2)));
+}
+
+#[tokio::test]
+async fn held_landings_wait_until_released() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "f", "x");
+    w.app.hold("web", Some("the proving branch is being repaired")).await.unwrap();
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert!(w.tick().await.landed.is_empty());
+    w.app.hold("web", None).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+#[tokio::test]
+async fn an_escalation_waits_for_the_watch() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    refused(w.app.worker_escalate(id(&wk), " ").await, "no_reason");
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    let waiting = worker(&w.app).await;
+    assert_eq!(
+        (waiting["status"].clone(), waiting["why"].clone()),
+        (json!("waiting"), json!("escalated: which API version?"))
+    );
+    refused(w.app.worker_done(id(&wk)).await, "nothing");
+}

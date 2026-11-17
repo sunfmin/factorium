@@ -1,22 +1,33 @@
-//! factorium's one entry. Every CLI command is one method of [`App`]; the
-//! binary only parses arguments into a call and prints the answer as JSON.
-//! Scenarios drive `App` the same way, so what they see is what the CLI
-//! prints.
+//! factorium's one entry. Every CLI command is one method of [`App`], and
+//! the daemon's tick is one too; the binary only parses arguments into a
+//! call and prints the answer as JSON. Scenarios drive `App` the same way,
+//! so what they see is what the CLI prints.
+
+mod daemon;
+mod heavy;
+mod line;
+mod owner;
+mod session;
+mod start;
+mod watch;
+mod work;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use factorium_domain::checkout::{Add, AddCheckout, Checkout, Checkouts, Named, RemoveCheckout};
-use factorium_domain::issue::{
-    Because, Block, BlockIssue, CloseIssue, Edit, EditIssue, Issue, Issues, Open, OpenIssue,
-    ParkIssue, ReadyIssue, Ref, UnblockIssue,
-};
-use factorium_domain::tracker::{CHECKOUTS, ISSUES, TRACKER, Tracker};
-use factorium_domain::{checkout_id, issue_id};
-use factum::{By, Clock, Command, Engine, Model, Op, Query, StreamId, Submission, Uuid, Value};
+use factorium_domain::checkout::Checkout;
+use factorium_domain::declared::{self, Declared};
+use factorium_domain::settings::{HostSettings, Settings, settings_id};
+use factorium_domain::tracker::TRACKER;
+use factorium_domain::{checkout::Checkouts, checkout_id};
+use factorium_host::{Git, Host};
+use factum::{Aggregate, By, Clock, Command, Engine, Query, StreamId, Submission, Uuid, Value};
 use factum_sqlite::SqliteStore;
 use serde::Serialize;
-use serde_json::json;
+use serde::de::DeserializeOwned;
+
+pub use daemon::Tick;
+pub use factorium_host as host;
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.
@@ -27,11 +38,8 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(code: &str, message: impl Into<String>) -> Refusal {
-        Refusal {
-            code: code.into(),
-            message: message.into(),
-        }
+    pub fn new(code: &str, message: impl Into<String>) -> Refusal {
+        Refusal { code: code.into(), message: message.into() }
     }
 }
 
@@ -44,16 +52,17 @@ impl std::fmt::Display for Refusal {
 impl From<factum::Error> for Refusal {
     fn from(e: factum::Error) -> Refusal {
         match e {
-            factum::Error::Rejected(r) => Refusal {
-                code: r.code,
-                message: r.message,
-            },
+            factum::Error::Rejected(r) => Refusal { code: r.code, message: r.message },
             other => Refusal::new("internal", other.to_string()),
         }
     }
 }
 
 pub type Answer<T = Value> = Result<T, Refusal>;
+
+fn fail(code: &str) -> impl Fn(String) -> Refusal + '_ {
+    move |m| Refusal::new(code, m)
+}
 
 /// Where the database lives when nothing says otherwise.
 pub fn default_db() -> PathBuf {
@@ -64,44 +73,38 @@ pub fn default_db() -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
-fn model() -> Model {
-    Model::new()
-        .aggregate::<Checkouts>()
-        .command::<AddCheckout>()
-        .command::<RemoveCheckout>()
-        .aggregate::<Issues>()
-        .command::<OpenIssue>()
-        .command::<EditIssue>()
-        .command::<BlockIssue>()
-        .command::<UnblockIssue>()
-        .command::<ParkIssue>()
-        .command::<ReadyIssue>()
-        .command::<CloseIssue>()
-        .projection(Tracker)
+/// What the daemon remembers between ticks and keeps nowhere else: when a
+/// worker went over its share, and when the last look ran.
+#[derive(Default)]
+struct Memory {
+    over: std::collections::BTreeMap<Uuid, i64>,
 }
 
 pub struct App {
     engine: Engine<SqliteStore>,
+    host: Arc<dyn Host>,
+    /// The directory beside the database: briefs, worktrees of the lines,
+    /// the watch's home, evidence.
+    data: PathBuf,
     by: By,
+    memory: Mutex<Memory>,
 }
 
 impl App {
     /// Opens the database at `db`, making it if it is not there. `by` names
-    /// who runs the commands, as the events will record it.
-    pub fn open(db: &Path, clock: Arc<dyn Clock>, by: &str) -> Answer<App> {
-        if let Some(dir) = db.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| {
-                Refusal::new("no_database", format!("cannot make {}: {e}", dir.display()))
-            })?;
-        }
-        let store = SqliteStore::open(db).map_err(|e| {
-            Refusal::new("no_database", format!("cannot open {}: {e}", db.display()))
-        })?;
-        let engine = Engine::new(Arc::new(store), Arc::new(model()), clock, by);
-        Ok(App {
-            engine,
-            by: By::Principal(by.into()),
-        })
+    /// who runs the commands, as the events record it.
+    pub fn open(db: &Path, clock: Arc<dyn Clock>, by: &str, host: Arc<dyn Host>) -> Answer<App> {
+        let data = db.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        std::fs::create_dir_all(&data)
+            .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
+        let store = SqliteStore::open(db)
+            .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
+        let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
+        Ok(App { engine, host, data, by: By::Principal(by.into()), memory: Default::default() })
+    }
+
+    fn now(&self) -> i64 {
+        self.engine.now().0
     }
 
     async fn submit<C: Command>(&self, params: impl Serialize) -> Answer<()> {
@@ -110,217 +113,53 @@ impl App {
         Ok(())
     }
 
+    /// The state of the stream `id` of aggregate `A`.
+    async fn state<A: Aggregate>(&self, id: Uuid) -> Answer<A::State>
+    where
+        A::State: DeserializeOwned + Default,
+    {
+        let state = self.engine.state(&StreamId::new(A::NAME, id)).await?;
+        Ok(serde_json::from_value(state).unwrap_or_default())
+    }
+
     async fn rows(&self, query: Query) -> Answer<Vec<Value>> {
         self.engine.settle().await?;
-        Ok(self
-            .engine
-            .query(TRACKER, &query)
-            .await?
-            .into_iter()
-            .map(|(_, row)| row)
-            .collect())
+        Ok(self.engine.query(TRACKER, &query).await?.into_iter().map(|(_, row)| row).collect())
+    }
+
+    async fn settings(&self) -> Answer<Settings> {
+        self.state::<HostSettings>(settings_id()).await
     }
 
     async fn checkout(&self, name: &str) -> Answer<Checkout> {
-        let state = self
-            .engine
-            .state(&StreamId::new("checkout", checkout_id(name)))
-            .await?;
-        let c: Checkout = serde_json::from_value(state).unwrap_or_default();
-        if c.listed {
-            Ok(c)
-        } else {
-            Err(Refusal::new(
-                "no_checkout",
-                format!("{name} is not on the list"),
-            ))
-        }
+        let c = self.state::<Checkouts>(checkout_id(name)).await?;
+        if c.listed { Ok(c) } else { Err(Refusal::new("no_checkout", format!("{name} is not on the list"))) }
     }
 
-    async fn issue(&self, checkout: &str, number: u64) -> Answer<Issue> {
-        let state = self
-            .engine
-            .state(&StreamId::new("issue", issue_id(checkout, number)))
-            .await?;
-        let i: Issue = serde_json::from_value(state).unwrap_or_default();
-        if i.opened() {
-            Ok(i)
-        } else {
-            Err(Refusal::new(
-                "no_issue",
-                format!("{checkout}#{number} does not exist"),
-            ))
-        }
+    /// What the repo declares at `rev`.
+    fn declared(&self, git: &Git, rev: &str) -> Answer<Declared> {
+        let text = git.run(&["show", &format!("{rev}:{}", declared::FILE)]).ok();
+        declared::read(text.as_deref()).map_err(fail("bad_declaration"))
     }
 
-    // ---- checkouts ----
-
-    /// Puts a repo on the list. `base` is where promotions land, `proving`
-    /// where landings land.
-    pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
-        let path = std::fs::canonicalize(path)
-            .map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
-        let path = path.to_string_lossy().into_owned();
-        let add = Add {
-            name: name.into(),
-            path,
-            base: base.into(),
-            proving: proving.into(),
-        };
-        self.submit::<AddCheckout>(&add).await?;
-        Ok(json!(add))
-    }
-
-    pub async fn checkout_remove(&self, name: &str) -> Answer {
-        self.submit::<RemoveCheckout>(Named { name: name.into() })
-            .await?;
-        Ok(json!({ "name": name, "removed": true }))
-    }
-
-    pub async fn checkout_list(&self) -> Answer {
-        let rows = self
-            .rows(
-                Query::table(CHECKOUTS)
-                    .filter("listed", Op::Eq, true)
-                    .order_by("name", false),
-            )
-            .await?;
-        Ok(Value::Array(
-            rows.into_iter().map(without(&["listed"])).collect(),
-        ))
-    }
-
-    // ---- issues ----
-
-    /// Makes an issue numbered one past the checkout's last.
-    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool) -> Answer {
-        self.checkout(checkout).await?;
-        loop {
-            let last = self
-                .rows(
-                    Query::table(ISSUES)
-                        .filter("checkout", Op::Eq, checkout)
-                        .order_by("number", true)
-                        .limit(1),
-                )
-                .await?;
-            let number = last.first().and_then(|r| r["number"].as_u64()).unwrap_or(0) + 1;
-            let open = Open {
-                checkout: checkout.into(),
-                number,
-                title: title.into(),
-                body: body.into(),
-                parked,
-            };
-            match self.submit::<OpenIssue>(&open).await {
-                // Another command took the number first: take the next.
-                Err(r) if r.code == "number_taken" => continue,
-                Err(r) => return Err(r),
-                Ok(()) => return self.issue_show(checkout, number).await,
-            }
-        }
-    }
-
-    /// The issues of a checkout, or of every checkout; open ones unless
-    /// `closed` says to list the closed ones too.
-    pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
-        let mut q = Query::table(ISSUES);
-        if let Some(c) = checkout {
-            q = q.filter("checkout", Op::Eq, c);
-        }
-        if !closed {
-            q = q.filter("status", Op::Ne, "closed");
-        }
-        let rows = self
-            .rows(q.order_by("checkout", false).order_by("number", false))
-            .await?;
-        Ok(Value::Array(rows))
-    }
-
-    pub async fn issue_show(&self, checkout: &str, number: u64) -> Answer {
-        let i = self.issue(checkout, number).await?;
-        Ok(json!({
-            "checkout": i.checkout,
-            "number": i.number,
-            "title": i.title,
-            "body": i.body,
-            "status": i.status.as_str(),
-            "blocked_by": i.blocked_by,
-            "reason": i.reason,
-        }))
-    }
-
-    pub async fn issue_edit(
-        &self,
-        checkout: &str,
-        number: u64,
-        title: Option<&str>,
-        body: Option<&str>,
-    ) -> Answer {
-        let edit = Edit {
-            checkout: checkout.into(),
-            number,
-            title: title.map(Into::into),
-            body: body.map(Into::into),
-        };
-        self.submit::<EditIssue>(edit).await?;
-        self.issue_show(checkout, number).await
-    }
-
-    pub async fn issue_close(&self, checkout: &str, number: u64, reason: &str) -> Answer {
-        self.submit::<CloseIssue>(Because {
-            checkout: checkout.into(),
-            number,
-            reason: reason.into(),
-        })
-        .await?;
-        self.issue_show(checkout, number).await
-    }
-
-    pub async fn issue_park(&self, checkout: &str, number: u64, reason: &str) -> Answer {
-        self.submit::<ParkIssue>(Because {
-            checkout: checkout.into(),
-            number,
-            reason: reason.into(),
-        })
-        .await?;
-        self.issue_show(checkout, number).await
-    }
-
-    pub async fn issue_ready(&self, checkout: &str, number: u64) -> Answer {
-        self.submit::<ReadyIssue>(Ref {
-            checkout: checkout.into(),
-            number,
-        })
-        .await?;
-        self.issue_show(checkout, number).await
-    }
-
-    /// Makes issue `number` wait for issue `by` of the same checkout, or,
-    /// with `undo`, stop waiting for it.
-    pub async fn issue_block(&self, checkout: &str, number: u64, by: u64, undo: bool) -> Answer {
-        let block = Block {
-            checkout: checkout.into(),
-            number,
-            by,
-        };
-        if undo {
-            self.submit::<UnblockIssue>(block).await?;
-        } else {
-            self.issue(checkout, by).await?;
-            self.submit::<BlockIssue>(block).await?;
-        }
-        self.issue_show(checkout, number).await
+    fn dir(&self, parts: &[&str]) -> PathBuf {
+        parts.iter().fold(self.data.clone(), |p, s| p.join(s))
     }
 }
 
-fn without(fields: &'static [&'static str]) -> impl Fn(Value) -> Value {
-    move |mut row| {
-        if let Some(o) = row.as_object_mut() {
-            for f in fields {
-                o.remove(*f);
-            }
+/// Why a session may not run the shell `line`, if it may not: a worker runs
+/// only `factorium worker …` and never pushes.
+pub fn refused(line: &str, worker: bool) -> Option<&'static str> {
+    let words: Vec<&str> =
+        line.split(|c: char| c.is_whitespace() || ";&|()".contains(c)).filter(|w| !w.is_empty()).collect();
+    for (i, w) in words.iter().enumerate() {
+        let next = words.get(i + 1).copied().unwrap_or("");
+        if worker && w.rsplit('/').next() == Some("factorium") && next != "worker" {
+            return Some("a worker runs only `factorium worker …`");
         }
-        row
+        if worker && *w == "git" && next == "push" {
+            return Some("a worker does not push: `factorium worker done` lands your branch");
+        }
     }
+    None
 }

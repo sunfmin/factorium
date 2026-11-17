@@ -9,7 +9,10 @@ deals with everything that goes wrong.
 
 It succeeds afkconvoy and is built on factum. Guild depends on its crates.
 
-Status: approved 2026-11-17. Phase 1 done; building phase 2.
+Status: approved 2026-11-17. Phases 1–6 built and held by scenarios; the real
+smoke runs (phases 2, 3, 5), factorium cutting its own version (6) and the
+moves from afkconvoy (7) are still to do. What afkconvoy had and factorium
+does not is in `docs/dropped.md`.
 
 ## 1. Concepts
 

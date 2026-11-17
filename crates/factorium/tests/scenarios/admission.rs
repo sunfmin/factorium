@@ -1,0 +1,164 @@
+//! Admission, the heavy-command queue, hot workers, failed sessions, and the
+//! disk floor: decided from the host's readings alone.
+
+use std::path::PathBuf;
+
+use factorium::host::Proc;
+use serde_json::json;
+
+use crate::{GIB, World, id, worker};
+
+async fn ready(w: &World) {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "b", "", false).await.unwrap();
+}
+
+#[tokio::test]
+async fn nothing_starts_while_the_host_has_no_room_and_a_long_hold_goes_to_the_watch() {
+    let w = World::new();
+    ready(&w).await;
+    w.host.reading.lock().unwrap().cpu_busy = 90;
+    let t = w.tick().await;
+    assert!(t.started.is_none());
+    assert!(t.held.unwrap().starts_with("cpu"));
+    w.advance(29);
+    w.tick().await;
+    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "not held long yet");
+    w.advance(2);
+    w.tick().await;
+    let found = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    assert!(found.contains("admission held") && found.contains("cpu"), "{found}");
+
+    w.host.reading.lock().unwrap().cpu_busy = 20;
+    assert!(w.tick().await.started.is_some());
+    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "the hold ended");
+}
+
+#[tokio::test]
+async fn memory_disk_and_the_workers_share_each_hold_admission() {
+    let w = World::new();
+    ready(&w).await;
+    w.host.reading.lock().unwrap().memory_free = 5;
+    assert!(w.tick().await.held.unwrap().starts_with("memory"));
+    *w.host.reading.lock().unwrap() =
+        factorium::host::Reading { cpu_busy: 10, memory_free: 60, disk_free: 5 * GIB, disk_total: 100 * GIB };
+    assert!(w.tick().await.held.unwrap().starts_with("disk"));
+    w.host.reading.lock().unwrap().disk_free = 500 * GIB;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    *w.host.procs.lock().unwrap() =
+        vec![Proc { pid: 9, cpu: 90.0 * cores, worker: Some("x".into()), ..Default::default() }];
+    assert!(w.tick().await.held.unwrap().starts_with("workers"));
+}
+
+#[tokio::test]
+async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.app.issue_add("web", "b", "", false).await.unwrap();
+    assert!(w.tick().await.held.unwrap().starts_with("kit"));
+    w.kit().await;
+    assert!(w.tick().await.started.is_some());
+    assert_eq!(w.app.workers(false).await.unwrap().as_array().unwrap().len(), 1);
+    assert!(w.tick().await.started.is_some());
+    assert_eq!(w.app.workers(false).await.unwrap().as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    let tag = Some(wk["worker"].as_str().unwrap().to_string());
+    *w.host.procs.lock().unwrap() =
+        vec![Proc { pid: 77, ppid: 1, cpu: 60.0 * cores, rss_kib: 10, command: "cargo build".into(), worker: tag }];
+    w.host.reading.lock().unwrap().cpu_busy = 95;
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "over, but not for long");
+    w.advance(3);
+    w.tick().await;
+    let hot = worker(&w.app).await;
+    let why = hot["why"].as_str().unwrap();
+    assert!(hot["status"] == "waiting" && why.starts_with("hot: cpu"), "{hot}");
+    let evidence = PathBuf::from(why.rsplit("evidence in ").next().unwrap());
+    assert!(std::fs::read_to_string(evidence).unwrap().contains("cargo build"));
+}
+
+#[tokio::test]
+async fn a_worker_whose_terminal_is_gone_waits_for_the_watch() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.kill_terminal(wk["terminal"].as_str().unwrap());
+    w.tick().await;
+    let gone = worker(&w.app).await;
+    assert_eq!(
+        (gone["status"].clone(), gone["why"].clone()),
+        (json!("waiting"), json!("its session's terminal is gone"))
+    );
+}
+
+#[tokio::test]
+async fn a_used_up_account_ends_the_worker_and_its_issue_starts_again() {
+    let w = World::new();
+    ready(&w).await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.set_screen(
+        wk["terminal"].as_str().unwrap(),
+        &["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."],
+    );
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["ended"], "quota");
+    let issue = w.app.issue_show("web", wk["number"].as_u64().unwrap()).await.unwrap();
+    assert!(t.started.is_some(), "the next start takes it again");
+    assert_ne!(issue["worker"], wk["worker"], "on a new worker");
+}
+
+#[tokio::test]
+async fn a_heavy_command_runs_with_its_exit_code_and_leaves_the_queue_empty() {
+    let w = World::new();
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let dir = w.dir.clone();
+    let ok = w.app.worker_exclusive(None, &dir, "echo built").await.unwrap();
+    assert_eq!(
+        (ok["ok"].clone(), ok["code"].clone()),
+        (json!(true), json!(0)),
+        "with nothing running it starts, room or not"
+    );
+    assert!(ok["tail"].as_str().unwrap().contains("built"));
+    let bad = w.app.worker_exclusive(None, &dir, "exit 3").await.unwrap();
+    assert_eq!(bad["code"], 3);
+}
+
+#[tokio::test]
+async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_bound_is() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let (cwd, id_) = (wk["worktree"].as_str().unwrap().to_string(), id(&wk));
+    let now = (w.app_now() / 1000) as u64;
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, true, now);
+    w.advance(45);
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "its turn is open");
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, &cwd, false, now + 60);
+    w.tick().await;
+    let silent =
+        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| id(x) == id_).cloned().unwrap();
+    assert!(silent["why"].as_str().unwrap().starts_with("silent"), "{silent}");
+}
+
+impl World {
+    pub fn app_now(&self) -> i64 {
+        use factum::Clock;
+        self.clock.now().0
+    }
+}
