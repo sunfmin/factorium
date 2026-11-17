@@ -7,6 +7,7 @@
 
 mod admission;
 mod bounds;
+mod comment;
 mod daemon;
 mod harnesses;
 mod line;

@@ -42,6 +42,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()
         .command::<worker::Resume>()
+        .command::<worker::Hear>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteLoad>()
         .command::<worker::NoteQuiet>()
@@ -253,9 +254,22 @@ impl App {
         self.issue_show(checkout, number).await
     }
 
+    /// `issue comment`: records the comment, then passes it to the worker
+    /// on the issue, if one is ([`App::pass_comment`]). The answer's
+    /// `delivery` says how; `undelivered`, why it did not reach the worker.
+    /// Comments factorium writes itself are recorded only.
     pub async fn issue_comment(&self, checkout: &str, number: u64, text: &str) -> Answer {
         self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into() }).await?;
-        self.issue_show(checkout, number).await
+        let (delivery, why) = match self.issue(checkout, number).await?.worker {
+            Some(worker) => self.pass_comment(worker, text).await?,
+            None => ("none", None),
+        };
+        let mut shown = self.issue_show(checkout, number).await?;
+        shown["delivery"] = json!(delivery);
+        if let Some(why) = why {
+            shown["undelivered"] = json!(why);
+        }
+        Ok(shown)
     }
 
     /// Makes issue `number` wait for issue `by` of the same checkout, or,
@@ -375,7 +389,8 @@ impl App {
         let mut seen = doctor::Seen::default();
         for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
             let issue = format!("{}#{}", w.checkout, w.number);
-            seen.waiting.push((w.worker.to_string(), issue, w.state.why.unwrap_or_default()));
+            let heard = self.state::<worker::Workers>(w.worker).await?.heard.into_iter().map(|(_, t)| t).collect();
+            seen.waiting.push((w.worker.to_string(), issue, w.state.why.unwrap_or_default(), heard));
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
             seen.landing.push((w.worker.to_string(), w.checkout, w.number, w.state.since));

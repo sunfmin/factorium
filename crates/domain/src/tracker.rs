@@ -241,7 +241,8 @@ impl Projection for Tracker {
                 | WorkerEvent::BriefHanded
                 | WorkerEvent::RedTold { .. }
                 | WorkerEvent::WentQuiet { .. }
-                | WorkerEvent::Stirred => Vec::new(),
+                | WorkerEvent::Stirred
+                | WorkerEvent::WorkerHeard { .. } => Vec::new(),
             },
             _ => Vec::new(),
         })

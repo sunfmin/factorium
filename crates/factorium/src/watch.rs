@@ -27,10 +27,16 @@ impl App {
         self.look(settings).await.map(Some)
     }
 
-    /// Whether a worker started waiting for the watch after `last_look`.
+    /// Whether a worker started waiting for the watch after `last_look`, or
+    /// its issue was commented on since.
     async fn waits_unseen(&self, last_look: i64) -> Answer<bool> {
-        let waiting = self.rows(tracker::workers(Some(Status::Waiting), false)).await?;
-        Ok(waiting.iter().any(|w| w.state.since > last_look))
+        for w in self.rows(tracker::workers(Some(Status::Waiting), false)).await? {
+            let heard = self.state::<Workers>(w.worker).await?.heard;
+            if w.state.since > last_look || heard.iter().any(|(at, _)| *at > last_look) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// `factorium watch look`: looks now.
@@ -51,8 +57,12 @@ impl App {
         if let (Some(r), Some(t), Some(s)) = (unsent, &terminal, &session)
             && let Some(e) = after.episodes.get(&r.episode)
         {
+            let heard = match e.heard.as_slice() {
+                [] => String::new(),
+                said => format!(" — Comments on its issue since: {}", said.join(" / ")),
+            };
             let line = format!(
-                "factorium round {}: {} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
+                "factorium round {}: {}{heard} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
                  When done, file `factorium watch report --text \"what you found and did\"` (add --human \"...\" \
                  only for what needs the owner: spending money). `factorium watch next` shows this round again.",
                 r.n, e.what, e.fix
@@ -127,6 +137,33 @@ impl App {
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word() }))
     }
 
+    /// A comment on a worker's issue, passed to the worker exactly once.
+    /// Waiting for the watch, it is not typed at: its watch episode carries
+    /// the comment. Its brief still to be handed, the comment goes into
+    /// that brief, read once handed. Else it is typed at its session behind
+    /// any running turn. Answers how (`submitted`, `queued`, `brief`,
+    /// `watch`, or `none`), and why it did not reach the worker; the issue
+    /// keeps the comment for the next brief either way.
+    pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
+        let wk = self.state::<Workers>(worker).await?;
+        let Some(st) = wk.started.as_ref().filter(|_| wk.status != Status::Ended) else { return Ok(("none", None)) };
+        if wk.status == Status::Waiting {
+            self.submit::<w::Hear>(w::Heard { worker, text: text.into() }).await?;
+            return Ok(("watch", None));
+        }
+        if wk.unhanded().is_some() {
+            return Ok(match add_to_brief(&st.brief, text) {
+                Ok(()) => ("brief", None),
+                Err(e) => ("none", Some(format!("its brief {}: {e}", st.brief))),
+            });
+        }
+        let line = one_line(&format!("factorium (a comment on your issue): {text}"));
+        Ok(match Self::worker_session(st).and_then(|s| self.deliver_at(&s, &line, false)) {
+            Ok(d) => (d.word(), None),
+            Err(r) => ("none", Some(r.message)),
+        })
+    }
+
     /// The reports' owner part, for `doctor`.
     pub async fn human(&self) -> Answer<Vec<watch::Report>> {
         let s = self.state::<Watches>(watch_id()).await?;
@@ -140,4 +177,15 @@ impl App {
         let settings = self.settings().await?;
         self.look(&settings).await
     }
+}
+
+/// Adds a comment to a brief not yet handed, under its own heading.
+fn add_to_brief(brief: &str, text: &str) -> std::io::Result<()> {
+    const HEAD: &str = "\n## Comments since\n\n";
+    let mut b = std::fs::read_to_string(brief)?;
+    if !b.contains(HEAD) {
+        b.push_str(HEAD);
+    }
+    b.push_str(&format!("- {text}\n"));
+    std::fs::write(brief, b)
 }

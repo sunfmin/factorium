@@ -15,4 +15,7 @@ Your brief (the file you were handed) says what the issue is.
   why in this terminal: fix it and run `factorium worker done` again.
 - If you cannot go on without a decision or something you lack, run
   `factorium worker escalate "what you need"` and stop. The watch answers.
+- A comment the owner adds to your issue reaches you at once, typed in
+  this terminal as `factorium (a comment on your issue): …` (or in your
+  brief, if it came before you were handed it). Take it into your work.
 - You may run only `factorium worker …` commands of factorium.

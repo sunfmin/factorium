@@ -75,6 +75,10 @@ pub struct Worker {
     /// that screen's hash, and since when, in ms.
     #[serde(default)]
     pub quiet: Option<(u64, i64)>,
+    /// Comments on its issue since it started waiting, each with when, in
+    /// ms: its watch episode carries them.
+    #[serde(default)]
+    pub heard: Vec<(i64, String)>,
 }
 
 impl Worker {
@@ -131,6 +135,11 @@ pub enum WorkerEvent {
     },
     /// Its processes or its screen moved again, or its turn closed.
     Stirred,
+    /// A comment on its issue came while it waits.
+    WorkerHeard {
+        text: String,
+        at: i64,
+    },
 }
 
 pub struct Workers;
@@ -156,11 +165,14 @@ impl Aggregate for Workers {
                 (s.status, s.since, s.landed, s.why) = (Status::Ended, at, Some(commit), Some("landed".into()))
             }
             WorkerEvent::WorkerWaits { why, at } => {
-                (s.status, s.why, s.since, s.over_since, s.quiet) = (Status::Waiting, Some(why), at, None, None)
+                (s.status, s.why, s.since, s.over_since, s.quiet) = (Status::Waiting, Some(why), at, None, None);
+                s.heard.clear();
             }
             WorkerEvent::WorkerResumed { at } => {
-                (s.status, s.reds, s.why, s.since, s.quiet) = (Status::Working, 0, None, at, None)
+                (s.status, s.reds, s.why, s.since, s.quiet) = (Status::Working, 0, None, at, None);
+                s.heard.clear();
             }
+            WorkerEvent::WorkerHeard { text, at } => s.heard.push((at, text)),
             WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
             WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
@@ -323,6 +335,28 @@ command!(
     |s, p, now| {
         live(s)?;
         Ok(if s.status == Status::Waiting { vec![WorkerEvent::WorkerResumed { at: now.0 }] } else { Vec::new() })
+    }
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Heard {
+    pub worker: Uuid,
+    pub text: String,
+}
+
+command!(
+    /// A comment on a waiting worker's issue, kept for the watch.
+    Hear,
+    "worker.hear",
+    Workers,
+    Heard,
+    |p| p.worker,
+    |s, p, now| {
+        live(s)?;
+        if s.status != Status::Waiting {
+            return no("not_waiting", "the worker does not wait for the watch");
+        }
+        Ok(vec![WorkerEvent::WorkerHeard { text: p.text.clone(), at: now.0 }])
     }
 );
 
