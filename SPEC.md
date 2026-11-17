@@ -9,10 +9,14 @@ deals with everything that goes wrong.
 
 It succeeds afkconvoy and is built on factum. Guild depends on its crates.
 
-Status: approved 2026-11-17. Phases 1–6 built and held by scenarios; the real
-smoke runs (phases 2, 3, 5), factorium cutting its own version (6) and the
-moves from afkconvoy (7) are still to do. What afkconvoy had and factorium
-does not is in `docs/dropped.md`.
+Status: approved 2026-11-17. Phases 1–6 are done. Their real runs: one
+Claude Code worker on a throwaway repo, one real watch round, and
+factorium cut its own v0.1.0 through Homebrew. Phase 3 had a real run for
+Claude Code only; codex, pi, dsh, kimi and grok have no account or no CLI
+on this host. Phase 7 waits on the owner: which repo moves first, and how
+Guild moves its gate and landing dependencies, since factorium has no
+counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
+and factorium does not is in `docs/dropped.md`.
 
 ## 1. Concepts
 
@@ -182,3 +186,6 @@ here or dropped on purpose, listed in `docs/dropped.md` with why.
    a new worktree.
 4. **No Flux.** Scenarios and mutation hold the rules; afkconvoy's fast gate
    spent 65 of its 138 seconds in Flux.
+5. **factorium is the one writer of a managed repo's base.** A repo
+   factorium manages has its base moved only by promotion; anything else
+   that moves the base turns promotion red.
