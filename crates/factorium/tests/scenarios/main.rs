@@ -56,8 +56,9 @@ pub struct Terminal {
 pub const SHELL: &str = "felix@macnoMac-Studio web-1-1 % ";
 /// The Escape key, as Orca is given it to type.
 pub const ESCAPE: &str = "\x1b";
-/// A terminal's screen with its harness up.
-pub const UP: &str = "› Ask anything · ? for shortcuts";
+/// A terminal's screen with its harness up: its prompt, and a footer with
+/// the words a harness that names some shows once up (Kimi Code's).
+pub const UP: &str = "› Ask anything · ? for shortcuts · context: 0% (0/1M)";
 
 /// Orca as `orca … --json` answers: its envelopes are shaped as Orca 1.4
 /// answered them (`{"ok":true,"result":…}`, `{"ok":false,"error":{"code",

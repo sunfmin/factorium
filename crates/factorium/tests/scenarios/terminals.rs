@@ -99,25 +99,53 @@ async fn stop_closes_the_watch_s_terminal_and_the_next_tick_starts_a_new_session
     assert!(!w.terminal(&second).closed);
 }
 
+/// Orca's terminal `handle` open again, as when closing it did not take.
+fn reopen(w: &World, handle: &str) {
+    let mut t = w.host.orca.terminals.lock().unwrap();
+    let term = t.get_mut(handle).unwrap();
+    (term.alive, term.closed) = (true, false);
+}
+
+fn orphans(found: &Value) -> Vec<String> {
+    let found = found["findings"].as_array().unwrap();
+    found.iter().filter_map(|f| f["key"].as_str()?.strip_prefix("orphan:").map(String::from)).collect()
+}
+
+/// Seen 2026-11-18 (factorium#39): a scratch daemon on its own database
+/// named the host daemon's watch terminal its orphan, by its title, and its
+/// watch was to close it.
 #[tokio::test]
-async fn doctor_names_a_factorium_terminal_no_worker_or_watch_holds() {
+async fn doctor_names_only_terminals_its_own_factorium_opened_that_nothing_holds() {
     let w = World::new();
     let wk = one_worker(&w).await;
+    let watch = w.app.doctor().await.unwrap()["watch"]["terminal"].as_str().unwrap().to_string();
     {
+        // Another daemon's, on another database: titled as this one titles its own.
         let mut t = w.host.orca.terminals.lock().unwrap();
-        for (handle, title) in [("lost-1", "web#9"), ("lost-2", "factorium watch"), ("mine", "notes"), ("x", "api#1")] {
-            let term = Terminal { title: title.into(), alive: true, ..Default::default() };
-            t.insert(handle.into(), term);
+        for (handle, title) in [("other-watch", "factorium watch"), ("other-web", "web#9"), ("notes", "notes")] {
+            t.insert(handle.into(), Terminal { title: title.into(), alive: true, ..Default::default() });
         }
     }
-    let found = w.app.doctor().await.unwrap()["findings"].as_array().unwrap().clone();
-    let keys: Vec<&str> = found.iter().filter_map(|f| f["key"].as_str()).collect();
-    assert!(keys.contains(&"orphan:lost-1") && keys.contains(&"orphan:lost-2"), "{keys:?}");
-    for not in ["orphan:mine", "orphan:x", &format!("orphan:{}", wk["terminal"].as_str().unwrap())] {
-        assert!(!keys.contains(&not), "{not} in {keys:?}");
-    }
-    let lost = found.iter().find(|f| f["key"] == "orphan:lost-1").unwrap();
-    assert!(lost["fix"].as_str().unwrap().contains("orca terminal close --terminal lost-1"), "{lost}");
-    let watch = w.app.doctor().await.unwrap()["watch"]["terminal"].clone();
-    assert!(!keys.contains(&format!("orphan:{}", watch.as_str().unwrap()).as_str()), "the watch's own");
+    assert_eq!(orphans(&w.app.doctor().await.unwrap()), Vec::<String>::new(), "nothing of another's, nor held");
+
+    // Its own worker ended, and its own watch stopped, their terminals' close not taken.
+    let mine = wk["terminal"].as_str().unwrap().to_string();
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+    w.app.stop().await.unwrap();
+    reopen(&w, &mine);
+    reopen(&w, &watch);
+    let found = w.app.doctor().await.unwrap();
+    let mut expected = vec![mine.clone(), watch.clone()];
+    expected.sort();
+    let mut seen = orphans(&found);
+    seen.sort();
+    assert_eq!(seen, expected);
+    let lost = found["findings"].as_array().unwrap().iter().find(|f| f["key"] == format!("orphan:{mine}")).unwrap();
+    assert!(lost["fix"].as_str().unwrap().contains(&format!("orca terminal close --terminal {mine}")), "{lost}");
+
+    // A new watch session holds its own terminal; the old one stays an orphan.
+    w.advance(5);
+    let next = w.tick().await.watch.unwrap()["watch"].as_str().unwrap().to_string();
+    let seen = orphans(&w.app.doctor().await.unwrap());
+    assert!(seen.contains(&watch) && !seen.contains(&next), "{seen:?}");
 }

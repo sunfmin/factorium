@@ -29,6 +29,10 @@ const ENVIRONMENT: [&str; 3] =
 const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", kept: "credentials" }];
 
 const REFUSED: u8 = 2;
+/// Its footer, drawn once its screen is up (Kimi Code 2.5.3): `context: 0%
+/// (0/1M)`. Typed before, while it starts, a line is lost (#39's first run:
+/// the brief, typed 1.2s after its start, never reached it).
+const SHOWS_UP: &str = "context: ";
 
 /// The file whose being in its user directory answers the question Kimi
 /// Code opens a fresh one with: whether to migrate kimi-cli's configuration.
@@ -302,6 +306,7 @@ impl Kind for Kimi {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = None;
+    const SHOWS_UP: Option<&'static str> = Some(SHOWS_UP);
     const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
     const REFUSED: u8 = REFUSED;

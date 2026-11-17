@@ -350,6 +350,7 @@ impl Kind for Codex {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = None;
+    const SHOWS_UP: Option<&'static str> = None;
     const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
