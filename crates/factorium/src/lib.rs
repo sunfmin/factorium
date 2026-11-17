@@ -18,10 +18,10 @@ use std::sync::{Arc, Mutex};
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{self, Declared};
 use factorium_domain::settings::{HostSettings, Settings, settings_id};
-use factorium_domain::tracker::TRACKER;
+use factorium_domain::tracker::{Rows, TRACKER};
 use factorium_domain::{checkout::Checkouts, checkout_id};
 use factorium_host::{Git, Host};
-use factum::{Aggregate, By, Clock, Command, Engine, Query, StreamId, Submission, Uuid, Value};
+use factum::{Aggregate, By, Clock, Command, Engine, StreamId, Submission, Uuid, Value};
 use factum_sqlite::SqliteStore;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -122,9 +122,10 @@ impl App {
         Ok(serde_json::from_value(state).unwrap_or_default())
     }
 
-    async fn rows(&self, query: Query) -> Answer<Vec<Value>> {
+    async fn rows<R: DeserializeOwned>(&self, rows: Rows<R>) -> Answer<Vec<R>> {
         self.engine.settle().await?;
-        Ok(self.engine.query(TRACKER, &query).await?.into_iter().map(|(_, row)| row).collect())
+        let found = self.engine.query(TRACKER, &rows.query).await?.into_iter().map(|(_, row)| row).collect();
+        Rows::read(found).map_err(|e| Refusal::new("bad_row", e))
     }
 
     async fn settings(&self) -> Answer<Settings> {
