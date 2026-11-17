@@ -235,25 +235,67 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
 }
 
 #[tokio::test]
-async fn dsh_starts_only_through_its_guard_files() {
+async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_program_s_directory_on_path() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
+    // The kit names DSH's TUI by path; its launcher runs `dsh` by name.
+    let tools = w.dir.join("tools");
+    std::fs::create_dir_all(&tools).unwrap();
+    let ran = w.dir.join("ran");
+    let tui = format!("#!/bin/sh\n{{ printf '%s\\n' \"$@\"; command -v dsh; }} > '{}'\n", ran.display());
+    for (name, text) in [("dsh-tui", tui.as_str()), ("dsh", "#!/bin/sh\n")] {
+        std::fs::write(tools.join(name), text).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(tools.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    w.app.kit_set(&[format!("dsh={}", tools.join("dsh-tui").display())]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
+    let wk = worker(&w.app).await;
+    let term = w.terminal(wk["terminal"].as_str().unwrap());
+    assert!(term.sent.is_empty(), "nothing is typed at it: {:?}", term.sent);
+
+    // Its kept files are written, every placeholder filled with its kept file.
     let home = w.dir.join("data").join("kept").join("dsh");
-    let start = home.join("start.sh");
-    let (role, home_text) = (w.dir.join("data").join("role").join("worker"), home.to_string_lossy());
-    let run = || {
-        let args = [&start.to_string_lossy(), "echo", &home_text, &role.to_string_lossy(), "/the/worktree", "kept"];
-        std::process::Command::new("sh").args(args).output().unwrap()
-    };
-    let out = run();
-    let said = String::from_utf8_lossy(&out.stdout);
+    for file in
+        ["start.sh", "factorium.patch.yml", "factorium.mjs", "sandbox.patch.yml", "profiles/dsh-tui/package.json"]
+    {
+        let text = std::fs::read_to_string(home.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert!(!text.contains("@FACTORIUM_DSH"), "{file} keeps a placeholder:\n{text}");
+    }
+    let overlay = std::fs::read_to_string(home.join("factorium.patch.yml")).unwrap();
+    assert!(overlay.contains(&format!("name: '{}/factorium.mjs'", home.display())), "{overlay}");
+
+    // The line runs: the program is started with the guard's patch, the
+    // worktree as its workspace and the brief as its first prompt, which
+    // answers its first run; `dsh` is found beside it.
+    let out = std::process::Command::new("sh").args(["-c", &term.line]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert!(said.contains(&format!("--patch {home_text}/factorium.patch.yml /the/worktree")), "{said}");
+    let said = std::fs::read_to_string(&ran).unwrap();
+    let said: Vec<&str> = said.lines().collect();
+    let worktree = wk["worktree"].as_str().unwrap();
+    let patch = format!("{}/factorium.patch.yml", home.display());
+    let brief = wk_brief(&w, &wk);
+    let at = said.iter().position(|a| *a == patch).unwrap_or_else(|| panic!("{said:?}"));
+    assert_eq!(&said[at - 1..at + 3], ["--patch", patch.as_str(), worktree, brief.as_str()], "{said:?}");
+    assert_eq!(said.last(), Some(&tools.join("dsh").to_string_lossy().as_ref()), "{said:?}");
+
+    // Without its guard plugin, no session.
     std::fs::remove_file(home.join("factorium.mjs")).unwrap();
-    assert!(!run().status.success(), "no guard plugin, no session");
+    std::fs::remove_file(&ran).unwrap();
+    assert!(!std::process::Command::new("sh").args(["-c", &term.line]).status().unwrap().success());
+    assert!(!ran.exists(), "no guard plugin, no session");
+}
+
+/// The first prompt a worker's session is handed: the pointer to its brief.
+fn wk_brief(w: &World, wk: &serde_json::Value) -> String {
+    let brief = w.dir.join("data").join("briefs").join("web-1-1.md");
+    assert!(brief.exists(), "{wk}");
+    format!(
+        "Your task brief is the file {} — read it now and carry it out end to end. It is my instruction to you; \
+         do not ask me to confirm.",
+        brief.display()
+    )
 }
 
 /// What the harness crate offers, item by item: what factorium uses of it
