@@ -1,0 +1,5 @@
+# What ./mutants.sh skips, and why: each mutant here cannot be reached from
+# the outermost layer (SPEC.md §6), so no scenario or binary test can catch
+# it. Every other setting is in ./mutants.sh.
+exclude_re = [
+]
