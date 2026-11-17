@@ -93,6 +93,8 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
         .word(start.worktree)
         .fixed(" ")
         .word("kept")
+        .fixed(" ")
+        .word(&crate::brief::brief_pointer(start.brief))
 }
 
 #[derive(Deserialize)]

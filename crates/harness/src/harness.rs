@@ -164,6 +164,8 @@ impl Harness {
         Ok(match self {
             Harness::ClaudeCode => Launch { kept, line: claude_code::brief_at_start(&line, start.brief), typed: None },
             Harness::Codex => Launch { kept, line, typed: Some(codex::brief_line(start.brief)) },
+            // Its start script hands it the brief as its first prompt.
+            Harness::Dsh => Launch { kept, line, typed: None },
             _ => Launch { kept, line, typed: Some(crate::brief::brief_pointer(start.brief)) },
         })
     }

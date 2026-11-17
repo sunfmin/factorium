@@ -228,12 +228,13 @@ impl App {
         };
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
         let hook = format!("{} guard {}", shell_word(&exe), pick.harness.key());
-        // The session runs factorium by name: this one, on this database.
+        // The session runs factorium by name: this one, on this database;
+        // and finds what the kit's program runs by name beside it.
         env.push((DB_ENV, self.db.to_string_lossy().into_owned()));
-        let path = std::env::var("PATH").unwrap_or_default();
-        if let Some(bin) = Path::new(&exe).parent() {
-            env.push(("PATH", format!("{}:{path}", bin.display())));
-        }
+        let mut path: Vec<String> = Path::new(&exe).parent().map(|bin| bin.display().to_string()).into_iter().collect();
+        path.extend(program_dir(&pick.command, &self.host.home()));
+        path.push(std::env::var("PATH").unwrap_or_default());
+        env.push(("PATH", path.join(":")));
         let (dir_text, worktree_text, brief_text) =
             (dir.to_string_lossy(), worktree.to_string_lossy(), brief.to_string_lossy());
         let (home, user_home) = (self.session_home(pick.harness, pick.account.as_deref()), self.host.home());
@@ -302,6 +303,19 @@ fn keep(kept: &Kept) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The directory of the program a kit's `command` names by path, as its
+/// first word: absolute, or under the host user's `home` as `~/`. A program
+/// named by name is found on the PATH already.
+fn program_dir(command: &str, home: &Path) -> Option<String> {
+    let program = command.split_whitespace().next()?;
+    let path = match program.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None if program.starts_with('/') => PathBuf::from(program),
+        None => return None,
+    };
+    Some(path.parent()?.display().to_string())
 }
 
 fn shell_word(s: &str) -> String {
