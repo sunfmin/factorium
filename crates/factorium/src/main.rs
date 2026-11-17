@@ -185,7 +185,10 @@ enum IssueCmd {
         #[arg(long)]
         why: String,
     },
-    /// Adds a comment, which the next worker's brief carries.
+    /// Adds a comment: it reaches the live worker on the issue at once
+    /// (typed at its session, or in its brief not yet handed; a waiting
+    /// worker's through its watch episode), and the next worker's brief
+    /// carries it.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another of its checkout (`--undo`: stop).
     Block {

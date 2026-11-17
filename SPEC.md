@@ -117,9 +117,18 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block`, `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `promote`, `cut`, `hold` (landings), `unqueue` (a heavy-queue entry that does not move), `kit`, `switch`, `accounts`, `settings`, `help` |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, `park`, `release`, and every owner command |
+
+`issue comment` records the comment and reaches the live worker on the
+issue at once, through the same delivery as `watch tell`, never stopping
+its running turn: a working worker gets one line typed at its session
+(`delivery: submitted` or `queued`); one whose brief is not yet handed
+gets it in that brief (`brief`); a waiting one is not typed at, its watch
+episode carries it (`watch`); with no worker, or when delivery fails
+(`undelivered` says why), `none`. The next brief carries every comment.
+Comments factorium writes itself (start-over's) are typed at no one.
 
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH

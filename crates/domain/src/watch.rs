@@ -21,6 +21,10 @@ pub struct Episode {
     pub opened_at: i64,
     /// The round it started, if any.
     pub round: Option<u64>,
+    /// What was said about it since it opened: comments on a waiting
+    /// worker's issue.
+    #[serde(default)]
+    pub heard: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -95,6 +99,13 @@ pub enum WatchEvent {
         what: String,
         fix: String,
         at: i64,
+        #[serde(default)]
+        heard: Vec<String>,
+    },
+    /// What was said about an open episode, all of it.
+    EpisodeHeard {
+        key: String,
+        heard: Vec<String>,
     },
     EpisodeClosed {
         key: String,
@@ -141,8 +152,13 @@ impl Aggregate for Watches {
             WatchEvent::BriefHanded => s.unhanded = None,
             WatchEvent::WatchEnded => (s.terminal, s.harness, s.account, s.unhanded) = (None, None, None, None),
             WatchEvent::Looked { at } => s.last_look = at,
-            WatchEvent::EpisodeOpened { key, what, fix, at } => {
-                s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None });
+            WatchEvent::EpisodeOpened { key, what, fix, at, heard } => {
+                s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None, heard });
+            }
+            WatchEvent::EpisodeHeard { key, heard } => {
+                if let Some(e) = s.episodes.get_mut(&key) {
+                    e.heard = heard;
+                }
             }
             WatchEvent::EpisodeClosed { key } => _ = s.episodes.remove(&key),
             WatchEvent::RoundStarted { n, episode, at } => {
@@ -229,6 +245,9 @@ pub struct Found {
     pub key: String,
     pub what: String,
     pub fix: String,
+    /// What was said about it: comments on a waiting worker's issue.
+    #[serde(default)]
+    pub heard: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -253,13 +272,18 @@ command!(
     |s, p, now| {
         let mut ev = vec![WatchEvent::Looked { at: now.0 }];
         for f in &p.found {
-            if !s.episodes.contains_key(&f.key) {
-                ev.push(WatchEvent::EpisodeOpened {
+            match s.episodes.get(&f.key) {
+                None => ev.push(WatchEvent::EpisodeOpened {
                     key: f.key.clone(),
                     what: f.what.clone(),
                     fix: f.fix.clone(),
                     at: now.0,
-                });
+                    heard: f.heard.clone(),
+                }),
+                Some(e) if e.heard != f.heard => {
+                    ev.push(WatchEvent::EpisodeHeard { key: f.key.clone(), heard: f.heard.clone() })
+                }
+                Some(_) => {}
             }
         }
         let gone: Vec<&String> = s.episodes.keys().filter(|k| !p.found.iter().any(|f| &f.key == *k)).collect();

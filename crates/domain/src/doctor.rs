@@ -13,8 +13,9 @@ use crate::watch::Found;
 /// What doctor reads.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Seen {
-    /// Workers that wait for the watch: (worker id, checkout#number, why).
-    pub waiting: Vec<(String, String, String)>,
+    /// Workers that wait for the watch: (worker id, checkout#number, why,
+    /// the comments on its issue since it started waiting).
+    pub waiting: Vec<(String, String, String, Vec<String>)>,
     /// Each listed checkout's proving line.
     pub lines: Vec<LineSeen>,
     /// Workers asking to land: (worker id, checkout, number, since when, ms).
@@ -46,15 +47,18 @@ pub struct LineSeen {
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
-    let mut add = |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into() });
-    for (id, issue, why) in &seen.waiting {
-        add(
-            format!("worker:{id}"),
-            format!("worker {id} on {issue} waits: {why}"),
-            "read its terminal and worktree; fix what stops it, then `factorium watch restart` or `tell` it, \
-             or `park` its issue",
-        );
+    for (id, issue, why, heard) in &seen.waiting {
+        f.push(Found {
+            key: format!("worker:{id}"),
+            what: format!("worker {id} on {issue} waits: {why}"),
+            fix: "read its terminal and worktree and the comments on its issue; fix what stops it, then \
+                  `factorium watch restart` or `tell` it, or `park` its issue"
+                .into(),
+            heard: heard.clone(),
+        });
     }
+    let mut add =
+        |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into(), heard: Vec::new() });
     for LineSeen { checkout, line, .. } in &seen.lines {
         if let Some((tip, why)) = &line.red {
             add(
