@@ -42,7 +42,10 @@ async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
         t
     };
     let both = async { tokio::join!(cli.worker_exclusive(None, &dir, line), body) };
-    let (held, t) = tokio::time::timeout(STUCK, both).await.expect("nothing waits on the busy queue");
+    let both = tokio::time::timeout(STUCK, both).await;
+    // Stuck or not, the busy command ends: the runtime waits for it.
+    std::fs::write(dir.join("release"), "").unwrap();
+    let (held, t) = both.expect("nothing waits on the busy queue");
     assert_eq!(held.unwrap()["ok"], true);
     t
 }
