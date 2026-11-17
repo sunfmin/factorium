@@ -119,6 +119,9 @@ enum IssueCmd {
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
+        /// An issue of the checkout it waits for; repeat for each.
+        #[arg(long = "blocked-by", value_name = "N")]
+        blocked_by: Vec<u64>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -262,7 +265,9 @@ async fn run(cli: Cli) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, parked } => app.issue_add(&checkout, &title, &body, parked).await,
+            IssueCmd::Add { checkout, title, body, parked, blocked_by } => {
+                app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
+            }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
             IssueCmd::Edit { checkout, number, title, body } => {

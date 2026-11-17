@@ -47,7 +47,7 @@ async fn a_removed_checkout_leaves_the_list_takes_no_issues_and_can_come_back() 
     w.app.checkout_remove("web").await.unwrap();
     assert_eq!(w.app.checkout_list().await.unwrap(), json!([]));
     refused(w.app.checkout_remove("web").await, "not_listed");
-    refused(w.app.issue_add("web", "t", "", false).await, "no_checkout");
+    refused(w.app.issue_add("web", "t", "", false, &[]).await, "no_checkout");
     let again = w.repo("web2");
     w.app.checkout_add("web", &again, "main", "proving").await.unwrap();
     assert_eq!(w.app.checkout_list().await.unwrap()[0]["path"], json!(std::fs::canonicalize(again).unwrap()));
@@ -58,14 +58,14 @@ async fn issues_are_numbered_per_checkout_from_one() {
     let w = World::new();
     w.checkout("web").await;
     w.checkout("api").await;
-    let first = w.app.issue_add("web", "  Fix the login  ", "body", false).await.unwrap();
+    let first = w.app.issue_add("web", "  Fix the login  ", "body", false, &[]).await.unwrap();
     assert_eq!(
         (first["number"].clone(), first["title"].clone(), first["status"].clone()),
         (json!(1), json!("Fix the login"), json!("ready"))
     );
-    w.app.issue_add("web", "second", "", false).await.unwrap();
-    w.app.issue_add("api", "first of api", "", false).await.unwrap();
-    w.app.issue_add("web", "third", "", true).await.unwrap();
+    w.app.issue_add("web", "second", "", false, &[]).await.unwrap();
+    w.app.issue_add("api", "first of api", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "third", "", true, &[]).await.unwrap();
     assert_eq!(
         numbers(&w.app.issue_list(None, false).await.unwrap()),
         vec![("api".into(), 1), ("web".into(), 1), ("web".into(), 2), ("web".into(), 3)]
@@ -77,8 +77,8 @@ async fn issues_are_numbered_per_checkout_from_one() {
 async fn an_issue_needs_a_listed_checkout_and_a_title() {
     let w = World::new();
     w.checkout("web").await;
-    refused(w.app.issue_add("nope", "t", "", false).await, "no_checkout");
-    refused(w.app.issue_add("web", "   ", "", false).await, "no_title");
+    refused(w.app.issue_add("nope", "t", "", false, &[]).await, "no_checkout");
+    refused(w.app.issue_add("web", "   ", "", false, &[]).await, "no_title");
     refused(w.app.issue_show("web", 1).await, "no_issue");
     refused(w.app.issue_close("web", 1, "r").await, "no_issue");
     assert_eq!(w.app.issue_list(None, true).await.unwrap(), json!([]));
@@ -92,7 +92,7 @@ async fn two_runs_adding_at_once_take_different_numbers() {
     let adds: Vec<_> = (0..8)
         .map(|i| {
             let app = runs[i % 2].clone();
-            tokio::spawn(async move { app.issue_add("web", "same time", "", false).await.unwrap() })
+            tokio::spawn(async move { app.issue_add("web", "same time", "", false, &[]).await.unwrap() })
         })
         .collect();
     let mut got = Vec::new();
@@ -108,9 +108,9 @@ async fn closed_issues_leave_the_list_unless_asked_for_and_their_numbers_are_not
     let w = World::new();
     w.checkout("web").await;
     w.checkout("api").await;
-    w.app.issue_add("web", "one", "", false).await.unwrap();
-    w.app.issue_add("web", "two", "", false).await.unwrap();
-    w.app.issue_add("api", "three", "", false).await.unwrap();
+    w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "two", "", false, &[]).await.unwrap();
+    w.app.issue_add("api", "three", "", false, &[]).await.unwrap();
     let closed = w.app.issue_close("web", 1, "done elsewhere").await.unwrap();
     assert_eq!((closed["status"].clone(), closed["reason"].clone()), (json!("closed"), json!("done elsewhere")));
     assert_eq!(numbers(&w.app.issue_list(None, false).await.unwrap()), vec![("api".into(), 1), ("web".into(), 2)]);
@@ -119,14 +119,14 @@ async fn closed_issues_leave_the_list_unless_asked_for_and_their_numbers_are_not
         numbers(&w.app.issue_list(Some("web"), true).await.unwrap()),
         vec![("web".into(), 1), ("web".into(), 2)]
     );
-    assert_eq!(w.app.issue_add("web", "four", "", false).await.unwrap()["number"], 3);
+    assert_eq!(w.app.issue_add("web", "four", "", false, &[]).await.unwrap()["number"], 3);
 }
 
 #[tokio::test]
 async fn an_edit_shows_in_the_list_and_keeps_what_it_does_not_name() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.issue_add("web", "old", "the body", false).await.unwrap();
+    w.app.issue_add("web", "old", "the body", false, &[]).await.unwrap();
     let e = w.app.issue_edit("web", 1, Some("new"), None).await.unwrap();
     assert_eq!((e["title"].clone(), e["body"].clone()), (json!("new"), json!("the body")));
     let e = w.app.issue_edit("web", 1, None, Some("another")).await.unwrap();
@@ -139,7 +139,7 @@ async fn an_edit_shows_in_the_list_and_keeps_what_it_does_not_name() {
 async fn a_parked_issue_is_parked_in_the_list_until_readied() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.issue_add("web", "one", "", false).await.unwrap();
+    w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
     let p = w.app.issue_park("web", 1, "needs a decision").await.unwrap();
     assert_eq!((p["status"].clone(), p["reason"].clone()), (json!("parked"), json!("needs a decision")));
     assert_eq!(w.app.issue_list(None, false).await.unwrap()[0]["status"], "parked");
@@ -153,7 +153,7 @@ async fn an_issue_waits_for_others_of_its_checkout() {
     let w = World::new();
     w.checkout("web").await;
     for t in ["one", "two", "three"] {
-        w.app.issue_add("web", t, "", false).await.unwrap();
+        w.app.issue_add("web", t, "", false, &[]).await.unwrap();
     }
     w.app.issue_block("web", 3, 1, false).await.unwrap();
     w.app.issue_block("web", 3, 1, false).await.unwrap();
@@ -169,8 +169,8 @@ async fn an_issue_waits_for_others_of_its_checkout() {
 async fn what_one_run_records_the_next_run_reads() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.issue_add("web", "one", "", false).await.unwrap();
+    w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
     let next = w.run();
     assert_eq!(numbers(&next.issue_list(None, false).await.unwrap()), vec![("web".into(), 1)]);
-    assert_eq!(next.issue_add("web", "two", "", false).await.unwrap()["number"], 2);
+    assert_eq!(next.issue_add("web", "two", "", false, &[]).await.unwrap()["number"], 2);
 }
