@@ -10,8 +10,9 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+use super::Link;
 use super::session::{self, json_lines};
-use super::{Link, SessionFile, SessionLayout};
+use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
 use crate::start::SKILLS;
@@ -176,8 +177,8 @@ pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::E
 
 /// Where pi keeps the session of `cwd`: one JSONL file for each session, in
 /// the directory it names from the worktree path.
-pub(super) fn session_layout(cwd: &str) -> SessionLayout {
-    SessionLayout::Files { dir: format!("sessions/{}", session::wrapped_dir(cwd)), extension: "jsonl" }
+pub(super) fn layout(cwd: &str) -> Layout {
+    Layout::Files { dir: format!("sessions/{}", session::wrapped_dir(cwd)), extension: "jsonl" }
 }
 
 /// The turn `text` records for `cwd`. A session header for another worktree
@@ -211,8 +212,8 @@ fn note(value: &Value) -> Option<Note> {
     }
 }
 
-/// One session file a stand-in writes for this turn.
-pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> {
+/// The session a stand-in writes for this turn.
+pub(super) fn stand_in(cwd: &str, open: bool, at: u64) -> String {
     let iso = session::format_iso(at);
     let mut body = format!(
         "{}\n",
@@ -236,10 +237,5 @@ pub(super) fn session_files(cwd: &str, open: bool, at: u64) -> Vec<SessionFile> 
             ])
         ));
     }
-    vec![SessionFile {
-        path: format!("sessions/{}/factorium-turn.jsonl", session::wrapped_dir(cwd)),
-        body,
-        compressed: false,
-        replaces: None,
-    }]
+    body
 }

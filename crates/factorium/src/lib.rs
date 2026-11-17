@@ -14,7 +14,7 @@ mod watch;
 mod work;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{self, Declared};
@@ -74,12 +74,10 @@ pub fn default_db() -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
-/// What the daemon remembers between ticks and keeps nowhere else: when a
-/// worker went over its share, and which of its heavy jobs wait in the
-/// queue and which this tick asked for.
+/// What the daemon keeps between ticks and nowhere else: which of its heavy
+/// jobs wait in the queue, and which this tick asked for.
 #[derive(Default)]
 struct Memory {
-    over: std::collections::BTreeMap<Uuid, i64>,
     queued: std::collections::BTreeSet<Uuid>,
     asked: std::collections::BTreeSet<Uuid>,
 }
@@ -91,7 +89,7 @@ pub struct App {
     /// worktrees of the lines, the watch's home, evidence.
     db: PathBuf,
     by: By,
-    memory: Mutex<Memory>,
+    memory: std::sync::Mutex<Memory>,
 }
 
 impl App {

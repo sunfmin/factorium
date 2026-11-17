@@ -89,6 +89,33 @@ async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
 }
 
 #[tokio::test]
+async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_within_its_share() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    let tag = Some(wk["worker"].as_str().unwrap().to_string());
+    let busy = Proc { pid: 77, ppid: 1, cpu: 60.0 * cores, rss_kib: 10, command: "cargo build".into(), worker: tag };
+    let idle = Proc { cpu: 0.0, ..busy.clone() };
+    *w.host.procs.lock().unwrap() = vec![busy.clone()];
+    w.host.reading.lock().unwrap().cpu_busy = 95;
+    w.tick().await;
+    *w.host.procs.lock().unwrap() = vec![idle];
+    w.advance(3);
+    w.tick().await;
+    *w.host.procs.lock().unwrap() = vec![busy];
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "its clock started again when it went over again");
+    // The daemon restarts: a new run on the same database keeps the clock.
+    let again = w.run();
+    w.advance(3);
+    again.tick().await.unwrap();
+    let hot = worker(&again).await;
+    assert!(hot["status"] == "waiting" && hot["why"].as_str().unwrap().starts_with("hot: cpu"), "{hot}");
+}
+
+#[tokio::test]
 async fn a_worker_whose_terminal_is_gone_waits_for_the_watch() {
     let w = World::new();
     ready(&w).await;

@@ -61,8 +61,8 @@ pub(super) fn number_at(seconds: Option<u64>, timestamp: Option<&str>) -> Option
 }
 
 /// The year, month and day of an epoch day count (Howard Hinnant's
-/// civil-from-days), for a session laid out by date.
-pub(super) fn civil_from_days(days: i64) -> (i32, u32, u32) {
+/// civil-from-days).
+fn civil_from_days(days: i64) -> (i32, u32, u32) {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);
     let day_of_era = shifted.rem_euclid(146_097);

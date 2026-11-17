@@ -3,11 +3,10 @@
 //! a turn, and which screen words mean a quota or a refusal are each one
 //! harness's own, in its module here and nowhere else.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::line::Line;
 use crate::start::{Home, Launch, Start};
-use crate::turn::Turn;
 
 mod claude_code;
 mod codex;
@@ -16,6 +15,7 @@ mod grok;
 mod kimi;
 mod pi;
 mod session;
+mod store;
 
 /// The same item of each harness's module, for `$harness`.
 macro_rules! each {
@@ -46,34 +46,6 @@ struct Link {
     home: &'static str,
     /// Where the link is, under the kept directory.
     kept: &'static str,
-}
-
-/// How the session files of one worktree are laid out under the harness
-/// directory. The reader opens the files; a missing directory is no turn.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SessionLayout {
-    /// Each file of `extension` directly in `dir` is one session.
-    Files { dir: String, extension: &'static str },
-    /// Each file of `extension` anywhere under `dir` is one session.
-    Tree { dir: String, extension: &'static str },
-    /// Each `dir/*/<name>` is one session.
-    Named { dir: String, name: &'static str },
-    /// `file` names the session files (`kimi::indexed_sessions`).
-    Index { file: String },
-}
-
-/// One file a stand-in writes under the harness directory; the body is the
-/// text the harness's turn reader reads.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SessionFile {
-    /// Path under the harness directory.
-    path: String,
-    /// The session text, before `compressed` storage.
-    body: String,
-    /// The body is stored as zstd.
-    compressed: bool,
-    /// Before writing, the file of this name under the directory is removed.
-    replaces: Option<String>,
 }
 
 /// What a session's screen says stopped it.
@@ -214,119 +186,4 @@ impl Harness {
             _ => None,
         }
     }
-
-    /// The turn its session files record for the worktree `cwd` of the
-    /// session handed `brief`, read under its `home`. `None`: no session says.
-    pub fn turn(self, home: &Home, cwd: &str, brief: &str) -> Option<Turn> {
-        let root = home.path();
-        let mut files = Vec::new();
-        match each!(self, session_layout(cwd)) {
-            SessionLayout::Files { dir, extension } => files_under(&root.join(dir), extension, false, &mut files),
-            SessionLayout::Tree { dir, extension } => files_under(&root.join(dir), extension, true, &mut files),
-            SessionLayout::Named { dir, name } => {
-                for d in std::fs::read_dir(root.join(dir)).into_iter().flatten().flatten() {
-                    files.push(d.path().join(name));
-                }
-            }
-            SessionLayout::Index { file } => {
-                let index = std::fs::read_to_string(root.join(file)).unwrap_or_default();
-                for i in kimi::indexed_sessions(&index) {
-                    let p = PathBuf::from(&i.file);
-                    files.push(if p.is_absolute() { p } else { root.join(p) });
-                }
-            }
-        }
-        let turns: Vec<Turn> = files
-            .iter()
-            .filter_map(|f| read_session(f))
-            .filter(|text| self.could_record(cwd, text, brief))
-            .filter_map(|text| self.recorded_turn(cwd, &text, brief))
-            .collect();
-        crate::turn::prefer(&turns)
-    }
-
-    /// The stand-in session: writes the session files this harness would
-    /// for the worktree `cwd`, where `turn` reads them, with its turn left
-    /// open when `open`, written at `at` (epoch seconds), under its `home`.
-    pub fn write_session(self, home: &Home, cwd: &str, open: bool, at: u64) -> std::io::Result<()> {
-        let root = home.path();
-        for f in each!(self, session_files(cwd, open, at)) {
-            if let Some(name) = &f.replaces {
-                let _ = std::fs::remove_file(root.join(name));
-            }
-            let path = root.join(&f.path);
-            std::fs::create_dir_all(path.parent().unwrap_or(root))?;
-            if f.compressed {
-                let fast = ruzstd::encoding::CompressionLevel::Fastest;
-                std::fs::write(&path, ruzstd::encoding::compress_to_vec(f.body.as_bytes(), fast))?;
-            } else {
-                std::fs::write(&path, &f.body)?;
-            }
-        }
-        if self == Harness::Kimi {
-            std::fs::write(root.join(kimi::INDEX), kimi::session_index(cwd, ""))?;
-        }
-        Ok(())
-    }
-
-    /// The turn a session file's `text` records for the worktree `cwd`.
-    /// `None` when the file is another worktree's or holds no turn. A child
-    /// session does not start or end the turn. `brief` is the file handed to
-    /// this session: a harness started elsewhere is known by its first
-    /// prompt naming it.
-    fn recorded_turn(self, cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        match self {
-            Harness::ClaudeCode => claude_code::recorded_turn(cwd, text, None, Some(brief)),
-            Harness::Pi => pi::recorded_turn(cwd, text, None),
-            Harness::Codex => codex::recorded_turn(cwd, text, None, Some(brief)),
-            Harness::Dsh => dsh::recorded_turn(cwd, text, None),
-            Harness::Kimi => kimi::recorded_turn(cwd, text, None),
-            Harness::Grok => grok::recorded_turn(cwd, text, None),
-        }
-    }
-
-    /// Whether `text` could make it `cwd`'s session for `recorded_turn`,
-    /// without parsing it. A harness writing every worktree's sessions into
-    /// one tree knows its own by a line naming `cwd` or `brief`, which JSON
-    /// writes as themselves unless they hold a quote, a backslash or a
-    /// control character.
-    fn could_record(self, cwd: &str, text: &str, brief: &str) -> bool {
-        match self {
-            Harness::ClaudeCode | Harness::Codex => {
-                let written_as_is = |path: &str| !path.chars().any(|ch| ch == '"' || ch == '\\' || ch.is_control());
-                let cwd = cwd.trim_end_matches('/');
-                if cwd.is_empty() || !written_as_is(cwd) || !written_as_is(brief) {
-                    return true;
-                }
-                text.contains(cwd) || text.contains(brief)
-            }
-            _ => true,
-        }
-    }
-}
-
-fn files_under(dir: &Path, ext: &str, deep: bool, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if deep {
-                files_under(&p, ext, deep, out);
-            }
-        } else if p.extension().is_some_and(|x| x == ext) {
-            out.push(p);
-        }
-    }
-}
-
-/// A session file's text; a zstd file decompressed.
-fn read_session(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    if path.extension().is_some_and(|e| e == "zstd" || e == "zst") {
-        let mut text = String::new();
-        let mut decoder = ruzstd::decoding::StreamingDecoder::new(&bytes[..]).ok()?;
-        std::io::Read::read_to_string(&mut decoder, &mut text).ok()?;
-        return Some(text);
-    }
-    String::from_utf8(bytes).ok()
 }
