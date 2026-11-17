@@ -33,7 +33,8 @@ async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
     let cli = w.run();
     // No room for a second heavy command beside it.
     w.host.reading.lock().unwrap().cpu_busy = 99;
-    let line = "touch started; while [ ! -e release ]; do sleep 0.02; done";
+    // It ends by itself after about 20s, so a scenario that fails inside does not hang.
+    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
     let body = async {
         until_file(&dir.join("started")).await;
         let t = during.await;
@@ -42,10 +43,7 @@ async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
         t
     };
     let both = async { tokio::join!(cli.worker_exclusive(None, &dir, line), body) };
-    let both = tokio::time::timeout(STUCK, both).await;
-    // Stuck or not, the busy command ends: the runtime waits for it.
-    std::fs::write(dir.join("release"), "").unwrap();
-    let (held, t) = both.expect("nothing waits on the busy queue");
+    let (held, t) = tokio::time::timeout(STUCK, both).await.expect("nothing waits on the busy queue");
     assert_eq!(held.unwrap()["ok"], true);
     t
 }
