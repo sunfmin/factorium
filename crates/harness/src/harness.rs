@@ -30,6 +30,9 @@ trait Kind {
     /// Words of a question it asks before its screen is up, which typed
     /// text would answer.
     const ASKS_FIRST: Option<&'static str>;
+    /// The questions it opens on its own mid-session, in a dialog that
+    /// takes what is typed at it, each with the key that dismisses it.
+    const ASKS_MIDWAY: &'static [Dialog];
     /// The variables that switch it, each set to 1.
     const ENVIRONMENT: &'static [&'static str];
     /// The hook exit code that refuses a call: it is not made, and the
@@ -130,6 +133,21 @@ struct Link {
     /// Where the link is, under the kept directory.
     kept: &'static str,
 }
+
+/// A question a harness opens on its own mid-session, in a dialog that
+/// takes what is typed at it: a line typed there never reaches the prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Dialog {
+    /// Words of the question, on one of its rows.
+    asks: &'static str,
+    /// Words of its last row, the keys it takes.
+    keys: &'static str,
+    /// The key, typed without Enter, that dismisses it.
+    dismiss: &'static str,
+}
+
+/// How many rows from the end of a screen a dialog's question may be.
+const DIALOG_ROWS: usize = 20;
 
 /// How an account of a harness is logged in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +276,17 @@ impl Harness {
         }
     }
 
+    /// A question it opened on its own, which `screen` ends with: what it
+    /// asks, and the key that dismisses it. Text typed now would go to it,
+    /// not to the prompt.
+    pub fn asking(self, screen: &[String]) -> Option<(String, &'static str)> {
+        let last = crate::screen::last_row(screen)?;
+        let rows = screen.iter().rev().take(DIALOG_ROWS);
+        let dialogs = each!(self, |K| K::ASKS_MIDWAY).iter().filter(|d| last.contains(d.keys));
+        let mut found = dialogs.flat_map(|d| rows.clone().filter(|r| r.contains(d.asks)).map(move |r| (r, d)));
+        found.next().map(|(row, d)| (row.trim().to_string(), d.dismiss))
+    }
+
     /// What `screen`, the end of a session's terminal, says stopped it.
     pub fn stopped(self, screen: &[String]) -> Option<Stop> {
         each!(self, |K| K::stopped(screen))
@@ -294,5 +323,29 @@ fn command<K: Kind>(given: &str) -> String {
         given.to_string()
     } else {
         format!("{given} {}", K::STOCK_ARGUMENTS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|l| l.to_string()).collect()
+    }
+
+    #[test]
+    fn claude_code_s_auto_mode_dialog_is_asking_and_escape_dismisses_it() {
+        let dialog =
+            rows(&["Teach auto mode about your environment?", "› Continue", "Enter to continue · Esc to cancel"]);
+        let (asks, key) = Harness::ClaudeCode.asking(&dialog).unwrap();
+        assert_eq!((asks.as_str(), key), ("Teach auto mode about your environment?", "\x1b"));
+        assert_eq!(Harness::Codex.asking(&dialog), None, "another harness's");
+    }
+
+    #[test]
+    fn the_question_quoted_at_the_prompt_is_not_the_dialog() {
+        let quoted = rows(&["⏺ The modal said: Teach auto mode about your environment?", "", "› ", "? for shortcuts"]);
+        assert_eq!(Harness::ClaudeCode.asking(&quoted), None);
     }
 }

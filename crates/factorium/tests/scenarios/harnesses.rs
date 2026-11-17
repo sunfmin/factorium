@@ -490,6 +490,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: enum Harness",
         "harness.rs: enum Stop",
         "harness.rs: fn all",
+        "harness.rs: fn asking",
         "harness.rs: fn command",
         "harness.rs: fn home",
         "harness.rs: fn launch",

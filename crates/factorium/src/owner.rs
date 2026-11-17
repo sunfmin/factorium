@@ -38,6 +38,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::StartWorker>()
         .command::<worker::AskLanding>()
         .command::<worker::RedLanding>()
+        .command::<worker::ToldRed>()
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()
         .command::<worker::Resume>()

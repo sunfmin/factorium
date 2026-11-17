@@ -173,14 +173,20 @@ impl Orca<'_> {
             .map_err(String::from)
     }
 
+    /// Types `key` without Enter at a terminal, and waits for its program to
+    /// sit idle again.
+    pub fn press(&self, terminal: &str, key: &str) -> Result<(), String> {
+        self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
+        self.settle(terminal, 30_000)
+    }
+
     /// Types `text` and Enter at an agent's terminal and watches, up to
     /// `SUBMIT_WAIT` seconds, whether it started a turn. `interrupt`: first
     /// types that key (no Enter) to stop the agent's running turn, and waits
     /// for its prompt to be idle. Orca never resends a prompt it watched.
     pub fn deliver(&self, terminal: &str, text: &str, interrupt: Option<&str>) -> Result<Delivery, String> {
         if let Some(key) = interrupt {
-            self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
-            self.settle(terminal, 30_000)?;
+            self.press(terminal, key)?;
         }
         let wait = SUBMIT_WAIT.to_string();
         let sent = self.call(&[

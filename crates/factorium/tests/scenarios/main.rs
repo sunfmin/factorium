@@ -46,6 +46,9 @@ pub struct Terminal {
     pub unobserved: bool,
     /// Closed through Orca: its tab is gone, not only its program.
     pub closed: bool,
+    /// Its harness opened a dialog of its own: a line typed with Enter
+    /// answers it and starts no turn; Escape dismisses it, back to its prompt.
+    pub dialog: bool,
 }
 
 /// A terminal's screen at its shell's prompt, as zsh draws it.
@@ -203,10 +206,13 @@ impl FakeOrca {
                         term.sent.push(text.into());
                         if !enter && text == ESCAPE {
                             term.busy = false;
+                            if term.dialog {
+                                (term.dialog, term.screen) = (false, vec![UP.into()]);
+                            }
                         }
                         // A watched prompt that reaches an idle agent starts a turn.
                         let mut stages = vec!["input_accepted"];
-                        if enter && !term.busy && !term.unobserved && args.contains(&"--wait-submit") {
+                        if enter && !term.busy && !term.unobserved && !term.dialog && args.contains(&"--wait-submit") {
                             stages.push("turn_started");
                         }
                         let prompt = enter.then(|| json!({ "stages": stages, "provider": "claude" }));
@@ -494,6 +500,13 @@ impl World {
     pub fn set_screen(&self, handle: &str, lines: &[&str]) {
         let mut t = self.host.orca.terminals.lock().unwrap();
         t.get_mut(handle).unwrap().screen = lines.iter().map(|l| l.to_string()).collect();
+    }
+
+    /// Its harness opens a dialog of its own, showing `lines`.
+    pub fn open_dialog(&self, handle: &str, lines: &[&str]) {
+        let mut t = self.host.orca.terminals.lock().unwrap();
+        let term = t.get_mut(handle).unwrap();
+        (term.dialog, term.screen) = (true, lines.iter().map(|l| l.to_string()).collect());
     }
 
     pub fn set_busy(&self, handle: &str, busy: bool, unobserved: bool) {

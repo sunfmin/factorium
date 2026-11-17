@@ -95,6 +95,12 @@ pub enum WorkerEvent {
         why: String,
         at: i64,
     },
+    /// Its landing's red was typed at its session: whether it reached the
+    /// prompt (started a turn, or waits behind the running one).
+    RedTold {
+        reached: bool,
+        at: i64,
+    },
     WorkerLanded {
         commit: String,
         at: i64,
@@ -145,6 +151,7 @@ impl Aggregate for Workers {
                 s.reds += 1;
                 (s.status, s.why, s.since) = (Status::Working, Some(why), at);
             }
+            WorkerEvent::RedTold { .. } => {}
             WorkerEvent::WorkerLanded { commit, at } => {
                 (s.status, s.since, s.landed, s.why) = (Status::Ended, at, Some(commit), Some("landed".into()))
             }
@@ -240,6 +247,37 @@ command!(
         let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0 }];
         if s.reds + 1 >= 2 {
             events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
+        }
+        Ok(events)
+    }
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Told {
+    pub worker: Uuid,
+    /// Why the red did not reach its session's prompt; `None`: it did.
+    pub missed: Option<String>,
+}
+
+command!(
+    /// Its landing's red was typed at its session; one that did not reach
+    /// the prompt sends it to the watch at once, not after its silence.
+    ToldRed,
+    "worker.red_told",
+    Workers,
+    Told,
+    |p| p.worker,
+    |s, p, now| {
+        live(s)?;
+        if s.status != Status::Working {
+            return Ok(Vec::new());
+        }
+        let mut events = vec![WorkerEvent::RedTold { reached: p.missed.is_none(), at: now.0 }];
+        if let Some(why) = &p.missed {
+            events.push(WorkerEvent::WorkerWaits {
+                why: format!("its landing's red did not reach it: {why}"),
+                at: now.0,
+            });
         }
         Ok(events)
     }

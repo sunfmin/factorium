@@ -2,7 +2,7 @@
 //! added plugin asks the guard and reports running/idle to the session backend.
 use serde::{Deserialize, Deserializer};
 
-use super::{Kind, Link, Login, Stop};
+use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -180,6 +180,7 @@ impl Kind for Dsh {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
     const ASKS_FIRST: Option<&'static str> = Some(ASKS_FIRST);
+    const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
     /// Escape.
