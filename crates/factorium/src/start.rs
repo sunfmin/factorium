@@ -44,6 +44,8 @@ impl Source for Tokens<'_> {
 /// What a session is started with beyond the kit's entry.
 struct Launch<'a> {
     harness: Harness,
+    /// The account it starts on, if its harness takes one.
+    account: Option<&'a str>,
     command: &'a str,
     model: Option<&'a str>,
     /// Where it starts, holding its rules.
@@ -96,8 +98,6 @@ impl App {
 
     /// Opens a terminal running a session as `l` says, and hands it its brief.
     fn launch(&self, l: Launch) -> Answer<String> {
-        let kept = self.dir(&["kept", l.harness.key()]);
-        std::fs::create_dir_all(&kept).map_err(|e| Refusal::new("io", e.to_string()))?;
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
         let hook = format!("{} guard {}", shell_word(&exe), l.harness.key());
         // The session runs factorium by name: this one, on this database.
@@ -107,21 +107,21 @@ impl App {
         if let Some(bin) = Path::new(&exe).parent() {
             env.push(("PATH", format!("{}:{path}", bin.display())));
         }
-        let (dir, worktree, kept) = (l.dir.to_string_lossy(), l.worktree.to_string_lossy(), kept.to_string_lossy());
+        let (dir, worktree) = (l.dir.to_string_lossy(), l.worktree.to_string_lossy());
         let brief = l.brief.to_string_lossy();
-        let home = self.host.home();
+        let (home, user_home) = (self.session_home(l.harness, l.account), self.host.home());
         let start = Start {
             command: l.command,
             dir: &dir,
             worktree: &worktree,
             model: l.model,
             hook: &hook,
-            kept: &kept,
             home: &home,
+            user_home: &user_home,
             env,
             brief: &brief,
         };
-        let launched = l.harness.launch(&start);
+        let launched = l.harness.launch(&start).map_err(|e| Refusal::new("io", e.to_string()))?;
         let (line, typed) = (launched.line, launched.typed);
         let (line, secret) = self.secrets_first(&l.secrets, line)?;
         let opened = self.host.orca().open(l.worktree, l.title, &line);
@@ -197,6 +197,7 @@ impl App {
         let title = format!("{}#{}", c.name, issue.number);
         let launch = Launch {
             harness,
+            account: choice.account.as_deref(),
             command: &choice.entry.command,
             model: choice.entry.model.as_deref(),
             dir: &role,
@@ -258,6 +259,7 @@ impl App {
         }
         let launch = Launch {
             harness,
+            account: choice.account.as_deref(),
             command: &choice.entry.command,
             model: choice.entry.model.as_deref(),
             dir: &home,
@@ -268,7 +270,12 @@ impl App {
             title: WATCH_TITLE,
         };
         let terminal = self.launch(launch)?;
-        self.submit::<StartWatch>(watch::Started { terminal: terminal.clone(), harness: harness.key().into() }).await?;
+        self.submit::<StartWatch>(watch::Started {
+            terminal: terminal.clone(),
+            harness: harness.key().into(),
+            account: choice.account.clone(),
+        })
+        .await?;
         let _ = self.state::<Watches>(watch_id()).await?;
         Ok(Some(terminal))
     }

@@ -164,7 +164,7 @@ fn told(file: &str, text: &str) -> String {
 }
 
 pub(super) fn environment(line: Line, start: &Start) -> Line {
-    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.kept)
+    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.home.dir())
 }
 
 /// Sets a session's goal and starts its first turn (codex-cli 0.166.0).

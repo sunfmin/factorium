@@ -9,7 +9,7 @@ use factorium_domain::hot;
 use factorium_domain::kit::{AccountNote, LimitAccount};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_harness::{Harness, Stop, Turn};
+use factorium_harness::{Harness, Home, Stop, Turn};
 use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
@@ -20,10 +20,15 @@ use crate::{Answer, App};
 const QUOTA_REST_MS: i64 = 60 * 60 * 1000;
 
 impl App {
+    /// Where a session of `harness` on `account` keeps its files.
+    pub(crate) fn session_home(&self, harness: Harness, account: Option<&str>) -> Home {
+        harness.home(&self.host.home(), account, &self.dir(&["kept", harness.key()]))
+    }
+
     /// The turn a harness's session files record for the worktree `cwd` of
-    /// the session handed `brief`. `None`: no session says.
-    pub(crate) fn turn_of(&self, harness: Harness, cwd: &str, brief: &str) -> Option<Turn> {
-        harness.turn(&self.host.home(), &self.dir(&["kept", harness.key()]), cwd, brief)
+    /// the session on `account` handed `brief`. `None`: no session says.
+    pub(crate) fn turn_of(&self, harness: Harness, account: Option<&str>, cwd: &str, brief: &str) -> Option<Turn> {
+        harness.turn(&self.session_home(harness, account), cwd, brief)
     }
 
     /// Looks at one live worker; answers what it found, if anything.
@@ -73,7 +78,7 @@ impl App {
         }
         // Silent: its turn ended, and no done, past the bound.
         if wk.status == Status::Working {
-            let idle_since = match self.turn_of(harness, &st.worktree, &st.brief) {
+            let idle_since = match self.turn_of(harness, st.account.as_deref(), &st.worktree, &st.brief) {
                 Some(Turn::Closed { since, .. }) => Some((since as i64 * 1000).max(wk.since)),
                 Some(Turn::Open { .. }) => None,
                 None => Some(wk.since),
