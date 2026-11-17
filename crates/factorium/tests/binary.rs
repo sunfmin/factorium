@@ -299,9 +299,10 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
 }
 
 #[test]
-fn run_ticks_until_stop_ends_it() {
+fn run_ticks_quietly_until_stop_ends_it() {
     let dir = Dir::new();
-    let mut daemon = bin(&dir).arg("run").stdout(Stdio::null()).spawn().unwrap();
+    assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
     let pid = dir.0.join("data/factorium/daemon.pid");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !pid.exists() {
@@ -312,10 +313,13 @@ fn run_ticks_until_stop_ends_it() {
         }
         std::thread::yield_now();
     }
+    // A few ticks with nothing to do.
+    std::thread::sleep(std::time::Duration::from_millis(2500));
     let (ok, stopped) = run(&dir, &["stop"]);
     if stopped["stopped"] != true {
         let _ = daemon.kill();
     }
     assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
-    daemon.wait().unwrap();
+    let out = daemon.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
 }

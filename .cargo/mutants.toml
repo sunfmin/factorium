@@ -34,9 +34,11 @@ exclude_re = [
   'delete match arm \((None, _|_, Status::Ended)\) in live',
   # Equivalent: quoting a word that needs no quotes runs the same.
   'replace \|\| with && in shell_word',
-  # The daemon's tick count is in the answer of a run that ends by its stop
-  # flag, which nothing sets (`stop` kills it).
-  'replace \+= with [-*]= in App::run',
+  # Which part of a busy tick is non-empty only decides that it is printed,
+  # and only by the daemon binary, whose tests have no Orca: its ticks
+  # start, land, carry and see nothing. (An idle tick printing nothing is
+  # held.)
+  'daemon.rs:207:.*replace \|\| with && in App::run$',
   # A refusal's text form is printed only for a daemon tick that fails,
   # which the binary tests' daemon cannot be made to do.
   'replace <impl std::fmt::Display for Refusal>::fmt',
