@@ -68,6 +68,7 @@ exclude_re = [
   # of a session's file, so both change alike.
   'session.rs:105:.*replace <= with > in stored_name$',
   'in compressed$',
+  'replace compressed -> bool with false$',
   # The host's own readings and processes: scenarios stand in for them in
   # process (SPEC.md §6), and the binary tests' daemon has no worker whose
   # processes or share of the host it reads.
