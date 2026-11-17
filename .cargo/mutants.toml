@@ -76,6 +76,8 @@ exclude_re = [
   'reading.rs:40:(31|35):.*',
   'reading.rs:40:88:.*replace < with (<=|==) in Cpu::busy$',
   'reading.rs:68:22:.*replace \+ with \* in ticks$',
+  # Only those readings run a program to read its output this way.
+  'shell.rs:.*replace output -> ',
   # Equivalent: Orca's exit status and its answer's `ok` agree.
   'replace \|\| with && in Orca.*::call$',
   # Equivalent: releasing an issue is refused only as `ended` (a closed

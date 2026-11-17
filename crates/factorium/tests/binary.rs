@@ -302,6 +302,7 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
 fn run_ticks_quietly_until_stop_ends_it() {
     let dir = Dir::new();
     assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    kit_needing_what_is_not_there(&dir);
     let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
     let pid = dir.0.join("data/factorium/daemon.pid");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -322,4 +323,38 @@ fn run_ticks_quietly_until_stop_ends_it() {
     assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
     let out = daemon.wait_with_output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
+
+    // At its start it looked for the kit's programs on its PATH.
+    let (_, doctor) = run(&dir, &["doctor"]);
+    let keys: Vec<&str> = doctor["findings"].as_array().unwrap().iter().filter_map(|f| f["key"].as_str()).collect();
+    let mut missing: Vec<&str> = keys.iter().filter_map(|k| k.strip_prefix("missing:")).collect();
+    missing.sort();
+    assert_eq!(missing, ["adir", "nosuch-program", "notrun"], "git and the stubs are found: {doctor}");
+}
+
+/// Kit programs for a daemon's start: one not on its PATH, one there but not
+/// to be run, one a directory.
+fn kit_needing_what_is_not_there(dir: &Dir) {
+    let stubs = dir.0.join("stubs");
+    let _ = bin(dir);
+    std::fs::write(stubs.join("notrun"), "#!/bin/sh\n").unwrap();
+    std::fs::create_dir_all(stubs.join("adir")).unwrap();
+    let kit = run(dir, &["kit", "set", "claude-code=nosuch-program", "codex=notrun", "pi=adir"]);
+    assert!(kit.0, "{}", kit.1);
+}
+
+#[test]
+fn a_program_s_answer_is_read_as_it_printed_it() {
+    let dir = Dir::new();
+    let _ = bin(&dir);
+    let token = r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"t"}}"#;
+    let script =
+        format!("#!/bin/sh\ncase \"$1\" in list) echo 'agent-account-team/x' ;; get) echo '{token}' ;; esac\n");
+    let stub = dir.0.join("stubs").join("mytokens");
+    std::fs::write(&stub, script).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (ok, accounts) = run(&dir, &["accounts"]);
+    assert!(ok, "{accounts}");
+    assert_eq!(accounts[0]["name"], "team", "{accounts}");
 }
