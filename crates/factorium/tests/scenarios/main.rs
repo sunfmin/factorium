@@ -102,6 +102,8 @@ pub struct FakeHost {
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
     pub brewed: Mutex<Vec<String>>,
+    /// The formula whose binary this program is, if any.
+    pub running: Mutex<Option<String>>,
     pub home: PathBuf,
 }
 
@@ -129,6 +131,10 @@ impl Host for FakeHost {
     fn brew_upgrade(&self, formula: &str) -> Result<String, String> {
         self.brewed.lock().unwrap().push(formula.into());
         Ok(String::new())
+    }
+    fn binary_of(&self, formula: &str) -> Option<PathBuf> {
+        let running = self.running.lock().unwrap();
+        (running.as_deref() == Some(formula)).then(|| PathBuf::from(format!("/brew/opt/{formula}/bin/{formula}")))
     }
     fn home(&self) -> PathBuf {
         self.home.clone()
@@ -200,6 +206,7 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             brewed: Mutex::default(),
+            running: Mutex::default(),
             home: dir.join("home"),
         });
         let app = App::open(&dir.join("data").join("factorium.db"), clock.clone(), "owner", host.clone()).unwrap();

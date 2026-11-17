@@ -24,6 +24,9 @@ pub struct Tick {
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
+    /// The binary to run in place of this one once the tick ends: a cut
+    /// installed the daemon's own formula.
+    pub restart: Option<String>,
 }
 
 impl App {
@@ -103,6 +106,7 @@ impl App {
             self.reclaim();
         }
         t.watch = self.look_if_due(&settings).await?;
+        t.restart = t.lines.iter().find_map(|l| l["restart"].as_str().map(String::from));
         Ok(t)
     }
 
@@ -151,6 +155,12 @@ impl App {
                 Ok(t) => {
                     if t.started.is_some() || !t.landed.is_empty() || !t.lines.is_empty() || !t.seen.is_empty() {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
+                    }
+                    if let Some(binary) = &t.restart {
+                        // Between ticks, as the same pid: the pid file stays right.
+                        use std::os::unix::process::CommandExt;
+                        let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
+                        eprintln!("restart as {binary}: {e}");
                     }
                 }
                 Err(e) => eprintln!("tick: {e}"),
