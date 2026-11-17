@@ -188,6 +188,8 @@ fn template() -> &'static Path {
 
 pub struct World {
     pub dir: PathBuf,
+    /// The database every run of it opens.
+    pub db: PathBuf,
     pub clock: Arc<ManualClock>,
     pub host: Arc<FakeHost>,
     pub app: App,
@@ -196,6 +198,11 @@ pub struct World {
 #[allow(clippy::new_without_default)]
 impl World {
     pub fn new() -> World {
+        World::on("factorium.db")
+    }
+
+    /// A world whose database is the file `name` in its data directory.
+    pub fn on(name: &str) -> World {
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
         std::fs::create_dir_all(dir.join("home")).unwrap();
@@ -215,13 +222,14 @@ impl World {
             running: Mutex::default(),
             home: dir.join("home"),
         });
-        let app = App::open(&dir.join("data").join("factorium.db"), clock.clone(), "owner", host.clone()).unwrap();
-        World { dir, clock, host, app }
+        let db = dir.join("data").join(name);
+        let app = App::open(&db, clock.clone(), "owner", host.clone()).unwrap();
+        World { dir, db, clock, host, app }
     }
 
     /// Another CLI run on the same database.
     pub fn run(&self) -> App {
-        App::open(&self.dir.join("data").join("factorium.db"), self.clock.clone(), "owner", self.host.clone()).unwrap()
+        App::open(&self.db, self.clock.clone(), "owner", self.host.clone()).unwrap()
     }
 
     /// A clone of its own remote; answers its path.
