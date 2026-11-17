@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{Terminal, World, commit, id, worker};
+use crate::{Terminal, World, id, worker};
 
 /// A checkout, a kit, and one worker started on a new issue.
 async fn one_worker(w: &World) -> Value {
@@ -25,7 +25,7 @@ fn closed(w: &World, wk: &Value) -> bool {
 async fn a_landed_worker_s_terminal_is_closed() {
     let w = World::new();
     let wk = one_worker(&w).await;
-    commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    w.commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(!w.tick().await.landed.is_empty());
     assert!(closed(&w, &wk));

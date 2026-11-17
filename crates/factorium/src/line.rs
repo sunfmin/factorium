@@ -14,7 +14,6 @@ use factorium_domain::line::{self, Lines, next_version};
 use factorium_domain::line_id;
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_host::Git;
 use factum::Uuid;
 use serde_json::{Value, json};
 
@@ -24,24 +23,6 @@ use crate::{Answer, App, fail};
 
 /// What one move did, for the tick's answer.
 pub(crate) type Did = Option<Value>;
-
-/// Puts a clone of the checkout at `path` on `rev`, keeping its ignored
-/// files (builds). A work dir made as a worktree of the checkout before is
-/// removed and made again as a clone.
-fn fresh(git: &Git, path: &Path, rev: &str) -> Result<Git, String> {
-    let here = Git::at(path);
-    if path.join(".git").is_file() {
-        git.worktree_remove(path)?;
-    }
-    if path.join(".git").is_dir() {
-        here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
-        here.run(&["clean", "-fdq"])?;
-    } else {
-        std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
-        git.clone_shared(path, rev)?;
-    }
-    Ok(here)
-}
 
 impl App {
     /// Lands the worker `worker`: answers what happened, or `None` when it
@@ -56,24 +37,21 @@ impl App {
         if self.state::<Lines>(line_id(&c.name)).await?.held.is_some() {
             return Ok(None);
         }
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-        let here = fresh(&git, &self.dir(&["landing", &c.name]), &tip).map_err(fail("git"))?;
+        let here = git.fresh(&self.dir(&["landing", &c.name]), &tip).map_err(fail("git"))?;
         let issue = self.issue(&c.name, st.number).await?;
         let message = format!("Land {}#{}: {}", c.name, st.number, issue.title);
         // The worker's branch lives in the checkout, not in this clone.
-        let branch = format!("+refs/heads/{0}:refs/heads/{0}", st.branch);
-        let merged = here
-            .run(&["fetch", "--quiet", &c.path, &branch])
-            .and_then(|_| here.run(&["merge", "--no-ff", "--no-edit", "-m", &message, &st.branch]));
-        if let Err(e) = merged {
-            let _ = here.run(&["merge", "--abort"]);
-            let why = format!(
-                "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."
-            );
-            return self.red(worker, why).await.map(Some);
-        }
-        let merged = here.sha("HEAD").map_err(fail("git"))?;
+        let merged = match here.merge_from(Path::new(&c.path), &st.branch, &message) {
+            Ok(sha) => sha,
+            Err(e) => {
+                let why = format!(
+                    "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."
+                );
+                return self.red(worker, why).await.map(Some);
+            }
+        };
         let at = At::Commit { rev: &merged, by_hand: false };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(None) };
         if !gated.green {
@@ -118,13 +96,12 @@ impl App {
         let Some(st) = wk.started else { return Ok(()) };
         self.host.orca().close(&st.terminal);
         let c = self.checkout(&st.checkout).await?;
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let kept = git.fetch(&c.proving).ok().is_some_and(|tip| git.ahead(&tip, &st.branch).unwrap_or(1) > 0);
         if remove && !kept {
             let path = PathBuf::from(&st.worktree);
             self.host.orca().remove(&path).map_err(fail("orca"))?;
-            let _ = git.worktree_remove(&path);
-            let _ = git.run(&["branch", "-D", &st.branch]);
+            git.forget(&path, &st.branch);
         }
         Ok(())
     }
@@ -138,13 +115,13 @@ impl App {
         if !(force || idle || self.now() - oldest.at >= bound) {
             return Ok(None);
         }
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
         if l.red.as_ref().is_some_and(|(t, _)| *t == tip) && !force {
             return Ok(None);
         }
         let base = git.fetch(&c.base).map_err(fail("git"))?;
-        let here = fresh(&git, &self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
+        let here = git.fresh(&self.dir(&["promotion", &c.name]), &tip).map_err(fail("git"))?;
         let at = At::Commit { rev: &tip, by_hand: force };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(None) };
         let red = |why: String| line::Tip { checkout: c.name.clone(), tip: tip.clone(), why };
@@ -176,13 +153,12 @@ impl App {
         if !(force || (idle && l.unpromoted.is_empty()) || self.now() - oldest >= bound) {
             return Ok(None);
         }
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let base = git.fetch(&c.base).map_err(fail("git"))?;
-        let _ = git.run(&["fetch", "--quiet", "--tags", "origin"]);
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(None) };
         let version = next_version(git.version_tags().first().map(String::as_str));
-        let here = fresh(&git, &self.dir(&["cut", &c.name]), &base).map_err(fail("git"))?;
+        let here = git.fresh(&self.dir(&["cut", &c.name]), &base).map_err(fail("git"))?;
         let env = vec![("FACTORIUM_VERSION".to_string(), version.clone())];
         let fail_cut =
             |why: String| line::Cut { checkout: c.name.clone(), version: version.clone(), commit: base.clone(), why };
@@ -204,10 +180,7 @@ impl App {
             return Ok(Some(json!({ "cut": c.name, "version": version, "failed": why })));
         }
         let tagged = here.sha("HEAD").map_err(fail("git"))?;
-        let tag = here
-            .run(&["tag", "-a", &version, "-m", &version, &tagged])
-            .and_then(|_| here.run(&["push", "--quiet", "origin", &format!("refs/tags/{version}")]));
-        if let Err(e) = tag {
+        if let Err(e) = here.tag_pushed(&version, &tagged) {
             self.submit::<line::FailCut>(fail_cut(format!("tagging failed: {e}"))).await?;
             return Ok(Some(json!({ "cut": c.name, "version": version, "failed": e })));
         }
