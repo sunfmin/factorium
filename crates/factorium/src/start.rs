@@ -6,11 +6,11 @@ use std::path::{Path, PathBuf};
 
 use factorium_domain::issue::{Take, TakeIssue};
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
+use factorium_domain::watch::{self, StartWatch};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
-use factorium_harness::{Harness, Start};
+use factorium_harness::{Harness, Kept, RULES, Start};
 use factorium_host::{Host, Term};
 use factum::Value;
 use serde_json::json;
@@ -92,12 +92,13 @@ impl App {
     fn role(&self, name: &str, rules: &str) -> Answer<PathBuf> {
         let dir = self.dir(&["role", name]);
         std::fs::create_dir_all(dir.join(factorium_harness::SKILLS)).map_err(|e| Refusal::new("io", e.to_string()))?;
-        std::fs::write(dir.join(factorium_harness::RULES), rules).map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(dir.join(RULES), rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         Ok(dir)
     }
 
-    /// Opens a terminal running a session as `l` says, and hands it its brief.
-    fn launch(&self, l: Launch) -> Answer<String> {
+    /// Opens a terminal running a session as `l` says: answers it, and the
+    /// line to type at it to hand it its brief once its harness is up.
+    fn launch(&self, l: Launch) -> Answer<(String, Option<String>)> {
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
         let hook = format!("{} guard {}", shell_word(&exe), l.harness.key());
         // The session runs factorium by name: this one, on this database.
@@ -121,24 +122,17 @@ impl App {
             env,
             brief: &brief,
         };
-        let launched = l.harness.launch(&start).map_err(|e| Refusal::new("io", e.to_string()))?;
+        let launched = l.harness.launch(&start).map_err(|e| Refusal::new("harness", e))?;
+        for kept in &launched.kept {
+            keep(kept).map_err(|e| Refusal::new("io", e.to_string()))?;
+        }
         let (line, typed) = (launched.line, launched.typed);
         let (line, secret) = self.secrets_first(&l.secrets, line)?;
         let opened = self.host.orca().open(l.worktree, l.title, &line);
         if let (Err(_), Some(file)) = (&opened, &secret) {
             let _ = std::fs::remove_file(file);
         }
-        let terminal = opened.map_err(fail("orca"))?;
-        if let Some(typed) = typed {
-            // Past a minute it is typed anyway, as a person would.
-            let _ = self.host.orca().ready(&terminal);
-            if let Err(e) = self.host.orca().send(&terminal, &typed) {
-                // No session holds it: what factorium opens, factorium closes.
-                self.host.orca().close(&terminal);
-                return Err(Refusal::new("orca", e));
-            }
-        }
-        Ok(terminal)
+        Ok((opened.map_err(fail("orca"))?, typed))
     }
 
     /// Starts a worker on issue `number` of `checkout`.
@@ -159,6 +153,7 @@ impl App {
             Ok(st) => {
                 let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
                 self.submit::<w::StartWorker>(w::Start { worker, started: st }).await?;
+                self.hand_worker_brief(worker, true).await?;
                 Ok(shown)
             }
             Err(r) => {
@@ -207,7 +202,7 @@ impl App {
             brief: &brief,
             title: &title,
         };
-        let terminal = self.launch(launch)?;
+        let (terminal, typed) = self.launch(launch)?;
         Ok(Started {
             checkout: c.name.clone(),
             number: issue.number,
@@ -221,6 +216,7 @@ impl App {
             brief: brief.to_string_lossy().into_owned(),
             base: tip,
             at: 0,
+            typed,
         })
     }
 
@@ -243,7 +239,7 @@ impl App {
         let (home, brief) = self.watch_home();
         self.host.git(&home).init("The watch's home").map_err(fail("git"))?;
         let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
-        std::fs::write(home.join("CLAUDE.md"), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(home.join(RULES), &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         std::fs::write(&brief, &rules).map_err(|e| Refusal::new("io", e.to_string()))?;
         let mut secrets = Vec::new();
         let env = vec![("FACTORIUM_WATCH", "1".to_string())];
@@ -262,14 +258,15 @@ impl App {
             brief: &brief,
             title: WATCH_TITLE,
         };
-        let terminal = self.launch(launch)?;
+        let (terminal, typed) = self.launch(launch)?;
         self.submit::<StartWatch>(watch::Started {
             terminal: terminal.clone(),
             harness: harness.key().into(),
             account: choice.account.clone(),
+            typed,
         })
         .await?;
-        let _ = self.state::<Watches>(watch_id()).await?;
+        self.hand_watch_brief(true).await?;
         Ok(Some(terminal))
     }
 }
@@ -292,6 +289,30 @@ fn worker_brief(c: &factorium_domain::checkout::Checkout, i: &factorium_domain::
         c.name, c.proving
     ));
     b
+}
+
+/// Puts one thing a session's home holds in place. A file is written whole
+/// and then moved in, for its user alone: a session starting beside it reads
+/// the last one written, never half of one.
+fn keep(kept: &Kept) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let (Kept::Dir { path } | Kept::File { path, .. } | Kept::Link { path, .. }) = kept;
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("/")))?;
+    match kept {
+        Kept::Dir { path } => std::fs::create_dir_all(path)?,
+        Kept::Link { path, to } => {
+            if path.symlink_metadata().is_err() {
+                std::os::unix::fs::symlink(to, path)?;
+            }
+        }
+        Kept::File { path, text } => {
+            let fresh = path.with_extension(format!("{}.new", uuid::Uuid::now_v7()));
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&fresh)?;
+            std::io::Write::write_all(&mut f, text.as_bytes())?;
+            std::fs::rename(&fresh, path)?;
+        }
+    }
+    Ok(())
 }
 
 fn shell_word(s: &str) -> String {

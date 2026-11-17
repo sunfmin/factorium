@@ -17,6 +17,8 @@ use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "claude-code";
+/// What a bare program is started with: no permission prompts.
+pub(super) const STOCK_ARGUMENTS: &str = "--dangerously-skip-permissions";
 
 /// The setting that answers the warning Claude Code opens with when it is
 /// started to work with nobody at its terminal: a session has nobody to accept

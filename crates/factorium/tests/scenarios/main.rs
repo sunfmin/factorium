@@ -6,6 +6,7 @@
 //! the scenario moves it.
 
 mod admission;
+mod daemon;
 mod harnesses;
 mod line;
 mod path;
@@ -40,6 +41,11 @@ pub struct Terminal {
     pub closed: bool,
 }
 
+/// A terminal's screen at its shell's prompt, as zsh draws it.
+pub const SHELL: &str = "felix@macnoMac-Studio web-1-1 % ";
+/// A terminal's screen with its harness up.
+pub const UP: &str = "› Ask anything · ? for shortcuts";
+
 /// Orca as `orca … --json` answers: its envelopes are shaped as Orca 1.4
 /// answered them (`{"ok":true,"result":…}`, `{"ok":false,"error":{"code",
 /// "message"}}`, `terminal read` giving `terminal.status` and `terminal.tail`).
@@ -49,6 +55,9 @@ pub struct FakeOrca {
     pub removed: Mutex<Vec<PathBuf>>,
     /// Orca refuses to open terminals while set.
     pub refuse_open: Mutex<bool>,
+    /// Terminals open at their shell's prompt while set, their harness not
+    /// up; else at the harness's own screen.
+    pub opens_at_shell: Mutex<bool>,
     /// Orca refuses to type at terminals while set.
     pub refuse_send: Mutex<bool>,
     /// While set, `orca` prints no answer, only this on stderr (its runtime is down).
@@ -145,11 +154,13 @@ impl FakeOrca {
                 };
                 let mut t = self.terminals.lock().unwrap();
                 let handle = format!("term-{}", t.keys().filter(|k| k.starts_with("term-")).count() + 1);
+                let screen = if *self.opens_at_shell.lock().unwrap() { SHELL } else { UP };
                 let term = Terminal {
                     worktree,
                     title: flag(args, "--title").into(),
                     line: flag(args, "--command").into(),
                     alive: true,
+                    screen: vec![screen.into()],
                     ..Default::default()
                 };
                 t.insert(handle.clone(), term);
@@ -254,6 +265,10 @@ pub struct FakeHost {
     pub procs: Mutex<Vec<Proc>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
+    /// Programs not found on PATH.
+    pub missing: Mutex<Vec<String>>,
+    /// Whether launchd has the service loaded.
+    pub service: Mutex<bool>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
     root: PathBuf,
@@ -282,8 +297,22 @@ impl Programs for FakeHost {
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
             }
             "sleep" => Said { ok: true, ..Default::default() },
+            "launchctl" => {
+                let mut loaded = self.service.lock().unwrap();
+                let ok = match args[0] {
+                    "print" => *loaded,
+                    "bootstrap" => !std::mem::replace(&mut *loaded, true),
+                    "bootout" => std::mem::replace(&mut *loaded, false),
+                    _ => false,
+                };
+                Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }
+            }
             _ => Said { ok: false, out: String::new(), err: format!("{program}: not found") },
         }
+    }
+
+    fn found(&self, program: &str) -> bool {
+        !self.missing.lock().unwrap().iter().any(|m| m == program)
     }
 }
 
@@ -374,6 +403,8 @@ impl World {
             procs: Mutex::default(),
             tokens: Mutex::default(),
             ran: Mutex::default(),
+            missing: Mutex::default(),
+            service: Mutex::default(),
             root: dir.clone(),
         });
         let db = dir.join("data").join(name);

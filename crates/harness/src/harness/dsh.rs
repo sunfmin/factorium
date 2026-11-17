@@ -7,14 +7,19 @@ use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
 use crate::line::Line;
-use crate::start::Start;
+use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 
 pub(super) const KEY: &str = "dsh";
+/// What a bare program is started with: nothing.
+pub(super) const STOCK_ARGUMENTS: &str = "";
 /// The variable that names DSH's user directory.
 pub(super) const USER_DIR: &str = "DSH_HOME";
 
 pub(super) const REFUSED: u8 = 2;
+/// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
+/// program having exited and been started again): typed text answers it.
+pub(super) const ASKS_FIRST: &str = "进入安全模式";
 pub(super) const KEPT_LINKS: &[Link] = &[
     Link { home: ".dsh/.credentials.yaml", kept: ".credentials.yaml" },
     // Only dependency resolution is shared; neither the user's profile
@@ -24,6 +29,25 @@ pub(super) const KEPT_LINKS: &[Link] = &[
         kept: "profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui",
     },
 ];
+
+/// The plugin that asks the guard, as the overlay names it.
+const PLUGIN: &str = "factorium.mjs";
+
+/// What the host keeps for DSH beside the links: the tool's profile, which
+/// loads none of the host user's patches; the overlay that mounts nothing
+/// before the guard; the guard's plugin; and the script the line starts it
+/// through, which refuses a session whose guard files are not there.
+pub(super) fn kept(start: &Start) -> Vec<(&'static str, String)> {
+    let plugin = format!("{}/{PLUGIN}", start.home.dir()).replace('\'', "''");
+    vec![
+        ("profiles/dsh-tui/package.json", include_str!("dsh/profile.json").into()),
+        ("profiles/dsh-tui/cordis.yml", "[]\n".into()),
+        ("factorium.patch.yml", include_str!("dsh/overlay.yml").replace("@FACTORIUM_DSH_PLUGIN@", &plugin)),
+        ("sandbox.patch.yml", include_str!("dsh/sandbox.yml").into()),
+        (PLUGIN, include_str!("dsh/plugin.mjs").into()),
+        ("start.sh", include_str!("dsh/start.sh").into()),
+    ]
+}
 
 pub(super) fn environment(line: Line, start: &Start) -> Line {
     let line = line
@@ -40,9 +64,13 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .fixed(" DSH_TUI_PROFILE=dsh-tui")
         .fixed(" FACTORIUM_GUARD=")
         .word(start.hook)
-        .fixed(" FACTORIUM_WORKTREE=")
+        .fixed(" ")
+        .fixed(WORKTREE_ENV)
+        .fixed("=")
         .word(start.worktree)
-        .fixed(" FACTORIUM_ADDED_DIR=")
+        .fixed(" ")
+        .fixed(START_DIR_ENV)
+        .fixed("=")
         .word(start.dir);
     match start.model {
         Some(model) => line.fixed(" FACTORIUM_DSH_MODEL=").word(model),

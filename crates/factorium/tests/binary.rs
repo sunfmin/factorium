@@ -179,3 +179,33 @@ fn a_body_from_a_file_or_stdin_comes_back_byte_for_byte() {
     let (_, list) = run(&dir, &["issue", "list", "web"]);
     assert_eq!(list.as_array().unwrap().len(), 1, "the refused add made no issue");
 }
+
+#[test]
+fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path() {
+    let dir = Dir::new();
+    let bin = dir.0.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let path = format!("{}:/usr/bin:{}:/usr/bin", bin.display(), dir.0.join("gone").display());
+    let home = dir.0.to_str().unwrap();
+    let (ok, shown) = run_with(&dir, &[("PATH", &path), ("HOME", home)], &["service", "show"]);
+    assert!(ok, "{shown}");
+    assert_eq!(shown["file"], format!("{home}/Library/LaunchAgents/com.github.sunfmin.factorium.plist"));
+    let file = dir.0.join("agent.plist");
+    std::fs::write(&file, shown["plist"].as_str().unwrap()).unwrap();
+    let lint = Command::new("plutil").arg("-lint").arg(&file).output().unwrap();
+    assert!(lint.status.success(), "{}", String::from_utf8_lossy(&lint.stdout));
+    let get = |key: &str| {
+        let out = Command::new("plutil").args(["-extract", key, "raw", "-o", "-"]).arg(&file).output().unwrap();
+        assert!(out.status.success(), "{key}");
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    assert_eq!(get("Label"), "com.github.sunfmin.factorium");
+    assert_eq!(get("ProgramArguments.0"), env!("CARGO_BIN_EXE_factorium"));
+    assert_eq!(get("ProgramArguments.1"), "run");
+    assert_eq!(get("KeepAlive"), "true", "restarted when it exits");
+    assert_eq!(get("RunAtLoad"), "true");
+    assert_eq!(get("EnvironmentVariables.PATH"), format!("{}:/usr/bin", bin.display()), "declared, as found");
+    let db = dir.0.join("data/factorium/factorium.db");
+    assert_eq!(get("EnvironmentVariables.FACTORIUM_DB"), db.to_str().unwrap());
+    assert_eq!(get("StandardErrorPath"), dir.0.join("data/factorium/daemon.log").to_str().unwrap());
+}

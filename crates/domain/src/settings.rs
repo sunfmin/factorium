@@ -39,6 +39,7 @@ pub enum Setting {
     WorkerCpuShare,
     WorkerMemoryGib,
     WorkerProcsMax,
+    TickFailuresMax,
     Time(Time),
 }
 
@@ -66,7 +67,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 16] = [
+const ALL: [Setting; 17] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -74,6 +75,7 @@ const ALL: [Setting; 16] = [
     S::WorkerCpuShare,
     S::WorkerMemoryGib,
     S::WorkerProcsMax,
+    S::TickFailuresMax,
     S::Time(T::HotFor),
     S::Time(T::SilentBound),
     S::Time(T::HoldBound),
@@ -108,6 +110,7 @@ impl Setting {
             S::WorkerCpuShare => ("worker_cpu_share", 50, Percent, "one worker past this share of the CPU is hot"),
             S::WorkerMemoryGib => ("worker_memory_gib", 16, Gib, "one worker past this resident memory is hot"),
             S::WorkerProcsMax => ("worker_procs_max", 400, Count, "one worker past this many processes is hot"),
+            S::TickFailuresMax => ("tick_failures_max", 3, Count, "this many ticks failing in a row go to the watch"),
             S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
             S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done goes to the watch"),
             S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),

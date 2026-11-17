@@ -113,6 +113,17 @@ impl Said {
 /// answers, so what the app makes of them runs as it does for real.
 pub trait Programs: Send + Sync {
     fn run(&self, program: &str, args: &[&str]) -> Said;
+
+    /// Whether `program` is found on `PATH`: a file there that may be run.
+    fn found(&self, program: &str) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        let runnable = |p: &Path| p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+        if program.contains('/') {
+            return runnable(Path::new(program));
+        }
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path).any(|d| runnable(&d.join(program)))
+    }
 }
 
 /// The real programs, found on `PATH`.
