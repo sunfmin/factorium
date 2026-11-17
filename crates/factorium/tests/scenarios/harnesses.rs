@@ -737,3 +737,46 @@ async fn the_watch_starts_on_its_account_s_secret() {
     let reads = watch.line.starts_with(". ") && watch.line.contains("/data/secrets/");
     assert!(reads && !watch.line.contains("sk-ant"), "it reads its secret from a file first");
 }
+
+#[tokio::test]
+async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
+    let w = World::new();
+    let wk = at_shell(&w).await;
+    let handle = wk["terminal"].as_str().unwrap();
+    // As zsh and bash draw their prompts by default, with or without a line
+    // typed after them.
+    let shells = [
+        "felix@macnoMac-Studio control %",
+        "felix@macnoMac-Studio web-1-1 % \u{1b}[200~Your task brief is the file /b.md\u{1b}[201~",
+        "felix@macnoMac-Studio ~ % cd /w && export A=1 && kimi",
+        "root@box ~ #",
+        "me@host:~/web$ ls",
+        "Mac:web me$",
+        "bash-3.2$ ",
+    ];
+    let harness_rows = [
+        "? for shortcuts",
+        "Context left until auto-compact: 12%",
+        "› Write tests for @filename",
+        "  100% context left · ? for shortcuts",
+        "│ >                                           │",
+        "felix@host wrote: 50 % done",
+        "@types node % x",
+        "me@ dir % x",
+        "progress: 50 % done",
+        "cost$ 5",
+        "note: hello",
+        "ratio: 1:2$",
+        "bash-completion loaded",
+    ];
+    for row in shells {
+        w.set_screen(handle, &[row]);
+        refused(w.app.watch_tell(id(&wk), "hello").await, "not_up");
+    }
+    assert!(w.terminal(handle).sent.is_empty());
+    for (n, row) in harness_rows.iter().enumerate() {
+        w.set_screen(handle, &[row]);
+        w.app.watch_tell(id(&wk), "hello").await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
+        assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
+    }
+}
