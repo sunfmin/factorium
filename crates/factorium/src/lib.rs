@@ -9,6 +9,7 @@ mod heavy;
 mod launch;
 mod line;
 mod owner;
+mod service;
 mod session;
 mod start;
 mod watch;
@@ -146,7 +147,7 @@ impl App {
 
     /// What the repo declares at `rev`.
     fn declared(&self, git: &Git, rev: &str) -> Answer<Declared> {
-        let text = git.run(&["show", &format!("{rev}:{}", declared::FILE)]).ok();
+        let text = git.shown(rev, declared::FILE);
         declared::read(text.as_deref()).map_err(fail("bad_declaration"))
     }
 

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_harness::account::{self, Source};
 use factorium_harness::{Harness, Kept, RULES, Start};
-use factorium_host::{Git, Host};
+use factorium_host::Host;
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal, fail};
@@ -139,10 +139,13 @@ pub(crate) struct Pick {
     secrets: Vec<(&'static str, String)>,
 }
 
-/// A session opened: its terminal, and the brief it was handed.
+/// A session opened: its terminal, the brief it was handed, and the line to
+/// type at it to hand it that brief once its harness is up, if its start
+/// line does not.
 pub(crate) struct Opened {
     pub(crate) terminal: String,
     pub(crate) brief: PathBuf,
+    pub(crate) typed: Option<String>,
 }
 
 /// An account usable here: its name, its harness key, and the environment a
@@ -201,8 +204,8 @@ impl App {
         Ok(Pick { harness, account: choice.account, model: choice.entry.model, command: choice.entry.command, secrets })
     }
 
-    /// Opens a terminal running a session of `role` on `pick`, and hands it
-    /// its brief.
+    /// Opens a terminal running a session of `role` on `pick`, its brief
+    /// written for it.
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
         let (dir, worktree, brief, title, mut env) = match role {
             Role::Worker { id, worktree, name, title, brief } => {
@@ -216,12 +219,7 @@ impl App {
             }
             Role::Watch => {
                 let (home, brief) = self.watch_home();
-                if !home.join(".git").exists() {
-                    std::fs::create_dir_all(&home).map_err(io)?;
-                    let git = Git::at(&home);
-                    git.run(&["init", "--quiet"]).map_err(fail("git"))?;
-                    git.run(&["commit", "--quiet", "--allow-empty", "-m", "The watch's home"]).map_err(fail("git"))?;
-                }
+                self.host.git(&home).init("The watch's home").map_err(fail("git"))?;
                 let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
                 std::fs::write(home.join(RULES), &rules).map_err(io)?;
                 std::fs::write(&brief, &rules).map_err(io)?;
@@ -260,16 +258,7 @@ impl App {
             let _ = std::fs::remove_file(file);
         }
         let terminal = opened.map_err(fail("orca"))?;
-        if let Some(typed) = launched.typed {
-            // Past a minute it is typed anyway, as a person would.
-            let _ = self.host.orca().ready(&terminal);
-            if let Err(e) = self.host.orca().send(&terminal, &typed) {
-                // No session holds it: what factorium opens, factorium closes.
-                self.host.orca().close(&terminal);
-                return Err(Refusal::new("orca", e));
-            }
-        }
-        Ok(Opened { terminal, brief })
+        Ok(Opened { terminal, brief, typed: launched.typed })
     }
 
     /// `line`, reading `secrets` first from a file only this user may read,

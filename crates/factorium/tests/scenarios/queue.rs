@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::{World, commit, id, worker};
+use crate::{World, id, worker};
 
 /// Long enough that only a broken rule gets there.
 const STUCK: Duration = Duration::from_secs(20);
@@ -51,7 +51,7 @@ async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
 /// A worker of `web` with a commit of `file`, asking to land.
 async fn done(w: &World, file: &str, text: &str) {
     let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
@@ -102,7 +102,7 @@ async fn a_cut_waits_its_turn_without_holding_the_tick_and_is_made_next_tick() {
     w.tick().await;
     let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
     let one = one.unwrap();
-    commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
     w.app.worker_done(id(&one)).await.unwrap();
     assert_eq!(w.tick().await.landed.len(), 1);
     assert!(w.app.promote("web").await.unwrap()["promoted"] == "web");

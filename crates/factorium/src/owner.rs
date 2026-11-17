@@ -9,7 +9,7 @@ use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{doctor, gate, heavy, line, watch, worker};
+use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factum::{Model, Value};
 use serde_json::json;
@@ -41,6 +41,7 @@ pub(crate) fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteLoad>()
+        .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()
@@ -61,11 +62,15 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
         .command::<heavy::EndHeavy>()
+        .aggregate::<daemon::Daemons>()
+        .command::<daemon::StartDaemon>()
+        .command::<daemon::NoteTick>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::EndWatch>()
         .command::<watch::LookNow>()
         .command::<watch::SendRound>()
+        .command::<watch::HandWatchBrief>()
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
@@ -81,7 +86,7 @@ impl App {
     pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
-        let git = factorium_host::Git::at(&path);
+        let git = self.host.git(&path);
         let base_tip = git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
         if git.fetch(proving).is_err() {
             git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
@@ -218,7 +223,13 @@ impl App {
     // ---- the kit and the accounts ----
 
     pub async fn kit(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
+        let mut kit = self.state::<Kits>(kit_id()).await?;
+        // The command that will run, as a launch makes it.
+        for e in &mut kit.entries {
+            if let Some(h) = factorium_harness::Harness::read(&e.harness) {
+                e.command = h.command(&e.command);
+            }
+        }
         Ok(json!({ "entries": kit.entries, "pins": kit.pins }))
     }
 
@@ -309,6 +320,7 @@ impl App {
         }
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone();
+        seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         seen.orphans = self.orphans(w.terminal.as_deref()).await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;

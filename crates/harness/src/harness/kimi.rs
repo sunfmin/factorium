@@ -15,6 +15,8 @@ use crate::turn::{Marker, Note, Turn};
 use toml::Value as Toml;
 
 pub(super) const KEY: &str = "kimi";
+/// What a bare program is started with: no approval prompts.
+pub(super) const STOCK_ARGUMENTS: &str = "--auto";
 
 const ADD_DIR: &str = "--add-dir";
 const SKILLS_DIR: &str = "--skills-dir";

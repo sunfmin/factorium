@@ -32,12 +32,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`.
-    /// When a cut installs the formula it runs from, it runs the new binary
-    /// in its place between ticks, as the same pid.
+    /// Runs the daemon in the foreground until `factorium stop`; refused
+    /// while another runs. At start it looks for git, orca and the kit's
+    /// harnesses on its PATH; what is missing is a finding. When a cut
+    /// installs the formula it runs from, it runs the new binary in its place
+    /// between ticks, as the same pid. As a service, launchd runs it.
     Run,
-    /// Stops the daemon.
+    /// Stops the daemon; run as the service, unloads the service.
     Stop,
+    /// The daemon as a launchd agent, kept running and restarted when it exits.
+    #[command(subcommand)]
+    Service(ServiceCmd),
     /// Runs one pass of the daemon and answers what it did.
     Tick,
     /// The repos on the list.
@@ -85,6 +90,18 @@ enum Top {
     /// session may not run.
     #[command(hide = true)]
     Guard { harness: String },
+}
+
+#[derive(Subcommand)]
+enum ServiceCmd {
+    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
+    /// and this database, and loads it (in place of one loaded before).
+    /// Run it from a shell that finds git, orca and the kit's harnesses.
+    Install,
+    /// Unloads the agent and deletes its file.
+    Remove,
+    /// Answers the agent's definition as `install` would write it.
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -173,6 +190,8 @@ enum KitCmd {
     Show,
     /// Sets the kit: `harness=command[@model]`, highest priority first.
     /// Harnesses: claude-code, codex, pi, dsh, kimi, grok.
+    /// A command that is only a program (a path or a name) gets that
+    /// harness's stock arguments; one with arguments is taken as given.
     Set { entries: Vec<String> },
     /// Pins a checkout to one harness (`--harness`), or unpins it.
     Pin {
@@ -236,6 +255,11 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             app.run(&stop).await
         }
         Top::Stop => app.stop().await,
+        Top::Service(s) => match s {
+            ServiceCmd::Install => app.service_install(),
+            ServiceCmd::Remove => app.service_remove(),
+            ServiceCmd::Show => app.service_show(),
+        },
         Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,

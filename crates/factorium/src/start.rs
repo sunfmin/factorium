@@ -5,14 +5,14 @@
 use std::path::Path;
 
 use factorium_domain::issue::{Take, TakeIssue};
-use factorium_domain::watch::{self, StartWatch, Watches, watch_id};
+use factorium_domain::watch::{self, StartWatch};
 use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
-use factorium_host::{Git, Term};
+use factorium_host::Term;
 use factum::Value;
 use serde_json::json;
 
-use crate::launch::{Pick, Role};
+use crate::launch::{Opened, Pick, Role};
 use crate::{Answer, App, fail};
 
 impl App {
@@ -28,6 +28,7 @@ impl App {
             Ok(st) => {
                 let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
                 self.submit::<w::StartWorker>(w::Start { worker, started: st }).await?;
+                self.hand_worker_brief(worker, true).await?;
                 Ok(shown)
             }
             Err(r) => {
@@ -46,7 +47,7 @@ impl App {
         worker: factum::Uuid,
         pick: &Pick,
     ) -> Answer<Started> {
-        let git = Git::at(&c.path);
+        let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
         let name = format!("{}-{}-{attempt}", c.name, issue.number);
         let branch = format!("factorium/{name}");
@@ -68,6 +69,7 @@ impl App {
             brief: opened.brief.to_string_lossy().into_owned(),
             base: tip,
             at: 0,
+            typed: opened.typed,
         })
     }
 
@@ -87,14 +89,15 @@ impl App {
             Err(r) if r.code == "no_harness" => return Ok(None),
             Err(r) => return Err(r),
         };
-        let terminal = self.open_session(Role::Watch, &pick)?.terminal;
+        let Opened { terminal, typed, .. } = self.open_session(Role::Watch, &pick)?;
         self.submit::<StartWatch>(watch::Started {
             terminal: terminal.clone(),
             harness: pick.harness.key().into(),
             account: pick.account.clone(),
+            typed,
         })
         .await?;
-        let _ = self.state::<Watches>(watch_id()).await?;
+        self.hand_watch_brief(true).await?;
         Ok(Some(terminal))
     }
 }
