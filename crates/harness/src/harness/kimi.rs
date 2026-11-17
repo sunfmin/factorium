@@ -57,7 +57,7 @@ fn configuration(user: Option<&str>, guard: &str) -> Result<String, String> {
         _ => Toml::Table(Default::default()),
     };
     let table = config.as_table_mut().ok_or("the host user's Kimi config is not a table")?;
-    table.retain(|key, _| matches!(key, "default_model" | "providers" | "models" | "secondary_model"));
+    table.retain(|key, _| matches!(key, "default_model" | "providers" | "models"));
     table.insert("default_permission_mode".into(), Toml::from("auto"));
     table.insert("default_plan_mode".into(), Toml::from(false));
     table.insert("auto_session_title".into(), Toml::from(false));

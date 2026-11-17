@@ -182,11 +182,6 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         crate::commit(&repo, "CLAUDE.md", "Always run the linter.\n");
         crate::git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
-        // The host user's own Kimi config: its model routing is kept, the rest is not.
-        let user = w.host.home.join(".kimi-code");
-        std::fs::create_dir_all(&user).unwrap();
-        std::fs::write(user.join("config.toml"), "default_model = \"k2\"\nmerge_all_available_skills = true\n")
-            .unwrap();
         w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
@@ -226,10 +221,62 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
             let mine = sessions.iter().any(|dir| text.contains(dir.as_str())) || text.contains("linter");
             assert!(!mine, "{key}: {file} holds one session's:\n{text}");
         }
+    }
+}
+
+/// The guard commands a kept config runs before a tool call, by harness.
+fn guard_hooks(key: &str, config: &toml::Value) -> Vec<String> {
+    let commands: Vec<&toml::Value> = match key {
+        "kimi" => config["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|hook| hook["event"].as_str() == Some("PreToolUse"))
+            .collect(),
+        _ => config["hooks"]["PreToolUse"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().unwrap())
+            .collect(),
+    };
+    let commands = commands.into_iter().map(|hook| hook["command"].as_str().unwrap().to_string());
+    commands.filter(|command| command.contains(&format!("guard {key}"))).collect()
+}
+
+#[tokio::test]
+async fn a_grok_and_a_kimi_worker_start_guarded_and_kimi_with_only_the_host_s_model_routing() {
+    for key in ["grok", "kimi"] {
+        let w = World::new();
+        w.checkout("web").await;
+        // The host user's own Kimi config, as its login writes it, and more.
+        let user = w.host.home.join(".kimi-code");
+        std::fs::create_dir_all(&user).unwrap();
+        let routing = "default_model = \"kimi-code/k3\"\n\
+             [providers.\"managed:kimi-code\"]\ntype = \"kimi\"\n\
+             [models.\"kimi-code/k3\"]\nprovider = \"managed:kimi-code\"\nmodel = \"k3\"\n";
+        let (top, rest) = (
+            "secondary_model = \"kimi-code/k3\"\nmerge_all_available_skills = true\n",
+            "[thinking]\nenabled = true\n[[hooks]]\nevent = \"PreToolUse\"\ncommand = \"true\"\n",
+        );
+        std::fs::write(user.join("config.toml"), format!("{top}{routing}{rest}")).unwrap();
+        w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["harness"], key);
+        let kept = w.dir.join("data").join("kept").join(key).join("config.toml");
+        let config: toml::Value = std::fs::read_to_string(&kept).unwrap().parse().unwrap();
+        assert_eq!(guard_hooks(key, &config).len(), 1, "{key}: one guard before each tool call:\n{config}");
         if key == "kimi" {
-            let config = std::fs::read_to_string(home.join("config.toml")).unwrap();
-            assert!(config.contains("k2"), "{config}");
-            assert!(!config.contains("merge_all_available_skills"), "{config}");
+            let routing: toml::Value = routing.parse().unwrap();
+            for cell in ["default_model", "providers", "models"] {
+                assert_eq!(config.get(cell), routing.get(cell), "kimi keeps the host's {cell}");
+            }
+            for cell in ["secondary_model", "merge_all_available_skills", "thinking"] {
+                assert!(config.get(cell).is_none(), "kimi keeps no {cell} of the host's:\n{config}");
+            }
+            let commands = config["hooks"].as_array().unwrap().iter().map(|hook| hook["command"].as_str());
+            assert!(!commands.into_iter().any(|c| c == Some("true")), "nor its hooks:\n{config}");
         }
     }
 }
