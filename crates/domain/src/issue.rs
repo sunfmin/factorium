@@ -36,6 +36,11 @@ pub struct Issue {
     pub blocked_by: Vec<u64>,
     /// Why it is parked or closed.
     pub reason: Option<String>,
+    /// The worker that holds it now.
+    pub worker: Option<Uuid>,
+    /// How many workers have taken it.
+    pub attempts: u32,
+    pub comments: Vec<String>,
 }
 
 impl Issue {
@@ -47,30 +52,16 @@ impl Issue {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum IssueEvent {
-    IssueOpened {
-        checkout: String,
-        number: u64,
-        title: String,
-        body: String,
-        parked: bool,
-    },
-    IssueEdited {
-        title: String,
-        body: String,
-    },
-    BlockedBy {
-        number: u64,
-    },
-    Unblocked {
-        number: u64,
-    },
-    IssueParked {
-        reason: String,
-    },
+    IssueOpened { checkout: String, number: u64, title: String, body: String, parked: bool },
+    IssueEdited { title: String, body: String },
+    BlockedBy { number: u64 },
+    Unblocked { number: u64 },
+    IssueParked { reason: String },
     IssueReadied,
-    IssueClosed {
-        reason: String,
-    },
+    IssueClosed { reason: String },
+    IssueTaken { worker: Uuid },
+    IssueReleased,
+    IssueCommented { text: String },
 }
 
 pub struct Issues;
@@ -82,23 +73,13 @@ impl Aggregate for Issues {
 
     fn evolve(s: &mut Issue, event: IssueEvent) {
         match event {
-            IssueEvent::IssueOpened {
-                checkout,
-                number,
-                title,
-                body,
-                parked,
-            } => {
+            IssueEvent::IssueOpened { checkout, number, title, body, parked } => {
                 *s = Issue {
                     checkout,
                     number,
                     title,
                     body,
-                    status: if parked {
-                        Status::Parked
-                    } else {
-                        Status::Ready
-                    },
+                    status: if parked { Status::Parked } else { Status::Ready },
                     ..Issue::default()
                 };
             }
@@ -119,7 +100,14 @@ impl Aggregate for Issues {
             IssueEvent::IssueClosed { reason } => {
                 s.status = Status::Closed;
                 s.reason = Some(reason);
+                s.worker = None;
             }
+            IssueEvent::IssueTaken { worker } => {
+                s.worker = Some(worker);
+                s.attempts += 1;
+            }
+            IssueEvent::IssueReleased => s.worker = None,
+            IssueEvent::IssueCommented { text } => s.comments.push(text),
         }
     }
 
@@ -159,10 +147,7 @@ impl Command for OpenIssue {
 
     fn decide(s: &Issue, p: &Open, _: &By, _: Instant) -> Result<Decision<IssueEvent>, Rejection> {
         if s.opened() {
-            return Err(Rejection::new(
-                "number_taken",
-                format!("{}#{} is taken", p.checkout, p.number),
-            ));
+            return Err(Rejection::new("number_taken", format!("{}#{} is taken", p.checkout, p.number)));
         }
         if p.number == 0 {
             return Err(Rejection::new("invalid_number", "issue numbers start at 1"));
@@ -196,17 +181,9 @@ macro_rules! on_issue {
                 issue_id(&p.checkout, p.number)
             }
 
-            fn decide(
-                $s: &Issue,
-                $p: &$params,
-                _: &By,
-                _: Instant,
-            ) -> Result<Decision<IssueEvent>, Rejection> {
+            fn decide($s: &Issue, $p: &$params, _: &By, _: Instant) -> Result<Decision<IssueEvent>, Rejection> {
                 if !$s.opened() {
-                    return Err(Rejection::new(
-                        "no_issue",
-                        format!("{}#{} does not exist", $p.checkout, $p.number),
-                    ));
+                    return Err(Rejection::new("no_issue", format!("{}#{} does not exist", $p.checkout, $p.number)));
                 }
                 $decide.map(Decision::from)
             }
@@ -243,10 +220,7 @@ pub struct Block {
 
 on_issue!(BlockIssue, "issue.block", Block, |s, p| {
     if p.by == p.number {
-        Err(Rejection::new(
-            "blocks_itself",
-            "an issue cannot wait for itself",
-        ))
+        Err(Rejection::new("blocks_itself", "an issue cannot wait for itself"))
     } else if s.blocked_by.contains(&p.by) {
         Ok(Vec::new())
     } else {
@@ -255,11 +229,7 @@ on_issue!(BlockIssue, "issue.block", Block, |s, p| {
 });
 
 on_issue!(UnblockIssue, "issue.unblock", Block, |s, p| {
-    if s.blocked_by.contains(&p.by) {
-        Ok(vec![IssueEvent::Unblocked { number: p.by }])
-    } else {
-        Ok(Vec::new())
-    }
+    if s.blocked_by.contains(&p.by) { Ok(vec![IssueEvent::Unblocked { number: p.by }]) } else { Ok(Vec::new()) }
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -271,9 +241,7 @@ pub struct Because {
 
 on_issue!(ParkIssue, "issue.park", Because, |s, p| match s.status {
     Status::Parked => Ok(Vec::new()),
-    _ => Ok(vec![IssueEvent::IssueParked {
-        reason: p.reason.clone()
-    }]),
+    _ => Ok(vec![IssueEvent::IssueParked { reason: p.reason.clone() }]),
 });
 
 on_issue!(ReadyIssue, "issue.ready", Ref, |s, _p| match s.status {
@@ -281,8 +249,36 @@ on_issue!(ReadyIssue, "issue.ready", Ref, |s, _p| match s.status {
     _ => Ok(Vec::new()),
 });
 
-on_issue!(CloseIssue, "issue.close", Because, |_s, p| Ok(vec![
-    IssueEvent::IssueClosed {
-        reason: p.reason.clone()
-    }
-]));
+on_issue!(CloseIssue, "issue.close", Because, |_s, p| Ok(vec![IssueEvent::IssueClosed { reason: p.reason.clone() }]));
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Take {
+    pub checkout: String,
+    pub number: u64,
+    pub worker: Uuid,
+}
+
+on_issue!(TakeIssue, "issue.take", Take, |s, p| match (s.status, s.worker) {
+    (Status::Ready, None) => Ok(vec![IssueEvent::IssueTaken { worker: p.worker }]),
+    (_, Some(_)) => Err(Rejection::new("taken", "a worker holds it already")),
+    _ => Err(Rejection::new("not_ready", format!("it is {}", s.status.as_str()))),
+});
+
+on_issue!(ReleaseIssue, "issue.release", Take, |s, p| if s.worker == Some(p.worker) {
+    Ok(vec![IssueEvent::IssueReleased])
+} else {
+    Ok(Vec::new())
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Comment {
+    pub checkout: String,
+    pub number: u64,
+    pub text: String,
+}
+
+on_issue!(CommentIssue, "issue.comment", Comment, |_s, p| if p.text.trim().is_empty() {
+    Err(Rejection::new("no_text", "a comment needs text"))
+} else {
+    Ok(vec![IssueEvent::IssueCommented { text: p.text.clone() }])
+});

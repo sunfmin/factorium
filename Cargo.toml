@@ -10,6 +10,8 @@ repository = "https://github.com/sunfmin/factorium"
 
 [workspace.dependencies]
 factorium-domain = { path = "crates/domain" }
+factorium-harness = { path = "crates/harness" }
+factorium-host = { path = "crates/host" }
 factum = { git = "https://github.com/sunfmin/factum", rev = "b1cc70f2d5e003e08962e0a825c4a5d9d4718075" }
 factum-core = { git = "https://github.com/sunfmin/factum", rev = "b1cc70f2d5e003e08962e0a825c4a5d9d4718075" }
 factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "b1cc70f2d5e003e08962e0a825c4a5d9d4718075" }
@@ -17,7 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v5", "v7", "serde"] }
 clap = { version = "4.6", features = ["derive", "env"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"

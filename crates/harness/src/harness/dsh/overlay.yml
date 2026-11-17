@@ -1,0 +1,19 @@
+# Required loader services are additive to each plugin's own dependencies.
+# No TUI or agent loop can mount before the guard has installed its listeners.
+- id: agent-loop
+  inject: [factoriumGuard]
+- id: dsh-tui
+  inject: [factoriumGuard]
+# The TUI disables this base row in favor of preset discovery. Restore it
+# with explicit roots, start directory first, under a distinct provider name. User
+# skills live outside default discovery so preset providers cannot shadow
+# a start directory's skill in their own scope. Equal-rank roots keep list order.
+- id: skill-filesystem
+  disabled: false
+  config:
+    providerName: factorium-start
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.claude/skills', (process.env.FACTORIUM_DSH_KEPT || process.env.DSH_HOME) + '/host-skills', (process.env.FACTORIUM_DSH_KEPT || process.env.DSH_HOME) + '/host-agents-skills']"
+- insert:
+    - id: factorium
+      name: '@FACTORIUM_DSH_PLUGIN@'
