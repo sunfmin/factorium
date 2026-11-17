@@ -301,6 +301,9 @@ impl FakeHost {
 impl Programs for FakeHost {
     fn run(&self, program: &str, args: &[&str]) -> Said {
         self.ran.lock().unwrap().push(format!("{program} {}", args.join(" ")));
+        if !self.found(program) {
+            return Said { ok: false, out: String::new(), err: format!("{program}: not found") };
+        }
         match program {
             "orca" => self.orca.answer(&self.root, args),
             "brew" => self.brew.lock().unwrap().answer(&self.root, args),

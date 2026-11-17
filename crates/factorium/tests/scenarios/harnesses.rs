@@ -110,6 +110,60 @@ fn this_machine() -> String {
 }
 
 #[tokio::test]
+async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_the_rest() {
+    let w = World::new();
+    let codex = |machine: &str| format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{machine}"}}}}"#);
+    {
+        let mut tokens = w.host.tokens.lock().unwrap();
+        tokens.insert("agent-account-away".into(), codex("some-other-mac"));
+        tokens.insert("agent-account-out".into(), codex(&this_machine()));
+        tokens.insert("agent-account-odd".into(), r#"{"fields":{"HARNESS":"codex"}}"#.into());
+        tokens.insert(
+            "agent-account-team".into(),
+            r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
+        );
+    }
+
+    let doctor = w.app.doctor().await.unwrap();
+    let skipped = doctor["accounts_skipped"].as_array().unwrap();
+    let why = |secret: &str| {
+        let s = skipped.iter().find(|s| s["secret"] == secret).unwrap_or_else(|| panic!("{secret}: {doctor}"));
+        s["why"].as_str().unwrap().to_string()
+    };
+    assert_eq!(skipped.len(), 3, "the token account is usable: {doctor}");
+    assert!(why("agent-account-away").contains("its login is on `some-other-mac`"), "{doctor}");
+    let home = w.host.home().join(".agent-accounts").join("out");
+    let out = why("agent-account-out");
+    assert!(out.contains("not logged in here"), "{out}");
+    assert!(out.contains(&format!("CODEX_HOME='{}' codex", home.display())), "a login line for a person: {out}");
+    assert!(why("agent-account-odd").contains("MACHINE"), "{doctor}");
+    assert!(!doctor.to_string().contains("sk-ant-very-secret"));
+    assert_eq!(doctor["findings"], serde_json::json!([]), "an account here or not is no finding for the watch");
+    let accounts = w.app.accounts().await.unwrap();
+    let names: Vec<&str> = accounts.as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["team"]);
+
+    // Logged in, it is usable here and a session starts on it.
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("auth.json"), "{}").unwrap();
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["accounts_skipped"].as_array().unwrap().iter().all(|s| s["secret"] != "agent-account-out"));
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["account"], "out");
+}
+
+#[tokio::test]
+async fn doctor_says_when_mytokens_lists_no_account() {
+    let w = World::new();
+    w.host.missing.lock().unwrap().push("mytokens".into());
+    let doctor = w.app.doctor().await.unwrap();
+    assert_eq!(doctor["accounts_skipped"][0]["secret"], "mytokens", "{doctor}");
+}
+
+#[tokio::test]
 async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_there() {
     let w = World::new();
     let account = w.host.home().join(".agent-accounts").join("night");
@@ -183,11 +237,6 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
-        // The host user's own Kimi config: its model routing is kept, the rest is not.
-        let user = w.host.home().join(".kimi-code");
-        std::fs::create_dir_all(&user).unwrap();
-        std::fs::write(user.join("config.toml"), "default_model = \"k2\"\nmerge_all_available_skills = true\n")
-            .unwrap();
         w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
@@ -227,10 +276,62 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
             let mine = sessions.iter().any(|dir| text.contains(dir.as_str())) || text.contains("linter");
             assert!(!mine, "{key}: {file} holds one session's:\n{text}");
         }
+    }
+}
+
+/// The guard commands a kept config runs before a tool call, by harness.
+fn guard_hooks(key: &str, config: &toml::Value) -> Vec<String> {
+    let commands: Vec<&toml::Value> = match key {
+        "kimi" => config["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|hook| hook["event"].as_str() == Some("PreToolUse"))
+            .collect(),
+        _ => config["hooks"]["PreToolUse"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().unwrap())
+            .collect(),
+    };
+    let commands = commands.into_iter().map(|hook| hook["command"].as_str().unwrap().to_string());
+    commands.filter(|command| command.contains(&format!("guard {key}"))).collect()
+}
+
+#[tokio::test]
+async fn a_grok_and_a_kimi_worker_start_guarded_and_kimi_with_only_the_host_s_model_routing() {
+    for key in ["grok", "kimi"] {
+        let w = World::new();
+        w.checkout("web").await;
+        // The host user's own Kimi config, as its login writes it, and more.
+        let user = w.host.home().join(".kimi-code");
+        std::fs::create_dir_all(&user).unwrap();
+        let routing = "default_model = \"kimi-code/k3\"\n\
+             [providers.\"managed:kimi-code\"]\ntype = \"kimi\"\n\
+             [models.\"kimi-code/k3\"]\nprovider = \"managed:kimi-code\"\nmodel = \"k3\"\n";
+        let (top, rest) = (
+            "secondary_model = \"kimi-code/k3\"\nmerge_all_available_skills = true\n",
+            "[thinking]\nenabled = true\n[[hooks]]\nevent = \"PreToolUse\"\ncommand = \"true\"\n",
+        );
+        std::fs::write(user.join("config.toml"), format!("{top}{routing}{rest}")).unwrap();
+        w.app.kit_set(&[format!("{key}={key}")]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["harness"], key);
+        let kept = w.dir.join("data").join("kept").join(key).join("config.toml");
+        let config: toml::Value = std::fs::read_to_string(&kept).unwrap().parse().unwrap();
+        assert_eq!(guard_hooks(key, &config).len(), 1, "{key}: one guard before each tool call:\n{config}");
         if key == "kimi" {
-            let config = std::fs::read_to_string(home.join("config.toml")).unwrap();
-            assert!(config.contains("k2"), "{config}");
-            assert!(!config.contains("merge_all_available_skills"), "{config}");
+            let routing: toml::Value = routing.parse().unwrap();
+            for cell in ["default_model", "providers", "models"] {
+                assert_eq!(config.get(cell), routing.get(cell), "kimi keeps the host's {cell}");
+            }
+            for cell in ["secondary_model", "merge_all_available_skills", "thinking"] {
+                assert!(config.get(cell).is_none(), "kimi keeps no {cell} of the host's:\n{config}");
+            }
+            let commands = config["hooks"].as_array().unwrap().iter().map(|hook| hook["command"].as_str());
+            assert!(!commands.into_iter().any(|c| c == Some("true")), "nor its hooks:\n{config}");
         }
     }
 }
@@ -325,9 +426,11 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     }
     offered.sort();
     let expected = [
-        "account.rs: fn usable",
+        "account.rs: fn here",
+        "account.rs: struct Here",
+        "account.rs: struct Skipped",
         "account.rs: struct Usable",
-        "account.rs: trait Source",
+        "account.rs: type Mytokens",
         "harness.rs: const fn key",
         "harness.rs: const fn refused",
         "harness.rs: enum Harness",
