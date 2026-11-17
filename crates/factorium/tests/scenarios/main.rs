@@ -569,10 +569,17 @@ impl World {
         (term.dialog, term.screen) = (true, lines.iter().map(|l| l.to_string()).collect());
     }
 
+    /// Its Claude Code session is in a turn (`busy`) or not, which its
+    /// session file says; `unobserved` as for [`Terminal`].
     pub fn set_busy(&self, handle: &str, busy: bool, unobserved: bool) {
-        let mut t = self.host.orca.terminals.lock().unwrap();
-        let term = t.get_mut(handle).unwrap();
-        (term.busy, term.unobserved) = (busy, unobserved);
+        let cwd = {
+            let mut t = self.host.orca.terminals.lock().unwrap();
+            let term = t.get_mut(handle).unwrap();
+            (term.busy, term.unobserved) = (busy, unobserved);
+            term.worktree.to_string_lossy().into_owned()
+        };
+        let at = (factum::Clock::now(self.clock.as_ref()).0 / 1000) as u64;
+        harnesses::write_session(self, factorium_harness::Harness::ClaudeCode, None, &cwd, busy, at);
     }
 
     pub fn kill_terminal(&self, handle: &str) {

@@ -56,6 +56,13 @@ enum Top {
         #[arg(long)]
         all: bool,
     },
+    /// Answers what was passed to a worker's session (`--worker`) or the
+    /// watch's, oldest first: who from, the line typed, and how its
+    /// delivery went (typed, submitted, queued, brief, not_typed, missed).
+    Outbox {
+        #[arg(long)]
+        worker: Option<Uuid>,
+    },
     /// Answers the findings, each with its fix; the reading; and what the
     /// watch's reports leave to the owner.
     Doctor,
@@ -316,6 +323,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             IssueCmd::Block { checkout, number, by, undo } => app.issue_block(&checkout, number, by, undo).await,
         },
         Top::Workers { all } => app.workers(all).await,
+        Top::Outbox { worker } => app.outbox_of(worker).await,
         Top::Doctor => app.doctor().await,
         Top::Promote { checkout } => app.promote(&checkout).await,
         Top::Cut { checkout } => app.cut(&checkout).await,

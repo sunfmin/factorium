@@ -994,12 +994,14 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
         refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
     }
     assert!(w.terminal(handle).sent.is_empty());
-    // A kimi worker: its footer is up above the row told.
+    // A kimi worker: its footer is up above the row told. Its brief, held
+    // until now, is typed first.
     for (n, row) in harness_rows.iter().enumerate() {
         w.set_screen(handle, &["context: 0% (0/1M)", row]);
         w.app.watch_tell(id(&wk), "hello", false).await.unwrap_or_else(|r| panic!("{row}: {r:?}"));
-        assert_eq!(w.terminal(handle).sent.len(), n + 1, "{row}");
+        assert_eq!(w.terminal(handle).sent.len(), n + 2, "{row}");
     }
+    assert!(w.terminal(handle).sent[0].contains("web-1-1.md"), "the brief first");
 }
 
 /// A Claude Code worker 60 min into its work whose worktree has the session

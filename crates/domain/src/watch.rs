@@ -32,9 +32,6 @@ pub struct Round {
     pub n: u64,
     pub episode: String,
     pub at: i64,
-    /// The watch terminal it was typed at: a new session gets it again.
-    #[serde(default)]
-    pub sent: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -65,9 +62,6 @@ pub struct Watch {
     pub held: Option<(i64, String)>,
     /// The report whose owner's part the owner has seen.
     pub seen: u64,
-    /// The line still to be typed at its session to hand it its brief.
-    #[serde(default)]
-    pub unhanded: Option<String>,
     /// The terminals its sessions were started in, the latest `KEPT`: the
     /// only watch terminals this database's factorium calls its own.
     #[serde(default)]
@@ -89,10 +83,8 @@ pub enum WatchEvent {
         harness: String,
         #[serde(default)]
         account: Option<String>,
-        #[serde(default)]
-        typed: Option<String>,
     },
-    /// Its brief was typed at its session.
+    /// Written before the outbox (#47); read and ignored.
     BriefHanded,
     WatchEnded,
     /// Closing its session's terminal failed: why.
@@ -128,6 +120,8 @@ pub enum WatchEvent {
         n: u64,
         why: String,
     },
+    /// Written before the outbox (#47), which now records what reached
+    /// each watch session; read and ignored.
     RoundSent {
         n: u64,
         terminal: String,
@@ -152,14 +146,14 @@ impl Aggregate for Watches {
 
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
-            WatchEvent::WatchStarted { terminal, harness, account, typed } => {
+            WatchEvent::WatchStarted { terminal, harness, account } => {
                 s.opened.push(terminal.clone());
                 let extra = s.opened.len().saturating_sub(KEPT);
                 s.opened.drain(..extra);
-                (s.terminal, s.harness, s.account, s.unhanded) = (Some(terminal), Some(harness), account, typed)
+                (s.terminal, s.harness, s.account) = (Some(terminal), Some(harness), account)
             }
-            WatchEvent::BriefHanded => s.unhanded = None,
-            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account, s.unhanded) = (None, None, None, None),
+            WatchEvent::BriefHanded | WatchEvent::RoundSent { .. } => {}
+            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account) = (None, None, None),
             WatchEvent::WatchCloseFailed { terminal, why } => {
                 s.unclosed.retain(|(t, _)| *t != terminal);
                 s.unclosed.push((terminal, why));
@@ -181,14 +175,9 @@ impl Aggregate for Watches {
                     e.round = Some(n);
                 }
                 s.rounds = n;
-                s.round = Some(Round { n, episode, at, sent: None });
+                s.round = Some(Round { n, episode, at });
             }
             WatchEvent::RoundEnded { .. } => s.round = None,
-            WatchEvent::RoundSent { n, terminal } => {
-                if let Some(r) = s.round.as_mut().filter(|r| r.n == n) {
-                    r.sent = Some(terminal);
-                }
-            }
             WatchEvent::AdmissionHeld { why, at } => s.held = Some((at, why)),
             WatchEvent::AdmissionOpen => s.held = None,
             WatchEvent::HumanSeen { round } => s.seen = round,
@@ -207,8 +196,6 @@ pub struct Started {
     pub terminal: String,
     pub harness: String,
     pub account: Option<String>,
-    /// The line typed at it to hand it its brief, once its harness is up.
-    pub typed: Option<String>,
 }
 
 command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, now| {
@@ -216,29 +203,8 @@ command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, no
         terminal: p.terminal.clone(),
         harness: p.harness.clone(),
         account: p.account.clone(),
-        typed: p.typed.clone(),
     }])
 });
-
-/// Which watch terminal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct At {
-    pub terminal: String,
-}
-
-command!(
-    /// Its brief was typed at the watch's `terminal`, its harness up.
-    HandWatchBrief,
-    "watch.handed",
-    Watches,
-    At,
-    |_p| watch_id(),
-    |s, p, _now| Ok::<_, factum_core::Rejection>(if s.unhanded.is_some() && s.terminal.as_ref() == Some(&p.terminal) {
-        vec![WatchEvent::BriefHanded]
-    } else {
-        Vec::new()
-    })
-);
 
 /// How closing the watch's session's terminal went.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -396,24 +362,3 @@ command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| Ok(
 } else {
     Vec::new()
 }));
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Sent {
-    pub n: u64,
-    pub terminal: String,
-}
-
-command!(
-    /// Round `n` was typed at the watch's `terminal`.
-    SendRound,
-    "watch.sent",
-    Watches,
-    Sent,
-    |_p| watch_id(),
-    |s, p, _now| {
-        if s.round.as_ref().is_none_or(|r| r.n != p.n) {
-            return no("no_round", format!("round {} is not running", p.n));
-        }
-        Ok(vec![WatchEvent::RoundSent { n: p.n, terminal: p.terminal.clone() }])
-    }
-);

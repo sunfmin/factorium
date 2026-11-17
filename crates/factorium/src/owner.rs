@@ -9,7 +9,7 @@ use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{daemon, doctor, gate, heavy, line, watch, worker};
+use factorium_domain::{daemon, doctor, gate, heavy, line, outbox, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
 use factum::{Model, Uuid, Value};
@@ -37,7 +37,6 @@ pub(crate) fn model() -> Model {
         .command::<worker::StartWorker>()
         .command::<worker::AskLanding>()
         .command::<worker::RedLanding>()
-        .command::<worker::ToldRed>()
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()
         .command::<worker::Resume>()
@@ -46,7 +45,6 @@ pub(crate) fn model() -> Model {
         .command::<worker::NoteClosed>()
         .command::<worker::NoteLoad>()
         .command::<worker::NoteQuiet>()
-        .command::<worker::HandBrief>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()
         .aggregate::<Lines>()
@@ -72,11 +70,12 @@ pub(crate) fn model() -> Model {
         .command::<watch::StartWatch>()
         .command::<watch::EndWatch>()
         .command::<watch::LookNow>()
-        .command::<watch::SendRound>()
-        .command::<watch::HandWatchBrief>()
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
+        .aggregate::<outbox::Outboxes>()
+        .command::<outbox::GiveMessage>()
+        .command::<outbox::TryMessage>()
         .projection(Tracker)
 }
 
