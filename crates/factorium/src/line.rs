@@ -2,7 +2,7 @@
 //! the proving tip and pushes it once the fast gate is green; a promotion
 //! fast-forwards the base branch to the proving tip once the slow gate is
 //! green; a cut makes a version from the base tip. Each push requires the
-//! tip it read. Each runs in its own worktree under the data directory.
+//! tip it read. Each runs in its own clone of the checkout under the data directory.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -23,15 +23,20 @@ use crate::{Answer, App, Refusal, fail};
 /// What one move did, for the tick's answer.
 pub(crate) type Did = Option<Value>;
 
-/// Puts a worktree at `path` on `rev`, keeping its ignored files (builds).
+/// Puts a clone of the checkout at `path` on `rev`, keeping its ignored
+/// files (builds). A work dir made as a worktree of the checkout before is
+/// removed and made again as a clone.
 fn fresh(git: &Git, path: &Path, rev: &str) -> Result<Git, String> {
     let here = Git::at(path);
-    if path.join(".git").exists() {
+    if path.join(".git").is_file() {
+        git.worktree_remove(path)?;
+    }
+    if path.join(".git").is_dir() {
         here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
         here.run(&["clean", "-fdq"])?;
     } else {
         std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
-        git.worktree_add(path, rev)?;
+        git.clone_shared(path, rev)?;
     }
     Ok(here)
 }
@@ -95,7 +100,12 @@ impl App {
         let here = fresh(&git, &self.dir(&["landing", &c.name]), &tip).map_err(fail("git"))?;
         let issue = self.issue(&c.name, st.number).await?;
         let message = format!("Land {}#{}: {}", c.name, st.number, issue.title);
-        if let Err(e) = here.run(&["merge", "--no-ff", "--no-edit", "-m", &message, &st.branch]) {
+        // The worker's branch lives in the checkout, not in this clone.
+        let branch = format!("+refs/heads/{0}:refs/heads/{0}", st.branch);
+        let merged = here
+            .run(&["fetch", "--quiet", &c.path, &branch])
+            .and_then(|_| here.run(&["merge", "--no-ff", "--no-edit", "-m", &message, &st.branch]));
+        if let Err(e) = merged {
             let _ = here.run(&["merge", "--abort"]);
             let why = format!(
                 "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."

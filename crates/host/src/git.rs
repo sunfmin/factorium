@@ -76,10 +76,16 @@ impl Git {
         self.run(&["push", "--quiet", &lease, "origin", &format!("{sha}:refs/heads/{branch}")]).map(|_| ())
     }
 
-    /// Adds a detached worktree at `path` on `rev`.
-    pub fn worktree_add(&self, path: &Path, rev: &str) -> Result<(), String> {
-        let _ = self.run(&["worktree", "prune"]);
-        self.run(&["worktree", "add", "--quiet", "--detach", &path.to_string_lossy(), rev]).map(|_| ())
+    /// Clones this repo to `path`, detached on `rev`: a repo of its own,
+    /// sharing this one's objects, whose `origin` is this one's origin.
+    /// Neither git nor Orca counts it among this repo's worktrees.
+    pub fn clone_shared(&self, path: &Path, rev: &str) -> Result<(), String> {
+        let origin = self.run(&["remote", "get-url", "origin"])?;
+        let (from, to) = (self.dir.to_string_lossy(), path.to_string_lossy());
+        self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &to])?;
+        let there = Git::at(path);
+        there.run(&["remote", "set-url", "origin", &origin])?;
+        there.run(&["checkout", "--quiet", "--detach", rev]).map(|_| ())
     }
 
     /// Removes the worktree at `path`; one already gone is removed.
