@@ -52,7 +52,10 @@ watch's look and the operator's view.
    with it, so no tick sees it ready without them.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
-3. The worker's worktree is branched from the proving tip; its harness and
+3. The worker resumes in the worktree its issue's last attempt kept, if
+   that one holds work that is nowhere else (commits not on proving, or
+   changes not committed), and its brief says what is there; else its
+   worktree is branched from the proving tip. Its harness and
    account are chosen; the guard is installed; its brief is sent; the
    session file says when its turn starts and ends. Text is typed at a
    session only once its harness's own screen is up there: typed at a
@@ -62,7 +65,8 @@ watch's look and the operator's view.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
    a row goes to the watch.
 6. Green: the issue closes, the worker ends, its worktree is removed
-   unless it holds unpushed commits.
+   unless it holds work that is nowhere else: the one test that also
+   decides where its issue's next start begins (step 3).
 7. Promotion and cut follow on their own (§1.13, §1.14).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
