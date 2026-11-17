@@ -71,6 +71,10 @@ impl Host for Machine {
 
     fn brew_upgrade(&self, formula: &str) -> Result<String, String> {
         let _ = shell::output("brew", &["update", "--quiet"]);
+        // The first cut installs it: `brew upgrade` refuses a formula not installed.
+        if shell::output("brew", &["list", "--formula", formula]).is_err() {
+            return shell::output("brew", &["install", formula]);
+        }
         shell::output("brew", &["upgrade", formula])
     }
 

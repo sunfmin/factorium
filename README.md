@@ -10,6 +10,14 @@ wrong.
 - What it is and why: [SPEC.md](SPEC.md)
 - What it left behind from afkconvoy: [docs/dropped.md](docs/dropped.md)
 
+## Install
+
+```sh
+brew install sunfmin/tap/factorium
+```
+
+factorium cuts its own versions (`factorium.toml`, `packaging/release.sh`).
+
 ## Use
 
 ```sh
