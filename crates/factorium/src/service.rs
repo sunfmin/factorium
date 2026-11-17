@@ -25,7 +25,7 @@ impl App {
     fn service_target(&self) -> String {
         use std::os::unix::fs::MetadataExt;
         // The data directory is this user's: factorium made it.
-        let uid = std::fs::metadata(self.dir(&[])).map(|m| m.uid()).unwrap_or(0);
+        let uid = std::fs::metadata(self.data().root()).map(|m| m.uid()).unwrap_or(0);
         format!("gui/{uid}/{LABEL}")
     }
 
@@ -60,7 +60,7 @@ impl App {
             ("{program}", stable(&exe).to_string_lossy().into_owned()),
             ("{path}", path.to_string_lossy().into_owned()),
             ("{db}", self.db.to_string_lossy().into_owned()),
-            ("{log}", self.dir(&["daemon.log"]).to_string_lossy().into_owned()),
+            ("{log}", self.data().log().to_string_lossy().into_owned()),
         ];
         fill.iter().fold(TEMPLATE.to_string(), |t, (k, v)| t.replace(k, &escape(v)))
     }

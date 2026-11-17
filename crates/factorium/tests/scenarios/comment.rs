@@ -76,7 +76,7 @@ async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
     w.app.issue_park("web", 1, "its session died").await.unwrap();
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
-    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-2.md")).unwrap();
+    let brief = std::fs::read_to_string(w.data().brief("web-1-2")).unwrap();
     assert!(brief.contains("## Comments\n\n- owner: use the v2 API\n- owner: and log it\n"), "{brief}");
 }
 
@@ -153,7 +153,7 @@ async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_on
     w.app.issue_park("web", 1, "again").await.unwrap();
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
-    let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-2.md")).unwrap();
+    let brief = std::fs::read_to_string(w.data().brief("web-1-2")).unwrap();
     let want = format!("## Comments\n\n- worker {}: which API version?\n- watch: use the v2 API.\n", id(&wk));
     assert!(brief.contains(&want), "{brief}");
 }

@@ -4,6 +4,7 @@
 //! so what they see is what the CLI prints.
 
 mod daemon;
+mod data;
 mod gate;
 mod heavy;
 mod kept;
@@ -30,6 +31,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 pub use daemon::Tick;
+pub use data::{Data, LineClone};
 pub use factorium_host as host;
 pub use session::{Caller, DB_ENV};
 
@@ -157,8 +159,7 @@ impl App {
         declared::read(text.as_deref()).map_err(fail("bad_declaration"))
     }
 
-    fn dir(&self, parts: &[&str]) -> PathBuf {
-        let data = self.db.parent().unwrap_or(Path::new("."));
-        parts.iter().fold(data.to_path_buf(), |p, s| p.join(s))
+    fn data(&self) -> Data {
+        Data::of(&self.db)
     }
 }

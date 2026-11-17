@@ -209,7 +209,7 @@ async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_o
         kind.prepare(&w, &wk).await;
         let said = kind.say(&w, &wk, false).await;
         assert!(w.terminal(handle).sent.is_empty(), "{kind:?}: the shell's prompt is not typed at");
-        let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+        let brief = std::fs::read_to_string(w.data().brief("web-1-1")).unwrap();
         match kind {
             // In the brief, read once handed.
             Kind::Comment => {
@@ -237,7 +237,7 @@ async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_o
             // Once handed, the next one is typed after it, not put in it.
             assert_eq!(kind.say(&w, &wk, false).await.unwrap()["delivery"], "submitted");
             assert_eq!(w.terminal(handle).sent.len(), 2);
-            let brief = std::fs::read_to_string(w.dir.join("data/briefs/web-1-1.md")).unwrap();
+            let brief = std::fs::read_to_string(w.data().brief("web-1-1")).unwrap();
             assert_eq!(brief.matches("- use v2").count(), 1, "{brief}");
         }
     }
@@ -245,7 +245,7 @@ async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_o
 
 /// The watch's session writes its turn: closed.
 fn watch_idle(w: &World) {
-    let home = w.dir.join("data").join("watch");
+    let home = w.data().watch();
     let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
     write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), false, at);
 }

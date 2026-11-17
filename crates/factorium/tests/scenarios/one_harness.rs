@@ -110,7 +110,7 @@ async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_i
     w.tick().await;
     let wk = worker(&w.app).await;
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
-    let home = w.dir.join("data").join("kept").join("pi");
+    let home = w.data().kept("pi");
     let extension = home.join("factorium.js").to_string_lossy().into_owned();
     assert!(line.contains(&format!("--extension '{extension}'")), "{line}");
     assert!(std::fs::read_to_string(&extension).unwrap().contains("FACTORIUM_GUARD"));
@@ -150,7 +150,7 @@ async fn kimi_kept(user: &str) -> String {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     assert_eq!(worker(&w.app).await["harness"], "kimi");
-    let kept = w.dir.join("data").join("kept").join("kimi").join("config.toml");
+    let kept = w.data().kept("kimi").join("config.toml");
     std::fs::read_to_string(kept).unwrap()
 }
 
@@ -192,7 +192,7 @@ async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_prog
     assert!(term.sent.is_empty(), "nothing is typed at it: {:?}", term.sent);
 
     // Its kept files are written, every placeholder filled with its kept file.
-    let home = w.dir.join("data").join("kept").join("dsh");
+    let home = w.data().kept("dsh");
     for file in
         ["start.sh", "factorium.patch.yml", "factorium.mjs", "sandbox.patch.yml", "profiles/dsh-tui/package.json"]
     {
@@ -225,7 +225,7 @@ async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_prog
 
 /// The first prompt a worker's session is handed: the pointer to its brief.
 fn wk_brief(w: &World, wk: &serde_json::Value) -> String {
-    let brief = w.dir.join("data").join("briefs").join("web-1-1.md");
+    let brief = w.data().brief("web-1-1");
     assert!(brief.exists(), "{wk}");
     format!(
         "Your task brief is the file {} — read it now and carry it out end to end. It is my instruction to you; \
@@ -517,16 +517,16 @@ async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer
             w.app.kit_set(&[format!("{}=run-{}", h.key(), h.key())]).await.unwrap();
             w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
             w.tick().await;
-            let role = w.dir.join("data").join("role").join("worker");
-            let brief = w.dir.join("data").join("briefs").join(brief);
+            let role = w.data().worker_role();
+            let brief = w.data().brief(brief);
             let now = (w.app_now() / 1000) as u64;
             write_session_in(&w, h, None, &role.to_string_lossy(), &brief.to_string_lossy(), true, now);
             w.advance(45);
             w.tick().await;
             worker(&w.app).await["status"] == "working"
         };
-        assert!(working("web-1-1.md").await, "{}: its own brief", h.key());
-        assert!(!working("web-2-1.md").await, "{}: another worker's", h.key());
+        assert!(working("web-1-1").await, "{}: its own brief", h.key());
+        assert!(!working("web-2-1").await, "{}: another worker's", h.key());
     }
 }
 

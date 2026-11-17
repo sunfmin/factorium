@@ -16,7 +16,7 @@ use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{Answer, App, Refusal};
+use crate::{Answer, App, LineClone, Refusal};
 
 /// What one tick did.
 #[derive(Debug, Default, Serialize)]
@@ -165,8 +165,8 @@ impl App {
     /// Frees disk: the build outputs of the line's worktrees, rebuilt when
     /// next needed.
     fn reclaim(&self) {
-        for kind in ["landing", "promotion", "cut"] {
-            let Ok(dirs) = std::fs::read_dir(self.dir(&[kind])) else { continue };
+        for kind in LineClone::ALL {
+            let Ok(dirs) = std::fs::read_dir(self.data().clones(kind)) else { continue };
             for d in dirs.flatten() {
                 let _ = std::fs::remove_dir_all(d.path().join("target"));
             }
@@ -193,7 +193,7 @@ impl App {
     /// `factorium run`: ticks until stopped. One daemon runs: another that
     /// is alive is refused.
     pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
-        let pid = self.dir(&["daemon.pid"]);
+        let pid = self.data().pid();
         if let Some(n) = self.daemon_pid()
             && n != std::process::id()
         {
@@ -234,7 +234,7 @@ impl App {
 
     /// The pid of the daemon running now, if one is.
     pub(crate) fn daemon_pid(&self) -> Option<u32> {
-        let said = std::fs::read_to_string(self.dir(&["daemon.pid"])).ok()?;
+        let said = std::fs::read_to_string(self.data().pid()).ok()?;
         said.trim().parse().ok().filter(|n| *n != 0 && self.host.alive(*n))
     }
 
@@ -250,7 +250,7 @@ impl App {
             let _ = std::process::Command::new("kill").arg(n.to_string()).status();
             json!({ "stopped": true, "pid": n })
         } else {
-            let _ = std::fs::remove_file(self.dir(&["daemon.pid"]));
+            let _ = std::fs::remove_file(self.data().pid());
             json!({ "stopped": false, "why": "no daemon runs" })
         };
         answer["watch_closed"] = json!(self.close_watch_session().await?);

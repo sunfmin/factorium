@@ -2,7 +2,7 @@
 //! what it does with its commands.
 
 use factorium::host::Host;
-use factorium_harness::Harness;
+use factorium_harness::{Harness, RULES};
 use serde_json::json;
 
 use crate::harnesses::write_session;
@@ -28,7 +28,7 @@ async fn escalated_alone(w: &World) -> serde_json::Value {
 
 /// The watch's session writes its turn: open, or closed.
 fn watch_up(w: &World, open: bool) {
-    let home = w.dir.join("data").join("watch");
+    let home = w.data().watch();
     let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
     write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), open, at);
 }
@@ -61,7 +61,11 @@ async fn an_escalation_becomes_an_episode_and_one_round_sent_to_the_watch() {
     let t = w.tick().await;
     assert_eq!(t.watch.as_ref().unwrap()["round"]["n"], 1);
     let term = w.terminal(&watch_terminal(&w));
-    assert!(term.line.contains("BRIEF.md"), "the watch is handed its brief: {}", term.line);
+    assert!(
+        term.line.contains(&*w.data().watch_brief().to_string_lossy()),
+        "the watch is handed its brief: {}",
+        term.line
+    );
     assert!(term.line.contains("FACTORIUM_WATCH"));
     let round = term.sent.last().unwrap();
     assert!(round.contains("round 1") && round.contains("which API version?"), "{round}");
@@ -202,9 +206,9 @@ async fn the_worker_and_the_watch_start_alike_each_as_its_role() {
     // Each is named as its role, and only as its role.
     assert!(worker.contains("FACTORIUM_WORKER=") && !worker.contains("FACTORIUM_WATCH="), "{worker}");
     assert!(watch.contains("FACTORIUM_WATCH=") && !watch.contains("FACTORIUM_WORKER="), "{watch}");
-    let rules = std::fs::read_to_string(w.dir.join("data/watch/CLAUDE.md")).unwrap();
+    let rules = std::fs::read_to_string(w.data().watch().join(RULES)).unwrap();
     assert!(rules.contains(&format!("The database is {db}.")), "{rules}");
-    let rules = std::fs::read_to_string(w.dir.join("data/role/worker/CLAUDE.md")).unwrap();
+    let rules = std::fs::read_to_string(w.data().worker_role().join(RULES)).unwrap();
     assert!(rules.contains("You are a factorium worker"), "{rules}");
 }
 
@@ -228,7 +232,7 @@ async fn a_watch_home_orca_never_finds_is_given_up_after_five_more_tries() {
     // The first tick looks, and the look opens the watch's session.
     let failed = w.app.tick().await;
     let ran = w.host.ran.lock().unwrap().clone();
-    let home = w.dir.join("data").join("watch");
+    let home = w.data().watch();
     let by_repo = ran.iter().filter(|r| r.starts_with("orca terminal create --worktree id:")).count();
     assert_eq!(by_repo, 6, "by its repo, then five tries more: {failed:?} {ran:#?}");
     let slept = ran.iter().filter(|r| *r == "sleep 1").count();

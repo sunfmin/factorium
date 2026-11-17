@@ -285,7 +285,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
     let db = cli.db.unwrap_or_else(default_db);
     let by = caller.by();
     let worker_id = || caller.worker();
-    let data = db.parent().map(PathBuf::from).unwrap_or_default();
+    let data = factorium::Data::of(&db).root().to_path_buf();
     let app = App::open(&db, Arc::new(SystemClock), by, Arc::new(Machine::new(data)))?;
     match cli.command {
         Top::Run => {
