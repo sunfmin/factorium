@@ -658,11 +658,7 @@ async fn only_a_well_formed_account_secret_is_an_account() {
     let away = w.host.home().join(".agent-accounts").join("away");
     std::fs::create_dir_all(&away).unwrap();
     std::fs::write(away.join("auth.json"), "{}").unwrap();
-    let mut t = w.host.tokens.lock().unwrap();
-    for (name, json) in &secrets {
-        t.insert(name.to_string(), json.clone());
-    }
-    drop(t);
+    w.host.tokens.lock().unwrap().extend(secrets.iter().map(|(n, j)| (n.to_string(), j.clone())));
     let names: Vec<_> = w.app.accounts().await.unwrap().as_array().unwrap().iter().map(|a| a["name"].clone()).collect();
     assert_eq!(names, [serde_json::json!("one"), serde_json::json!("two")]);
 }
