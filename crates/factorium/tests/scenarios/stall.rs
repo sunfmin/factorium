@@ -182,7 +182,10 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     assert!(found["what"].as_str().unwrap().contains("hung"), "{found}");
 
     // The watch's fix: it tells the worker what blocks it.
-    w.app.watch_restart(me, "your test blocks reading a FIFO nobody writes; end it and fix the test.").await.unwrap();
+    w.app
+        .watch_restart(me, "your test blocks reading a FIFO nobody writes; end it and fix the test.", false)
+        .await
+        .unwrap();
     assert_eq!(status().await, "working");
     assert_eq!(finding(&w, &format!("worker:{me}")).await, None);
     w.commit(&PathBuf::from(cwd), "a", "x");

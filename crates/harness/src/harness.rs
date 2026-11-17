@@ -35,6 +35,9 @@ trait Kind {
     /// The hook exit code that refuses a call: it is not made, and the
     /// hook's stderr is shown to the session.
     const REFUSED: u8;
+    /// The key that, typed without Enter, stops its running turn and leaves
+    /// it at its prompt.
+    const INTERRUPT: &'static str;
     /// The files the tool carries or makes for it, by path under its home.
     /// An error: a file of the host user's they are made from could not be
     /// read as it must be.
@@ -66,6 +69,9 @@ trait Kind {
     /// The session file it would write for the worktree `cwd`, its turn left
     /// open when `open`, written at `at` (epoch seconds).
     fn stand_in(cwd: &str, open: bool, at: u64) -> String;
+    /// Whether the session file `text` took `said` as a prompt at or after
+    /// `since` (epoch seconds). `None`: its session files do not say.
+    fn prompted(text: &str, said: &str, since: u64) -> Option<bool>;
 }
 
 /// Lists every harness once, as `Variant in module`, the module's [`Kind`]
@@ -230,6 +236,12 @@ impl Harness {
     /// hook's stderr is shown to the session.
     pub const fn refused(self) -> u8 {
         each!(self, |K| K::REFUSED)
+    }
+
+    /// The key that, typed without Enter, stops its running turn and leaves
+    /// it at its prompt.
+    pub const fn interrupt(self) -> &'static str {
+        each!(self, |K| K::INTERRUPT)
     }
 
     /// own screen up, ready to be typed at: blank, a shell's prompt (its

@@ -257,6 +257,8 @@ impl Kind for Pi {
     const ASKS_FIRST: Option<&'static str> = None;
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(kept(start))
@@ -300,5 +302,9 @@ impl Kind for Pi {
 
     fn stand_in(cwd: &str, open: bool, at: u64) -> String {
         stand_in(cwd, open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
     }
 }

@@ -182,6 +182,8 @@ impl Kind for Dsh {
     const ASKS_FIRST: Option<&'static str> = Some(ASKS_FIRST);
     const ENVIRONMENT: &'static [&'static str] = &[];
     const REFUSED: u8 = REFUSED;
+    /// Escape.
+    const INTERRUPT: &'static str = "\x1b";
 
     fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(kept(start))
@@ -226,5 +228,9 @@ impl Kind for Dsh {
 
     fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
         stand_in(open, at)
+    }
+
+    fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
+        None
     }
 }

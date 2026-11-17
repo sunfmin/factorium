@@ -14,6 +14,9 @@ how to fix it. Then:
    - `factorium watch tell <worker> "<text>"` — type at a worker
    - `factorium watch restart <worker> --text "<what to do>"` — send a
      waiting worker back to work (one whose session is gone is started again)
+   - Both answer `delivery`: `submitted` (the worker read it) or `queued`
+     (it waits until the worker's running call returns, which a hung call
+     never does). Add `--now` to stop the running turn first.
    - `factorium issue park|ready|start-over|close|edit|comment|block …`
      (`start-over <checkout> <n> --why "…"` on a parked issue whose kept
      worktree went bad: the next start begins from proving, the old branch

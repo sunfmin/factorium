@@ -38,12 +38,20 @@ pub struct Terminal {
     pub sent: Vec<String>,
     pub screen: Vec<String>,
     pub alive: bool,
+    /// Its agent is in a turn that does not end (a hung call): a line typed
+    /// with Enter queues behind it, and only Escape stops it.
+    pub busy: bool,
+    /// Orca does not see its agent's turns start (one that ends within a
+    /// second, or starts right after an interrupt).
+    pub unobserved: bool,
     /// Closed through Orca: its tab is gone, not only its program.
     pub closed: bool,
 }
 
 /// A terminal's screen at its shell's prompt, as zsh draws it.
 pub const SHELL: &str = "felix@macnoMac-Studio web-1-1 % ";
+/// The Escape key, as Orca is given it to type.
+pub const ESCAPE: &str = "\x1b";
 /// A terminal's screen with its harness up.
 pub const UP: &str = "› Ask anything · ? for shortcuts";
 
@@ -191,8 +199,18 @@ impl FakeOrca {
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
                     "send" if *self.refuse_send.lock().unwrap() => error("terminal_send_failed"),
                     "send" if term.alive => {
-                        term.sent.push(flag(args, "--text").into());
-                        answer(json!({ "terminal": { "handle": handle }, "sent": true }))
+                        let (text, enter) = (flag(args, "--text"), args.contains(&"--enter"));
+                        term.sent.push(text.into());
+                        if !enter && text == ESCAPE {
+                            term.busy = false;
+                        }
+                        // A watched prompt that reaches an idle agent starts a turn.
+                        let mut stages = vec!["input_accepted"];
+                        if enter && !term.busy && !term.unobserved && args.contains(&"--wait-submit") {
+                            stages.push("turn_started");
+                        }
+                        let prompt = enter.then(|| json!({ "stages": stages, "provider": "claude" }));
+                        answer(json!({ "send": { "handle": handle, "accepted": true, "prompt": prompt } }))
                     }
                     "close" => {
                         (term.alive, term.closed) = (false, true);
@@ -476,6 +494,12 @@ impl World {
     pub fn set_screen(&self, handle: &str, lines: &[&str]) {
         let mut t = self.host.orca.terminals.lock().unwrap();
         t.get_mut(handle).unwrap().screen = lines.iter().map(|l| l.to_string()).collect();
+    }
+
+    pub fn set_busy(&self, handle: &str, busy: bool, unobserved: bool) {
+        let mut t = self.host.orca.terminals.lock().unwrap();
+        let term = t.get_mut(handle).unwrap();
+        (term.busy, term.unobserved) = (busy, unobserved);
     }
 
     pub fn kill_terminal(&self, handle: &str) {

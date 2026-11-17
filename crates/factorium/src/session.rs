@@ -12,7 +12,7 @@ use factorium_domain::settings::{Settings, Time};
 use factorium_domain::watch::{At, HandWatchBrief, Watch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::{Harness, Home, Stop, Turn};
-use factorium_host::Term;
+use factorium_host::{Delivery, Term};
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -107,16 +107,38 @@ impl App {
     /// Types `text` and Enter at a session, only once its harness's own
     /// screen is up there: typed at a shell, a line is a command it runs.
     pub(crate) fn type_at(&self, s: &Session, text: &str) -> Answer<()> {
-        let orca = self.host.orca();
-        let screen = match orca.screen(&s.terminal) {
+        self.up(s)?;
+        self.host.orca().send(&s.terminal, text).map_err(crate::fail("orca"))
+    }
+
+    /// Types `text` and Enter at a session whose harness is up, and answers
+    /// whether it started a turn. `now`: first stops the running turn with
+    /// the harness's own key, so a session stuck in a call reads it at once.
+    /// Orca misses a turn that starts right after an interrupt or ends
+    /// within a second; the session's own file, where its harness keeps
+    /// one, says whether the text was taken as a prompt.
+    pub(crate) fn deliver_at(&self, s: &Session, text: &str, now: bool) -> Answer<Delivery> {
+        self.up(s)?;
+        let since = (self.now() / 1000).saturating_sub(1) as u64;
+        let key = now.then(|| s.harness.interrupt());
+        let seen = self.host.orca().deliver(&s.terminal, text, key).map_err(crate::fail("orca"))?;
+        let home = self.session_home(s.harness, s.account.as_deref());
+        let took = || s.harness.prompted(&home, &s.cwd, &s.brief, text, since) == Some(true);
+        Ok(if seen == Delivery::Queued && took() { Delivery::Submitted } else { seen })
+    }
+
+    /// Refuses unless a session's harness is up in its terminal: typed at a
+    /// shell, a line is a command it runs.
+    fn up(&self, s: &Session) -> Answer<()> {
+        let screen = match self.host.orca().screen(&s.terminal) {
             Term::Running(screen) => screen,
             Term::Exited => return Err(Refusal::new("gone", "its session's terminal is gone")),
             Term::Unreadable(why) => return Err(Refusal::new("orca", why)),
         };
-        if let Some(why) = s.harness.not_up(&screen) {
-            return Err(Refusal::new("not_up", format!("its harness is not up: {why}")));
+        match s.harness.not_up(&screen) {
+            Some(why) => Err(Refusal::new("not_up", format!("its harness is not up: {why}"))),
+            None => Ok(()),
         }
-        orca.send(&s.terminal, text).map_err(crate::fail("orca"))
     }
 
     /// Hands a worker its brief if it is still to be typed and its harness
