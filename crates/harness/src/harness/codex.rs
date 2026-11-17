@@ -64,12 +64,20 @@ const CONFIG: &str = "--config";
 const HOOKS_REVIEWED: &str = "--dangerously-bypass-hook-trust";
 const MODEL: &str = "--model";
 
+/// The host user's own Codex configuration.
+const USER_CONFIG: &str = ".codex/config.toml";
+/// What a session takes of [`USER_CONFIG`]: its model, unless the kit names
+/// one, and how hard that model thinks. Not a kept file: Codex writes its
+/// own state into the kept configuration.
+const HOST_MODEL: [&str; 2] = ["model", "model_reasoning_effort"];
+
 const USER_DIR: &str = "CODEX_HOME";
 
 /// Codex's kept user directory links the host user's login and nothing else
 /// (so no hook, configuration or custom provider of theirs), and their
 /// skills and rules for a session given them. A link, so a renewed login
-/// stays fresh in both places.
+/// stays fresh in both places. Of their configuration a session is told
+/// only [`HOST_MODEL`], on its line.
 const KEPT_LINKS: &[Link] = &[Link { home: ".codex/auth.json", kept: "auth.json" }];
 
 /// The key that says, per directory, whether Codex loads what it holds of
@@ -156,6 +164,15 @@ fn added_hooks(guard: &str, report: &str) -> String {
     hooks
 }
 
+/// The host user's model settings, as configuration keys: none where their
+/// configuration is missing or not TOML, as Codex would not start on it.
+fn host_model(start: &Start) -> Vec<String> {
+    let text = std::fs::read_to_string(start.user_home.join(USER_CONFIG)).unwrap_or_default();
+    let Ok(config) = text.parse::<toml::Table>() else { return Vec::new() };
+    let keys = HOST_MODEL.into_iter().filter(|key| !(*key == "model" && start.model.is_some()));
+    keys.filter_map(|key| config.get(key).filter(|value| value.is_str()).map(|value| format!("{key}={value}"))).collect()
+}
+
 fn rules_files() -> String {
     format!("{RULES_FILES}=[{}]", toml_text(RULES))
 }
@@ -199,7 +216,8 @@ fn isolated(line: Line) -> Line {
 
 /// `line` with the worktree added, hooks reviewed and the start directory
 /// trusted, its rules and none above them, the told rules, the guard and
-/// the report, isolation, shadowed skills off, and the model.
+/// the report, isolation, shadowed skills off, the host's model settings,
+/// and the kit's model.
 fn added(line: Line, start: &Start) -> Line {
     let line = line.fixed(" ").fixed(ADD_DIR).fixed(" ").word(start.worktree);
     let line = trust(line, start.dir)
@@ -216,7 +234,10 @@ fn added(line: Line, start: &Start) -> Line {
         Some(told) => line.fixed(" ").fixed(CONFIG).fixed(" ").word(&told),
         None => line,
     };
-    let line = isolated(line.fixed(" ").fixed(CONFIG).fixed(" ").word(&added_hooks(start.hook, REPORT)));
+    let mut line = isolated(line.fixed(" ").fixed(CONFIG).fixed(" ").word(&added_hooks(start.hook, REPORT)));
+    for key in host_model(start) {
+        line = line.fixed(" ").fixed(CONFIG).fixed(" ").word(&key);
+    }
     match start.model {
         Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
         None => line,
