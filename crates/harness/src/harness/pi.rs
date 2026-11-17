@@ -81,7 +81,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
     line.fixed(" ")
         .fixed(USER_DIR)
         .fixed("=")
-        .word(start.kept)
+        .word(start.home.dir())
         .fixed(" ")
         .fixed(GUARD_ENV)
         .fixed("=")
@@ -110,7 +110,7 @@ pub(super) fn added(line: Line, start: &Start) -> Line {
         .fixed(SKILL)
         .fixed(" ")
         .word(&format!("{}/{SKILLS}", start.dir));
-    let line = line.fixed(" ").fixed(EXTENSION).fixed(" ").word(&format!("{}/{EXTENSION_FILE}", start.kept));
+    let line = line.fixed(" ").fixed(EXTENSION).fixed(" ").word(&format!("{}/{EXTENSION_FILE}", start.home.dir()));
     match start.model {
         Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
         None => line,

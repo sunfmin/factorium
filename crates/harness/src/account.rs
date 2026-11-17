@@ -9,7 +9,7 @@
 //! reading it keeps nothing of what mytokens printed but what it parsed.
 
 use std::num::NonZeroU32;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::Harness;
 
@@ -165,20 +165,25 @@ fn parse(service: &str, json: &str) -> Result<Account, String> {
 impl Account {
     /// The environment a session on it starts with on the machine `here`,
     /// the user's home being `user_home`; `None`: it cannot start here now.
-    /// A Claude Code token goes in alone, and the session keeps the
-    /// configuration directory it would have; a login, on its machine, is
-    /// its home under [`HOMES`], found logged in by its login file there.
+    /// A Claude Code token goes in alone; a login, on its machine, needs
+    /// nothing: it is its home ([`login_home`]), found logged in by its
+    /// login file there, which the session's home is (`Harness::home`).
     fn env(&self, here: &str, user_home: &Path) -> Option<Vec<(&'static str, String)>> {
         match &self.credential {
             Credential::Token(token) => Some(vec![(CLAUDE_TOKEN, token.clone())]),
             Credential::Login { machine } if !machine.eq_ignore_ascii_case(here) => None,
             Credential::Login { .. } => {
-                let home = user_home.join(HOMES).join(&self.name);
+                let home = login_home(user_home, &self.name);
                 let logged_in = self.harness.login_file().is_some_and(|login| home.join(login).exists());
-                logged_in.then(|| vec![(self.harness.config_variable(), home.to_string_lossy().into_owned())])
+                logged_in.then(Vec::new)
             }
         }
     }
+}
+
+/// The home of the login account `name`, under the user's home `user_home`.
+pub(crate) fn login_home(user_home: &Path, name: &str) -> PathBuf {
+    user_home.join(HOMES).join(name)
 }
 
 /// This machine's name, as `hostname -s` says it: what an account's

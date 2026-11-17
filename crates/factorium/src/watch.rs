@@ -29,11 +29,13 @@ impl App {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
         let terminal = self.ensure_watch(&before).await?;
-        let ready = match (&terminal, self.state::<Watches>(watch_id()).await?.harness) {
+        let started = self.state::<Watches>(watch_id()).await?;
+        let ready = match (&terminal, started.harness) {
             (Some(_), Some(h)) => Harness::read(&h).is_some_and(|h| {
                 let home = self.dir(&["watch"]);
                 let brief = home.join("BRIEF.md");
-                let turn = self.turn_of(h, &home.to_string_lossy(), &brief.to_string_lossy());
+                let turn =
+                    self.turn_of(h, started.account.as_deref(), &home.to_string_lossy(), &brief.to_string_lossy());
                 matches!(turn, Some(Turn::Closed { .. }))
             }),
             _ => false,

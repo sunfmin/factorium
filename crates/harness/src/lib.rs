@@ -14,5 +14,5 @@ mod start;
 mod turn;
 
 pub use harness::{Harness, Stop};
-pub use start::{Launch, RULES, SKILLS, Start};
+pub use start::{Home, Launch, RULES, SKILLS, Start};
 pub use turn::Turn;
