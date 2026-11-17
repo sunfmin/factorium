@@ -8,10 +8,10 @@ use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::hot;
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::kit::{Kits, kit_id};
+use factorium_domain::line::Move;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{EndWatch, Held, NoteAdmission, Watches, watch_id};
-use factorium_domain::worker::Status as WorkerStatus;
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
@@ -38,7 +38,7 @@ impl App {
         self.rows(tracker::listed()).await
     }
 
-    async fn live_workers(&self) -> Answer<Vec<WorkerRow>> {
+    pub(crate) async fn live_workers(&self) -> Answer<Vec<WorkerRow>> {
         self.rows(tracker::workers(None, false)).await
     }
 
@@ -77,26 +77,19 @@ impl App {
                 t.seen.push(seen);
             }
         }
-        // Landings, one per checkout, oldest first.
-        let workers = self.live_workers().await?;
+        // The lines: each checkout's landing, then its promotion and cut,
+        // as its line says each is due.
         let checkouts = self.listed().await?;
         for c in &checkouts {
-            let landing = workers.iter().find(|w| w.checkout == c.name && w.state.status == WorkerStatus::Landing);
-            if let Some(w) = landing
-                && let Some(did) = self.land(w.worker).await?
-            {
+            if let Ok(did) = self.carry(c, Move::Land, false).await? {
                 t.landed.push(did);
             }
         }
-        // Promotions and cuts, when the checkout is idle or a bound passed.
-        let workers = self.live_workers().await?;
         for c in &checkouts {
-            let idle = !workers.iter().any(|w| w.checkout == c.name && w.state.status != WorkerStatus::Waiting);
-            if let Some(did) = self.promote_if_due(c, idle, false).await? {
-                t.lines.push(did);
-            }
-            if let Some(did) = self.cut_if_due(c, idle, false).await? {
-                t.lines.push(did);
+            for mv in [Move::Promote, Move::Cut] {
+                if let Ok(did) = self.carry(c, mv, false).await? {
+                    t.lines.push(did);
+                }
             }
         }
         // One start, if admission allows.
