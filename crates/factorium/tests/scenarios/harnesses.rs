@@ -323,6 +323,58 @@ async fn a_codex_worker_runs_on_the_host_s_model_settings_and_no_other_setting_o
     }
 }
 
+/// The shell word that opens at `at` in `line`, unquoted: `'…'` with `'\''` inside.
+fn quoted_word(line: &str, at: usize) -> String {
+    let (mut word, mut rest) = (String::new(), &line[at + 1..]);
+    loop {
+        let end = rest.find('\'').unwrap();
+        word.push_str(&rest[..end]);
+        rest = &rest[end + 1..];
+        let Some(more) = rest.strip_prefix("\\''") else { return word };
+        word.push('\'');
+        rest = more;
+    }
+}
+
+/// The guard as a daemon-started codex worker's line gives it, run as Codex
+/// runs a hook, by the built binary, on a call as codex-cli 0.169.0 described
+/// it on a real host (its code-mode `exec_command` is `Bash` to a hook).
+#[tokio::test]
+async fn a_codex_worker_s_line_has_the_real_guard_refuse_its_push_as_codex_describes_it() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    let config: toml::Table = quoted_word(&line, line.find("'hooks=").unwrap()).parse().unwrap();
+    let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+    let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard codex "));
+    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let guard = guard.expect("a guard before each call").replace(&exe, env!("CARGO_BIN_EXE_factorium"));
+    let hook = |command: &str| {
+        use std::io::Write;
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", &guard])
+            .env("FACTORIUM_WORKER", id(&wk).to_string())
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let payload = serde_json::json!({"session_id": "s", "turn_id": "t", "cwd": "/w",
+            "hook_event_name": "PreToolUse", "model": "gpt-6.2-sol", "permission_mode": "bypassPermissions",
+            "tool_name": "Bash", "tool_input": {"command": command}, "tool_use_id": "exec-1"});
+        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let (code, said) = hook("git push origin HEAD:refs/heads/probe-codex");
+    assert_eq!(code, Some(2), "Codex blocks a call only on 2: {said}");
+    assert!(said.contains("a worker does not push"), "{said}");
+    assert_eq!(hook("git status --short").0, Some(0));
+}
+
 /// What a session's home must hold before its line runs, by harness: the
 /// file, and words in it that say it asks the guard. Claude Code and Codex
 /// are given their hooks on the line.
