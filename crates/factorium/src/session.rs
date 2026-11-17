@@ -10,6 +10,7 @@ use factorium_domain::kit::{AccountNote, LimitAccount};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::worker::{self as w, Status, Workers};
 use factorium_harness::{Harness, Stop, Turn};
+use factorium_host::Term;
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -38,8 +39,11 @@ impl App {
             self.submit::<w::Wait>(w::Because { worker, why: why.clone() }).await?;
             Ok::<_, crate::Refusal>(Some(json!({ "worker": worker, "waits": why })))
         };
-        let Some(screen) = self.host.orca().screen(&st.terminal) else {
-            return wait("its session's terminal is gone".into()).await;
+        let screen = match self.host.orca().screen(&st.terminal) {
+            Term::Running(screen) => screen,
+            Term::Exited => return wait("its session's terminal is gone".into()).await,
+            // Orca failed to answer: nothing is known, so look again next time.
+            Term::Unreadable(_) => return Ok(None),
         };
         let stopped = harness.stopped(&screen);
         if let Some(Stop::Quota(quota)) = &stopped {

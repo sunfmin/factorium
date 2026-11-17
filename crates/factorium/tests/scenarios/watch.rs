@@ -157,6 +157,22 @@ async fn a_new_watch_session_gets_the_round_that_is_running() {
 }
 
 #[tokio::test]
+async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_second_session() {
+    let w = World::new();
+    let wk = escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    *w.host.orca.down.lock().unwrap() = Some("orca: the runtime is not running".into());
+    crate::refused(w.app.watch_restart(id(&wk), "go on").await, "orca");
+    w.advance(5);
+    w.tick().await;
+    *w.host.orca.down.lock().unwrap() = None;
+    let sessions = w.host.orca.terminals.lock().unwrap().values().filter(|t| t.title == "factorium watch").count();
+    assert_eq!(sessions, 1, "its session may yet run");
+    assert_eq!(worker(&w.app).await["status"], "waiting", "the worker is not ended");
+}
+
+#[tokio::test]
 async fn the_worker_and_the_watch_are_told_the_database_the_app_was_opened_on() {
     let w = World::on("other.db");
     let wk = escalated_alone(&w).await;

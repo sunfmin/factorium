@@ -113,54 +113,64 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     assert!(failed["failed"].as_str().unwrap().contains("exit 7"));
     assert!(w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().contains("cutting v0.1.0 failed"));
     assert!(w.tick().await.lines.is_empty(), "not tried again on every tick");
-    assert!(w.host.brewed.lock().unwrap().is_empty());
+    assert!(w.host.brewed().is_empty());
 }
 
 /// Lands, promotes and cuts one change of `web`, whose cut installs the
-/// formula `web`, while the program is `running`'s binary; answers the tick.
-async fn cut_while_running(running: &str) -> crate::Tick {
-    let w = World::new();
+/// formula `web`; answers the tick.
+async fn cut_one(w: &World) -> crate::Tick {
     w.checkout("web").await;
     w.kit().await;
-    *w.host.running.lock().unwrap() = Some(running.into());
     w.app.issue_add("web", "a", "", false).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
-    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
-    t
+    w.tick().await
 }
 
 #[tokio::test]
 async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
-    let t = cut_while_running("web").await;
-    assert_eq!(t.restart.as_deref(), Some("/brew/opt/web/bin/web"));
-    let t = cut_while_running("other").await;
+    let w = World::new();
+    let bin = w.running_as("web");
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()));
+    let w = World::new();
+    w.running_as("other");
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart, None, "another formula's cut leaves the daemon as it is");
 }
 
 #[tokio::test]
 async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
     // Homebrew's upgrade succeeds yet it stays on the old version.
-    *w.host.brew_stuck.lock().unwrap() = Some("0.0.9".into());
-    w.app.issue_add("web", "a", "", false).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().stuck = true;
+    let t = cut_one(&w).await;
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
     let why = cut["failed"].as_str().expect("the cut fails");
     assert!(why.contains("web 0.0.9") && why.contains("not 0.1.0"), "{why}");
     assert_eq!(cut["installed"], json!(null));
+    let upgrades = w.host.brewed().iter().filter(|b| *b == "upgrade web").count();
+    assert_eq!(upgrades, 2, "an installed formula is upgraded, twice before it fails");
     let finding = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
     assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("not 0.1.0"), "{finding}");
     assert_eq!(t.restart, None, "the daemon does not restart onto a version it lacks");
+}
+
+#[tokio::test]
+async fn a_cut_installs_once_brew_update_sees_its_version() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    // The first `brew update` sees the tap as it was: its upgrade does nothing.
+    w.host.brew.lock().unwrap().behind = 1;
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.1.0");
+    assert_eq!(w.host.brewed().iter().filter(|b| b.starts_with("update")).count(), 2);
 }
 
 #[tokio::test]

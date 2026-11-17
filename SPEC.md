@@ -124,11 +124,15 @@ else of factorium.
   CLI command is one method of it, and the daemon's tick is one too.
   Every scenario drives `App` as the CLI does and reads only what the CLI
   could print. No crate has tests of its own beneath it.
-- **What is faked, and how.** Orca: an in-process stand-in that keeps
-  terminals and what was sent to them. Harnesses: a stand-in session that
-  writes the session file each harness describes, line by line, from its
-  own module, so no second copy of a format exists. Host readings, the
-  clock, mytokens and Homebrew: in-process stand-ins the scenario moves.
+- **What is faked, and how.** Orca, Homebrew and mytokens: the programs
+  themselves. The app runs them through one port (run a program, get its
+  answer), and a scenario stands in there with answers shaped as the real
+  programs gave them — Orca's keeping terminals and what was sent to them —
+  so what the app makes of their answers runs in every scenario.
+  Harnesses: a stand-in session that writes the session file each harness
+  describes, line by line, from its own module, so no second copy of a
+  format exists. Host readings and the clock: in-process stand-ins the
+  scenario moves.
   Git is real: a bare remote and clones in a temporary directory, made
   once per test run and copied, because landing's correctness is git's.
 - **The binary.** A handful of tests run the built binary to prove the

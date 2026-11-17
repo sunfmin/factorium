@@ -163,6 +163,42 @@ impl World {
     }
 }
 
+/// A checkout, a kit and one worker at work; answers its terminal.
+async fn one_working(w: &World) -> String {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false).await.unwrap();
+    w.tick().await;
+    worker(&w.app).await["terminal"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn orca_failing_to_answer_is_no_gone_terminal() {
+    let w = World::new();
+    let terminal = one_working(&w).await;
+    *w.host.orca.down.lock().unwrap() = Some("orca: the runtime is not running".into());
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "nothing is known of its terminal");
+    *w.host.orca.down.lock().unwrap() = None;
+    w.kill_terminal(&terminal);
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["why"], "its session's terminal is gone", "Orca says it exited");
+}
+
+#[tokio::test]
+async fn a_terminal_orca_no_longer_knows_is_gone() {
+    let w = World::new();
+    let terminal = one_working(&w).await;
+    // Orca restarted: the handle is stale.
+    w.host.orca.terminals.lock().unwrap().remove(&terminal);
+    w.tick().await;
+    let gone = worker(&w.app).await;
+    assert_eq!(
+        (gone["status"].clone(), gone["why"].clone()),
+        (json!("waiting"), json!("its session's terminal is gone"))
+    );
+}
+
 #[tokio::test]
 async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_their_unit() {
     let w = World::new();

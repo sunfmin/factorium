@@ -11,7 +11,7 @@ use factorium_domain::worker::{self as w, Started};
 use factorium_domain::worker_id;
 use factorium_harness::account::{self, Source};
 use factorium_harness::{Harness, Start};
-use factorium_host::{Git, Host};
+use factorium_host::{Git, Host, Term};
 use factum::Value;
 use serde_json::json;
 
@@ -128,6 +128,8 @@ impl App {
         }
         let terminal = opened.map_err(fail("orca"))?;
         if let Some(typed) = typed {
+            // Past a minute it is typed anyway, as a person would.
+            let _ = self.host.orca().ready(&terminal);
             self.host.orca().send(&terminal, &typed).map_err(fail("orca"))?;
         }
         Ok(terminal)
@@ -218,10 +220,13 @@ impl App {
     /// Starts the watch's session if the kit has a harness and none runs:
     /// answers its terminal, or `None` when it cannot run.
     pub(crate) async fn ensure_watch(&self, before: &watch::Watch) -> Answer<Option<String>> {
-        if let Some(t) = &before.terminal
-            && self.host.orca().screen(t).is_some()
-        {
-            return Ok(Some(t.clone()));
+        if let Some(t) = &before.terminal {
+            match self.host.orca().screen(t) {
+                Term::Running(_) => return Ok(Some(t.clone())),
+                // Not known to be gone: no second session; none to type at now.
+                Term::Unreadable(_) => return Ok(None),
+                Term::Exited => {}
+            }
         }
         let kit = self.state::<Kits>(kit_id()).await?;
         let accounts = self.accounts_here();
