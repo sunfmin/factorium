@@ -174,6 +174,10 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
         tokens.insert("agent-account-away".into(), codex("some-other-mac"));
         tokens.insert("agent-account-out".into(), codex(&this_machine()));
         tokens.insert("agent-account-odd".into(), r#"{"fields":{"HARNESS":"codex"}}"#.into());
+        tokens.insert("agent-account-blank".into(), codex(" "));
+        let claude = r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"#;
+        tokens.insert("agent-account-tokenless".into(), format!(r#"{claude}"  "}}}}"#));
+        tokens.insert("agent-account-extra".into(), format!(r#"{claude}"t","EXTRA":"x"}}}}"#));
         tokens.insert(
             "agent-account-team".into(),
             r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
@@ -186,7 +190,10 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
         let s = skipped.iter().find(|s| s["secret"] == secret).unwrap_or_else(|| panic!("{secret}: {doctor}"));
         s["why"].as_str().unwrap().to_string()
     };
-    assert_eq!(skipped.len(), 3, "the token account is usable: {doctor}");
+    assert_eq!(skipped.len(), 6, "the token account is usable: {doctor}");
+    assert_eq!(why("agent-account-blank"), "its `MACHINE` is empty");
+    assert_eq!(why("agent-account-tokenless"), "its `CLAUDE_CODE_OAUTH_TOKEN` is empty");
+    assert_eq!(why("agent-account-extra"), "`EXTRA` is no field of a claude-code account");
     assert!(why("agent-account-away").contains("its login is on `some-other-mac`"), "{doctor}");
     let home = w.host.home().join(".agent-accounts").join("out");
     let out = why("agent-account-out");
