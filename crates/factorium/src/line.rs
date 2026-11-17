@@ -11,7 +11,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::heavy::LineJob;
 use factorium_domain::issue::{Because, CloseIssue};
-use factorium_domain::line::{self, Due, Lines, Look, Move, next_version};
+use factorium_domain::line::{self, Due, Lines, Move, next_version};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{self as w, Status, Workers};
@@ -41,10 +41,10 @@ impl App {
             .filter(|w| w.checkout == c.name)
             .map(|w| (w.worker, w.state.status))
             .collect();
-        let look = Look { now: self.now(), settings: &settings, workers: &workers, by_hand };
+        let look = line::look(self.now(), &settings, &workers, by_hand);
         let git = self.host.git(&c.path);
         match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
-            Err(why) => Ok(Err(why)),
+            Err(not) => Ok(Err(line::why(not))),
             Ok(Due::Land(worker)) => self.land(c, worker).await,
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand).await,
             Ok(Due::Cut) => self.cut_base(c, by_hand).await,

@@ -2,52 +2,16 @@
 //! promoted to the base branch, and the versions cut from it.
 //!
 //! The line decides what is due on its checkout now, and why not
-//! ([`Line::due`]); its commands record what the app did and refuse what
+//! ([`Line::due`], neutral: [`crate::neutral::landing`]); its commands record what the app did and refuse what
 //! the line does not hold. The app does the git and gate work it is told.
 
-use factum_core::Aggregate;
+use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
-use factum_core::Uuid;
-
+pub use crate::neutral::landing::{Due, Landing, Line, LineEvent, Move, NotDue};
 use crate::settings::{Settings, Time};
 use crate::worker::Status;
 use crate::{command, line_id, no};
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Landing {
-    pub number: u64,
-    pub commit: String,
-    pub at: i64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Line {
-    /// Landed, oldest first, and not yet promoted.
-    pub unpromoted: Vec<Landing>,
-    /// Promoted, and not yet in a cut: when each landed.
-    pub uncut: Vec<i64>,
-    pub promoted: Option<String>,
-    /// The proving tip whose slow gate went red, while it is the tip.
-    pub red: Option<(String, String)>,
-    pub version: Option<String>,
-    /// The version whose cut failed, and why, until a cut succeeds.
-    pub cut_failed: Option<(String, String)>,
-    /// Landings held by the owner or the watch.
-    pub held: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum LineEvent {
-    Landed { number: u64, commit: String, at: i64 },
-    PromotionRed { tip: String, why: String },
-    Promoted { tip: String, at: i64 },
-    CutMade { version: String, commit: String },
-    CutFailed { version: String, why: String },
-    LandingsHeld { why: String },
-    LandingsReleased,
-}
 
 pub struct Lines;
 
@@ -57,128 +21,37 @@ impl Aggregate for Lines {
     type Event = LineEvent;
 
     fn evolve(s: &mut Line, event: LineEvent) {
-        match event {
-            LineEvent::Landed { number, commit, at } => s.unpromoted.push(Landing { number, commit, at }),
-            LineEvent::PromotionRed { tip, why } => s.red = Some((tip, why)),
-            LineEvent::Promoted { tip, .. } => {
-                // Everything landed up to the tip is promoted with it.
-                let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
-                s.uncut.extend(s.unpromoted.drain(..n).map(|l| l.at));
-                (s.promoted, s.red) = (Some(tip), None);
-            }
-            LineEvent::CutMade { version, .. } => {
-                s.uncut.clear();
-                (s.version, s.cut_failed) = (Some(version), None);
-            }
-            LineEvent::CutFailed { version, why } => s.cut_failed = Some((version, why)),
-            LineEvent::LandingsHeld { why } => s.held = Some(why),
-            LineEvent::LandingsReleased => s.held = None,
-        }
+        s.apply(event)
     }
 }
 
-/// One of the line's three moves.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Move {
-    Land,
-    Promote,
-    Cut,
-}
-
-/// What is due: the move, for a landing the worker it lands, and for a
-/// promotion the proving tip it was judged on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Due {
-    Land(Uuid),
-    Promote(String),
-    Cut,
-}
-
-/// What the app sees of the checkout now, for the line to judge.
-pub struct Look<'a> {
-    pub now: i64,
-    pub settings: &'a Settings,
-    /// The checkout's live workers and their status, oldest status first.
-    pub workers: &'a [(Uuid, Status)],
-    /// Asked for by hand: the bounds and a red tip or failed cut do not hold it.
-    pub by_hand: bool,
-}
-
-impl Look<'_> {
-    /// No worker of the checkout works or lands; those waiting for the watch do not count.
-    fn idle(&self) -> bool {
-        self.workers.iter().all(|(_, s)| *s == Status::Waiting)
-    }
-
-    /// Whether what began at `since` has waited `bound`.
-    fn waited(&self, since: i64, bound: Time) -> bool {
-        self.now - since >= self.settings.ms(bound)
+/// What the app sees of the checkout now, for the line to judge: its live
+/// workers and their status, oldest status first. Those waiting for the
+/// watch do not keep it busy; of those asking to land, the first lands.
+pub fn look(now: i64, settings: &Settings, workers: &[(Uuid, Status)], by_hand: bool) -> crate::neutral::landing::Look {
+    crate::neutral::landing::Look {
+        now,
+        idle: workers.iter().all(|(_, s)| *s == Status::Waiting),
+        asks: workers.iter().find(|(_, s)| *s == Status::Landing).map(|(w, _)| *w),
+        promotion_bound: settings.ms(Time::PromotionBound),
+        cut_bound: settings.ms(Time::CutBound),
+        by_hand,
     }
 }
 
-impl Line {
-    /// Whether `mv` is due on this checkout now, or why not, in one call.
-    /// `tip` reads the proving tip: it is called only for a promotion due
-    /// on everything else, which is then judged on that tip, and its error
-    /// is passed up as it is.
-    pub fn due<E>(
-        &self,
-        mv: Move,
-        look: &Look,
-        tip: impl FnOnce() -> Result<String, E>,
-    ) -> Result<Result<Due, String>, E> {
-        match mv {
-            Move::Land => Ok(self.landing(look)),
-            Move::Promote => match self.promotable(look) {
-                Ok(()) => Ok(self.on_tip(look, tip()?)),
-                Err(why) => Ok(Err(why)),
-            },
-            Move::Cut => Ok(self.cut(look)),
+/// Why a move is not due, in the words the CLI answers.
+pub fn why(not: NotDue) -> String {
+    match not {
+        NotDue::Held(why) => format!("landings are held: {why}"),
+        NotDue::NoAsk => "no worker asks to land".into(),
+        NotDue::NothingToPromote => "nothing to promote".into(),
+        NotDue::Busy => "the checkout is busy and its oldest landing waits within the promotion bound".into(),
+        NotDue::Red { tip, why } => format!("the slow gate is red on the proving tip {tip}: {why}"),
+        NotDue::NothingToCut => "nothing promoted since the last cut".into(),
+        NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand tries again: {why}"),
+        NotDue::Unsettled => {
+            "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound".into()
         }
-    }
-
-    fn landing(&self, look: &Look) -> Result<Due, String> {
-        if let Some(why) = &self.held {
-            return Err(format!("landings are held: {why}"));
-        }
-        // One landing per checkout at a time: the one that asked first.
-        let first = look.workers.iter().find(|(_, s)| *s == Status::Landing);
-        first.map(|(w, _)| Due::Land(*w)).ok_or_else(|| "no worker asks to land".into())
-    }
-
-    /// Whether a promotion is due on everything but the proving tip.
-    fn promotable(&self, look: &Look) -> Result<(), String> {
-        let Some(oldest) = self.unpromoted.first() else { return Err("nothing to promote".into()) };
-        if !(look.by_hand || look.idle() || look.waited(oldest.at, Time::PromotionBound)) {
-            return Err("the checkout is busy and its oldest landing waits within the promotion bound".into());
-        }
-        Ok(())
-    }
-
-    /// A promotion onto `tip`: not while it is the tip the slow gate found red.
-    fn on_tip(&self, look: &Look, tip: String) -> Result<Due, String> {
-        match &self.red {
-            Some((red, why)) if *red == tip && !look.by_hand => {
-                Err(format!("the slow gate is red on the proving tip {tip}: {why}"))
-            }
-            _ => Ok(Due::Promote(tip)),
-        }
-    }
-
-    fn cut(&self, look: &Look) -> Result<Due, String> {
-        let Some(&oldest) = self.uncut.first() else {
-            return Err("nothing promoted since the last cut".into());
-        };
-        if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
-            return Err(format!("cutting {version} failed; a cut by hand tries again: {why}"));
-        }
-        let settled = look.idle() && self.unpromoted.is_empty();
-        if !(look.by_hand || settled || look.waited(oldest, Time::CutBound)) {
-            return Err(
-                "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound".into()
-            );
-        }
-        Ok(Due::Cut)
     }
 }
 

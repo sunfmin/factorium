@@ -3,11 +3,14 @@
 //! `factorium worker exclusive`. The oldest waiting starts when the host
 //! has room, or when nothing runs, so it never starves; one start per
 //! reading; and one that holds others up past the hold bound is ended.
+//! That start rule is neutral: [`crate::neutral::queue`]; here are the
+//! queue's stream, the worker an entry is for, and the line jobs' names.
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
 use crate::declared::Kind;
+use crate::neutral::queue::{self, Queued};
 use crate::{command, id, no};
 
 pub fn queue_id() -> Uuid {
@@ -50,18 +53,36 @@ pub struct Queue {
     pub last_start: i64,
 }
 
+impl Queued for Entry {
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn what(&self) -> &str {
+        &self.what
+    }
+
+    fn queued_at(&self) -> i64 {
+        self.queued_at
+    }
+
+    fn started_at(&self) -> Option<i64> {
+        self.started_at
+    }
+}
+
 impl Queue {
     pub fn running(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter().filter(|e| e.started_at.is_some())
+        queue::running(&self.entries)
     }
 
     pub fn waiting(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter().filter(|e| e.started_at.is_none())
+        queue::waiting(&self.entries)
     }
 
     /// The waiting entry that starts next.
     pub fn oldest(&self) -> Option<&Entry> {
-        self.waiting().min_by_key(|e| (e.queued_at, e.id))
+        queue::oldest(&self.entries)
     }
 
     /// Whether the line job `job` of `checkout` runs now.
@@ -73,30 +94,12 @@ impl Queue {
     /// Whether `id` may start, given whether the host has room and when the
     /// reading was taken; else why not.
     pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64) -> Result<(), String> {
-        let oldest = self.oldest();
-        match oldest {
-            Some(e) if e.id == id => {}
-            Some(e) => return Err(format!("waits behind {}", e.what)),
-            None => return Err("not waiting".into()),
-        }
-        if self.running().next().is_none() {
-            return Ok(());
-        }
-        room?;
-        if read_at <= self.last_start {
-            return Err("one start per reading".into());
-        }
-        Ok(())
+        queue::may_start(&self.entries, self.last_start, id, room, read_at)
     }
 
     /// Whether the running `id` holds others up past `bound` and must end.
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
-        let Some(e) = self.entries.iter().find(|e| e.id == id) else { return false };
-        let waiting_since = self.waiting().map(|w| w.queued_at).min();
-        match (e.started_at, waiting_since) {
-            (Some(started), Some(since)) => now - started.max(since) > bound,
-            _ => false,
-        }
+        queue::overheld(&self.entries, id, now, bound)
     }
 }
 
