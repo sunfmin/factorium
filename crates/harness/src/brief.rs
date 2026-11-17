@@ -1,6 +1,6 @@
 //! The line that hands a session its brief: a file of instructions, named by
 //! its path. A session is found to be the one handed a brief by this line
-//! among its user's words (`Harness::names_brief`).
+//! among its user's words (`Kind::recorded_turn`).
 
 /// The opening words of the brief pointer, also recognised in a harness's
 /// initial user messages to identify the session handed it.
@@ -16,7 +16,7 @@ pub(crate) fn brief_pointer(brief: &str) -> String {
 }
 
 /// What a session whose harness keeps a goal is given as that goal
-/// (`Harness::brief_line`): the brief pointer, and when to mark the goal
+/// (`Kind::briefed`): the brief pointer, and when to mark the goal
 /// complete. The task stays in the brief: this names it, and copies none.
 pub(crate) fn goal_objective(brief: &str) -> String {
     format!("{} Mark this goal complete once the brief's outcome stands.", brief_pointer(brief))

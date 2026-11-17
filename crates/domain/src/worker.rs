@@ -71,6 +71,10 @@ pub struct Worker {
     /// Its `typed` line was typed at its session.
     #[serde(default)]
     pub handed: bool,
+    /// Its turn open, its processes near idle and its screen unchanged:
+    /// that screen's hash, and since when, in ms.
+    #[serde(default)]
+    pub quiet: Option<(u64, i64)>,
 }
 
 impl Worker {
@@ -114,6 +118,13 @@ pub enum WorkerEvent {
     CameUnder,
     /// Its brief was typed at its session.
     BriefHanded,
+    /// Its turn open, its processes near idle, showing this screen.
+    WentQuiet {
+        screen: u64,
+        at: i64,
+    },
+    /// Its processes or its screen moved again, or its turn closed.
+    Stirred,
 }
 
 pub struct Workers;
@@ -138,9 +149,13 @@ impl Aggregate for Workers {
                 (s.status, s.since, s.landed, s.why) = (Status::Ended, at, Some(commit), Some("landed".into()))
             }
             WorkerEvent::WorkerWaits { why, at } => {
-                (s.status, s.why, s.since, s.over_since) = (Status::Waiting, Some(why), at, None)
+                (s.status, s.why, s.since, s.over_since, s.quiet) = (Status::Waiting, Some(why), at, None, None)
             }
-            WorkerEvent::WorkerResumed { at } => (s.status, s.reds, s.why, s.since) = (Status::Working, 0, None, at),
+            WorkerEvent::WorkerResumed { at } => {
+                (s.status, s.reds, s.why, s.since, s.quiet) = (Status::Working, 0, None, at, None)
+            }
+            WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
+            WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
             WorkerEvent::CameUnder => s.over_since = None,
             WorkerEvent::BriefHanded => s.handed = true,
@@ -299,6 +314,34 @@ command!(
             (true, None) => vec![WorkerEvent::WentOver { at: now.0 }],
             (false, Some(_)) => vec![WorkerEvent::CameUnder],
             _ => Vec::new(),
+        })
+    }
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Quiet {
+    pub worker: Uuid,
+    /// The hash of its screen while its turn is open and its processes are
+    /// near idle; `None` otherwise.
+    pub screen: Option<u64>,
+}
+
+command!(
+    /// Notes whether the worker sits quiet in an open turn: the first such
+    /// reading, or one whose screen changed, starts its clock; any other
+    /// stops it.
+    NoteQuiet,
+    "worker.quiet",
+    Workers,
+    Quiet,
+    |p| p.worker,
+    |s, p, now| {
+        live(s)?;
+        Ok(match (p.screen, s.quiet) {
+            (Some(h), Some((was, _))) if h == was => Vec::new(),
+            (Some(h), _) => vec![WorkerEvent::WentQuiet { screen: h, at: now.0 }],
+            (None, Some(_)) => vec![WorkerEvent::Stirred],
+            (None, None) => Vec::new(),
         })
     }
 );

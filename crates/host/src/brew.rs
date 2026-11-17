@@ -39,12 +39,12 @@ impl Brew<'_> {
         }
     }
 
-    /// If this program is the binary `formula` installs, where that binary
-    /// is found after an upgrade too; asked before the upgrade.
-    pub fn binary_of(&self, formula: &str) -> Option<PathBuf> {
-        // The opt prefix links whichever version is installed.
+    /// Where Homebrew links the program `me` (a path canonical, as
+    /// `<cellar>/<formula>/<version>/bin/<name>`), if Homebrew installed
+    /// it: the opt link, which follows whichever version is installed.
+    pub fn link_of(&self, me: &Path) -> Option<PathBuf> {
+        let formula = me.parent()?.parent()?.parent()?.file_name()?.to_str()?;
         let prefix = self.brew(&["--prefix", formula]).ok()?;
-        let me = std::env::current_exe().ok()?.canonicalize().ok()?;
         let bin = Path::new(prefix.trim()).join("bin").join(me.file_name()?);
         (bin.canonicalize().ok()? == me).then_some(bin)
     }

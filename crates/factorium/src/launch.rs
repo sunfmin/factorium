@@ -9,9 +9,8 @@
 use std::path::{Path, PathBuf};
 
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_harness::account::{self, Source};
+use factorium_harness::account::{self, Here};
 use factorium_harness::{Harness, Kept, RULES, Start};
-use factorium_host::Host;
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal, fail};
@@ -74,6 +73,12 @@ impl Caller {
     pub fn may_run(&self, command: &str) -> Answer<()> {
         match (command, self) {
             ("worker" | "guard", _) => Ok(()),
+            // The watch lives under the daemon: stopping it ends the watch too.
+            ("stop", Caller::Worker(_) | Caller::Watch) => Err(Refusal::new(
+                "guarded",
+                "the daemon is not stopped from a session: it swaps to a newly installed binary on its own, \
+                 between ticks, after any cut (`factorium cut` included)",
+            )),
             (_, Caller::Worker(_)) => Err(Refusal::new("guarded", "a worker runs only `factorium worker …`")),
             ("watch", Caller::Owner) => Err(Refusal::new("guarded", "only the watch runs `factorium watch …`")),
             _ => Ok(()),
@@ -148,35 +153,14 @@ pub(crate) struct Opened {
     pub(crate) typed: Option<String>,
 }
 
-/// An account usable here: its name, its harness key, and the environment a
-/// session on it starts with.
-type Usable = (String, String, Vec<(&'static str, String)>);
-
-/// mytokens, through the host.
-struct Tokens<'a>(&'a dyn Host);
-
-impl Source for Tokens<'_> {
-    fn list(&self) -> Result<String, String> {
-        self.0.mytokens(&["list"])
-    }
-
-    fn get(&self, service: &str) -> Result<String, String> {
-        self.0.mytokens(&["get", service, "--json"])
-    }
-}
-
 fn io(e: std::io::Error) -> Refusal {
     Refusal::new("io", e.to_string())
 }
 
 impl App {
-    /// The accounts usable on this machine now: (name, harness key, the
-    /// environment a session on it starts with).
-    pub(crate) fn accounts_here(&self) -> Vec<Usable> {
-        account::usable(&Tokens(self.host.as_ref()), &self.host.home())
-            .into_iter()
-            .map(|a| (a.name, a.harness.key().to_string(), a.env))
-            .collect()
+    /// The accounts mytokens holds, as this machine can use them now.
+    pub(crate) fn accounts_here(&self) -> Here {
+        account::here(&|args| self.host.mytokens(args), &self.host.home())
     }
 
     /// The watch's home and the brief its session is handed there.
@@ -190,16 +174,16 @@ impl App {
     /// `no_harness` when nothing of the kit can.
     pub(crate) async fn pick(&self, checkout: &str) -> Answer<Pick> {
         let kit = self.state::<Kits>(kit_id()).await?;
-        let accounts = self.accounts_here();
-        let here: Vec<(String, String)> = accounts.iter().map(|(n, h, _)| (n.clone(), h.clone())).collect();
+        let accounts = self.accounts_here().usable;
+        let here: Vec<(String, String)> = accounts.iter().map(|a| (a.name.clone(), a.harness.key().into())).collect();
         let choice = kit.choose(checkout, self.now(), &here).map_err(fail("no_harness"))?;
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
         let secrets = choice
             .account
             .as_ref()
-            .and_then(|a| accounts.into_iter().find(|(n, ..)| n == a))
-            .map(|(.., env)| env)
+            .and_then(|a| accounts.into_iter().find(|u| &u.name == a))
+            .map(|u| u.env)
             .unwrap_or_default();
         Ok(Pick { harness, account: choice.account, model: choice.entry.model, command: choice.entry.command, secrets })
     }

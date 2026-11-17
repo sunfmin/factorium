@@ -236,7 +236,11 @@ impl Projection for Tracker {
                 WorkerEvent::WorkerWaits { why, at } => state(WorkerStatus::Waiting, Some(why), at),
                 WorkerEvent::WorkerResumed { at } => state(WorkerStatus::Working, None, at),
                 WorkerEvent::WorkerEnded { why, at } => state(WorkerStatus::Ended, Some(why), at),
-                WorkerEvent::WentOver { .. } | WorkerEvent::CameUnder | WorkerEvent::BriefHanded => Vec::new(),
+                WorkerEvent::WentOver { .. }
+                | WorkerEvent::CameUnder
+                | WorkerEvent::BriefHanded
+                | WorkerEvent::WentQuiet { .. }
+                | WorkerEvent::Stirred => Vec::new(),
             },
             _ => Vec::new(),
         })

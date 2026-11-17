@@ -64,6 +64,10 @@ enum Top {
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
     Cut { checkout: String },
+    /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
+    /// queue, waiting or running: one that does not move and holds the rest
+    /// up. Its owner, if it still asks, queues again behind the rest.
+    Unqueue { entry: Uuid },
     /// Holds a checkout's landings (`--why`), or releases them (`--release`).
     Hold {
         checkout: String,
@@ -171,6 +175,16 @@ enum IssueCmd {
     Park { checkout: String, number: u64, reason: String },
     /// Readies a parked issue.
     Ready { checkout: String, number: u64 },
+    /// Starts an issue over: removes the worktree its last attempt kept, so
+    /// the next start begins from proving; the old branch is kept as
+    /// `<branch>-abandoned` and named in a comment with the why. Refused
+    /// while a worker is on it (park first); ready or parked stays as it is.
+    StartOver {
+        checkout: String,
+        number: u64,
+        #[arg(long)]
+        why: String,
+    },
     /// Adds a comment, which the next worker's brief carries.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another of its checkout (`--undo`: stop).
@@ -189,7 +203,7 @@ enum KitCmd {
     /// Answers the kit.
     Show,
     /// Sets the kit: `harness=command[@model]`, highest priority first.
-    /// Harnesses: claude-code, codex, pi, dsh, kimi, grok.
+    /// An unknown harness is refused, naming those there are.
     /// A command that is only a program (a path or a name) gets that
     /// harness's stock arguments; one with arguments is taken as given.
     Set { entries: Vec<String> },
@@ -280,6 +294,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
             IssueCmd::Park { checkout, number, reason } => app.issue_park(&checkout, number, &reason).await,
             IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
+            IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
             IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
             IssueCmd::Block { checkout, number, by, undo } => app.issue_block(&checkout, number, by, undo).await,
         },
@@ -287,6 +302,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
         Top::Doctor => app.doctor().await,
         Top::Promote { checkout } => app.promote(&checkout).await,
         Top::Cut { checkout } => app.cut(&checkout).await,
+        Top::Unqueue { entry } => app.unqueue(entry).await,
         Top::Hold { checkout, why, release } => app.hold(&checkout, if release { None } else { why.as_deref() }).await,
         Top::Kit(k) => match k {
             KitCmd::Show => app.kit().await,

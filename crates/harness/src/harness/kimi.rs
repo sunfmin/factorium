@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Deserializer};
 
-use super::Link;
+use super::{Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::Call;
@@ -14,21 +14,21 @@ use crate::start::{START_DIR_ENV, Start, TOLD, WORKTREE_ENV};
 use crate::turn::{Marker, Note, Turn};
 use toml::Value as Toml;
 
-pub(super) const KEY: &str = "kimi";
+const KEY: &str = "kimi";
 /// What a bare program is started with: no approval prompts.
-pub(super) const STOCK_ARGUMENTS: &str = "--auto";
+const STOCK_ARGUMENTS: &str = "--auto";
 
 const ADD_DIR: &str = "--add-dir";
 const SKILLS_DIR: &str = "--skills-dir";
-pub(super) const MODEL: &str = "--model";
+const MODEL: &str = "--model";
 
-pub(super) const USER_DIR: &str = "KIMI_CODE_HOME";
-pub(super) const ENVIRONMENT: [&str; 3] =
+const USER_DIR: &str = "KIMI_CODE_HOME";
+const ENVIRONMENT: [&str; 3] =
     ["KIMI_CODE_TRUST_WORKSPACE", "KIMI_CODE_NO_AUTO_UPDATE", "KIMI_DISABLE_TELEMETRY"];
 
-pub(super) const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", kept: "credentials" }];
+const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", kept: "credentials" }];
 
-pub(super) const REFUSED: u8 = 2;
+const REFUSED: u8 = 2;
 
 /// The file whose being in its user directory answers the question Kimi
 /// Code opens a fresh one with: whether to migrate kimi-cli's configuration.
@@ -43,7 +43,7 @@ const SYSTEM: &str = "SYSTEM.md";
 /// the configuration, and its own prompt (`${base_prompt}`) then where its
 /// rules are: it starts in a directory whose rules file it does not read,
 /// and works in another.
-pub(super) fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
     let user = std::fs::read_to_string(start.user_home.join(USER_CONFIG)).ok();
     let config = configuration(user.as_deref(), start.hook)?;
     Ok(vec![(SKIP_MIGRATION, String::new()), (CONFIG, config), (SYSTEM, format!("${{base_prompt}}\n\n{TOLD}"))])
@@ -59,7 +59,7 @@ fn configuration(user: Option<&str>, guard: &str) -> Result<String, String> {
         _ => Toml::Table(Default::default()),
     };
     let table = config.as_table_mut().ok_or("the host user's Kimi config is not a table")?;
-    table.retain(|key, _| matches!(key, "default_model" | "providers" | "models" | "secondary_model"));
+    table.retain(|key, _| matches!(key, "default_model" | "providers" | "models"));
     table.insert("default_permission_mode".into(), Toml::from("auto"));
     table.insert("default_plan_mode".into(), Toml::from(false));
     table.insert("auto_session_title".into(), Toml::from(false));
@@ -119,7 +119,7 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/kimi-hook.sh\"; if [ -x 
      then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0";
 
 /// `line` with Kimi's home, and where its rules are (`TOLD`).
-pub(super) fn environment(line: Line, start: &Start) -> Line {
+fn environment(line: Line, start: &Start) -> Line {
     line.fixed(" ")
         .fixed(USER_DIR)
         .fixed("=")
@@ -134,7 +134,7 @@ pub(super) fn environment(line: Line, start: &Start) -> Line {
         .word(start.dir)
 }
 
-pub(super) fn added(line: Line, start: &Start) -> Line {
+fn added(line: Line, start: &Start) -> Line {
     let line = line
         .fixed(" ")
         .fixed(ADD_DIR)
@@ -167,7 +167,7 @@ struct Input {
     command: Option<String>,
 }
 
-pub(super) fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
     let described = Described::deserialize(described)?;
     Ok(match described.tool_input.command {
         Some(line) if described.tool_name == "Bash" => Call::Shell(line),
@@ -182,7 +182,7 @@ const USAGE_LIMIT: &str = "[provider.api_error] 429 You've reached your 5-hour u
 
 /// Kimi Code's account-quota screen. The error may wrap; a terminal's
 /// line break is whitespace. The same words on another harness are not it.
-pub(super) fn account_quota(output: &[String]) -> Option<String> {
+fn account_quota(output: &[String]) -> Option<String> {
     let flat = output.join(" ").split_whitespace().collect::<Vec<_>>().join(" ");
     if !flat.contains(USAGE_LIMIT) {
         return None;
@@ -198,15 +198,20 @@ pub(super) fn account_quota(output: &[String]) -> Option<String> {
 
 /// Where Kimi keeps the sessions of every worktree: one index names each
 /// worktree's session directories, and each holds its wire.
-pub(super) fn layout() -> Layout {
-    Layout::Index { index: "session_index.jsonl", name: "agents/main/wire.jsonl" }
+fn layout() -> Layout {
+    Layout::Index {
+        index: "session_index.jsonl",
+        name: "agents/main/wire.jsonl",
+        dirs: session_dirs,
+        with: session_index,
+    }
 }
 
 /// The turn `text`, one session's wire, records. The worktree was named by
 /// the index that pointed here. Kimi records no child session. The wire's
 /// other lines are huge and are not a turn: the type is the whole match, so
 /// a prompt that mentions a turn is not one.
-pub(super) fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
+fn recorded_turn(_cwd: &str, text: &str, not_before: Option<u64>) -> Option<Turn> {
     let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();
     session::turn_of(&notes, not_before)
 }
@@ -223,7 +228,7 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 /// The index `existing` with this worktree's line replaced by one naming
 /// its session directory `dir`. Lines for other worktrees, and a line that
 /// is not JSON, stay.
-pub(super) fn session_index(cwd: &str, existing: &str, dir: &str) -> String {
+fn session_index(cwd: &str, existing: &str, dir: &str) -> String {
     let mut kept = String::new();
     for line in existing.lines() {
         if line.trim().is_empty() {
@@ -253,7 +258,7 @@ pub(super) fn session_index(cwd: &str, existing: &str, dir: &str) -> String {
 }
 
 /// The wire a stand-in writes for this turn.
-pub(super) fn stand_in(open: bool, at: u64) -> String {
+fn stand_in(open: bool, at: u64) -> String {
     let ms = at.saturating_mul(1000);
     let mut body = format!(
         "{}\n",
@@ -280,9 +285,67 @@ pub(super) fn stand_in(open: bool, at: u64) -> String {
 
 /// The session directories `index` names for the worktree `cwd`: absolute,
 /// or relative to the harness directory.
-pub(super) fn session_dirs(index: &str, cwd: &str) -> Vec<String> {
+fn session_dirs(index: &str, cwd: &str) -> Vec<String> {
     json_lines(index)
         .filter(|value| value["workDir"].as_str().is_some_and(|dir| session::same_cwd(dir, cwd)))
         .filter_map(|value| value["sessionDir"].as_str().filter(|dir| !dir.is_empty()).map(str::to_string))
         .collect()
+}
+
+/// Kimi Code, as a harness: what its module says of it.
+pub(super) struct Kimi;
+
+impl Kind for Kimi {
+    const KEY: &'static str = KEY;
+    const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
+    const USER_HOME: Option<&'static str> = None;
+    const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
+    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    const ASKS_FIRST: Option<&'static str> = None;
+    const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
+    const REFUSED: u8 = REFUSED;
+
+    fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        kept(start)
+    }
+
+    fn start_dir<'a>(start: &Start<'a>) -> &'a str {
+        start.dir
+    }
+
+    fn environment(line: Line, start: &Start) -> Line {
+        environment(line, start)
+    }
+
+    fn added(line: Line, start: &Start) -> Line {
+        added(line, start)
+    }
+
+    fn briefed(line: String, brief: &str) -> (String, Option<String>) {
+        (line, Some(crate::brief::brief_pointer(brief)))
+    }
+
+    fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
+        call(described)
+    }
+
+    fn stopped(screen: &[String]) -> Option<Stop> {
+        account_quota(screen).map(Stop::Quota)
+    }
+
+    fn layout(_cwd: &str) -> Layout {
+        layout()
+    }
+
+    fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
+        true
+    }
+
+    fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
+        recorded_turn(cwd, text, None)
+    }
+
+    fn stand_in(_cwd: &str, open: bool, at: u64) -> String {
+        stand_in(open, at)
+    }
 }

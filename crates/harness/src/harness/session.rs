@@ -193,3 +193,17 @@ fn text_part(part: &Value) -> Option<&str> {
         Some(_) => None,
     }
 }
+
+/// Whether `text` could be the session of the worktree `cwd` or of the one
+/// handed `brief`, without parsing it: for a harness writing every
+/// worktree's sessions into one tree, which knows its own by a line naming
+/// `cwd` or `brief`. JSON writes them as themselves unless they hold a
+/// quote, a backslash or a control character.
+pub(super) fn names_cwd_or_brief(cwd: &str, text: &str, brief: &str) -> bool {
+    let written_as_is = |path: &str| !path.chars().any(|ch| ch == '"' || ch == '\\' || ch.is_control());
+    let cwd = cwd.trim_end_matches('/');
+    if cwd.is_empty() || !written_as_is(cwd) || !written_as_is(brief) {
+        return true;
+    }
+    text.contains(cwd) || text.contains(brief)
+}

@@ -9,7 +9,7 @@ use factorium::host::Host;
 use crate::{World, id, worker};
 
 /// Lands one commit of `file` through a worker; answers the landed commit.
-async fn land(w: &World, number: u64, file: &str) -> String {
+pub(crate) async fn land(w: &World, number: u64, file: &str) -> String {
     let wk = w
         .app
         .workers(false)
@@ -134,15 +134,41 @@ async fn cut_one(w: &World) -> crate::Tick {
 #[tokio::test]
 async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
     let w = World::new();
-    let bin = w.running_as("web");
+    let bin = w.running_as(&w.app, "web");
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()));
     let w = World::new();
-    w.running_as("other");
+    w.running_as(&w.app, "other");
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart, None, "another formula's cut leaves the daemon as it is");
+}
+
+#[tokio::test]
+async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
+    let w = World::new();
+    let bin = w.running_as(&w.app, "web");
+    w.checkout("web").await;
+    w.kit().await;
+    // Landed, and uncut while the checkout is busy: the daemon does not cut.
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    assert!(w.tick().await.started.is_some(), "b works on");
+    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(!t.landed.is_empty(), "{t:?}");
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
+    assert_eq!(t.restart, None);
+    // The owner, or the watch, cuts by hand in another process.
+    w.run().promote("web").await.unwrap();
+    let cut = w.run().cut("web").await.unwrap();
+    assert_eq!(cut["installed"], "web", "{cut}");
+    let t = w.tick().await;
+    assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()), "the next tick swaps the binary");
 }
 
 #[tokio::test]
@@ -200,6 +226,103 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     let trees: Vec<_> = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).collect();
     assert_eq!(trees.len(), 1, "only the checkout itself: {trees:?}");
     assert!(trees[0].ends_with("repos/web"), "{trees:?}");
+}
+
+#[tokio::test]
+async fn a_base_moved_outside_factorium_turns_promotion_red_and_stays() {
+    let w = World::new();
+    let web = w.checkout("web").await;
+    w.kit().await;
+    let why = w.app.promote("web").await.unwrap()["why"].as_str().unwrap().to_string();
+    assert!(why.contains("nothing to promote"), "{why}");
+    // #2 keeps the checkout busy, so #1's landing waits for the bound.
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let _ = land(&w, 1, "a").await;
+    // Someone pushes to the base by hand.
+    let clone = w.dir.join("outside");
+    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
+    w.git(&clone, &["fetch", "-q"]).unwrap();
+    w.git(&clone, &["checkout", "-q", "-B", "main", "origin/main"]).unwrap();
+    w.commit(&clone, "hotfix", "x");
+    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    let moved = w.remote_tip("web", "main");
+    w.advance(61);
+    let t = w.tick().await;
+    let red = t.lines.iter().find(|l| l["promotion"] == "web").expect("a promotion ran");
+    assert!(red["red"].as_str().unwrap().contains("moved outside factorium"), "{red}");
+    assert_eq!(w.remote_tip("web", "main"), moved, "the base is not moved over");
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"), "{doctor}");
+    assert!(w.tick().await.lines.is_empty(), "the same tip is not tried again");
+}
+
+#[tokio::test]
+async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let workers = w.app.workers(false).await.unwrap();
+    let of = |n: u64| workers.as_array().unwrap().iter().find(|x| x["number"] == n).cloned().unwrap();
+    for n in [2, 1] {
+        let wk = of(n);
+        w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), &format!("f{n}"), "x");
+        w.app.worker_done(id(&wk)).await.unwrap();
+        w.advance(1);
+    }
+    let t = w.tick().await;
+    assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
+    assert_eq!(t.landed[0]["landed"], "web#2", "#2 asked first");
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+/// Starts #1 and #2 of `web`, neither ever silent.
+async fn two(w: &World) {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+}
+
+#[tokio::test]
+async fn a_worker_waiting_for_the_watch_leaves_its_checkout_idle() {
+    let w = World::new();
+    two(&w).await;
+    let wk = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned();
+    w.app.worker_escalate(id(&wk.unwrap()), "which API version?").await.unwrap();
+    let landed = land(&w, 1, "a").await;
+    assert_eq!(w.remote_tip("web", "main"), landed, "promoted at once: #2 only waits");
+}
+
+#[tokio::test]
+async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
+    let w = World::new();
+    two(&w).await;
+    let _ = land(&w, 1, "a").await;
+    w.advance(61);
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "#2 still works: no cut");
+    // #2 lands a change whose slow gate is red: idle, but not all promoted.
+    let _ = land(&w, 2, "SLOWRED").await;
+    w.tick().await;
+    assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_err(), "no version is cut");
+    // Its own bound passed, it is cut whatever is unpromoted.
+    w.advance(24 * 60);
+    w.tick().await;
+    assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok(), "cut once the bound passed");
 }
 
 #[tokio::test]

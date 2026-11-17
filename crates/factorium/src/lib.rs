@@ -83,6 +83,8 @@ pub fn default_db() -> PathBuf {
 struct Memory {
     queued: std::collections::BTreeSet<Uuid>,
     asked: std::collections::BTreeSet<Uuid>,
+    /// The binary the daemon runs, and the Homebrew link that was it.
+    running: Option<(PathBuf, PathBuf)>,
 }
 
 pub struct App {
