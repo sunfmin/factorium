@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::Value;
 
 use crate::line::land;
-use crate::queue::{STUCK, heavy, while_busy};
+use crate::queue::{STUCK, heavy, running_on, while_busy};
 use crate::{UP, World, id, worker};
 
 /// The finding whose key is `key`, if doctor answers one.
@@ -81,20 +81,8 @@ async fn a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_a
     let w = World::new();
     // No room: nothing starts beside what runs.
     w.host.reading.lock().unwrap().cpu_busy = 99;
+    running_on(&w).await;
     let cli = w.run();
-    // A command that started and whose asker went away: its entry runs on,
-    // which no hold-bound check ends.
-    let started = w.dir.join("started");
-    {
-        let line = format!("touch {}", started.display());
-        let mut runs = std::pin::pin!(cli.worker_exclusive(None, &w.dir, &line));
-        let up = async {
-            while !started.exists() {
-                tokio::task::yield_now().await;
-            }
-        };
-        tokio::select! { _ = &mut runs => {}, _ = up => {} }
-    }
     let waiting = {
         let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo behind"));
         let queued = async {
