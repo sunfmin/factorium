@@ -3,7 +3,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 
-use factorium_host::shell::{Programs, System};
+use factorium_host::shell::{Priority, Programs, System, run};
 
 #[test]
 fn a_program_is_found_only_as_a_file_that_may_be_run() {
@@ -23,4 +23,14 @@ fn a_program_is_found_only_as_a_file_that_may_be_run() {
     assert!(System.found("sh"), "by its name, on PATH");
     assert!(!System.found("factorium-no-such-program"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A command whose directory is gone (a worktree removed under a step)
+/// never starts: it fails, says why, and nothing ran.
+#[test]
+fn a_command_in_a_missing_directory_fails_and_says_it_could_not_start() {
+    let gone = std::path::Path::new("/nonexistent/factorium-host-gone");
+    let ran = run(gone, "true", &[], std::time::Duration::from_secs(5), Priority::Normal, &|| false);
+    assert!(!ran.ok && ran.code.is_none() && !ran.timed_out, "{ran:?}");
+    assert!(ran.tail.starts_with("cannot start sh: "), "{}", ran.tail);
 }
