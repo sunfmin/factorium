@@ -2,7 +2,7 @@
 //! the machine — every gate run, and what a worker runs through
 //! `factorium worker exclusive`. The oldest waiting starts when the host
 //! has room, or when nothing runs, so it never starves; one start per
-//! reading; and one that holds others up past the hold bound is ended. A
+//! reading settled after the last start; and one that holds others up past the hold bound is ended. A
 //! line move past its bound goes ahead of workers' waiting entries.
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
@@ -106,10 +106,18 @@ impl Queue {
         self.running().any(|e| e.what == what)
     }
 
-    /// Whether `id` may start at `now`, given whether the host has room and
-    /// when the reading was taken; else why not.
-    pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64, now: i64) -> Result<(), String> {
-        queue::may_start(&self.entries, self.last_start, id, room, read_at, now)
+    /// Whether `id` may start at `now`, given whether the host has room, when
+    /// the reading was taken, and how long a start takes to show; else why not.
+    pub fn may_start(
+        &self,
+        id: Uuid,
+        room: Result<(), String>,
+        read_at: i64,
+        settle: i64,
+        now: i64,
+    ) -> Result<(), String> {
+        let starts = queue::Starts { last: self.last_start, settle };
+        queue::may_start(&self.entries, starts, id, room, read_at, now)
     }
 
     /// Whether the running `id` holds others up past `bound` and must end.
@@ -192,12 +200,14 @@ pub struct Begin {
     pub id: Uuid,
     /// Whether the host had room, and why not.
     pub room: Result<(), String>,
-    /// When that reading was taken, ms.
+    /// When that reading was taken, ms: before the host was read.
     pub read_at: i64,
+    /// How long after the last start a reading shows its load, ms.
+    pub settle: i64,
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
-    match s.may_start(p.id, p.room.clone(), p.read_at, now.0) {
+    match s.may_start(p.id, p.room.clone(), p.read_at, p.settle, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),
     }

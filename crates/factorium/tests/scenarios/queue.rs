@@ -374,3 +374,66 @@ async fn the_daemon_starts_no_promotion_while_promote_by_hand_runs() {
     assert_eq!(w.slow_gates_ran() - slow_before, 1, "one GateRan of the tip");
     assert!(!w.tick().await.lines.iter().any(|l| l["promoted"] == "web"), "nothing left to promote");
 }
+
+/// The heavy entries `doctor` shows started.
+async fn started(w: &World) -> Vec<String> {
+    let d = w.run().doctor().await.unwrap();
+    let entries = d["heavy"].as_array().unwrap().iter();
+    entries.filter(|e| !e["started_at"].is_null()).map(|e| e["what"].as_str().unwrap().to_string()).collect()
+}
+
+/// Seen 2026-11-18 (factorium#102): three `worker exclusive` asked in the
+/// same second beside a running entry, and all three started on readings
+/// that could not yet show each other's load.
+#[tokio::test]
+async fn beside_what_runs_asks_in_one_second_start_one_per_settled_reading() {
+    let w = World::new();
+    running_on(&w).await;
+    let settle = 30_000;
+    // The running one started a settle interval ago; the host has room.
+    w.clock.advance(settle);
+    w.host.reading.lock().unwrap().cpu_busy = 10;
+    let dirs: Vec<_> = (0..3).map(|k| w.dir.join(format!("ask{k}"))).collect();
+    let lines: Vec<_> = dirs.iter().map(|d| w.holds(d)).collect();
+    let clis: Vec<_> = (0..3).map(|_| w.run()).collect();
+    let ask = |k: usize| clis[k].worker_exclusive(None, &w.dir, &lines[k]);
+    let asks = async { tokio::join!(ask(0), ask(1), ask(2)) };
+    let looks = async {
+        // Each look waits until `n` of the three started, then for a few more
+        // asks (they ask every 500ms), and answers how many started.
+        let count = || dirs.iter().filter(|d| d.join("started").exists()).count();
+        let after = async |n: usize| {
+            while count() < n {
+                tokio::task::yield_now().await;
+            }
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            count()
+        };
+        assert_eq!(after(1).await, 1, "one starts on the reading the others saw");
+        w.clock.advance(settle - 1);
+        assert_eq!(after(1).await, 1, "a reading short of the settle interval starts none");
+        w.clock.advance(1);
+        assert_eq!(after(2).await, 2, "a reading the settle interval later starts the next");
+        assert_eq!(started(&w).await.len(), 3, "the running one and two of the three");
+        w.clock.advance(settle);
+        assert_eq!(after(3).await, 3);
+        for d in &dirs {
+            std::fs::write(d.join("release"), "").unwrap();
+        }
+    };
+    let (ran, ()) = tokio::time::timeout(STUCK, async { tokio::join!(asks, looks) }).await.expect("all three run");
+    for r in [ran.0, ran.1, ran.2] {
+        assert_eq!(r.unwrap()["ok"], true);
+    }
+}
+
+#[tokio::test]
+async fn with_nothing_running_the_oldest_starts_at_once_however_recent_the_last_start() {
+    let w = World::new();
+    // No room: nothing running is reason enough.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    for line in ["echo one", "echo two"] {
+        let ran = tokio::time::timeout(STUCK, w.run().worker_exclusive(None, &w.dir, line)).await;
+        assert_eq!(ran.expect("starts at once").unwrap()["ok"], true, "{line}");
+    }
+}
