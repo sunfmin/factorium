@@ -123,6 +123,32 @@ async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_i
     assert_eq!(hook("git status --short").0, Some(0));
 }
 
+/// The guard a grok worker's kept config runs before a call, run as Grok runs
+/// a hook, by the built binary, on a call as Grok describes it: the tool and
+/// its input in camelCase and again in snake_case, or in only one of them.
+#[tokio::test]
+async fn a_grok_worker_s_kept_config_has_the_real_guard_refuse_its_push_as_grok_describes_it() {
+    let w = World::new();
+    let wk = w.working("grok=grok", "t").await;
+    let config: toml::Table =
+        std::fs::read_to_string(w.data().kept("grok").join("config.toml")).unwrap().parse().unwrap();
+    let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+    let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard grok"));
+    let guard = guard.expect("a guard before each call");
+    let both = |tool: &str, command: &str| {
+        let input = serde_json::json!({"command": command});
+        serde_json::json!({"hookEventName": "PreToolUse", "toolName": tool, "tool_name": tool,
+            "toolInput": input, "tool_input": input})
+    };
+    let (code, said) = run_guard(&wk, guard, both("run_terminal_command", "git push origin HEAD"));
+    assert_eq!(code, Some(2), "Grok blocks a call on 2: {said}");
+    assert!(said.contains("a worker does not push"), "{said}");
+    let snake = serde_json::json!({"tool_name": "run_terminal_command", "tool_input": {"command": "git push"}});
+    assert_eq!(run_guard(&wk, guard, snake).0, Some(2), "one spelling alone is the call");
+    assert_eq!(run_guard(&wk, guard, both("run_terminal_command", "git status --short")).0, Some(0));
+    assert_eq!(run_guard(&wk, guard, both("edit_file", "git push")).0, Some(0), "only the shell tool runs a line");
+}
+
 /// The config a kimi worker's home keeps, the host user's own Kimi config
 /// being `user`.
 async fn kimi_kept(user: &str) -> String {
