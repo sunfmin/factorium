@@ -253,8 +253,13 @@ depend on nothing else of factorium.
   wiring: argument parsing, JSON answers, the guard refusing a worker an
   owner command, the CLI and the daemon sharing the database.
 - **Real harnesses.** Opt-in smoke tests per harness, run by hand.
-- **Every scenario is held to account by mutation**: break the rule it
-  guards and it must fail.
+- **Every scenario is held to account**, by two mechanisms and no
+  whole-workspace mutation run (factorium#114). A change's own lines are
+  mutated by `slimfit check --mutants`: break the rule a scenario guards
+  and it must fail. A scenario that only repeats another, or shares its
+  setup, is found by slimfit's coverage-plus-review task and deleted or
+  merged into the other; the rule is slimfit's (slimfit#31), not
+  restated here.
 - **Bounds.** The tests spend 200 seconds of CPU or less once built: the
   user+sys time of the `cargo test` tree, which `gate.sh` reads from the
   shell's `times`. No test sleeps; time moves when a scenario moves it.
