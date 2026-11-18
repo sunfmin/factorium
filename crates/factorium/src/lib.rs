@@ -9,6 +9,7 @@ mod doctor;
 mod gate;
 mod heavy;
 mod idle;
+mod issues;
 mod kept;
 mod life;
 mod line;

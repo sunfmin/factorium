@@ -36,8 +36,8 @@ command, then ended that worker with their own words: one step written twice.
   other modules call (`issue`, `note`). An issue that leaves its worker
   (`close`, `wait-for-human`) does so through one private step that ends the
   worker with the reason and says whether its worktree is kept.
-- `owner.rs` keeps the host's configuration: checkouts, kit, accounts,
-  settings, holds, unqueue.
+- `owner.rs` keeps the rest of the owner's view and hold of the host:
+  checkouts, the workers' list, kit, accounts, settings, holds, unqueue.
 
 Each `App` method keeps its signature: the CLI and the scenarios call the
 same interface, so the scenarios are the test of every step.
