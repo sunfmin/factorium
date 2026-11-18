@@ -79,7 +79,13 @@ impl App {
             let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
             let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
             let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
-            if let Some(seen) = self.worker_health(id, load, health::quiet(core_percent), &settings).await? {
+            // Its own entry waiting, or running alive within the hold bound: it is not silent.
+            let hold = settings.ms(Time::HoldBound);
+            let heavy = queue.entries.iter().any(|e| {
+                e.worker == Some(id) && self.host.alive(e.pid) && e.started_at.is_none_or(|t| self.now() - t <= hold)
+            });
+            let quiet = health::quiet(core_percent);
+            if let Some(seen) = self.worker_health(id, load, quiet, heavy, &settings).await? {
                 t.seen.push(seen);
             }
         }

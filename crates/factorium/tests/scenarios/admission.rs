@@ -316,3 +316,39 @@ async fn silence_counts_from_the_end_of_the_last_turn() {
     let silent = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
     assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
 }
+
+#[tokio::test]
+async fn a_worker_whose_heavy_entry_runs_is_not_silent_until_the_bound_after_it_ended() {
+    let w = World::new();
+    // A run that takes longer than the silent bound, within the hold bound.
+    w.app.settings_set(Some("hold_bound"), Some(7200)).await.unwrap();
+    let wk = w.working(CLAUDE, "a").await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    let closed = (w.app_now() / 1000) as u64;
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, closed);
+    let dir = w.dir.join("mutants");
+    let line = &w.holds(&dir);
+    let body = async {
+        crate::queue::until_file(&dir.join("started")).await;
+        w.tick().await;
+        w.advance(45);
+        w.tick().await;
+        let it = worker(&w.app).await;
+        assert_eq!(it["status"], "working", "its turn ended 45 min ago, its own heavy entry runs: {it}");
+        std::fs::write(dir.join("release"), "").unwrap();
+    };
+    let cli = w.run();
+    let ran = async { tokio::join!(cli.worker_exclusive(Some(id(&wk)), &dir, line), body) };
+    let (held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the heavy command ends");
+    assert_eq!(held.unwrap()["ok"], true);
+    // Its silence counts from when its entry ended.
+    w.tick().await;
+    w.advance(30);
+    w.tick().await;
+    let it = worker(&w.app).await;
+    assert_eq!(it["status"], "working", "30 minutes since its entry ended: at the bound: {it}");
+    w.advance(1);
+    w.tick().await;
+    let silent = worker(&w.app).await;
+    assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
+}

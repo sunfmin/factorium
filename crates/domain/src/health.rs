@@ -9,7 +9,9 @@
 //!   process count — for `hot_for`;
 //! - **hung**: its turn open, its processes next to idle and its screen
 //!   unchanged past `silent_bound`;
-//! - **silent**: its turn closed, and no done, past `silent_bound`;
+//! - **silent**: its turn closed, and no done, past `silent_bound`, with
+//!   no heavy entry of its own in flight: its clock starts again when one
+//!   ends;
 //! - **quota**: its account used up; the account rests an hour.
 //!
 //! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
@@ -66,6 +68,10 @@ pub struct Observation {
     pub load: Load,
     /// Its processes sit next to idle.
     pub quiet: bool,
+    /// A heavy entry of its own waits in the queue, or runs alive within
+    /// the hold bound.
+    #[serde(default)]
+    pub heavy: bool,
     /// Where the evidence of its processes goes, should it be hot.
     pub evidence: String,
     pub settings: Settings,
@@ -109,6 +115,18 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
         Sight::Closed(_) => None,
     };
     let mut events = Vec::new();
+    // Its own heavy entry in flight: the silence clock waits for it.
+    let freed_at = match (o.heavy, w.heavy) {
+        (true, false) => {
+            events.push(WorkerEvent::HeavyHeld);
+            w.freed_at
+        }
+        (false, true) => {
+            events.push(WorkerEvent::HeavyFreed { at: now });
+            Some(now)
+        }
+        _ => w.freed_at,
+    };
     // Hot: over its share for `hot_for`.
     let over = o.load.over(&shares(s));
     let over_since = match (&over, w.over_since) {
@@ -150,9 +168,12 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
         )));
         return events;
     }
-    // Silent: its turn closed, and no done, past the bound.
-    if let Sight::Closed(at) = o.sight {
+    // Silent: its turn closed, no done and nothing of its own in flight, past the bound.
+    if let Sight::Closed(at) = o.sight
+        && !o.heavy
+    {
         let idle_since = at.map_or(w.since, |t| t.max(w.since));
+        let idle_since = freed_at.map_or(idle_since, |t| t.max(idle_since));
         if w.status == Status::Working && now - idle_since > s.ms(Time::SilentBound) {
             let mins = (now - idle_since) / 60_000;
             events.extend(wait(format!("silent for {mins} min without `factorium worker done`")));
