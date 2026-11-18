@@ -4,7 +4,7 @@
 use factorium_harness::Harness;
 
 use crate::harnesses::{write_session, write_session_in};
-use crate::{SHELL, UP, World, id, refused, worker};
+use crate::{CLAUDE, SHELL, UP, World, id, refused, worker};
 use factorium::host::Host;
 
 #[tokio::test]
@@ -57,38 +57,41 @@ pub fn quoted_word(line: &str, at: usize) -> String {
     }
 }
 
+/// Runs worker `wk`'s `guard` command, by the built binary, as a hook runs
+/// it: `/bin/sh -c`, the call `payload` on stdin; answers its exit code and
+/// what it said.
+fn run_guard(wk: &serde_json::Value, guard: &str, payload: serde_json::Value) -> (Option<i32>, String) {
+    use std::io::Write;
+    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", &guard.replace(&exe, env!("CARGO_BIN_EXE_factorium"))])
+        .env("FACTORIUM_WORKER", id(wk).to_string())
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+}
+
 /// The guard as a daemon-started codex worker's line gives it, run as Codex
 /// runs a hook, by the built binary, on a call as codex-cli 0.169.0 described
 /// it on a real host (its code-mode `exec_command` is `Bash` to a hook).
 #[tokio::test]
 async fn a_codex_worker_s_line_has_the_real_guard_refuse_its_push_as_codex_describes_it() {
     let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working("codex=codex", "t").await;
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     let config: toml::Table = quoted_word(&line, line.find("'hooks=").unwrap()).parse().unwrap();
     let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
     let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard codex "));
-    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
-    let guard = guard.expect("a guard before each call").replace(&exe, env!("CARGO_BIN_EXE_factorium"));
+    let guard = guard.expect("a guard before each call");
     let hook = |command: &str| {
-        use std::io::Write;
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", &guard])
-            .env("FACTORIUM_WORKER", id(&wk).to_string())
-            .stdin(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
         let payload = serde_json::json!({"session_id": "s", "turn_id": "t", "cwd": "/w",
             "hook_event_name": "PreToolUse", "model": "gpt-6.2-sol", "permission_mode": "bypassPermissions",
             "tool_name": "Bash", "tool_input": {"command": command}, "tool_use_id": "exec-1"});
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
-        let out = child.wait_with_output().unwrap();
-        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+        run_guard(&wk, guard, payload)
     };
     let (code, said) = hook("git push origin HEAD:refs/heads/probe-codex");
     assert_eq!(code, Some(2), "Codex blocks a call only on 2: {said}");
@@ -104,34 +107,16 @@ async fn a_codex_worker_s_line_has_the_real_guard_refuse_its_push_as_codex_descr
 #[tokio::test]
 async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_it() {
     let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&["pi=pi".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working("pi=pi", "t").await;
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     let home = w.data().kept("pi");
     let extension = home.join("factorium.js").to_string_lossy().into_owned();
     assert!(line.contains(&format!("--extension '{extension}'")), "{line}");
     assert!(std::fs::read_to_string(&extension).unwrap().contains("FACTORIUM_GUARD"));
     let guard = quoted_word(&line, line.find("FACTORIUM_GUARD=").unwrap() + "FACTORIUM_GUARD=".len());
-    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
-    let guard = guard.replace(&exe, env!("CARGO_BIN_EXE_factorium"));
     assert!(guard.contains(" guard pi"), "{guard}");
-    let hook = |command: &str| {
-        use std::io::Write;
-        let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", &guard])
-            .env("FACTORIUM_WORKER", id(&wk).to_string())
-            .stdin(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        let payload = serde_json::json!({"toolName": "bash", "input": {"command": command}});
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
-        let out = child.wait_with_output().unwrap();
-        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
-    };
+    let hook =
+        |command: &str| run_guard(&wk, &guard, serde_json::json!({"toolName": "bash", "input": {"command": command}}));
     let (code, said) = hook("git push origin HEAD:refs/heads/probe-pi");
     assert_eq!(code, Some(2), "the extension blocks on any but 0: {said}");
     assert!(said.contains("a worker does not push"), "{said}");
@@ -257,21 +242,11 @@ async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_argumen
     }
 }
 
-/// A kimi worker whose terminal opens at its shell's prompt.
-async fn at_shell(w: &World) -> serde_json::Value {
-    w.checkout("web").await;
-    w.app.kit_set(&["kimi=kimi".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    *w.host.orca.opens_at_shell.lock().unwrap() = true;
-    w.tick().await;
-    worker(&w.app).await
-}
-
 /// footer shows.
 #[tokio::test]
 async fn a_kimi_brief_waits_for_kimi_s_own_screen_not_its_launch_line() {
     let w = World::new();
-    let wk = at_shell(&w).await;
+    let wk = w.at_shell().await;
     let handle = wk["terminal"].as_str().unwrap();
     let launching = [&format!("{SHELL}. '/var/folders/T/orca-launch-3a623b76a5c8c688.sh"), "'"];
     w.set_screen(handle, &launching);
@@ -303,7 +278,7 @@ async fn a_kimi_brief_waits_for_kimi_s_own_screen_not_its_launch_line() {
 #[tokio::test]
 async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() {
     let w = World::new();
-    let wk = at_shell(&w).await;
+    let wk = w.at_shell().await;
     let handle = wk["terminal"].as_str().unwrap();
     w.advance(5);
     w.tick().await;
@@ -318,7 +293,7 @@ async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() 
 
     // Up, handed its brief, then its program exits back to the shell.
     let w = World::new();
-    let wk = at_shell(&w).await;
+    let wk = w.at_shell().await;
     let handle = wk["terminal"].as_str().unwrap();
     w.set_screen(handle, &[UP]);
     w.tick().await;
@@ -336,11 +311,7 @@ async fn a_harness_that_never_comes_up_or_exits_sends_its_worker_to_the_watch() 
 #[tokio::test]
 async fn a_harness_s_question_before_its_screen_is_up_is_not_typed_at() {
     let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&["dsh=dsh".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working("dsh=dsh", "t").await;
     let handle = wk["terminal"].as_str().unwrap();
     w.set_screen(handle, &["是否进入安全模式？(y/n)"]);
     refused(w.app.watch_tell(id(&wk), "hello", false).await, "not_up");
@@ -380,7 +351,7 @@ async fn a_pinned_checkout_starts_only_on_its_harness() {
 #[tokio::test]
 async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
     let w = World::new();
-    let wk = at_shell(&w).await;
+    let wk = w.at_shell().await;
     let handle = wk["terminal"].as_str().unwrap();
     // As zsh and bash draw their prompts by default, with or without a line
     // typed after them.
@@ -428,11 +399,7 @@ async fn a_shell_s_prompt_is_told_from_a_harness_s_screen() {
 /// bound of 30 min.
 async fn silent_with(sessions: &[(&str, &[(bool, u64)])]) -> bool {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "t").await;
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     let t0 = (w.app_now() / 1000) as u64;
     // Each note as the stand-in session writes it: its first line a start,

@@ -3,25 +3,20 @@
 
 use factorium::LineClone;
 use factorium::host::{Proc, Reading};
-use serde_json::json;
 
-use crate::{GIB, World, worker};
+use crate::{CLAUDE, GIB, World, worker};
 
 fn cores() -> f64 {
     std::thread::available_parallelism().unwrap().get() as f64
-}
-
-async fn ready(w: &World) {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
 }
 
 /// Why a tick with `reading` (and the workers' processes `procs`) holds the
 /// start, if it does.
 async fn held(reading: Reading, procs: Vec<Proc>) -> Option<String> {
     let w = World::new();
-    ready(&w).await;
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     *w.host.reading.lock().unwrap() = reading;
     *w.host.procs.lock().unwrap() = procs;
     w.tick().await.held
@@ -73,9 +68,7 @@ async fn the_line_s_build_outputs_are_reclaimed_only_when_the_disk_is_under_its_
 /// than `hot_for`.
 async fn after_holding(procs: impl Fn(String) -> Vec<Proc>) -> (String, String) {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let tag = worker(&w.app).await["worker"].as_str().unwrap().to_string();
+    let tag = w.working(CLAUDE, "a").await["worker"].as_str().unwrap().to_string();
     *w.host.procs.lock().unwrap() = procs(tag);
     w.tick().await;
     w.advance(3);
@@ -110,9 +103,7 @@ async fn a_worker_is_hot_only_past_each_of_its_shares() {
 #[tokio::test]
 async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let id = crate::id(&wk);
     *w.host.procs.lock().unwrap() = vec![proc(wk["worker"].as_str().unwrap(), 51.0 * cores(), 10)];
     w.tick().await;
@@ -125,12 +116,4 @@ async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
     w.tick().await;
     let wk = worker(&w.app).await;
     assert!(wk["status"] == "waiting" && wk["why"].as_str().unwrap().starts_with("hot: cpu 51%"), "{wk}");
-}
-
-#[tokio::test]
-async fn each_setting_says_what_it_bounds() {
-    let w = World::new();
-    let all = w.app.settings_set(None, None).await.unwrap();
-    let disk = all.as_array().unwrap().iter().find(|s| s["name"] == "disk_floor_gib").unwrap().clone();
-    assert_eq!(disk["what"], json!("nor while less disk than this is free; worktrees' target/ are reclaimed"));
 }

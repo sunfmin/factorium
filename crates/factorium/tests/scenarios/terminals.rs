@@ -4,23 +4,12 @@
 //! ignores is recorded, and doctor names it. Doctor names the factorium
 //! terminals nothing holds. Each reads what the CLI prints.
 
-use std::path::Path;
-
 use serde_json::{Value, json};
 
-use crate::{Terminal, World, id, worker};
+use crate::{CLAUDE, Terminal, World, id, worker, worktree};
 
 fn handle(wk: &Value) -> &str {
     wk["terminal"].as_str().unwrap()
-}
-
-/// A checkout, a kit, and one worker started on a new issue.
-async fn one_worker(w: &World) -> Value {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    worker(&w.app).await
 }
 
 async fn closed(w: &World, wk: &Value) -> bool {
@@ -30,8 +19,8 @@ async fn closed(w: &World, wk: &Value) -> bool {
 #[tokio::test]
 async fn a_landed_worker_s_terminal_is_closed() {
     let w = World::new();
-    let wk = one_worker(&w).await;
-    w.commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    let wk = w.working(CLAUDE, "t").await;
+    w.commit(&worktree(&wk), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(!w.tick().await.landed.is_empty());
     assert!(closed(&w, &wk).await);
@@ -43,9 +32,9 @@ async fn a_landed_worker_s_terminal_is_closed() {
 #[tokio::test]
 async fn a_worker_s_terminal_is_never_an_orphan_while_it_closes() {
     let w = World::new();
-    let wk = one_worker(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let found = w.doctor_while_closing();
-    w.commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    w.commit(&worktree(&wk), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(!w.tick().await.landed.is_empty());
     w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
@@ -56,45 +45,6 @@ async fn a_worker_s_terminal_is_never_an_orphan_while_it_closes() {
     for f in &found {
         assert_eq!(orphans(f), Vec::<String>::new(), "the worker still holds it");
     }
-    assert!(closed(&w, &wk).await);
-}
-
-#[tokio::test]
-async fn closing_or_parking_its_issue_closes_the_worker_s_terminal() {
-    let w = World::new();
-    let wk = one_worker(&w).await;
-    w.app.issue_close("web", 1, "not needed").await.unwrap();
-    assert!(closed(&w, &wk).await);
-
-    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    w.app.issue_park("web", 2, "later").await.unwrap();
-    assert!(closed(&w, &wk).await);
-}
-
-#[tokio::test]
-async fn a_used_up_account_closes_the_worker_s_terminal() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    let screen = ["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."];
-    w.set_screen(wk["terminal"].as_str().unwrap(), &screen);
-    assert_eq!(w.tick().await.seen[0]["ended"], "quota");
-    assert!(closed(&w, &wk).await);
-}
-
-#[tokio::test]
-async fn the_watch_restarting_a_worker_whose_session_is_gone_closes_its_terminal() {
-    let w = World::new();
-    let wk = one_worker(&w).await;
-    w.kill_terminal(wk["terminal"].as_str().unwrap());
-    w.tick().await;
-    assert!(!closed(&w, &wk).await, "its program ended; its tab stays until closed");
-    assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["ended"], true);
     assert!(closed(&w, &wk).await);
 }
 
@@ -176,7 +126,7 @@ fn orphans(found: &Value) -> Vec<String> {
 #[tokio::test]
 async fn doctor_names_only_terminals_its_own_factorium_opened_that_nothing_holds() {
     let w = World::new();
-    let wk = one_worker(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let watch = w.app.doctor().await.unwrap()["watch"]["terminal"].as_str().unwrap().to_string();
     {
         // Another daemon's, on another database: titled as this one titles its own.
@@ -220,9 +170,9 @@ fn unclosed(found: &Value) -> Vec<(String, String)> {
 #[tokio::test]
 async fn a_close_orca_ignores_is_recorded_and_named_by_doctor() {
     let w = World::new();
-    let wk = one_worker(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     *w.host.orca.ignore_close.lock().unwrap() = true;
-    w.commit(Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    w.commit(&worktree(&wk), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(!w.tick().await.landed.is_empty(), "it lands all the same");
     assert!(!closed(&w, &wk).await);
@@ -245,7 +195,7 @@ async fn a_close_orca_ignores_is_recorded_and_named_by_doctor() {
 #[tokio::test]
 async fn a_close_orca_refuses_is_recorded_and_named_by_doctor() {
     let w = World::new();
-    let wk = one_worker(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     *w.host.orca.refuse_close.lock().unwrap() = true;
     w.app.issue_close("web", 1, "not needed").await.unwrap();
     let row = w.app.workers(true).await.unwrap()[0].clone();

@@ -30,10 +30,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use factorium::host::{Git, Host, Proc, Programs, Reading, Said};
 use factorium::{Answer, App, Data, Tick};
+use factorium_harness::Harness;
 use factum::{Instant, ManualClock, Uuid};
 use serde_json::{Value, json};
 
 pub const GIB: u64 = 1 << 30;
+
+/// A kit entry for Claude Code.
+pub const CLAUDE: &str = "claude-code=claude --dangerously-skip-permissions";
 
 /// A terminal the stand-in Orca keeps: what started it, what was typed at
 /// it, and what it shows.
@@ -347,6 +351,8 @@ pub struct FakeHost {
     pub brew: Mutex<FakeBrew>,
     pub reading: Mutex<Reading>,
     pub procs: Mutex<Vec<Proc>>,
+    /// Runs each time the processes are read, as every tick does.
+    pub reading_procs: Mutex<Option<Box<dyn Fn() + Send>>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
@@ -422,6 +428,9 @@ impl Host for FakeHost {
         *self.reading.lock().unwrap()
     }
     fn processes(&self) -> Vec<Proc> {
+        if let Some(during) = &*self.reading_procs.lock().unwrap() {
+            during();
+        }
         self.procs.lock().unwrap().clone()
     }
     fn alive(&self, pid: u32) -> bool {
@@ -499,6 +508,7 @@ impl World {
                 disk_total: 1000 * GIB,
             }),
             procs: Mutex::default(),
+            reading_procs: Mutex::default(),
             tokens: Mutex::default(),
             ran: Mutex::default(),
             missing: Mutex::default(),
@@ -541,7 +551,41 @@ impl World {
 
     /// A kit of one Claude Code entry.
     pub async fn kit(&self) {
-        self.app.kit_set(&["claude-code=claude --dangerously-skip-permissions".into()]).await.unwrap();
+        self.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    }
+
+    /// A checkout `web`, a kit of the one entry `kit`, and a worker at work
+    /// on issue 1, titled `title`; answers the worker as the CLI lists it.
+    pub async fn working(&self, kit: &str, title: &str) -> Value {
+        self.checkout("web").await;
+        self.app.kit_set(&[kit.into()]).await.unwrap();
+        self.app.issue_add("web", title, "", false, &[]).await.unwrap();
+        self.tick().await;
+        worker(&self.app).await
+    }
+
+    /// A kimi worker whose terminal opens at its shell's prompt.
+    pub async fn at_shell(&self) -> Value {
+        *self.host.orca.opens_at_shell.lock().unwrap() = true;
+        self.working("kimi=kimi", "t").await
+    }
+
+    /// The finding doctor answers under `key`, if any.
+    pub async fn finding(&self, key: &str) -> Option<Value> {
+        let d = self.run().doctor().await.unwrap();
+        d["findings"].as_array().unwrap().iter().find(|f| f["key"] == key).cloned()
+    }
+
+    /// The watch's session writes its turn: open, or closed.
+    pub fn watch_session(&self, open: bool) {
+        let home = self.data().watch();
+        let at = (self.app_now() / 1000) as u64;
+        harnesses::write_session(self, Harness::ClaudeCode, None, &home.to_string_lossy(), open, at);
+    }
+
+    /// The time on the world's clock, in milliseconds.
+    pub fn app_now(&self) -> i64 {
+        factum::Clock::now(self.clock.as_ref()).0
     }
 
     pub async fn tick(&self) -> Tick {
@@ -609,8 +653,7 @@ impl World {
             (term.busy, term.unobserved) = (busy, unobserved);
             term.worktree.to_string_lossy().into_owned()
         };
-        let at = (factum::Clock::now(self.clock.as_ref()).0 / 1000) as u64;
-        harnesses::write_session(self, factorium_harness::Harness::ClaudeCode, None, &cwd, busy, at);
+        harnesses::write_session(self, Harness::ClaudeCode, None, &cwd, busy, (self.app_now() / 1000) as u64);
     }
 
     pub fn kill_terminal(&self, handle: &str) {
@@ -658,6 +701,11 @@ pub async fn closed(app: &App, handle: &str) -> bool {
         key == format!("orphan:{handle}") || key == format!("unclosed:{handle}")
     });
     row.is_none_or(|r| r["closed"] == true) && !named
+}
+
+/// A worker's worktree, as the CLI lists it.
+pub fn worktree(w: &Value) -> PathBuf {
+    PathBuf::from(w["worktree"].as_str().unwrap())
 }
 
 pub fn id(w: &Value) -> Uuid {

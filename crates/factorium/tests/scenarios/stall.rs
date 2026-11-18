@@ -12,13 +12,7 @@ use serde_json::Value;
 
 use crate::line::land;
 use crate::queue::{STUCK, heavy, running_on, until_file, while_busy};
-use crate::{UP, World, id, worker};
-
-/// The finding whose key is `key`, if doctor answers one.
-async fn finding(w: &World, key: &str) -> Option<Value> {
-    let d = w.run().doctor().await.unwrap();
-    d["findings"].as_array().unwrap().iter().find(|f| f["key"] == key).cloned()
-}
+use crate::{CLAUDE, UP, World, id, worker, worktree};
 
 /// Stages an entry at the head of the heavy queue whose owner no longer asks
 /// for it: a CLI run's command queued behind a running one, then given up
@@ -40,13 +34,12 @@ async fn forgotten_entry(w: &World) -> Uuid {
     entry.expect("it stays queued")["id"].as_str().unwrap().parse().unwrap()
 }
 
-/// A checkout, a kit and issues `titles`, each started by a tick.
+/// A checkout, a kit and issues `titles`, each started by a tick; the
+/// workers keep working all along: none is silent.
 async fn working(w: &World, titles: &[&str]) {
-    w.checkout("web").await;
-    w.kit().await;
-    // The workers keep working all along: none is silent.
+    w.working(CLAUDE, titles[0]).await;
     w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    for t in titles {
+    for t in &titles[1..] {
         w.app.issue_add("web", t, "", false, &[]).await.unwrap();
         w.tick().await;
     }
@@ -58,9 +51,9 @@ async fn a_heavy_queue_that_starts_nothing_past_the_stall_bound_is_a_finding_unt
     let stale = forgotten_entry(&w).await;
     let key = format!("queue:{stale}");
     w.advance(10);
-    assert_eq!(finding(&w, &key).await, None, "at the stall bound of 10 min, not past it");
+    assert_eq!(w.finding(&key).await, None, "at the stall bound of 10 min, not past it");
     w.advance(1);
-    let found = finding(&w, &key).await.expect("nothing runs and its oldest has waited 11 min");
+    let found = w.finding(&key).await.expect("nothing runs and its oldest has waited 11 min");
     assert!(
         found["what"].as_str().unwrap().contains("started nothing for 11 min: 1 waiting and nothing runs"),
         "{found}"
@@ -72,7 +65,7 @@ async fn a_heavy_queue_that_starts_nothing_past_the_stall_bound_is_a_finding_unt
     assert_eq!(w.run().unqueue(stale).await.unwrap()["unqueued"]["what"], "echo forgotten");
     let next = tokio::time::timeout(STUCK, w.run().worker_exclusive(None, &w.dir, "echo next")).await;
     assert_eq!(next.expect("the queue moves").unwrap()["ok"], true);
-    assert_eq!(finding(&w, &key).await, None);
+    assert_eq!(w.finding(&key).await, None);
     assert_eq!(w.run().unqueue(stale).await.unwrap_err().code, "no_entry");
 }
 
@@ -98,9 +91,9 @@ async fn a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_a
     let key = format!("queue:{waiting}");
     // The hold bound (30 min) and the stall bound (10 min) after it queued.
     w.advance(40);
-    assert_eq!(finding(&w, &key).await, None, "what runs may yet end");
+    assert_eq!(w.finding(&key).await, None, "what runs may yet end");
     w.advance(1);
-    let found = finding(&w, &key).await.expect("past both bounds");
+    let found = w.finding(&key).await.expect("past both bounds");
     assert!(found["what"].as_str().unwrap().contains("for 41 min: 1 waiting and running: `"), "{found}");
 }
 
@@ -110,27 +103,27 @@ async fn a_landing_no_gate_runs_for_past_the_stall_bound_is_a_finding_and_lands_
     working(&w, &["a"]).await;
     let stale = forgotten_entry(&w).await;
     let wk = worker(&w.app).await;
-    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&worktree(&wk), "a", "x");
     w.app.worker_done(id(&wk)).await.unwrap();
     assert!(w.tick().await.landed.is_empty(), "its gate waits behind the forgotten entry");
     let key = format!("landing:{}", id(&wk));
     w.advance(9);
     w.tick().await;
-    assert_eq!(finding(&w, &key).await, None, "within the stall bound");
+    assert_eq!(w.finding(&key).await, None, "within the stall bound");
     w.advance(2);
     w.tick().await;
-    let found = finding(&w, &key).await.expect("landing 11 min and no gate runs");
+    let found = w.finding(&key).await.expect("landing 11 min and no gate runs");
     let what = found["what"].as_str().unwrap();
     assert!(what.contains("web#1") && what.contains(&stale.to_string()), "it names what holds it: {found}");
     assert!(what.contains("waited 11 min to land") && what.contains("queued 11 min ago"), "{found}");
     // Held, its landings wait by the operator's word, not by a stall.
     w.app.hold("web", Some("repairs")).await.unwrap();
-    assert_eq!(finding(&w, &key).await, None);
+    assert_eq!(w.finding(&key).await, None);
     w.app.hold("web", None).await.unwrap();
 
     w.run().unqueue(stale).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
-    assert_eq!(finding(&w, &key).await, None);
+    assert_eq!(w.finding(&key).await, None);
 }
 
 #[tokio::test]
@@ -142,18 +135,18 @@ async fn a_landing_unpromoted_past_the_promotion_bound_is_a_finding_and_is_promo
     let stale = forgotten_entry(&w).await;
     w.advance(60);
     w.tick().await;
-    assert_eq!(finding(&w, "unpromoted:web").await, None, "at the promotion bound, not past it");
+    assert_eq!(w.finding("unpromoted:web").await, None, "at the promotion bound, not past it");
     w.advance(1);
     let t = w.tick().await;
     assert!(t.lines.is_empty(), "its slow gate waits behind the forgotten entry: {:?}", t.lines);
-    let found = finding(&w, "unpromoted:web").await.expect("past the promotion bound and no promotion runs");
+    let found = w.finding("unpromoted:web").await.expect("past the promotion bound and no promotion runs");
     assert!(found["what"].as_str().unwrap().contains("web#1"), "{found}");
 
     w.run().unqueue(stale).await.unwrap();
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "the line moves: {:?}", t.lines);
     assert_eq!(w.remote_tip("web", "main"), landed);
-    assert_eq!(finding(&w, "unpromoted:web").await, None);
+    assert_eq!(w.finding("unpromoted:web").await, None);
 }
 
 #[tokio::test]
@@ -165,24 +158,24 @@ async fn a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_q
     let stale = forgotten_entry(&w).await;
     w.advance(24 * 60);
     w.tick().await;
-    assert_eq!(finding(&w, "uncut:web").await, None, "at the cut bound, not past it");
+    assert_eq!(w.finding("uncut:web").await, None, "at the cut bound, not past it");
     w.advance(1);
     assert!(w.tick().await.lines.is_empty(), "the cut waits behind the forgotten entry");
-    let found = finding(&w, "uncut:web").await.expect("past the cut bound and no cut runs");
+    let found = w.finding("uncut:web").await.expect("past the cut bound and no cut runs");
     assert!(found["fix"].as_str().unwrap().contains("factorium cut web"), "{found}");
 
     w.run().unqueue(stale).await.unwrap();
     let t = w.tick().await;
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("the line moves");
     assert_eq!(cut["version"], "v0.1.0", "{cut}");
-    assert_eq!(finding(&w, "uncut:web").await, None);
+    assert_eq!(w.finding("uncut:web").await, None);
 }
 
 /// The worker of issue `number` of `web`, its commit of `file` (`text`),
 /// asking to land.
 async fn done(w: &World, number: u64, file: &str, text: &str) {
     let wk = worker_of(w, number).await;
-    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
+    w.commit(&worktree(&wk), file, text);
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
@@ -206,8 +199,8 @@ async fn runs_long_beside_a_landing(w: &World, declared: &str, minutes: i64, key
         until_file(&started).await;
         done(w, 2, "b", "x").await;
         w.advance(11);
-        let landing = finding(w, &format!("landing:{}", id(&worker_of(w, 2).await))).await;
-        let stalled = finding(w, key).await;
+        let landing = w.finding(&format!("landing:{}", id(&worker_of(w, 2).await))).await;
+        let stalled = w.finding(key).await;
         std::fs::write(&release, "").unwrap();
         (landing, stalled)
     };
@@ -243,11 +236,7 @@ async fn worker_of(w: &World, number: u64) -> Value {
 #[tokio::test]
 async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_and_lands_once_restarted() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let (cwd, me, terminal) = (wk["worktree"].as_str().unwrap(), id(&wk), wk["terminal"].as_str().unwrap());
     crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, cwd, true, 1_800_000_000);
     let cpu = |percent: f64| {
@@ -281,7 +270,7 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     let hung = worker(&w.app).await;
     assert_eq!(hung["status"], "waiting");
     assert!(hung["why"].as_str().unwrap().starts_with("hung for 31 min"), "{hung}");
-    let found = finding(&w, &format!("worker:{me}")).await.expect("doctor answers it");
+    let found = w.finding(&format!("worker:{me}")).await.expect("doctor answers it");
     assert!(found["what"].as_str().unwrap().contains("hung"), "{found}");
 
     // The watch's fix: it tells the worker what blocks it.
@@ -290,7 +279,7 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
         .await
         .unwrap();
     assert_eq!(status().await, "working");
-    assert_eq!(finding(&w, &format!("worker:{me}")).await, None);
+    assert_eq!(w.finding(&format!("worker:{me}")).await, None);
     w.commit(&PathBuf::from(cwd), "a", "x");
     w.app.worker_done(me).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
