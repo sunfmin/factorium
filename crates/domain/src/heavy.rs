@@ -75,7 +75,8 @@ impl Queued for Entry {
         self.started_at
     }
 
-    fn workers(&self) -> bool {
+    // A line move past its bound goes ahead of workers' entries.
+    fn yields(&self) -> bool {
         self.worker.is_some()
     }
 

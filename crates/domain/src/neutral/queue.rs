@@ -2,8 +2,8 @@
 //! that load the machine. The oldest waiting starts when the host has room,
 //! or when nothing runs, so it never starves; one start per reading; and
 //! one that holds others up past the hold bound is ended. An entry past its
-//! bound takes the place of the oldest worker's entry waiting ahead of it:
-//! workers' entries keep their order, and a running one is never cut short.
+//! bound takes the place of the oldest entry that yields waiting ahead of it:
+//! those keep their order, and a running one is never cut short.
 
 use uuid::Uuid;
 
@@ -15,8 +15,8 @@ pub trait Queued {
     fn what(&self) -> &str;
     fn queued_at(&self) -> i64;
     fn started_at(&self) -> Option<i64>;
-    /// Whether a worker queued it.
-    fn workers(&self) -> bool;
+    /// Whether one past its bound goes ahead of it.
+    fn yields(&self) -> bool;
     /// When what it does passes its bound, ms, if it has one.
     fn bound_at(&self) -> Option<i64>;
 }
@@ -40,13 +40,13 @@ pub fn oldest<E: Queued>(entries: &[E]) -> Option<&E> {
 }
 
 /// The waiting entry that starts next at `now`: the oldest, but one past its
-/// bound goes ahead of every worker's entry, just before the oldest of them.
+/// bound goes ahead of every entry that yields, just before the oldest of them.
 pub fn next<E: Queued>(entries: &[E], now: i64) -> Option<&E> {
-    let first_worker = waiting(entries).filter(|e| e.workers()).map(|e| (e.queued_at(), e.id())).min();
+    let first_yielding = waiting(entries).filter(|e| e.yields()).map(|e| (e.queued_at(), e.id())).min();
     waiting(entries).min_by_key(|e| {
         let own = (e.queued_at(), e.id());
         let late = overdue(*e, now);
-        let place = match first_worker {
+        let place = match first_yielding {
             Some(w) if late => own.min(w),
             _ => own,
         };
