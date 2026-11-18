@@ -2,7 +2,8 @@
 //! the machine — every gate run, and what a worker runs through
 //! `factorium worker exclusive`. The oldest waiting starts when the host
 //! has room, or when nothing runs, so it never starves; one start per
-//! reading; and one that holds others up past the hold bound is ended.
+//! reading; and one that holds others up past the hold bound is ended. A
+//! line move past its bound goes ahead of workers' waiting entries.
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
 
@@ -44,6 +45,10 @@ pub struct Entry {
     pub worker: Option<Uuid>,
     pub queued_at: i64,
     pub started_at: Option<i64>,
+    /// When the line move it is for passes its bound, ms: past then, it goes
+    /// ahead of workers' waiting entries.
+    #[serde(default)]
+    pub bound_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -69,6 +74,15 @@ impl Queued for Entry {
     fn started_at(&self) -> Option<i64> {
         self.started_at
     }
+
+    // A line move past its bound goes ahead of workers' entries.
+    fn yields(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    fn bound_at(&self) -> Option<i64> {
+        self.bound_at
+    }
 }
 
 impl Queue {
@@ -80,7 +94,7 @@ impl Queue {
         queue::waiting(&self.entries)
     }
 
-    /// The waiting entry that starts next.
+    /// The waiting entry queued first.
     pub fn oldest(&self) -> Option<&Entry> {
         queue::oldest(&self.entries)
     }
@@ -91,10 +105,10 @@ impl Queue {
         self.running().any(|e| e.what == what)
     }
 
-    /// Whether `id` may start, given whether the host has room and when the
-    /// reading was taken; else why not.
-    pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64) -> Result<(), String> {
-        queue::may_start(&self.entries, self.last_start, id, room, read_at)
+    /// Whether `id` may start at `now`, given whether the host has room and
+    /// when the reading was taken; else why not.
+    pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64, now: i64) -> Result<(), String> {
+        queue::may_start(&self.entries, self.last_start, id, room, read_at, now)
     }
 
     /// Whether the running `id` holds others up past `bound` and must end.
@@ -106,9 +120,22 @@ impl Queue {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum HeavyEvent {
-    HeavyQueued { id: Uuid, what: String, pid: u32, worker: Option<Uuid>, at: i64 },
-    HeavyStarted { id: Uuid, at: i64 },
-    HeavyEnded { id: Uuid },
+    HeavyQueued {
+        id: Uuid,
+        what: String,
+        pid: u32,
+        worker: Option<Uuid>,
+        at: i64,
+        #[serde(default)]
+        bound_at: Option<i64>,
+    },
+    HeavyStarted {
+        id: Uuid,
+        at: i64,
+    },
+    HeavyEnded {
+        id: Uuid,
+    },
 }
 
 pub struct Heavy;
@@ -120,8 +147,8 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, at } => {
-                s.entries.push(Entry { id, what, pid, worker, queued_at: at, started_at: None })
+            HeavyEvent::HeavyQueued { id, what, pid, worker, at, bound_at } => {
+                s.entries.push(Entry { id, what, pid, worker, queued_at: at, started_at: None, bound_at })
             }
             HeavyEvent::HeavyStarted { id, at } => {
                 if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
@@ -140,6 +167,9 @@ pub struct Enqueue {
     pub what: String,
     pub pid: u32,
     pub worker: Option<Uuid>,
+    /// When the line move it is for passes its bound, ms.
+    #[serde(default)]
+    pub bound_at: Option<i64>,
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
@@ -152,6 +182,7 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         pid: p.pid,
         worker: p.worker,
         at: now.0,
+        bound_at: p.bound_at,
     }])
 });
 
@@ -165,7 +196,7 @@ pub struct Begin {
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
-    match s.may_start(p.id, p.room.clone(), p.read_at) {
+    match s.may_start(p.id, p.room.clone(), p.read_at, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),
     }
