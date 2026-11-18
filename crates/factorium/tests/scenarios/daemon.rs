@@ -81,6 +81,15 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     assert!(!file.exists() && !*w.host.service.lock().unwrap());
 }
 
+#[test]
+fn the_service_runs_homebrews_link_not_the_versioned_keg() {
+    let w = World::new();
+    let link = w.running_as(&w.app, "factorium");
+    let plist = w.app.service_show().unwrap()["plist"].as_str().unwrap().to_string();
+    assert!(plist.contains(&format!("<string>{}</string>", link.display())), "the opt link: {plist}");
+    assert!(!plist.contains("Cellar"), "{plist}");
+}
+
 #[tokio::test]
 async fn a_program_two_kit_entries_need_is_missing_once() {
     let w = World::new();
