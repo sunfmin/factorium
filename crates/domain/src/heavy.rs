@@ -30,7 +30,7 @@ impl LineJob {
     /// What the queue calls this job of `checkout`.
     pub fn of(self, checkout: &str) -> String {
         match self {
-            LineJob::Gate(kind) => format!("{} gate of {checkout}", kind.as_str()),
+            LineJob::Gate(kind) => format!("{} gate of {checkout}", crate::named(kind)),
             LineJob::Cut => format!("cut of {checkout}"),
         }
     }

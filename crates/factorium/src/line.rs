@@ -121,7 +121,7 @@ impl App {
             let text = format!("your landing was red. {why}\nFix it, commit, and run `factorium worker done` again.");
             self.tell(&Self::worker_session(worker, st)?, Sender::Factorium, &text, false).await?;
         }
-        Ok(json!({ "worker": worker, "red": why, "status": wk.status.as_str() }))
+        Ok(json!({ "worker": worker, "red": why, "status": wk.status }))
     }
 
     /// Promotes the proving `tip` of `c`: its slow gate, then the base

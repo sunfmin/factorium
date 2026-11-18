@@ -1,10 +1,10 @@
 //! A checkout: a repo on the host's list, with the branches factorium works
 //! between. Every checkout has a proving branch (SPEC.md §9).
 
-use factum_core::{Aggregate, By, Command, Decision, Instant, Rejection, Uuid};
+use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
-use crate::checkout_id;
+use crate::{checkout_id, command, no};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Checkout {
@@ -48,60 +48,31 @@ pub struct Add {
     pub proving: String,
 }
 
-pub struct AddCheckout;
-
-impl Command for AddCheckout {
-    const NAME: &'static str = "checkout.add";
-    type Aggregate = Checkouts;
-    type Params = Add;
-
-    fn stream(p: &Add) -> Uuid {
-        checkout_id(&p.name)
+command!(AddCheckout, "checkout.add", Checkouts, Add, |p| checkout_id(&p.name), |s, p, now| {
+    if s.listed {
+        return no("listed", format!("{} is on the list already, at {}", s.name, s.path));
     }
-
-    fn decide(s: &Checkout, p: &Add, _: &By, _: Instant) -> Result<Decision<CheckoutEvent>, Rejection> {
-        if s.listed {
-            return Err(Rejection::new("listed", format!("{} is on the list already, at {}", s.name, s.path)));
-        }
-        if !valid_name(&p.name) {
-            return Err(Rejection::new("invalid_name", "a checkout's name is letters, digits, '-', '_' and '.'"));
-        }
-        if p.base == p.proving {
-            return Err(Rejection::new("proving_is_base", "the proving branch must be another branch than the base"));
-        }
-        Ok(vec![CheckoutEvent::CheckoutAdded {
-            name: p.name.clone(),
-            path: p.path.clone(),
-            base: p.base.clone(),
-            proving: p.proving.clone(),
-        }]
-        .into())
+    if !valid_name(&p.name) {
+        return no("invalid_name", "a checkout's name is letters, digits, '-', '_' and '.'");
     }
-}
+    if p.base == p.proving {
+        return no("proving_is_base", "the proving branch must be another branch than the base");
+    }
+    let Add { name, path, base, proving } = p.clone();
+    Ok(vec![CheckoutEvent::CheckoutAdded { name, path, base, proving }])
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Named {
     pub name: String,
 }
 
-pub struct RemoveCheckout;
-
-impl Command for RemoveCheckout {
-    const NAME: &'static str = "checkout.remove";
-    type Aggregate = Checkouts;
-    type Params = Named;
-
-    fn stream(p: &Named) -> Uuid {
-        checkout_id(&p.name)
+command!(RemoveCheckout, "checkout.remove", Checkouts, Named, |p| checkout_id(&p.name), |s, p, now| {
+    if !s.listed {
+        return no("not_listed", format!("{} is not on the list", p.name));
     }
-
-    fn decide(s: &Checkout, p: &Named, _: &By, _: Instant) -> Result<Decision<CheckoutEvent>, Rejection> {
-        if !s.listed {
-            return Err(Rejection::new("not_listed", format!("{} is not on the list", p.name)));
-        }
-        Ok(vec![CheckoutEvent::CheckoutRemoved].into())
-    }
-}
+    Ok(vec![CheckoutEvent::CheckoutRemoved])
+});
 
 fn valid_name(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))

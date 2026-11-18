@@ -108,6 +108,26 @@ async fn a_worker_is_hot_only_past_each_of_its_shares() {
 }
 
 #[tokio::test]
+async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let id = crate::id(&wk);
+    *w.host.procs.lock().unwrap() = vec![proc(wk["worker"].as_str().unwrap(), 51.0 * cores(), 10)];
+    w.tick().await;
+    w.app.worker_escalate(id, "which API version?").await.unwrap();
+    w.advance(3);
+    w.app.watch_restart(id, "v2", false).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "its time over its share starts again");
+    w.advance(3);
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert!(wk["status"] == "waiting" && wk["why"].as_str().unwrap().starts_with("hot: cpu 51%"), "{wk}");
+}
+
+#[tokio::test]
 async fn each_setting_says_what_it_bounds() {
     let w = World::new();
     let all = w.app.settings_set(None, None).await.unwrap();

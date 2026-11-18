@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::checkout::{Checkout, CheckoutEvent};
-use crate::issue::{IssueEvent, Status as IssueStatus};
-use crate::worker::{Status as WorkerStatus, WorkerEvent};
+use crate::issue::{IssueEvent, Standing, Status as IssueStatus};
+use crate::worker::{self, Status as WorkerStatus, WorkerEvent};
 
 pub const TRACKER: &str = "tracker";
 const CHECKOUTS: &str = "checkouts";
@@ -32,16 +32,9 @@ pub struct IssueRow {
     pub number: u64,
     pub title: String,
     #[serde(flatten)]
-    pub standing: IssueStanding,
+    pub standing: Standing,
     #[serde(flatten)]
     pub holder: Holder,
-}
-
-/// Where an issue stands, and why it is parked or closed.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IssueStanding {
-    pub status: IssueStatus,
-    pub reason: Option<String>,
 }
 
 /// The worker that holds an issue; `taken` is its queryable column.
@@ -72,21 +65,13 @@ pub struct WorkerRow {
     /// When it started, in ms.
     pub started_at: i64,
     #[serde(flatten)]
-    pub state: WorkerState,
+    pub state: worker::Standing,
     /// Its terminal was closed and Orca no longer lists it.
     #[serde(default)]
     pub closed: bool,
     /// Why closing its terminal failed, the last time it was tried.
     #[serde(default)]
     pub close_failed: Option<String>,
-}
-
-/// A worker's status, why, and since when, in ms.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WorkerState {
-    pub status: WorkerStatus,
-    pub why: Option<String>,
-    pub since: i64,
 }
 
 /// What the CLI prints of a row: its columns kept only for queries left out.
@@ -190,8 +175,6 @@ impl Projection for Tracker {
         let put = |table: &str, row: Value| vec![RowOp::Put { table: table.into(), key: key.to_string(), row }];
         let merge =
             |table: &str, fields: Value| vec![RowOp::Merge { table: table.into(), key: key.to_string(), fields }];
-        let standing = |status, reason| merge(ISSUES, row(IssueStanding { status, reason }));
-        let state = |status, why, since| merge(WORKERS, row(WorkerState { status, why, since }));
         Ok(match e.stream.aggregate.as_str() {
             "checkout" => match decode(e)? {
                 CheckoutEvent::CheckoutAdded { name, path, base, proving } => {
@@ -199,64 +182,50 @@ impl Projection for Tracker {
                 }
                 CheckoutEvent::CheckoutRemoved => merge(CHECKOUTS, json!({ "listed": false })),
             },
-            "issue" => match decode(e)? {
-                IssueEvent::IssueOpened { checkout, number, title, parked, .. } => {
-                    let status = if parked { IssueStatus::Parked } else { IssueStatus::Ready };
-                    let standing = IssueStanding { status, reason: None };
-                    put(ISSUES, row(IssueRow { checkout, number, title, standing, holder: Holder::of(None) }))
+            "issue" => {
+                let event: IssueEvent = decode(e)?;
+                let mut standing = event.standing();
+                let mut ops = match event {
+                    IssueEvent::IssueOpened { checkout, number, title, .. } => {
+                        let standing = standing.take().unwrap_or_default();
+                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder: Holder::of(None) }))
+                    }
+                    IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),
+                    IssueEvent::IssueTaken { worker } => merge(ISSUES, row(Holder::of(Some(worker)))),
+                    IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => merge(ISSUES, row(Holder::of(None))),
+                    _ => Vec::new(),
+                };
+                ops.extend(standing.into_iter().flat_map(|st| merge(ISSUES, row(st))));
+                ops
+            }
+            "worker" => {
+                let event: WorkerEvent = decode(e)?;
+                match (event.standing(), event) {
+                    (Some(state), WorkerEvent::WorkerStarted(s)) => put(
+                        WORKERS,
+                        row(WorkerRow {
+                            worker: key,
+                            checkout: s.checkout,
+                            number: s.number,
+                            attempt: s.attempt,
+                            harness: s.harness,
+                            account: s.account,
+                            terminal: s.terminal,
+                            worktree: s.worktree,
+                            branch: s.branch,
+                            started_at: s.at,
+                            state,
+                            closed: false,
+                            close_failed: None,
+                        }),
+                    ),
+                    (Some(state), _) => merge(WORKERS, row(state)),
+                    (None, WorkerEvent::SessionClosed { failed }) => {
+                        merge(WORKERS, json!({ "closed": failed.is_none(), "close_failed": failed }))
+                    }
+                    (None, _) => Vec::new(),
                 }
-                IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),
-                IssueEvent::IssueParked { reason } => standing(IssueStatus::Parked, Some(reason)),
-                IssueEvent::IssueReadied => standing(IssueStatus::Ready, None),
-                IssueEvent::IssueClosed { reason } => {
-                    let mut ops = standing(IssueStatus::Closed, Some(reason));
-                    ops.extend(merge(ISSUES, row(Holder::of(None))));
-                    ops
-                }
-                IssueEvent::IssueTaken { worker } => merge(ISSUES, row(Holder::of(Some(worker)))),
-                IssueEvent::IssueReleased => merge(ISSUES, row(Holder::of(None))),
-                IssueEvent::BlockedBy { .. } | IssueEvent::Unblocked { .. } | IssueEvent::IssueCommented { .. } => {
-                    Vec::new()
-                }
-            },
-            "worker" => match decode(e)? {
-                WorkerEvent::WorkerStarted(s) => put(
-                    WORKERS,
-                    row(WorkerRow {
-                        worker: key,
-                        checkout: s.checkout,
-                        number: s.number,
-                        attempt: s.attempt,
-                        harness: s.harness,
-                        account: s.account,
-                        terminal: s.terminal,
-                        worktree: s.worktree,
-                        branch: s.branch,
-                        started_at: s.at,
-                        state: WorkerState { status: WorkerStatus::Working, why: None, since: s.at },
-                        closed: false,
-                        close_failed: None,
-                    }),
-                ),
-                WorkerEvent::LandingAsked { at } => state(WorkerStatus::Landing, None, at),
-                WorkerEvent::LandingRed { why, at } => state(WorkerStatus::Working, Some(why), at),
-                WorkerEvent::WorkerLanded { at, .. } => state(WorkerStatus::Ended, Some("landed".into()), at),
-                WorkerEvent::WorkerWaits { why, at } => state(WorkerStatus::Waiting, Some(why), at),
-                WorkerEvent::WorkerResumed { at } => state(WorkerStatus::Working, None, at),
-                WorkerEvent::WorkerEnded { why, at } => state(WorkerStatus::Ended, Some(why), at),
-                WorkerEvent::SessionClosed { failed } => {
-                    merge(WORKERS, json!({ "closed": failed.is_none(), "close_failed": failed }))
-                }
-                WorkerEvent::WentOver { .. }
-                | WorkerEvent::CameUnder
-                | WorkerEvent::BriefHanded
-                | WorkerEvent::RedTold { .. }
-                | WorkerEvent::WentQuiet { .. }
-                | WorkerEvent::Stirred
-                | WorkerEvent::WentHot { .. }
-                | WorkerEvent::UsedUp { .. }
-                | WorkerEvent::WorkerHeard { .. } => Vec::new(),
-            },
+            }
             _ => Vec::new(),
         })
     }
