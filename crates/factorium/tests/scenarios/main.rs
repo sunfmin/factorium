@@ -619,6 +619,13 @@ impl World {
         found
     }
 
+    /// How many slow-gate runs the database recorded, of any tree.
+    pub fn slow_gates_ran(&self) -> usize {
+        let db = rusqlite::Connection::open(&self.db).unwrap();
+        let sql = "SELECT count(*) FROM events WHERE kind = 'GateRan' AND data LIKE '%\"kind\":\"slow\"%'";
+        db.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap() as usize
+    }
+
     /// The database refuses to record events of `kind` while `refuses`,
     /// as a full disk or a failing one would: the write is aborted.
     pub fn db_refuses(&self, kind: &str, refuses: bool) {

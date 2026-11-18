@@ -72,6 +72,12 @@ impl Data {
         self.clones(kind).join(checkout)
     }
 
+    /// The lock a promotion of `checkout` holds while it runs, beside its
+    /// clone: it names who holds it.
+    pub fn promotion_lock(&self, checkout: &str) -> PathBuf {
+        self.clones(LineClone::Promotion).join(format!("{checkout}.lock"))
+    }
+
     /// Where secrets wait for the start line that reads them.
     pub fn secrets(&self) -> PathBuf {
         self.0.join("secrets")

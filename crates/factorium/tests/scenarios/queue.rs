@@ -310,3 +310,67 @@ async fn a_busy_checkout_queues_its_cut_a_hold_bound_early_and_cuts_within_the_b
     assert_eq!(cut["version"], "v0.1.0", "{cut}");
     assert_eq!(finding_keys(&w).await, Vec::<String>::new());
 }
+
+/// A factorium.toml whose slow gate holds in `dir` and counts its runs
+/// there, in `dir/runs`.
+fn holding_slow_gate(w: &World, dir: &Path) -> String {
+    let line = format!("echo run >> {}/runs; {}", dir.display(), w.holds(dir));
+    format!("[gate]\nfast = \"true\"\nslow = \"{line}\"\n")
+}
+
+/// How many times the slow gate holding in `dir` started.
+fn runs(dir: &Path) -> usize {
+    std::fs::read_to_string(dir.join("runs")).map_or(0, |s| s.lines().count())
+}
+
+#[tokio::test]
+async fn promote_by_hand_while_the_daemons_promotion_runs_is_refused_and_leaves_it_be() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    let gate = w.dir.join("slow");
+    done(&w, "factorium.toml", &holding_slow_gate(&w, &gate)).await;
+    let slow_before = w.slow_gates_ran();
+    let by_hand = async {
+        until_file(&gate.join("started")).await;
+        let refused = w.run().promote("web").await.unwrap();
+        std::fs::write(gate.join("release"), "").unwrap();
+        refused
+    };
+    let (t, refused) = tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), by_hand) }).await.expect("ends");
+    assert_eq!(refused["promoted"], json!(null), "{refused}");
+    let why = refused["why"].as_str().unwrap();
+    assert!(why.contains("a promotion of web runs: the daemon's promotion of "), "{why}");
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "the running one goes on: {:?}", t.lines);
+    assert_eq!(runs(&gate), 1, "one slow gate ran");
+    assert_eq!(w.slow_gates_ran() - slow_before, 1, "one GateRan of the tip");
+}
+
+#[tokio::test]
+async fn the_daemon_starts_no_promotion_while_promote_by_hand_runs() {
+    let w = World::new();
+    // #2 keeps working all along: the daemon promotes only once the bound passed.
+    crate::line::two(&w).await;
+    let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
+    let one = one.unwrap();
+    let gate = w.dir.join("slow");
+    w.commit(&worktree(&one), "factorium.toml", &holding_slow_gate(&w, &gate));
+    w.app.worker_done(id(&one)).await.unwrap();
+    assert_eq!(w.tick().await.landed.len(), 1);
+    let slow_before = w.slow_gates_ran();
+    let cli = w.run();
+    let by_hand = cli.promote("web");
+    let ticks = async {
+        until_file(&gate.join("started")).await;
+        // Past the promotion bound: the daemon's promotion is due.
+        w.advance(31);
+        let t = w.tick().await;
+        std::fs::write(gate.join("release"), "").unwrap();
+        t
+    };
+    let (promoted, t) = tokio::time::timeout(STUCK, async { tokio::join!(by_hand, ticks) }).await.expect("ends");
+    assert!(!t.lines.iter().any(|l| l["promoted"] == "web" || l["promotion"] == "web"), "{:?}", t.lines);
+    assert_eq!(promoted.unwrap()["promoted"], "web");
+    assert_eq!(runs(&gate), 1, "one slow gate ran");
+    assert_eq!(w.slow_gates_ran() - slow_before, 1, "one GateRan of the tip");
+    assert!(!w.tick().await.lines.iter().any(|l| l["promoted"] == "web"), "nothing left to promote");
+}
