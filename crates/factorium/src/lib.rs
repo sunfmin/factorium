@@ -5,6 +5,7 @@
 
 mod daemon;
 mod data;
+mod doctor;
 mod gate;
 mod heavy;
 mod idle;

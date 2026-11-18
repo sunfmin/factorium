@@ -1,16 +1,15 @@
 //! The owner's commands: the checkout list, the tracker, the kit, the
-//! accounts, the settings, holds, and doctor.
+//! accounts, the settings and holds.
 
 use std::path::Path;
 
 use factorium_domain::checkout::{Add, AddCheckout, Named, RemoveCheckout};
-use factorium_domain::idle::{Idles, idle_id};
+use factorium_domain::heavy;
 use factorium_domain::issue::*;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::settings::{Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, shown};
-use factorium_domain::{daemon, doctor, heavy, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
 use factum::{Uuid, Value};
@@ -348,75 +347,6 @@ impl App {
         };
         self.submit::<heavy::EndHeavy>(heavy::End { id }).await?;
         Ok(json!({ "unqueued": entry }))
-    }
-
-    // ---- doctor ----
-
-    /// What doctor reads, from the database and a reading.
-    pub(crate) async fn seen(&self) -> Answer<doctor::Seen> {
-        let mut seen = doctor::Seen::default();
-        for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
-            let issue = format!("{}#{}", w.checkout, w.number);
-            let heard = self.state::<worker::Workers>(w.worker).await?.heard.into_iter().map(|(_, t)| t).collect();
-            let why = w.state.why.unwrap_or_default();
-            seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard });
-        }
-        for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
-            let (worker, since) = (w.worker.to_string(), w.state.since);
-            seen.landing.push(doctor::LandingSeen { worker, checkout: w.checkout, number: w.number, since });
-        }
-        for c in self.rows(tracker::listed()).await? {
-            let line = self.state::<Lines>(line_id(&c.name)).await?;
-            // What the base declares, as last fetched: doctor fetches nothing.
-            let git = self.host.git(&c.path);
-            let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
-            let stuck = crate::line::stuck_base(&c, &git);
-            let idle = self.state::<Idles>(idle_id(&c.name)).await?;
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle });
-        }
-        seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
-        let w = self.state::<watch::Watches>(watch::watch_id()).await?;
-        seen.held = w.held.clone().map(|(since, why)| doctor::HeldSeen { since, why });
-        seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
-        seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
-        (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
-        let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
-        if !dead.is_empty() {
-            let projection = factorium_domain::tracker::TRACKER.into();
-            seen.dead_letters.push(doctor::DeadLetters { projection, count: dead.len() });
-        }
-        Ok(seen)
-    }
-
-    /// The findings, each with its fix; the reading; and the owner's part of
-    /// the watch's reports, which this marks seen.
-    pub async fn doctor(&self) -> Answer {
-        let seen = self.seen().await?;
-        let settings = self.settings().await?;
-        let findings = doctor::findings(&seen, &settings, self.now());
-        let w = self.state::<watch::Watches>(watch::watch_id()).await?;
-        if let Some(last) = w.reports.last() {
-            self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
-        }
-        let reading = self.host.reading();
-        let holds: Vec<_> =
-            seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
-        let skipped: Vec<Value> =
-            self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
-        let idle: Vec<Value> =
-            seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
-        Ok(json!({
-            // The engine accounts no session can start on here, and why.
-            "accounts_skipped": skipped,
-            "heavy": seen.queue.entries,
-            // Each checkout's last idle run that ended green or red.
-            "idle": idle,
-            "findings": findings,
-            "human": seen.human,
-            "holds": holds,
-            "reading": reading,
-            "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
-        }))
     }
 }
 
