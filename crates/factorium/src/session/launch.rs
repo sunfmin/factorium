@@ -151,6 +151,8 @@ pub(crate) struct Opened {
     pub(crate) terminal: String,
     pub(crate) brief: PathBuf,
     pub(crate) typed: Option<String>,
+    /// The watch's: the hash of the rules it was briefed with.
+    pub(crate) rules: Option<String>,
 }
 
 fn io(e: std::io::Error) -> Refusal {
@@ -166,6 +168,17 @@ impl App {
     /// The watch's home and the brief its session is handed there.
     pub(crate) fn watch_home(&self) -> (PathBuf, PathBuf) {
         (self.data().watch(), self.data().watch_brief())
+    }
+
+    /// The rules this binary briefs the watch with, on this database.
+    fn watch_rules(&self) -> String {
+        WATCH_RULES.replace("{db}", &self.db.to_string_lossy())
+    }
+
+    /// The hash of the rules this binary briefs the watch with: a watch
+    /// briefed with others is restarted between rounds.
+    pub(crate) fn watch_rules_hash(&self) -> String {
+        rules_hash_of(&self.watch_rules())
     }
 
     /// What a session for `checkout` (the watch: `""`) starts on now; refused
@@ -189,6 +202,7 @@ impl App {
     /// Opens a terminal running a session of `role` on `pick`, its brief
     /// written for it.
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
+        let mut rules_hash = None;
         let (dir, worktree, brief, title, mut env) = match role {
             Role::Worker { id, worktree, name, title, brief } => {
                 let path = self.data().brief(name);
@@ -202,9 +216,10 @@ impl App {
             Role::Watch => {
                 let (home, brief) = self.watch_home();
                 self.host.git(&home).init("The watch's home").map_err(fail("git"))?;
-                let rules = WATCH_RULES.replace("{db}", &self.db.to_string_lossy());
+                let rules = self.watch_rules();
                 std::fs::write(home.join(RULES), &rules).map_err(io)?;
                 std::fs::write(&brief, &rules).map_err(io)?;
+                rules_hash = Some(rules_hash_of(&rules));
                 (home.clone(), home, brief, WATCH_TITLE.to_string(), vec![(WATCH_ENV, "1".to_string())])
             }
         };
@@ -238,7 +253,7 @@ impl App {
             let _ = std::fs::remove_file(file);
         }
         let (terminal, typed) = opened?;
-        Ok(Opened { terminal, brief, typed })
+        Ok(Opened { terminal, brief, typed, rules: rules_hash })
     }
 
     /// Opens the terminal of the session `start` says: its terminal, and
@@ -266,6 +281,13 @@ impl App {
         std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
         Ok(Some(file))
     }
+}
+
+/// A hash of `rules` that is the same from one build to the next (64-bit
+/// FNV-1a), as hex.
+fn rules_hash_of(rules: &str) -> String {
+    let h = rules.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    format!("{h:016x}")
 }
 
 /// Puts one thing a session's home holds in place. A file is written whole

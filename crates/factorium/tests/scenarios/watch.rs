@@ -358,3 +358,68 @@ async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     assert_eq!(looked["episodes"], 3, "{looked}");
     assert_eq!(looked["round"]["n"], 1, "the running round goes on");
 }
+
+/// factorium#94: the watch started at 00:45 on one binary's rules parked
+/// an issue at 17:04 by rules v0.1.20 had already changed. A watch briefed
+/// with other rules than the running binary's is given this binary's before
+/// its next round — between rounds, never in one.
+#[tokio::test]
+async fn a_watch_briefed_with_older_rules_gets_the_running_binary_s_before_its_next_round() {
+    let w = World::new();
+    escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    let first = watch_terminal(&w);
+    assert_eq!(w.terminal(&first).sent.len(), 1, "round 1");
+    // As an older binary briefed it: no rules recorded (or other ones).
+    let db = rusqlite::Connection::open(&w.db).unwrap();
+    db.execute_batch(
+        "UPDATE events SET data = json_remove(data, '$.rules', '$.data.rules') WHERE kind = 'WatchStarted'; \
+         DELETE FROM snapshots;",
+    )
+    .unwrap();
+    std::fs::write(w.data().watch_brief(), "the old rules").unwrap();
+
+    // Mid-round, the session stays.
+    w.advance(5);
+    w.tick().await;
+    assert!(w.terminal(&first).alive, "never restarted mid-round");
+    assert_eq!(w.app.watch_next().await.unwrap()["round"]["n"], 1);
+
+    // The round ends; another episode waits for the next.
+    w.app.watch_report("Answered.", None).await.unwrap();
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let second =
+        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned().unwrap();
+    w.advance(1);
+    w.app.worker_escalate(id(&second), "stuck too").await.unwrap();
+    w.tick().await;
+    let now = live_watch(&w);
+    assert_ne!(now, first, "a fresh session, between rounds");
+    assert!(crate::closed(&w.app, &first).await, "the old one is closed");
+    let brief = std::fs::read_to_string(w.data().watch_brief()).unwrap();
+    assert_eq!(brief, std::fs::read_to_string(w.data().watch().join(RULES)).unwrap());
+    assert!(brief.contains(&format!("The database is {}.", w.db.to_string_lossy())), "this binary's rules: {brief}");
+    assert!(w.terminal(&now).line.contains(&*w.data().watch_brief().to_string_lossy()), "handed its brief");
+
+    // Its next round goes to the fresh session, which is not restarted again.
+    w.watch_session(false);
+    w.advance(5);
+    w.tick().await;
+    let sent = w.terminal(&now).sent;
+    assert!(sent.len() == 1 && sent[0].contains("round 2") && sent[0].contains("stuck too"), "{sent:?}");
+    w.app.watch_report("Answered too.", None).await.unwrap();
+    w.advance(5);
+    w.tick().await;
+    assert_eq!(live_watch(&w), now, "the same rules: the same session");
+}
+
+/// The watch's terminal that runs: a closed one stays in Orca's fake.
+fn live_watch(w: &World) -> String {
+    let t = w.host.orca.terminals.lock().unwrap();
+    let live: Vec<&String> =
+        t.iter().filter(|(_, t)| t.title == "factorium watch" && t.alive).map(|(h, _)| h).collect();
+    assert_eq!(live.len(), 1, "one watch session runs");
+    live[0].clone()
+}

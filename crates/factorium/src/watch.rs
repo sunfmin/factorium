@@ -34,7 +34,12 @@ impl App {
     pub(crate) async fn ensure_watch(&self, before: &watch::Watch) -> Answer<Option<String>> {
         if let Some(s) = self.watch_session(before) {
             match self.gone(&s) {
-                Ok(false) => return Ok(Some(s.terminal().into())),
+                // Briefed with rules this binary does not hold: between
+                // rounds, never in one, it is closed for a fresh session.
+                Ok(false) if before.round.is_some() || before.rules.as_deref() == Some(&self.watch_rules_hash()) => {
+                    return Ok(Some(s.terminal().into()));
+                }
+                Ok(false) => _ = self.close_watch_session().await?,
                 // Not known to be gone: no second session; none to type at now.
                 Err(_) => return Ok(None),
                 Ok(true) => {}
@@ -45,11 +50,12 @@ impl App {
             Err(r) if r.code == "no_harness" => return Ok(None),
             Err(r) => return Err(r),
         };
-        let Opened { terminal, typed, .. } = self.open_session(Role::Watch, &pick)?;
+        let Opened { terminal, typed, rules, .. } = self.open_session(Role::Watch, &pick)?;
         self.submit::<StartWatch>(watch::Started {
             terminal: terminal.clone(),
             harness: pick.harness.key().into(),
             account: pick.account.clone(),
+            rules,
         })
         .await?;
         let started = self.state::<Watches>(watch_id()).await?;
