@@ -44,6 +44,38 @@ pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
     Some(Stuck { base: c.base.clone(), path: c.path.clone(), behind, ours, dirty })
 }
 
+/// The lock one promotion holds while it runs, released when dropped or
+/// when its process ends, however it ends.
+struct Running {
+    _held: std::fs::File,
+}
+
+impl Running {
+    /// Takes the lock at `path` as `what`, unless it is held: then answers
+    /// what holds it.
+    fn take(path: &Path, what: &str) -> Result<Running, String> {
+        use std::io::{Read, Seek, Write};
+        let opened = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path));
+        let mut f = opened.map_err(|e| format!("its lock {} does not open: {e}", path.display()))?;
+        match f.try_lock() {
+            Ok(()) => {
+                let _ = f.set_len(0).and_then(|()| f.rewind());
+                let _ = write!(f, "{what}, pid {}", std::process::id());
+                Ok(Running { _held: f })
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                let mut held = String::new();
+                let _ = f.read_to_string(&mut held);
+                Err(if held.is_empty() { "another promotion".into() } else { held })
+            }
+            Err(std::fs::TryLockError::Error(e)) => Err(format!("its lock {} does not lock: {e}", path.display())),
+        }
+    }
+}
+
 /// What one move did, or why it did not run now.
 pub(crate) type Did = Result<Value, String>;
 
@@ -134,6 +166,13 @@ impl App {
         by_hand: bool,
         bound_at: Option<i64>,
     ) -> Answer<Did> {
+        // One promotion of a checkout at a time: a second would reset the
+        // clone under the running one's slow gate.
+        let who = if by_hand { "`factorium promote`" } else { "the daemon's promotion" };
+        let _running = match Running::take(&self.data().promotion_lock(&c.name), &format!("{who} of {tip}")) {
+            Ok(running) => running,
+            Err(running) => return Ok(Err(format!("a promotion of {} runs: {running}", c.name))),
+        };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
         let at = At::Commit { rev: &tip, by_hand, bound_at };
