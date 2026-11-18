@@ -17,9 +17,15 @@ impl App {
         let mut seen = doctor::Seen::default();
         for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
             let issue = format!("{}#{}", w.checkout, w.number);
-            let heard = self.state::<worker::Workers>(w.worker).await?.heard.into_iter().map(|(_, t)| t).collect();
+            let wk = self.state::<worker::Workers>(w.worker).await?;
+            let heard = wk.heard.into_iter().map(|(_, t)| t).collect();
             let why = w.state.why.unwrap_or_default();
-            seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard });
+            let mut parked = Vec::new();
+            if wk.parked {
+                let blockers = self.blockers(&self.issue(&w.checkout, w.number).await?).await?;
+                parked = blockers.into_iter().filter(|(_, met)| met.is_none()).map(|(name, _)| name).collect();
+            }
+            seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard, parked });
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
             let (worker, since) = (w.worker.to_string(), w.state.since);
@@ -63,6 +69,9 @@ impl App {
             seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
         let skipped: Vec<Value> =
             self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
+        let parked: Vec<Value> = (seen.waiting.iter().filter(|w| !w.parked.is_empty()))
+            .map(|w| json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "waits_for": w.parked }))
+            .collect();
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         Ok(json!({
@@ -74,6 +83,8 @@ impl App {
             "findings": findings,
             "human": seen.human,
             "holds": holds,
+            // Waiting workers the watch parked behind what their issues wait for, not yet met.
+            "parked": parked,
             "reading": reading,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))

@@ -68,6 +68,10 @@ pub struct Worker {
     /// ms: its watch episode carries them.
     #[serde(default)]
     pub heard: Vec<(i64, String)>,
+    /// Waiting, its issue was blocked: the watch parked it behind what its
+    /// issue waits for, and it goes back to work once all of that is met.
+    #[serde(default)]
+    pub parked: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -140,6 +144,11 @@ pub enum WorkerEvent {
         text: String,
         at: i64,
     },
+    /// Waiting, its issue was blocked.
+    WorkerParked,
+    /// No longer parked: what its issue waited for was met, or it was
+    /// sent back to work.
+    WorkerUnparked,
     /// Its terminal was closed and Orca no longer lists it; `failed`: why
     /// it was not (Orca refused, or lists it still).
     SessionClosed {
@@ -193,10 +202,12 @@ impl Aggregate for Workers {
                 s.heard.clear();
             }
             WorkerEvent::WorkerResumed { .. } => {
-                (s.reds, s.quiet) = (0, None);
+                (s.reds, s.quiet, s.parked) = (0, None, false);
                 s.heard.clear();
             }
             WorkerEvent::WorkerHeard { text, at } => s.heard.push((at, text)),
+            WorkerEvent::WorkerParked => s.parked = true,
+            WorkerEvent::WorkerUnparked => s.parked = false,
             WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
             WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
@@ -317,6 +328,32 @@ command!(
         live(s)?;
         Ok(if s.status == Status::Waiting { vec![WorkerEvent::WorkerResumed { at: now.0 }] } else { Vec::new() })
     }
+);
+
+command!(
+    /// Its issue was blocked: a waiting worker is parked behind what its
+    /// issue waits for. One that does not wait is not.
+    Park,
+    "worker.park",
+    Workers,
+    Of,
+    |p| p.worker,
+    |s, _p, _now| Ok::<_, Rejection>(if s.status == Status::Waiting && !s.parked {
+        vec![WorkerEvent::WorkerParked]
+    } else {
+        Vec::new()
+    })
+);
+
+command!(
+    /// What a parked worker's issue waited for is met: it is no longer
+    /// parked, whether or not its restart reaches it.
+    Unpark,
+    "worker.unpark",
+    Workers,
+    Of,
+    |p| p.worker,
+    |s, _p, _now| Ok::<_, Rejection>(if s.parked { vec![WorkerEvent::WorkerUnparked] } else { Vec::new() })
 );
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

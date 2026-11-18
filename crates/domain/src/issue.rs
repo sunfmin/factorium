@@ -139,6 +139,16 @@ impl Issue {
     pub fn opened(&self) -> bool {
         self.number > 0
     }
+
+    /// Everything it waits for, each named as the CLI names it: one of its
+    /// own checkout as `#N`, with the issue it is as one of any checkout.
+    pub fn waits_for(&self) -> Vec<(String, Across)> {
+        let here = self
+            .blocked_by
+            .iter()
+            .map(|&number| (format!("#{number}"), Across { checkout: self.checkout.clone(), number, cut: false }));
+        here.chain(self.across.iter().map(|a| (a.to_string(), a.clone()))).collect()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
