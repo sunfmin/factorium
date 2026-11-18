@@ -82,8 +82,9 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
     let w = World::new();
     declares(&w, &["true".into()], 3600, 60).await;
     while_busy(&w, async {
-        // Room on the host, but the queue holds a worker's heavy command.
+        // Room on the host and a new reading, but the queue holds a worker's heavy command.
         w.host.reading.lock().unwrap().cpu_busy = 10;
+        w.advance(1);
         assert_eq!(w.tick().await.idle, Vec::<Value>::new());
         assert!(!heavy(&w).await.contains(&"idle work of web".to_string()));
     })
