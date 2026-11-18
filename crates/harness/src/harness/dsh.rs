@@ -137,7 +137,7 @@ impl Kind for Dsh {
         let described = Described::deserialize(described)?;
         Ok(match described.arguments.command {
             Some(line) if described.name == "bash" || described.name == "bash_persistent" => Call::Shell(line),
-            _ => Call::Other,
+            _ => Call::NotShell,
         })
     }
 
