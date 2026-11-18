@@ -138,6 +138,18 @@ impl App {
         Ok(done)
     }
 
+    /// The daemon starts, or execs a new binary as the same pid: this pid's
+    /// waiting entries were queued by the process it replaces, whose memory
+    /// went with it. Taken as its own, the first tick's
+    /// [`App::asking_once`] ends those it no longer asks for.
+    pub(crate) async fn adopt_queued(&self) -> Answer<()> {
+        let pid = std::process::id();
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let mine = q.entries.iter().filter(|e| e.pid == pid && e.started_at.is_none()).map(|e| e.id);
+        self.memory.lock().unwrap().queued.extend(mine);
+        Ok(())
+    }
+
     /// A waiter whose rules the queue no longer takes (refused as `stale`)
     /// execs the binary Homebrew links now, as the same pid, keeping its
     /// entry `id`; answers why not if it cannot.

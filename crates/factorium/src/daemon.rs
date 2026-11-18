@@ -240,6 +240,7 @@ impl App {
         self.submit::<StartDaemon>(Start { path: path.clone(), missing: missing.clone() }).await?;
         // Waiters of older binaries no longer start once this one runs.
         self.note_rules().await?;
+        self.adopt_queued().await?;
         Ok(json!({ "path": path, "missing": missing }))
     }
 
