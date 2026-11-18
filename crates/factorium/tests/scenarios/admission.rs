@@ -106,8 +106,7 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
         worker: tag,
     };
     let dir = w.dir.join("slot");
-    std::fs::create_dir_all(&dir).unwrap();
-    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+    let line = &w.holds(&dir);
     let body = async {
         crate::queue::until_file(&dir.join("started")).await;
         *w.host.procs.lock().unwrap() = vec![mutants.clone()];
@@ -144,8 +143,7 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
         ..Default::default()
     };
     let dir = w.dir.join("slot");
-    std::fs::create_dir_all(&dir).unwrap();
-    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+    let line = &w.holds(&dir);
     let body = async {
         crate::queue::until_file(&dir.join("started")).await;
         *w.host.procs.lock().unwrap() = vec![sweep.clone()];

@@ -187,8 +187,9 @@ async fn done(w: &World, number: u64, file: &str, text: &str) {
 async fn runs_long_beside_a_landing(w: &World, declared: &str, minutes: i64, key: &str) -> Vec<Value> {
     // #2 keeps working: the checkout is never idle, so only the bound moves it.
     working(w, &["a", "b"]).await;
-    let (started, release) = (w.dir.join("long-started"), w.dir.join("long-release"));
-    let long = format!("touch {}; while [ ! -e {} ]; do sleep 0.02; done", started.display(), release.display());
+    let dir = w.dir.join("long");
+    let long = w.holds(&dir);
+    let (started, release) = (dir.join("started"), dir.join("release"));
     done(w, 1, "factorium.toml", &declared.replace("{long}", &long)).await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
     if key == "uncut:web" {
@@ -285,10 +286,6 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
 }
 
-/// A heavy command run in `dir` that holds its slot until `release` is
-/// there, and ends by itself after about 20s.
-const HOLDS: &str = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
-
 #[tokio::test]
 async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entries_and_one_just_due_keeps_its_place() {
     let w = World::new();
@@ -301,17 +298,15 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
     // No room beside what runs: one heavy command at a time.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let dirs: Vec<PathBuf> = ["running", "w1", "w2"].iter().map(|d| w.dir.join(d)).collect();
-    for d in &dirs {
-        std::fs::create_dir_all(d).unwrap();
-    }
+    let holds: Vec<String> = dirs.iter().map(|d| w.holds(d)).collect();
     let started = |d: &PathBuf| d.join("started").exists();
     let (a, w1, w2) = (w.run(), w.run(), w.run());
-    let running = a.worker_exclusive(None, &dirs[0], HOLDS);
+    let running = a.worker_exclusive(None, &dirs[0], &holds[0]);
     let line = async {
         until_file(&dirs[0].join("started")).await;
         // Two of #2's entries wait behind what runs.
         let (one, other) =
-            (w1.worker_exclusive(Some(two), &dirs[1], HOLDS), w2.worker_exclusive(Some(two), &dirs[2], HOLDS));
+            (w1.worker_exclusive(Some(two), &dirs[1], &holds[1]), w2.worker_exclusive(Some(two), &dirs[2], &holds[2]));
         let script = async {
             while heavy(&w).await.len() < 3 {
                 tokio::task::yield_now().await;

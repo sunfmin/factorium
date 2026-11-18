@@ -29,12 +29,10 @@ pub(crate) async fn heavy(w: &World) -> Vec<String> {
 /// lets that command end.
 pub(crate) async fn while_busy<T>(w: &World, during: impl Future<Output = T>) -> T {
     let dir = w.dir.join("busy");
-    std::fs::create_dir_all(&dir).unwrap();
+    let line = &w.holds(&dir);
     let cli = w.run();
     // No room for a second heavy command beside it.
     w.host.reading.lock().unwrap().cpu_busy = 99;
-    // It ends by itself after about 20s, so a scenario that fails inside does not hang.
-    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
     let body = async {
         until_file(&dir.join("started")).await;
         let t = during.await;
@@ -186,12 +184,9 @@ async fn beside_what_runs_one_heavy_command_starts_per_reading() {
 async fn a_landing_whose_gate_runs_long_is_no_stall() {
     let w = World::new();
     w.working(CLAUDE, "a").await;
-    let (started, release) = (w.dir.join("gate-started"), w.dir.join("gate-release"));
-    let toml = format!(
-        "[gate]\nfast = \"touch {}; while [ ! -e {} ]; do sleep 0.02; done\"\n",
-        started.display(),
-        release.display()
-    );
+    let gate = w.dir.join("gate");
+    let toml = format!("[gate]\nfast = \"{}\"\n", w.holds(&gate));
+    let (started, release) = (gate.join("started"), gate.join("release"));
     done(&w, "factorium.toml", &toml).await;
     let me = id(&worker(&w.app).await);
     let looks = async {
@@ -221,11 +216,10 @@ async fn promote_by_hand_waits_out_a_busy_queue_and_then_promotes() {
     assert_eq!(t.lines, Vec::<serde_json::Value>::new(), "landed, not promoted");
 
     let dir = w.dir.join("busy");
-    std::fs::create_dir_all(&dir).unwrap();
+    let line = w.holds(&dir);
     w.host.reading.lock().unwrap().cpu_busy = 99;
-    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
     let cli = w.run();
-    let busy = cli.worker_exclusive(None, &dir, line);
+    let busy = cli.worker_exclusive(None, &dir, &line);
     let promoting = async {
         until_file(&dir.join("started")).await;
         let mut promote = std::pin::pin!(w.app.promote("web"));

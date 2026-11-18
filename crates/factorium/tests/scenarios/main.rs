@@ -11,6 +11,7 @@ mod base;
 mod bounds;
 mod comment;
 mod daemon;
+mod fixtures;
 mod harnesses;
 mod kept;
 mod line;
@@ -675,6 +676,26 @@ impl World {
     /// The remote's tip of `branch` of repo `name`.
     pub fn remote_tip(&self, name: &str, branch: &str) -> String {
         self.git(&self.dir.join("remotes").join(format!("{name}.git")), &["rev-parse", branch]).unwrap()
+    }
+}
+
+/// How long a fixture [`World::holds`] starts lives at most, in 20ms
+/// steps: two minutes, well above any scenario's run.
+const HOLD_STEPS: u32 = 6000;
+
+impl World {
+    /// A shell line that touches `dir/started`, then holds until
+    /// `dir/release` is there (exit 0). It also ends, with exit 1, once `dir`
+    /// is gone (the world dropped, on a panic too) or after two minutes (the
+    /// test binary killed): what a scenario starts never outlives it.
+    /// Makes `dir`.
+    pub fn holds(&self, dir: &Path) -> String {
+        std::fs::create_dir_all(dir).unwrap();
+        let d = dir.display();
+        format!(
+            "touch {d}/started; i=0; while [ -d {d} ] && [ $i -lt {HOLD_STEPS} ]; do \
+             [ -e {d}/release ] && exit 0; sleep 0.02; i=$((i+1)); done; exit 1"
+        )
     }
 }
 
