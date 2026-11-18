@@ -130,6 +130,30 @@ async fn a_queued_gate_no_longer_due_leaves_the_queue() {
     assert_eq!(next.expect("nothing stale waits ahead of it").unwrap()["ok"], json!(true));
 }
 
+/// Seen 2026-11-19 (factorium#112): the daemon queued a slow gate, then
+/// execed the binary its own cut installed, as the same pid. The new process
+/// never asked for the gate again nor ended it, so it held the queue's head.
+#[tokio::test]
+async fn a_daemon_swapped_in_place_ends_its_queued_job_no_longer_due() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    done(&w, "a", "x").await;
+    while_busy(&w, async {
+        assert_eq!(w.tick().await.landed, Vec::<serde_json::Value>::new(), "the landing's gate waits its turn");
+        assert_eq!(heavy(&w).await.len(), 2, "the busy command and the landing's gate");
+        // The swap: a new process, the same pid, none of the old one's memory.
+        let swapped = w.run();
+        swapped.daemon_start().await.unwrap();
+        w.app.hold("web", Some("by hand")).await.unwrap();
+        swapped.tick().await.unwrap();
+        assert_eq!(heavy(&w).await.len(), 1, "only the busy command");
+    })
+    .await;
+    assert_eq!(heavy(&w).await, Vec::<String>::new());
+    let next = tokio::time::timeout(STUCK, w.run().worker_exclusive(None, &w.dir, "echo next")).await;
+    assert_eq!(next.expect("nothing stale waits ahead of it").unwrap()["ok"], json!(true));
+}
+
 #[tokio::test]
 async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick() {
     let w = World::new();
