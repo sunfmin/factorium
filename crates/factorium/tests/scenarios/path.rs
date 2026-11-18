@@ -75,6 +75,10 @@ async fn done_takes_only_committed_work_of_its_own() {
     refused(w.app.worker_done(id(&wk)).await, "dirty");
     w.git(&tree, &["add", "-A"]).unwrap();
     w.git(&tree, &["commit", "-qm", "x"]).unwrap();
+    // Landing takes its branch: on another, it is refused.
+    w.git(&tree, &["checkout", "-qb", "elsewhere"]).unwrap();
+    refused(w.app.worker_done(id(&wk)).await, "off_branch");
+    w.git(&tree, &["checkout", "-q", "-"]).unwrap();
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
