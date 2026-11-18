@@ -351,6 +351,16 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     let db = dir.0.join("data/factorium/factorium.db");
     assert_eq!(get("EnvironmentVariables.FACTORIUM_DB"), db.to_str().unwrap());
     assert_eq!(get("StandardErrorPath"), factorium::Data::of(&db).log().to_str().unwrap());
+
+    // Installed and removed with launchctl stubbed to fail: the definition
+    // is written, launchd's refusal is the install's, and remove takes it away.
+    let (ok, refused) = run(&dir, &["service", "install"]);
+    assert!(!ok && refused["error"]["code"] == "launchctl", "{refused}");
+    let agent = dir.0.join("home/Library/LaunchAgents/com.github.sunfmin.factorium.plist");
+    assert!(agent.exists());
+    let (ok, removed) = run(&dir, &["service", "remove"]);
+    assert!(ok && removed["removed"] == true, "{removed}");
+    assert!(!agent.exists());
 }
 
 #[test]

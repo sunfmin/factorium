@@ -236,3 +236,22 @@ async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
     assert_eq!(statuses, [json!("waiting_for_human"), json!("waiting_for_human"), json!("ready")]);
     assert_eq!(app.issue_ready("web", 2).await.unwrap()["status"], "ready");
 }
+
+/// An event the tracker cannot read (a binary's bug, or one the running
+/// binary does not know) is set aside as a dead letter, and doctor names it.
+#[tokio::test]
+async fn an_event_the_tracker_cannot_read_is_a_dead_letter_doctor_names() {
+    let w = World::new();
+    w.kit().await;
+    let db = rusqlite::Connection::open(&w.db).unwrap();
+    let (event, stream) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+    db.execute(
+        "INSERT INTO events (id, stream, version, kind, type_version, data, meta) \
+         SELECT ?1, ?2, 1, 'CheckoutAdded', 1, '{}', meta FROM events LIMIT 1",
+        [event.to_string(), format!("checkout/{stream}")],
+    )
+    .unwrap();
+    let found = w.app.doctor().await.unwrap();
+    let dead = found["findings"].as_array().unwrap().iter().find(|f| f["key"] == "dead:tracker");
+    assert_eq!(dead.expect("named")["what"], "projection tracker has 1 dead letters", "{found}");
+}
