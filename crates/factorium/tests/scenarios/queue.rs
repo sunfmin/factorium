@@ -10,9 +10,8 @@ use serde_json::json;
 
 use crate::{CLAUDE, World, id, worker, worktree};
 
-/// Long enough that only a broken rule gets there: a heavy command other
-/// than a gate runs at background priority, which a busy host starves.
-pub(crate) const STUCK: Duration = Duration::from_secs(60);
+/// Long enough that only a broken rule gets there.
+pub(crate) const STUCK: Duration = Duration::from_secs(20);
 
 pub(crate) async fn until_file(path: &Path) {
     while !path.exists() {
