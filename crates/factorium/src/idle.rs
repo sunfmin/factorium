@@ -14,6 +14,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
 use factorium_domain::settings::Settings;
+use factorium_host::Priority;
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -46,7 +47,7 @@ fn steps(dir: std::path::PathBuf, steps: Vec<String>, limit: Duration, stop: Arc
     let mut tail = String::new();
     for step in &steps {
         let left = limit.saturating_sub(started.elapsed());
-        let ran = factorium_host::run(&dir, step, &[], left, &|| stop.load(Ordering::Relaxed));
+        let ran = factorium_host::run(&dir, step, &[], left, Priority::Background, &|| stop.load(Ordering::Relaxed));
         if !ran.ok {
             let why = if ran.timed_out {
                 format!("past its limit of {}s", limit.as_secs())

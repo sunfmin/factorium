@@ -80,6 +80,10 @@ exclude_re = [
   'reading.rs:40:(31|35):.*',
   'reading.rs:40:88:.*replace < with (<=|==) in Cpu::busy$',
   'reading.rs:68:22:.*replace \+ with \* in ticks$',
+  # What Darwin's background band adds to a background command's nice
+  # value no test reads: the scenarios read the nice value, which both arms
+  # set.
+  'replace match guard cfg!\(target_os = "macos"\) with (true|false) in Priority::launcher',
   # Only those readings run a program to read its output this way.
   'shell.rs:.*replace output -> ',
   # Equivalent: Orca's exit status and its answer's `ok` agree.
