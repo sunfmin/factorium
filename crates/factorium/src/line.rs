@@ -1,26 +1,26 @@
 //! The proving line's three moves: a landing merges a worker's branch onto
 //! the proving tip and pushes it once the fast gate is green; a promotion
 //! fast-forwards the base branch to the proving tip once the slow gate is
-//! green; a cut makes a version from the base tip. Each push requires the
-//! tip it read. Each runs in its own clone of the checkout under the data directory.
+//! green; a cut makes a version from the base tip ([`cut`]). Each push
+//! requires the tip it read. Each runs in its own clone of the checkout
+//! under the data directory.
+
+mod cut;
 
 use std::path::Path;
-use std::time::Duration;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::doctor::Stuck;
-use factorium_domain::heavy::LineJob;
-use factorium_domain::line::{self, Due, Lines, Move, next_version};
+use factorium_domain::line::{self, Due, Lines, Move};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_host::{Git, Lag, Priority};
+use factorium_host::{Git, Lag};
 use factum::Uuid;
 use serde_json::{Value, json};
 
 use crate::gate::At;
-use crate::heavy::{Job, Turn};
 use crate::life::End;
 use crate::{Answer, App, LineClone, fail};
 
@@ -208,63 +208,6 @@ impl App {
         self.submit::<line::Promote>(promotion).await?;
         let local = follow_base(c, git, &tip);
         Ok(Ok(json!({ "promoted": c.name, "tip": tip, "local": local })))
-    }
-
-    /// Cuts a version of `c` from its base tip, if it declares a cut.
-    /// `bound_at`: when the cut falls due however busy.
-    async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>) -> Answer<Did> {
-        let git = self.host.git(&c.path);
-        let base = git.fetch(&c.base).map_err(fail("git"))?;
-        let declared = self.declared(&git, &base)?;
-        let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
-        let version = next_version(git.version_tags().first().map(String::as_str));
-        let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
-        let env = vec![("FACTORIUM_VERSION".to_string(), version.clone())];
-        let record = |commit: &str, failed: Option<String>| line::Cut {
-            checkout: c.name.clone(),
-            version: version.clone(),
-            commit: commit.into(),
-            failed,
-        };
-        // The steps share the clone, so they take one turn of the queue.
-        let job = Job {
-            what: LineJob::Cut.of(&c.name),
-            worker: None,
-            bound_at,
-            dir: &here.dir,
-            steps: &cut.steps,
-            env: &env,
-            limit: Duration::from_secs(cut.limit),
-            priority: Priority::Background,
-        };
-        let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
-        let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
-        // Each step after the queue, in turn; the first that fails is why the
-        // cut failed, and every way it fails is recorded the one way.
-        let done = async {
-            if let Some(ran) = rans.last().filter(|r| !r.ok) {
-                return Err(format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail));
-            }
-            let tagged = here.sha("HEAD").and_then(|t| here.tag_pushed(&version, &t).map(|_| t));
-            let tagged = tagged.map_err(|e| format!("tagging failed: {e}"))?;
-            let Some(formula) = &cut.formula else { return Ok((tagged, None)) };
-            // The daemon's own formula: it sees the new link once the tick ends.
-            // It waits, up to 90s, for a tap pushed seconds ago: off the runtime's threads.
-            let (host, f, v) = (self.host.clone(), formula.clone(), version.clone());
-            let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
-            let up = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}")));
-            up.map_err(|e| format!("installing {formula} failed: {e}"))?;
-            Ok((tagged, Some(formula.clone())))
-        };
-        let (tagged, installed) = match done.await {
-            Ok(done) => done,
-            Err(why) => {
-                self.submit::<line::RecordCut>(record(&base, Some(why.clone()))).await?;
-                return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": why })));
-            }
-        };
-        self.submit::<line::RecordCut>(record(&tagged, None)).await?;
-        Ok(Ok(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed })))
     }
 
     /// `factorium promote`: promotes now, whatever the bound or a red tip says.

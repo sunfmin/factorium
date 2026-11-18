@@ -1,7 +1,7 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 11103,
+      "prod_lines": 11115,
       "test_lines": 7410,
       "tests": 231,
       "failures": 0,
