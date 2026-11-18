@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use factorium_domain::checkout::{Add, AddCheckout, Checkouts, Named, RemoveCheckout};
+use factorium_domain::idle::{Idles, RecordIdle, idle_id};
 use factorium_domain::issue::*;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
@@ -58,6 +59,8 @@ pub(crate) fn model() -> Model {
         .command::<LimitAccount>()
         .aggregate::<HostSettings>()
         .command::<SetSetting>()
+        .aggregate::<Idles>()
+        .command::<RecordIdle>()
         .aggregate::<heavy::Heavy>()
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
@@ -391,7 +394,8 @@ impl App {
             let git = self.host.git(&c.path);
             let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
             let stuck = crate::line::stuck_base(&c, &git);
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck });
+            let idle = self.state::<Idles>(idle_id(&c.name)).await?;
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle });
         }
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
@@ -422,10 +426,14 @@ impl App {
             seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
         let skipped: Vec<Value> =
             self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
+        let idle: Vec<Value> =
+            seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         Ok(json!({
             // The engine accounts no session can start on here, and why.
             "accounts_skipped": skipped,
             "heavy": seen.queue.entries,
+            // Each checkout's last idle run that ended green or red.
+            "idle": idle,
             "findings": findings,
             "human": seen.human,
             "holds": holds,

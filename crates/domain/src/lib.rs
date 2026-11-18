@@ -13,6 +13,7 @@ pub mod doctor;
 pub mod gate;
 pub mod health;
 pub mod heavy;
+pub mod idle;
 pub mod issue;
 pub mod kit;
 pub mod line;

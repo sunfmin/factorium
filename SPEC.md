@@ -40,7 +40,8 @@ approval and an entry here.
 | 12 | **Landing** | A worker's `done`: its branch is merged onto the proving tip, the fast gate runs on the merge, and the proving branch is moved to it by a push that requires the tip it read. One landing per checkout at a time. Green closes the issue and ends the worker. |
 | 13 | **Promotion** | One at a time per checkout: the slow gate on the proving tip, then the base branch fast-forwarded to it by a push that requires the base it read. Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound. The checkout's local base follows: fast-forwarded to the promoted tip, and on every tick to origin's base as last fetched, never further — in the tree it is checked out in, if that tree is clean. One with commits of its own, or checked out over changes not committed, is never reset: it is left, and is a doctor finding naming the checkout and how far behind it is. |
 | 14 | **Cut** | A version made from the base branch when the checkout is idle, or once its oldest uncut landing has waited the cut bound less the hold bound, ahead of workers' heavy commands as a promotion is: set, push its own branch, gate, tag, publish, install. |
-| 15 | **Watch** | One resident agent session on the host. A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, failed cuts and resource holds all go to it. It acts with the operator's commands. |
+| 15 | **Watch** | One resident agent session on the host. A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it. It acts with the operator's commands. |
+| 16 | **Idle work** | What a checkout declares under `[idle]` (§5): steps too slow for any gate (a full mutation run), run in their own clone at the base's tip while the host is idle — no live worker works (each waits for the watch, or none lives), the heavy queue holds nothing, and the host has room — at most once per `every` (from the last run's start) and within `limit` for all the steps. It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick. A run that ends is recorded with its base tip and tail; past `limit` it ends red. A red run is a doctor finding, and so a watch episode, until a later run is green. One runs at a time on the host. |
 
 `doctor` is not a concept of its own: it is the findings computed from the
 database and the host's readings, each with how to fix it. It is the
@@ -83,12 +84,13 @@ watch's look and the operator's view.
    `<branch>-abandoned`, a comment names that branch and the why, and the
    worktree goes, so the next start is branched from the proving tip. The
    issue stays ready or parked as it was.
-7. Promotion and cut follow on their own (§1.13, §1.14).
+7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
+   when nothing else does (§1.16).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
 silent past its bound, or hung past it (its turn open, its processes next
-to idle, its screen unchanged), a hot worker, a red promotion, a failed cut, admission held
+to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held
 for one reason past the host's span. So does a line that stopped:
 whatever it owes is done within its bound or is a finding — a heavy
 queue that starts nothing past `stall_bound` (or whose oldest waits past
@@ -111,7 +113,7 @@ state. The CLI and the daemon open the same file (WAL); a CLI command is
 a factum submission or a query, so the CLI needs no socket to the daemon.
 
 What a repo declares about itself — its gate commands and limits, its
-cut steps, its heavy commands, its proving branch — is a file committed
+cut steps, its idle work, its heavy commands, its proving branch — is a file committed
 in the repo, `factorium.toml`, because it changes with the code and is
 reviewed with it. It is the one exception to "everything in the database".
 
@@ -185,6 +187,27 @@ The help in the binary is the manual (as in afkconvoy): every command's
 | `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,000 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000.
+
+**What a repo declares**, in `factorium.toml` at its root (§3); every
+table may be left out:
+
+```toml
+[gate]
+fast = "./gate.sh"      # every landing, and `factorium worker gate`
+fast_limit = 600        # seconds
+slow = "./slow.sh"      # the proving tip, before a promotion
+slow_limit = 3600
+
+[cut]                   # a version from the base tip (§1.14)
+steps = ["./release.sh $FACTORIUM_VERSION"]
+formula = "tap/name"    # the Homebrew formula upgraded once cut
+limit = 3600
+
+[idle]                  # only while the host is idle (§1.16)
+steps = ["slimfit check --all-mutants"]
+every = 86400           # at most once per this many seconds
+limit = 14400           # seconds, all the steps together; past it, red
+```
 
 **For Guild.** Guild depends on `factorium-harness`, `factorium-host`
 and the domain's neutral parts (admission, the queue's start rule,

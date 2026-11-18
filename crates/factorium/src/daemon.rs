@@ -1,6 +1,6 @@
 //! The daemon's tick: one pass over everything that moves without a
 //! command — workers watched, landings, promotions, cuts, one start if
-//! admission allows, and the watch's look.
+//! admission allows, idle work, and the watch's look.
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
@@ -25,6 +25,8 @@ pub struct Tick {
     pub seen: Vec<Value>,
     pub landed: Vec<Value>,
     pub lines: Vec<Value>,
+    /// Idle work that ended, yielded or started.
+    pub idle: Vec<Value>,
     pub started: Option<Value>,
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
@@ -80,6 +82,8 @@ impl App {
                 t.seen.push(seen);
             }
         }
+        // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
+        t.idle.extend(self.idle_check().await?);
         // The lines: each checkout's landing, then its promotion and cut,
         // as its line says each is due.
         let checkouts = self.listed().await?;
@@ -126,6 +130,8 @@ impl App {
         } else {
             self.submit::<NoteAdmission>(Held { why: None }).await?;
         }
+        // Idle work, once the lines and the workers have what they need.
+        t.idle.extend(self.idle_start(&checkouts, &settings).await?);
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
@@ -217,12 +223,14 @@ impl App {
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             match self.tick().await {
                 Ok(t) => {
-                    if t.started.is_some() || !t.landed.is_empty() || !t.lines.is_empty() || !t.seen.is_empty() {
+                    let did = !t.landed.is_empty() || !t.lines.is_empty() || !t.seen.is_empty() || !t.idle.is_empty();
+                    if t.started.is_some() || did {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
                         // Between ticks, as the same pid: the pid file stays right.
                         use std::os::unix::process::CommandExt;
+                        self.idle_end().await;
                         let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
                         eprintln!("restart as {binary}: {e}");
                     }
@@ -237,6 +245,7 @@ impl App {
                 .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             tokio::time::sleep(std::time::Duration::from_millis(every as u64)).await;
         }
+        self.idle_end().await;
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
     }

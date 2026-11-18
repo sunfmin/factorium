@@ -222,7 +222,7 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
-    for kind in LineClone::ALL {
+    for kind in [LineClone::Landing, LineClone::Promotion, LineClone::Cut] {
         assert!(w.data().clone_of(kind, "web").join(".git").is_dir(), "{kind:?} is a clone");
     }
     let listed = w.git(&web, &["worktree", "list", "--porcelain"]).unwrap();

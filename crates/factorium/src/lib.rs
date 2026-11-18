@@ -7,6 +7,7 @@ mod daemon;
 mod data;
 mod gate;
 mod heavy;
+mod idle;
 mod kept;
 mod life;
 mod line;
@@ -87,6 +88,8 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary the daemon runs, and the Homebrew link that was it.
     running: Option<(PathBuf, PathBuf)>,
+    /// The idle work running beside the ticks.
+    idle: Option<idle::Running>,
 }
 
 pub struct App {
