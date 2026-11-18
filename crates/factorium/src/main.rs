@@ -143,9 +143,10 @@ enum IssueCmd {
         /// Reads the body from this file; `-` reads stdin.
         #[arg(long, conflicts_with = "body")]
         body_file: Option<PathBuf>,
-        /// Parked: no worker takes it until it is readied.
+        /// Waits for a person from the start: no worker takes it until a
+        /// person readies it.
         #[arg(long)]
-        parked: bool,
+        waiting_for_human: bool,
         /// An issue it waits for, repeat for each: `N` of its checkout;
         /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
         /// until a cut of that checkout holds its landing (and installs it).
@@ -180,14 +181,21 @@ enum IssueCmd {
         #[arg(long, default_value = "closed by hand")]
         reason: String,
     },
-    /// Parks an issue; a worker on it ends, keeping its worktree.
-    Park { checkout: String, number: u64, reason: String },
-    /// Readies a parked issue.
+    /// Leaves an issue to a person, for a decision only a person can make:
+    /// only `issue ready` moves it again. A worker on it ends, keeping its
+    /// worktree.
+    WaitForHuman {
+        checkout: String,
+        number: u64,
+        #[arg(long)]
+        why: String,
+    },
+    /// Readies an issue that waits for a person.
     Ready { checkout: String, number: u64 },
     /// Starts an issue over: removes the worktree its last attempt kept, so
     /// the next start begins from proving; the old branch is kept as
     /// `<branch>-abandoned` and named in a comment with the why. Refused
-    /// while a worker is on it (park first); ready or parked stays as it is.
+    /// while a worker is on it (leave it to a person first); ready or waiting for a person stays as it is.
     StartOver {
         checkout: String,
         number: u64,
@@ -288,6 +296,17 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
     match cli.command {
         Top::Run => {
             let stop = Arc::new(AtomicBool::new(false));
+            // SIGTERM (stop, launchd) and SIGINT end it in order, not mid-write:
+            // the handlers are in place before its first tick.
+            use tokio::signal::unix::{SignalKind, signal};
+            let fail = |e: std::io::Error| Refusal::new("io", e.to_string());
+            let (mut term, mut int) =
+                (signal(SignalKind::terminate()).map_err(fail)?, signal(SignalKind::interrupt()).map_err(fail)?);
+            let flag = stop.clone();
+            tokio::spawn(async move {
+                tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
             app.run(&stop).await
         }
         Top::Stop => app.stop().await,
@@ -302,9 +321,9 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             CheckoutCmd::List => app.checkout_list().await,
         },
         Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, body_file, parked, blocked_by } => {
+            IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by } => {
                 let body = body_text(body, body_file)?.unwrap_or_default();
-                app.issue_add(&checkout, &title, &body, parked, &blocked_by).await
+                app.issue_add(&checkout, &title, &body, waiting_for_human, &blocked_by).await
             }
             IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
             IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
@@ -313,7 +332,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
                 app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
             }
             IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
-            IssueCmd::Park { checkout, number, reason } => app.issue_park(&checkout, number, &reason).await,
+            IssueCmd::WaitForHuman { checkout, number, why } => app.issue_wait_for_human(&checkout, number, &why).await,
             IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
             IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
             IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,

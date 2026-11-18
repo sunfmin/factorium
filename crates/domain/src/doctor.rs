@@ -128,7 +128,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             key: format!("worker:{id}"),
             what: format!("worker {id} on {issue} waits: {why}"),
             fix: "read its terminal and worktree and the comments on its issue; fix what stops it, then \
-                  `factorium watch restart` or `tell` it, or `park` its issue"
+                  `factorium watch restart` or `tell` it, or leave its issue to a person (`issue wait-for-human`)"
                 .into(),
             heard: heard.clone(),
         });

@@ -1,6 +1,8 @@
 //! The heavy-command queue's start rule: one host-wide line of the commands
 //! that load the machine. The oldest waiting starts when the host has room,
-//! or when nothing runs, so it never starves; one start per reading; and
+//! or when nothing runs, so it never starves; beside what runs, one start per
+//! reading taken a settle interval after the last start, so the load that
+//! start brings is read before another; and
 //! one that holds others up past the hold bound is ended. An entry past its
 //! bound takes the place of the oldest entry that yields waiting ahead of it:
 //! those keep their order, and a running one is never cut short.
@@ -54,11 +56,18 @@ pub fn next<E: Queued>(entries: &[E], now: i64) -> Option<&E> {
     })
 }
 
+/// When a start is: the last one, and how long the host takes to show the
+/// load a start brings, ms.
+pub struct Starts {
+    pub last: i64,
+    pub settle: i64,
+}
+
 /// Whether `id` may start at `now`, given whether the host has room, when
-/// the reading was taken, and when the last one started; else why not.
+/// the reading was taken, and the starts before; else why not.
 pub fn may_start<E: Queued>(
     entries: &[E],
-    last_start: i64,
+    starts: Starts,
     id: Uuid,
     room: Result<(), String>,
     read_at: i64,
@@ -73,8 +82,8 @@ pub fn may_start<E: Queued>(
         return Ok(());
     }
     room?;
-    if read_at <= last_start {
-        return Err("one start per reading".into());
+    if read_at <= starts.last || read_at - starts.last < starts.settle {
+        return Err("one start per reading settled after the last start".into());
     }
     Ok(())
 }

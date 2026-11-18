@@ -520,3 +520,28 @@ async fn a_dialog_is_dismissed_only_where_its_own_harness_opened_it() {
         assert!(sent.last().unwrap().contains("hello"), "{kit}: {sent:?}");
     }
 }
+
+/// Z.ai's usage limit on a pi worker's screen ends it used up however the
+/// terminal wraps it: at a word's end, or within a word ("quo" / "ta",
+/// "usage li" / "mit"), with pi's footer below it. A screen of no quota does not.
+#[tokio::test]
+async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_within_one() {
+    let line = r#"Error: 429 {"code":"1308","message":"Usage limit reached for 5 hour quota. Resets at 21:00"}"#;
+    let wrapped = |at: &str, before: bool| {
+        let cut = line.find(at).unwrap() + if before { 0 } else { at.len() };
+        vec![line[..cut].to_string(), line[cut..].to_string(), "~/work (main)  0.0%/200k".to_string()]
+    };
+    let ended = |screen: Vec<String>| async move {
+        let w = World::new();
+        let wk = w.working("pi=pi", "t").await;
+        w.set_screen(wk["terminal"].as_str().unwrap(), &screen.iter().map(String::as_str).collect::<Vec<_>>());
+        w.tick().await.seen.first().map(|seen| seen["ended"].clone())
+    };
+    let quota = Some(serde_json::Value::from("quota"));
+    assert_eq!(ended(wrapped("limit", true)).await, quota, "wrapped at a word's end");
+    assert_eq!(ended(wrapped("Usage li", false)).await, quota, "wrapped within \"limit\"");
+    assert_eq!(ended(wrapped("quo", false)).await, quota, "wrapped within \"quota\"");
+    assert_eq!(ended(wrapped("13", false)).await, quota, "wrapped within the code");
+    let other = r#"Error: 429 {"code":"1302","message":"Rate limit reached for requests"}"#;
+    assert_eq!(ended(vec![other[..30].into(), other[30..].into()]).await, None, "no quota");
+}

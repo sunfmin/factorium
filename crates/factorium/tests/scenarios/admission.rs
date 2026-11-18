@@ -92,7 +92,7 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     ready(&w).await;
     w.tick().await;
     // One worker: admission would start the other issue beside its slot's load.
-    w.app.issue_park("web", 2, "one worker here").await.unwrap();
+    w.app.issue_wait_for_human("web", 2, "one worker here").await.unwrap();
     let wk = worker(&w.app).await;
     let cores = std::thread::available_parallelism().unwrap().get() as f64;
     let tag = Some(wk["worker"].as_str().unwrap().to_string());
@@ -270,7 +270,7 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     let w = World::new();
     let all = w.app.settings_set(None, None).await.unwrap();
     let all = all.as_array().unwrap();
-    assert_eq!(all.len(), 18, "every setting is listed");
+    assert_eq!(all.len(), 19, "every setting is listed");
     let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
     assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
     let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();
@@ -314,5 +314,60 @@ async fn silence_counts_from_the_end_of_the_last_turn() {
     w.tick().await;
     let all = w.app.workers(false).await.unwrap();
     let silent = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
+    assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
+}
+
+#[tokio::test]
+async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_after_it_ended() {
+    let w = World::new();
+    // A run that takes longer than the silent bound, within the hold bound.
+    w.app.settings_set(Some("hold_bound"), Some(7200)).await.unwrap();
+    let wk = w.working(CLAUDE, "a").await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    let closed = (w.app_now() / 1000) as u64;
+    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, closed);
+    let (first, mine) = (w.dir.join("first"), w.dir.join("mutants"));
+    let (first_line, line) = (&w.holds(&first), &w.holds(&mine));
+    let cli = w.run();
+    let queued = async {
+        crate::queue::until_file(&first.join("started")).await;
+        w.host.reading.lock().unwrap().cpu_busy = 99;
+        cli.worker_exclusive(Some(id(&wk)), &mine, line).await
+    };
+    let body = async {
+        crate::queue::until_file(&first.join("started")).await;
+        let waits = async || {
+            let d = w.run().doctor().await.unwrap();
+            d["heavy"].as_array().unwrap().iter().any(|e| e["what"] == line.as_str() && e["started_at"].is_null())
+        };
+        while !waits().await {
+            tokio::task::yield_now().await;
+        }
+        w.tick().await;
+        w.advance(20);
+        w.tick().await;
+        let it = worker(&w.app).await;
+        assert_eq!(it["status"], "working", "its own heavy entry waits in the queue: {it}");
+        std::fs::write(first.join("release"), "").unwrap();
+        crate::queue::until_file(&mine.join("started")).await;
+        w.tick().await;
+        w.advance(45);
+        w.tick().await;
+        let it = worker(&w.app).await;
+        assert_eq!(it["status"], "working", "its turn ended 65 min ago, its own heavy entry runs: {it}");
+        std::fs::write(mine.join("release"), "").unwrap();
+    };
+    let ran = async { tokio::join!(cli.worker_exclusive(None, &first, first_line), queued, body) };
+    let (_, held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the heavy commands end");
+    assert_eq!(held.unwrap()["ok"], true);
+    // Its silence counts from when its entry ended.
+    w.tick().await;
+    w.advance(30);
+    w.tick().await;
+    let it = worker(&w.app).await;
+    assert_eq!(it["status"], "working", "30 minutes since its entry ended: at the bound: {it}");
+    w.advance(1);
+    w.tick().await;
+    let silent = worker(&w.app).await;
     assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
 }

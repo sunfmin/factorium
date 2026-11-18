@@ -12,7 +12,7 @@ use crate::{command, issue_id, named, no};
 pub enum Status {
     #[default]
     Ready,
-    Parked,
+    WaitingForHuman,
     Closed,
 }
 
@@ -27,7 +27,7 @@ pub struct Issue {
     pub blocked_by: Vec<u64>,
     /// The issues of other checkouts it waits for.
     pub across: Vec<Across>,
-    /// Why it is parked or closed.
+    /// Why it waits for a person, or why it is closed.
     pub reason: Option<String>,
     /// The worker that holds it now.
     pub worker: Option<Uuid>,
@@ -144,13 +144,13 @@ impl Issue {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum IssueEvent {
-    IssueOpened { checkout: String, number: u64, title: String, body: String, parked: bool },
+    IssueOpened { checkout: String, number: u64, title: String, body: String, waiting_for_human: bool },
     IssueEdited { title: String, body: String },
     BlockedBy { number: u64 },
     Unblocked { number: u64 },
     BlockedAcross(Across),
     UnblockedAcross { checkout: String, number: u64 },
-    IssueParked { reason: String },
+    IssueWaitingForHuman { reason: String },
     IssueReadied,
     IssueClosed { reason: String },
     IssueTaken { worker: Uuid },
@@ -158,7 +158,7 @@ pub enum IssueEvent {
     IssueCommented { text: String, by: Author, at: Option<i64> },
 }
 
-/// Where an issue stands, and why it is parked or closed.
+/// Where an issue stands, and why it waits for a person or is closed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Standing {
     pub status: Status,
@@ -170,9 +170,9 @@ impl IssueEvent {
     /// one place an issue's status changes, for the issue and its row.
     pub fn standing(&self) -> Option<Standing> {
         let (status, reason) = match self {
-            IssueEvent::IssueOpened { parked: true, .. } => (Status::Parked, None),
+            IssueEvent::IssueOpened { waiting_for_human: true, .. } => (Status::WaitingForHuman, None),
             IssueEvent::IssueOpened { .. } | IssueEvent::IssueReadied => (Status::Ready, None),
-            IssueEvent::IssueParked { reason } => (Status::Parked, Some(reason.clone())),
+            IssueEvent::IssueWaitingForHuman { reason } => (Status::WaitingForHuman, Some(reason.clone())),
             IssueEvent::IssueClosed { reason } => (Status::Closed, Some(reason.clone())),
             _ => return None,
         };
@@ -215,7 +215,7 @@ impl Aggregate for Issues {
             }
             IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => s.worker = None,
             IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
-            IssueEvent::IssueParked { .. } | IssueEvent::IssueReadied => {}
+            IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }
         if let Some(Standing { status, reason }) = standing {
             (s.status, s.reason) = (status, reason);
@@ -251,7 +251,7 @@ pub struct Open {
     #[serde(default)]
     pub body: String,
     #[serde(default)]
-    pub parked: bool,
+    pub waiting_for_human: bool,
     /// The issues of its checkout it waits for from the start.
     #[serde(default)]
     pub blocked_by: Vec<u64>,
@@ -279,7 +279,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         number: p.number,
         title: p.title.trim().to_string(),
         body: p.body.clone(),
-        parked: p.parked,
+        waiting_for_human: p.waiting_for_human,
     }];
     let mut blockers = p.blocked_by.clone();
     blockers.sort_unstable();
@@ -390,16 +390,18 @@ pub struct Because {
     pub reason: String,
 }
 
-on_issue!(ParkIssue, "issue.park", Because, |s, p, now| {
+// Only a person moves it again, with `issue ready`: for a decision only a
+// person can make.
+on_issue!(WaitForHuman, "issue.wait_for_human", Because, |s, p, now| {
     Ok(match s.status {
-        Status::Parked => Vec::new(),
-        _ => vec![IssueEvent::IssueParked { reason: p.reason.clone() }],
+        Status::WaitingForHuman => Vec::new(),
+        _ => vec![IssueEvent::IssueWaitingForHuman { reason: p.reason.clone() }],
     })
 });
 
 on_issue!(ReadyIssue, "issue.ready", Ref, |s, p, now| {
     Ok(match s.status {
-        Status::Parked => vec![IssueEvent::IssueReadied],
+        Status::WaitingForHuman => vec![IssueEvent::IssueReadied],
         _ => Vec::new(),
     })
 });
