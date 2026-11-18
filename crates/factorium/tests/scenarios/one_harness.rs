@@ -149,27 +149,6 @@ async fn a_grok_worker_s_kept_config_has_the_real_guard_refuse_its_push_as_grok_
     assert_eq!(run_guard(&wk, guard, both("edit_file", "git push")).0, Some(0), "only the shell tool runs a line");
 }
 
-/// Z.ai's usage limit on a pi worker's screen ends its session as used up,
-/// on one line or wrapped by the terminal; the same body is no quota on
-/// another harness's screen, nor another 429 on pi's.
-#[tokio::test]
-async fn a_pi_worker_that_hits_z_ai_s_usage_limit_is_used_up_wrapped_or_not() {
-    let body = r#"{"code":"1308","message":"Usage limit reached for 5 hour. Your limit will reset at 21:00"}"#;
-    let one_line = format!("Error: 429 {body}");
-    let (head, tail) = one_line.split_at(one_line.find("\"message").unwrap());
-    let ended = |kit: &'static str, screen: Vec<String>| async move {
-        let w = World::new();
-        let wk = w.working(kit, "t").await;
-        w.set_screen(wk["terminal"].as_str().unwrap(), &screen.iter().map(String::as_str).collect::<Vec<_>>());
-        w.tick().await.seen.first().map(|seen| seen["ended"].clone())
-    };
-    assert_eq!(ended("pi=pi", vec![one_line.clone()]).await, Some("quota".into()));
-    assert_eq!(ended("pi=pi", vec![head.into(), tail.into()]).await, Some("quota".into()), "wrapped");
-    assert_eq!(ended("kimi=kimi", vec![one_line.clone()]).await, None, "not kimi's quota");
-    let other = r#"Error: 429 {"code":"1302","message":"Rate limit reached for requests"}"#;
-    assert_eq!(ended("pi=pi", vec![other.into()]).await, None, "a rate limit is no used-up account");
-}
-
 /// The config a kimi worker's home keeps, the host user's own Kimi config
 /// being `user`.
 async fn kimi_kept(user: &str) -> String {
@@ -576,7 +555,8 @@ async fn a_dialog_is_dismissed_only_where_its_own_harness_opened_it() {
 
 /// Z.ai's usage limit on a pi worker's screen ends it used up however the
 /// terminal wraps it: at a word's end, or within a word ("quo" / "ta",
-/// "usage li" / "mit"), with pi's footer below it. A screen of no quota does not.
+/// "usage li" / "mit"), with pi's footer below it, or on one line. A screen
+/// of no quota does not, nor the same body on another harness's screen.
 #[tokio::test]
 async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_within_one() {
     let line = r#"Error: 429 {"code":"1308","message":"Usage limit reached for 5 hour quota. Resets at 21:00"}"#;
@@ -584,12 +564,13 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         let cut = line.find(at).unwrap() + if before { 0 } else { at.len() };
         vec![line[..cut].to_string(), line[cut..].to_string(), "~/work (main)  0.0%/200k".to_string()]
     };
-    let ended = |screen: Vec<String>| async move {
+    let ended_on = |kit: &'static str, screen: Vec<String>| async move {
         let w = World::new();
-        let wk = w.working("pi=pi", "t").await;
+        let wk = w.working(kit, "t").await;
         w.set_screen(wk["terminal"].as_str().unwrap(), &screen.iter().map(String::as_str).collect::<Vec<_>>());
         w.tick().await.seen.first().map(|seen| seen["ended"].clone())
     };
+    let ended = |screen: Vec<String>| ended_on("pi=pi", screen);
     let quota = Some(serde_json::Value::from("quota"));
     let other = r#"Error: 429 {"code":"1302","message":"Rate limit reached for requests"}"#;
     at_once!(
@@ -598,5 +579,7 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         async { assert_eq!(ended(wrapped("quo", false)).await, quota, "wrapped within \"quota\"") },
         async { assert_eq!(ended(wrapped("13", false)).await, quota, "wrapped within the code") },
         async { assert_eq!(ended(vec![other[..30].into(), other[30..].into()]).await, None, "no quota") },
+        async { assert_eq!(ended(vec![line.into()]).await, quota, "on one line") },
+        async { assert_eq!(ended_on("kimi=kimi", vec![line.into()]).await, None, "not kimi's quota") },
     );
 }
