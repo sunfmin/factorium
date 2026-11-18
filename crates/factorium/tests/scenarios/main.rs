@@ -445,9 +445,17 @@ impl Host for FakeHost {
     }
 }
 
-/// The home of the world at `root`: empty, as a fresh host's.
+/// The home of the world at `root`: as a fresh host's, with no identity.
 fn home(root: &Path) -> PathBuf {
     root.join("home")
+}
+
+/// Makes the home of the world at `root`. Its git config turns off git's
+/// automatic maintenance, which each fetch, commit and merge would otherwise
+/// start as one more process, left running detached (factorium#98).
+fn make_home(root: &Path) {
+    std::fs::create_dir_all(home(root)).unwrap();
+    std::fs::write(home(root).join(".gitconfig"), "[maintenance]\n\tauto = false\n").unwrap();
 }
 
 /// git in `dir` as the host of the world at `root` runs it: with its home,
@@ -465,9 +473,9 @@ fn template() -> &'static Path {
         let t = std::env::temp_dir().join("factorium-template").join(Uuid::now_v7().to_string());
         let work = t.join("work");
         std::fs::create_dir_all(&work).unwrap();
-        std::fs::create_dir_all(home(&t)).unwrap();
+        make_home(&t);
         let git = |dir: &Path, args: &[&str]| git_of(&t, dir, args);
-        git(&work, &["init", "--quiet", "-b", "main"]).unwrap();
+        git(&work, &["init", "--quiet", "--template=", "-b", "main"]).unwrap();
         std::fs::write(work.join("README"), "a repo\n").unwrap();
         std::fs::write(
             work.join("factorium.toml"),
@@ -476,8 +484,8 @@ fn template() -> &'static Path {
         .unwrap();
         git(&work, &["add", "."]).unwrap();
         git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
-        git(&t, &["clone", "--quiet", "--bare", "work", "remote.git"]).unwrap();
-        git(&t, &["clone", "--quiet", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
+        git(&t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
+        git(&t, &["clone", "--quiet", "--template=", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
         t
     })
 }
@@ -519,7 +527,7 @@ impl World {
     pub fn on(name: &str) -> World {
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
-        std::fs::create_dir_all(home(&dir)).unwrap();
+        make_home(&dir);
         let clock = Arc::new(ManualClock::new(Instant(1_800_000_000_000)));
         let host = Arc::new(FakeHost {
             orca: FakeOrca::default(),
