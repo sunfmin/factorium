@@ -226,6 +226,18 @@ async fn a_watch_home_orca_never_finds_is_given_up_after_five_more_tries() {
     assert!(ran.iter().any(|r| r.starts_with(&format!("orca repo add --path {}", home.display()))));
 }
 
+#[tokio::test]
+async fn a_watch_whose_rules_cannot_be_written_is_refused_io_and_no_terminal_opens() {
+    let w = World::new();
+    w.kit().await;
+    // Its home a repository already; where its rules go, a directory stands.
+    std::fs::create_dir_all(w.data().watch().join(".git")).unwrap();
+    std::fs::create_dir_all(w.data().watch().join(RULES).join("in-the-way")).unwrap();
+    let r = w.app.tick().await.expect_err("the look fails");
+    assert_eq!(r.code, "io", "{r}");
+    assert!(w.host.orca.terminals.lock().unwrap().is_empty(), "no session without its rules");
+}
+
 /// A session file's stamp after any tell a scenario sends.
 const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
 
