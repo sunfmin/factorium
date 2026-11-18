@@ -51,7 +51,11 @@ watch's look and the operator's view.
 
 1. `factorium issue add` makes an issue, ready unless it says otherwise,
    with the issues it waits for (`--blocked-by N`, repeatable) recorded
-   with it, so no tick sees it ready without them.
+   with it, so no tick sees it ready without them. One of another
+   checkout is `--blocked-by <checkout>#N`, met once it is closed (landed);
+   `<checkout>#N@cut` is met only once a cut of that checkout holds its
+   landing, and installed it where its `[cut]` names a formula, for a tool
+   used from another repo. `issue block` takes the same names.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
 3. The worker resumes in the worktree its issue's last attempt kept, if

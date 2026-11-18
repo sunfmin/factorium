@@ -160,11 +160,11 @@ async fn an_issue_added_with_its_blockers_waits_for_them_from_the_start() {
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "blocker", "", true, &[]).await.unwrap();
-    let added = w.app.issue_add("web", "waits", "", false, &[1, 1]).await.unwrap();
+    let added = w.app.issue_add("web", "waits", "", false, &[1.into(), 1.into()]).await.unwrap();
     assert_eq!((added["status"].clone(), added["blocked_by"].clone()), (json!("ready"), json!([1])));
     assert!(w.tick().await.started.is_none(), "#2 waits for #1, which is parked");
 
-    refused(w.app.issue_add("web", "orphan", "", false, &[1, 9]).await, "no_issue");
+    refused(w.app.issue_add("web", "orphan", "", false, &[1.into(), 9.into()]).await, "no_issue");
     refused(w.app.issue_show("web", 3).await, "no_issue");
     assert!(w.tick().await.started.is_none(), "the refused add left no issue to start");
 

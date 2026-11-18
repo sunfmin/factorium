@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, DB_ENV, Refusal, default_db};
+use factorium_domain::issue::Blocker;
 use factorium_harness::Harness;
 use factum::{SystemClock, Uuid};
 use serde_json::json;
@@ -145,9 +146,11 @@ enum IssueCmd {
         /// Parked: no worker takes it until it is readied.
         #[arg(long)]
         parked: bool,
-        /// An issue of the checkout it waits for; repeat for each.
-        #[arg(long = "blocked-by", value_name = "N")]
-        blocked_by: Vec<u64>,
+        /// An issue it waits for, repeat for each: `N` of its checkout;
+        /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
+        /// until a cut of that checkout holds its landing (and installs it).
+        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        blocked_by: Vec<Blocker>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -196,12 +199,13 @@ enum IssueCmd {
     /// worker's through its watch episode), and the next worker's brief
     /// carries it.
     Comment { checkout: String, number: u64, text: String },
-    /// Makes an issue wait for another of its checkout (`--undo`: stop).
+    /// Makes an issue wait for another, of its checkout or of another (`--undo`: stop).
     Block {
         checkout: String,
         number: u64,
-        #[arg(long)]
-        by: u64,
+        /// `N` of its checkout, `<checkout>#N` or `<checkout>#N@cut`, as for `issue add`.
+        #[arg(long, alias = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        by: Blocker,
         #[arg(long)]
         undo: bool,
     },

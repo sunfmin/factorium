@@ -24,6 +24,11 @@ impl Aggregate for Lines {
     fn evolve(s: &mut Line, event: LineEvent) {
         s.apply(event)
     }
+
+    /// "2": what is uncut keeps which issue landed.
+    fn code() -> &'static str {
+        "2"
+    }
 }
 
 /// What the app sees of the checkout now, for the line to judge: its live

@@ -7,9 +7,10 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
 use factorium_domain::heavy::{Heavy, queue_id};
-use factorium_domain::issue::Status as IssueStatus;
+use factorium_domain::issue::{Across, Status as IssueStatus};
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::line::Move;
+use factorium_domain::line::{Lines, Move};
+use factorium_domain::line_id;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -170,11 +171,25 @@ impl App {
             for b in &issue.blocked_by {
                 open |= self.issue(&checkout, *b).await.is_ok_and(|i| i.status != IssueStatus::Closed);
             }
+            for a in &issue.across {
+                open |= !self.met(a).await?;
+            }
             if !open {
                 return Ok(Some((checkout, number)));
             }
         }
         Ok(None)
+    }
+
+    /// Whether an issue of another checkout no longer holds up one that
+    /// waits for it: it is closed (or gone), and, for its cut, its landing
+    /// is in a cut. Its landing is recorded before it closes, so a closed
+    /// issue the line does not hold either landed in a cut or never landed.
+    async fn met(&self, a: &Across) -> Answer<bool> {
+        if self.issue(&a.checkout, a.number).await.is_ok_and(|i| i.status != IssueStatus::Closed) {
+            return Ok(false);
+        }
+        Ok(!a.cut || !self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number))
     }
 
     /// Frees disk: the build outputs of the line's worktrees, rebuilt when
