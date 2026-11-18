@@ -94,6 +94,8 @@ struct Memory {
 
 pub struct App {
     engine: Engine<SqliteStore>,
+    /// The engine's clock, for what runs beside it: idle work's limit.
+    clock: Arc<dyn Clock>,
     host: Arc<dyn Host>,
     /// The database it was opened on. Its directory holds the rest: briefs,
     /// worktrees of the lines, the watch's home, evidence.
@@ -117,9 +119,10 @@ impl App {
             .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
-        let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
+        let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock.clone(), by);
         Ok(App {
             engine,
+            clock,
             host,
             db,
             by: By::Principal(by.into()),

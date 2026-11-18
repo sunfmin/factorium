@@ -15,7 +15,7 @@ use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
 use factorium_domain::settings::{Settings, Time};
 use factorium_host::Priority;
-use factum::{Uuid, Value};
+use factum::{Clock, Uuid, Value};
 use serde_json::json;
 
 use crate::{Answer, App, LineClone, fail};
@@ -41,21 +41,32 @@ struct Ended {
 }
 
 /// Runs `steps` in `dir` one after another until one fails, all of them
-/// within `limit`, or until `stop` is set.
-fn steps(dir: std::path::PathBuf, steps: Vec<String>, limit: Duration, stop: Arc<AtomicBool>) -> Ended {
+/// within `limit` on `clock`, or until `stop` is set. The limit is the
+/// app's clock, not the time a background step is given the CPU: a busy
+/// host slows the step, and a scenario moves the clock past it.
+fn steps(
+    dir: std::path::PathBuf,
+    steps: Vec<String>,
+    limit: Duration,
+    clock: Arc<dyn Clock>,
+    stop: Arc<AtomicBool>,
+) -> Ended {
     let started = Instant::now();
+    let deadline = clock.now().0.saturating_add(limit.as_millis() as i64);
+    let past = || clock.now().0 >= deadline;
     let mut tail = String::new();
     for step in &steps {
-        let left = limit.saturating_sub(started.elapsed());
-        let ran = factorium_host::run(&dir, step, &[], left, Priority::Background, &|| stop.load(Ordering::Relaxed));
+        let end = || stop.load(Ordering::Relaxed) || past();
+        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &end);
         if !ran.ok {
-            let why = if ran.timed_out {
+            let timed_out = past();
+            let why = if timed_out {
                 format!("past its limit of {}s", limit.as_secs())
             } else {
                 format!("step `{step}` failed")
             };
             let took_ms = started.elapsed().as_millis() as u64;
-            let yielded = stop.load(Ordering::Relaxed) && !ran.timed_out;
+            let yielded = stop.load(Ordering::Relaxed) && !timed_out;
             return Ended { green: false, yielded, tail: format!("{why}:\n{}", ran.tail), took_ms };
         }
         tail = ran.tail;
@@ -140,8 +151,9 @@ impl App {
             return if r.code == "wait" { Ok(None) } else { Err(r) };
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let (dir, flag, limit) = (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit));
-        let run = std::thread::spawn(move || steps(dir, work.steps, limit, flag));
+        let (dir, flag, limit, clock) =
+            (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit), self.clock.clone());
+        let run = std::thread::spawn(move || steps(dir, work.steps, limit, clock, flag));
         let (checkout, at) = (c.name.clone(), self.now());
         self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), id, at, stop, run });
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))

@@ -154,7 +154,11 @@ async fn idle_work_past_its_limit_ends_red_with_its_tail() {
     let w = World::new();
     let dir = w.dir.join("long");
     declares(&w, &[format!("echo still mutating; {}", w.holds(&dir))], 3600, 1).await;
-    w.tick().await;
+    assert!(started(&w.tick().await.idle));
+    // The limit is the world's clock: the step has printed before it runs out,
+    // however long a busy host leaves a background step waiting.
+    until_file(&dir.join("started")).await;
+    w.advance(1);
     let run = ended(&w).await;
     assert_eq!(run["green"], false, "{run}");
     let tail = run["tail"].as_str().unwrap();
