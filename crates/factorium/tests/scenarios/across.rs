@@ -77,6 +77,10 @@ async fn an_issue_blocked_by_a_cut_starts_only_once_a_cut_holds_the_landing() {
     assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed");
     assert_eq!(started(&t), None, "landed is not cut");
+    // What older code kept of each stream is not read: the issue and the
+    // line fold their events again (their code() names this code).
+    stale(&w);
+    assert_eq!(w.run().issue_show("factorium", 1).await.unwrap()["blocked_across"], json!(["web#1@cut"]));
     w.run().promote("web").await.unwrap();
     assert_eq!(started(&w.tick().await), None, "promoted is not cut");
 
@@ -111,5 +115,18 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     w.commit(&path, "factorium.toml", "[gate]\nfast = \"true\"\n");
     w.app.issue_add("factorium", "two", "", false, &[]).await.unwrap();
     refused(w.app.issue_block("web", 1, by("factorium#2@cut"), false).await, "no_cut");
-    assert!("web#x".parse::<Blocker>().is_err() && "web#1@tag".parse::<Blocker>().is_err());
+    for bad in ["web#x", "web#1@tag", "#3"] {
+        assert!(bad.parse::<Blocker>().is_err(), "{bad}");
+    }
+    // The same block given twice is kept once.
+    let twice = w.app.issue_add("factorium", "twice", "", false, &[by("web#1"), by("web#1")]).await.unwrap();
+    assert_eq!(twice["blocked_across"], json!(["web#1"]));
+}
+
+/// Keeps for every stream a snapshot that older code wrote, of no use to this code.
+fn stale(w: &World) {
+    let sql = "INSERT OR REPLACE INTO snapshots (stream, version, code, state) \
+               SELECT stream, MAX(version), 'older', 'null' FROM events GROUP BY stream;";
+    let ran = std::process::Command::new("sqlite3").arg(&w.db).arg(sql).output().unwrap();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
 }
