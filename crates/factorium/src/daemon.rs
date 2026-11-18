@@ -9,7 +9,7 @@ use factorium_domain::health;
 use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::issue::{Author, Issue, Status as IssueStatus};
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::line::{Lines, Move};
+use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
@@ -97,30 +97,9 @@ impl App {
         }
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
-        // The lines: each checkout's landing, then its promotion and cut,
-        // as its line says each is due.
+        // The lines, as each says what is due.
         let checkouts = self.listed().await?;
-        (t.landed, t.lines) = self
-            .asking_once(async {
-                let (mut landed, mut lines) = (Vec::new(), Vec::new());
-                for c in &checkouts {
-                    if let Ok(did) = self.carry(c, Move::Land, false).await? {
-                        landed.push(did);
-                    }
-                }
-                for c in &checkouts {
-                    for mv in [Move::Promote, Move::Cut] {
-                        if let Ok(did) = self.carry(c, mv, false).await? {
-                            lines.push(did);
-                        }
-                    }
-                    // The local base follows origin's as last fetched, whatever left it behind.
-                    let git = self.host.git(&c.path);
-                    lines.extend(crate::line::follow_base(c, &git, &format!("refs/remotes/origin/{}", c.base)));
-                }
-                Ok((landed, lines))
-            })
-            .await?;
+        (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
             // What the heavy queue granted is its to bound: admission counts the rest.
