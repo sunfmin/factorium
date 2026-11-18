@@ -29,15 +29,6 @@ pub enum Delivery {
     Queued,
 }
 
-impl Delivery {
-    pub const fn word(self) -> &'static str {
-        match self {
-            Delivery::Submitted => "submitted",
-            Delivery::Queued => "queued",
-        }
-    }
-}
-
 /// How long, in seconds, a delivery watches for its line to start a turn.
 const SUBMIT_WAIT: u32 = 10;
 

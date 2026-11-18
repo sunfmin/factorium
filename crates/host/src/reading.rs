@@ -32,7 +32,8 @@ pub fn read(cpu: &mut Cpu, data: &Path) -> Reading {
 impl Cpu {
     fn busy(&mut self) -> u64 {
         let now = Instant::now();
-        let Some((busy, total)) = ticks() else { return load_share() };
+        // Unread ticks (never seen) read as idle, as unread memory reads as free.
+        let (busy, total) = ticks().unwrap_or_default();
         self.samples.push_back((now, busy, total));
         while self.samples.len() > 2 && now.duration_since(self.samples[1].0).as_secs() >= 60 {
             self.samples.pop_front();
@@ -78,23 +79,19 @@ fn ticks() -> Option<(u64, u64)> {
     Some((total.saturating_sub(idle), total))
 }
 
-/// The one-minute load over the cores, as a percent: when ticks are not read.
-fn load_share() -> u64 {
-    let said = crate::shell::output("sysctl", &["-n", "vm.loadavg"]).unwrap_or_default();
-    let load: f64 = said.split_whitespace().find(|w| *w != "{").and_then(|w| w.parse().ok()).unwrap_or(0.0);
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
-    ((load / cores) * 100.0).round().clamp(0.0, 100.0) as u64
+#[cfg(target_os = "macos")]
+fn memory_free() -> Option<u64> {
+    crate::shell::output("sysctl", &["-n", "kern.memorystatus_level"]).ok()?.trim().parse().ok()
 }
 
+#[cfg(not(target_os = "macos"))]
 fn memory_free() -> Option<u64> {
-    if let Ok(info) = std::fs::read_to_string("/proc/meminfo") {
-        let field = |name: &str| -> Option<u64> {
-            info.lines().find(|l| l.starts_with(name))?.split_whitespace().nth(1)?.parse().ok()
-        };
-        let (available, total) = (field("MemAvailable:")?, field("MemTotal:")?);
-        return (total > 0).then(|| available * 100 / total);
-    }
-    crate::shell::output("sysctl", &["-n", "kern.memorystatus_level"]).ok()?.trim().parse().ok()
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let field = |name: &str| -> Option<u64> {
+        info.lines().find(|l| l.starts_with(name))?.split_whitespace().nth(1)?.parse().ok()
+    };
+    let (available, total) = (field("MemAvailable:")?, field("MemTotal:")?);
+    (total > 0).then(|| available * 100 / total)
 }
 
 #[allow(unsafe_code)]
