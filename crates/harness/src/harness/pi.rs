@@ -85,31 +85,34 @@ struct Input {
 
 /// Z.ai's usage limit on pi's screen.
 /// An HTTP 429 whose body carries code 1308 and says the usage limit was
-/// reached. The JSON may wrap across lines. The same body on another
-/// harness's screen is not this quota.
+/// reached. The terminal may wrap the JSON across lines, at a word's end or
+/// within a word, so the screen is also read with its whitespace removed.
+/// The same body on another harness's screen is not this quota.
 fn account_quota(output: &[String]) -> Option<String> {
     if let Some(line) = output.iter().find(|line| zai_limit(line)) {
         return Some(line.clone());
     }
-    let flat = output.join(" ").split_whitespace().collect::<Vec<_>>().join(" ");
-    zai_limit(&flat).then(|| output.join("\n"))
+    let joined: String = output.concat().split_whitespace().collect();
+    zai_limit(&joined).then(|| output.join("\n"))
 }
 
 /// Whether `text` is Z.ai's usage-limit error: status 429, then one JSON
-/// body with code 1308 and a usage-limit message. A line the terminal
-/// wrapped is not that body until the screen is joined.
+/// body with code 1308 and a usage-limit message, the message read without
+/// its whitespace. A line the terminal wrapped is not that body until the
+/// screen is joined.
 fn zai_limit(text: &str) -> bool {
     let Some(start) = text.find('{') else { return false };
     let status = text[..start].split(|character: char| !character.is_ascii_digit()).any(|digits| digits == "429");
     if !status {
         return false;
     }
-    let Ok(body) = serde_json::from_str::<Value>(&text[start..]) else { return false };
+    let Some(Ok(body)) = serde_json::Deserializer::from_str(&text[start..]).into_iter::<Value>().next() else {
+        return false;
+    };
     let known_code = body.get("code").is_some_and(|code| code.as_str() == Some("1308") || code.as_u64() == Some(1308));
-    let explicit_limit = body
-        .get("message")
-        .and_then(Value::as_str)
-        .is_some_and(|message| message.to_lowercase().contains("usage limit reached"));
+    let explicit_limit = body.get("message").and_then(Value::as_str).is_some_and(|message| {
+        message.split_whitespace().collect::<String>().to_lowercase().contains("usagelimitreached")
+    });
     known_code && explicit_limit
 }
 
