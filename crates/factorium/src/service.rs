@@ -47,7 +47,10 @@ impl App {
     }
 
     fn service_plist(&self) -> String {
-        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("factorium"));
+        // As Homebrew links it, so the agent outlives upgrades; else as it is.
+        self.runs_as_this();
+        let link = self.memory.lock().unwrap().running.clone().map(|(_, link)| link);
+        let exe = link.or_else(|| std::env::current_exe().ok()).unwrap_or_else(|| PathBuf::from("factorium"));
         let mut path: Vec<PathBuf> = Vec::new();
         for d in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
             if d.is_absolute() && d.is_dir() && !path.contains(&d) {
@@ -57,7 +60,7 @@ impl App {
         let path = std::env::join_paths(path).unwrap_or_default();
         let fill = [
             ("{label}", LABEL.to_string()),
-            ("{program}", stable(&exe).to_string_lossy().into_owned()),
+            ("{program}", exe.to_string_lossy().into_owned()),
             ("{path}", path.to_string_lossy().into_owned()),
             ("{db}", self.db.to_string_lossy().into_owned()),
             ("{log}", self.data().log().to_string_lossy().into_owned()),
@@ -92,19 +95,6 @@ impl App {
         let file = self.service_file();
         let removed = std::fs::remove_file(&file).is_ok();
         Ok(json!({ "removed": removed, "file": file }))
-    }
-}
-
-/// The binary as a path that outlives upgrades: Homebrew's opt link in
-/// place of a versioned keg.
-fn stable(exe: &Path) -> PathBuf {
-    let s = exe.to_string_lossy();
-    match s.split_once("/Cellar/factorium/") {
-        Some((prefix, rest)) => match rest.split_once('/') {
-            Some((_version, inside)) => PathBuf::from(format!("{prefix}/opt/factorium/{inside}")),
-            None => exe.to_path_buf(),
-        },
-        None => exe.to_path_buf(),
     }
 }
 

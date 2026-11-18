@@ -583,3 +583,18 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         async { assert_eq!(ended_on("kimi=kimi", vec![line.into()]).await, None, "not kimi's quota") },
     );
 }
+
+#[tokio::test]
+async fn a_pi_session_s_home_links_the_host_user_s_pi_login_it_finds_and_no_other() {
+    let w = World::new();
+    let agent = w.host.home().join(".pi/agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    std::fs::write(agent.join("auth.json"), "{}").unwrap();
+    w.app.kit_set(&["pi=pi".into()]).await.unwrap();
+    // The watch's home a repository already: its session opens with no git run.
+    std::fs::create_dir_all(w.data().watch().join(".git")).unwrap();
+    w.tick().await;
+    let kept = w.data().kept("pi");
+    assert_eq!(std::fs::read_link(kept.join("auth.json")).unwrap(), agent.join("auth.json"));
+    assert!(kept.join("models.json").symlink_metadata().is_err(), "the host user has none to link");
+}
