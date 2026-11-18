@@ -3,8 +3,6 @@
 //! and why not ([`Line::due`]). The caller does the git and gate work, and
 //! records what it did as [`LineEvent`]s.
 
-use std::cmp::Ordering;
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -92,7 +90,7 @@ pub enum NotDue {
     /// Nothing asks to land.
     NoAsk,
     NothingToPromote,
-    /// Not idle, and the oldest landing waits within the promotion bound.
+    /// Not idle, and the oldest landing waits within the promotion bound less the lead.
     Busy,
     /// The slow gate is red on this proving tip, and why.
     Red {
@@ -106,7 +104,7 @@ pub enum NotDue {
         why: String,
     },
     /// Not idle or not all promoted, and the oldest promotion waits within
-    /// the cut bound.
+    /// the cut bound less the lead.
     Unsettled,
 }
 
@@ -129,28 +127,35 @@ pub struct Bounds {
     pub promotion: i64,
     /// The oldest uncut promotion.
     pub cut: i64,
+    /// How long before its bound a move owed falls due however busy the
+    /// repo is: the longest a running heavy command may hold the slot its
+    /// gate or cut waits for, so it runs within the bound.
+    pub lead: i64,
 }
 
 /// What the line owes, a promotion or a cut: since when, its bound, and
-/// how the wait so far stands to that bound. A move owed is due once it
-/// has waited its bound, and overdue past it.
+/// when it falls due. A move owed is due once it has waited its bound less
+/// the lead, and overdue past its bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Owed {
     pub since: i64,
     /// The bound, ms.
     pub bound: i64,
-    pub wait: Ordering,
+    /// When it falls due however busy the repo is: the bound less the lead,
+    /// never before `since`.
+    pub due_at: i64,
+    pub now: i64,
 }
 
 impl Owed {
-    /// It has waited its bound: due however busy the repo is.
+    /// It has waited its bound less the lead: due however busy the repo is.
     pub fn due(&self) -> bool {
-        self.wait.is_ge()
+        self.now >= self.due_at
     }
 
     /// It has waited past its bound.
     pub fn overdue(&self) -> bool {
-        self.wait.is_gt()
+        self.now - self.since > self.bound
     }
 }
 
@@ -164,7 +169,8 @@ impl Line {
             Move::Promote => (self.unpromoted.first()?.at, bounds.promotion),
             Move::Cut => (*self.uncut.first()?, bounds.cut),
         };
-        Some(Owed { since, bound, wait: (now - since).cmp(&bound) })
+        let due_at = since + (bound - bounds.lead).max(0);
+        Some(Owed { since, bound, due_at, now })
     }
 
     /// Whether `mv` is due now, or why not, in one call. `tip` reads the

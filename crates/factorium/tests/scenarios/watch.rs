@@ -272,6 +272,49 @@ async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_too
     assert_eq!(w.app.watch_tell(id(&wk), "look at the FIFO", true).await.unwrap()["delivery"], "submitted");
 }
 
+/// factorium#64's worker on 2026-11-18: its red was taken as its prompt
+/// 9.1s after it was typed, as Orca's window ended, and written to its
+/// session file just after factorium read it.
+#[tokio::test]
+async fn a_tell_its_session_takes_just_after_orca_s_window_is_submitted_and_one_never_taken_is_missed() {
+    for takes in [true, false] {
+        let w = World::new();
+        w.checkout("web").await;
+        w.kit().await;
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+        // Idle, and Orca sees no turn start.
+        w.set_busy(handle, false, true);
+        let file = w.host.home().join(".claude/projects/web/session.jsonl");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let now =
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+        let took = json!({
+            "type": "user", "timestamp": NEXT_CENTURY, "cwd": cwd, "isSidechain": false,
+            "message": { "role": "user", "content": "factorium (the watch): look at the FIFO" },
+        });
+        if takes {
+            // The row lands while factorium waits, after Orca's window.
+            *w.host.while_sleeping.lock().unwrap() = Some(Box::new(move || {
+                std::fs::write(&file, format!("{took}\n")).unwrap();
+                std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
+            }));
+        }
+        let sleeps = || w.host.ran.lock().unwrap().iter().filter(|r| *r == "sleep 1").count();
+        let before = sleeps();
+        let delivery = w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap()["delivery"].clone();
+        let slept = sleeps() - before;
+        let status = worker(&w.app).await["status"].clone();
+        if takes {
+            assert_eq!((delivery, slept, status), (json!("submitted"), 1, json!("working")), "read again once written");
+        } else {
+            assert_eq!((delivery, slept, status), (json!("missed"), 3, json!("waiting")), "a few seconds' grace");
+        }
+    }
+}
+
 #[tokio::test]
 async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     let w = World::new();

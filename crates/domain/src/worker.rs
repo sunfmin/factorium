@@ -20,17 +20,6 @@ pub enum Status {
     Ended,
 }
 
-impl Status {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Status::Working => "working",
-            Status::Landing => "landing",
-            Status::Waiting => "waiting",
-            Status::Ended => "ended",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Started {
     pub checkout: String,
@@ -145,6 +134,32 @@ pub enum WorkerEvent {
     },
 }
 
+/// A worker's status, why, and since when, in ms.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Standing {
+    pub status: Status,
+    pub why: Option<String>,
+    pub since: i64,
+}
+
+impl WorkerEvent {
+    /// Where the worker stands after this event, if the event moves it: the
+    /// one place a worker's status changes, for the worker and its row.
+    pub fn standing(&self) -> Option<Standing> {
+        let (status, why, since) = match self {
+            WorkerEvent::WorkerStarted(st) => (Status::Working, None, st.at),
+            WorkerEvent::LandingAsked { at } => (Status::Landing, None, *at),
+            WorkerEvent::LandingRed { why, at } => (Status::Working, Some(why.clone()), *at),
+            WorkerEvent::WorkerLanded { at, .. } => (Status::Ended, Some("landed".into()), *at),
+            WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
+            WorkerEvent::WorkerResumed { at } => (Status::Working, None, *at),
+            WorkerEvent::WorkerEnded { why, at } => (Status::Ended, Some(why.clone()), *at),
+            _ => return None,
+        };
+        Some(Standing { status, why, since })
+    }
+}
+
 pub struct Workers;
 
 impl Aggregate for Workers {
@@ -153,26 +168,19 @@ impl Aggregate for Workers {
     type Event = WorkerEvent;
 
     fn evolve(s: &mut Worker, event: WorkerEvent) {
+        if let Some(Standing { status, why, since }) = event.standing() {
+            (s.status, s.why, s.since) = (status, why, since);
+        }
         match event {
-            WorkerEvent::WorkerStarted(started) => {
-                s.since = started.at;
-                s.started = Some(*started);
-            }
-            WorkerEvent::LandingAsked { at } => (s.status, s.since) = (Status::Landing, at),
-            WorkerEvent::LandingRed { why, at } => {
-                s.reds += 1;
-                (s.status, s.why, s.since) = (Status::Working, Some(why), at);
-            }
-            WorkerEvent::RedTold { .. } => {}
-            WorkerEvent::WorkerLanded { commit, at } => {
-                (s.status, s.since, s.landed, s.why) = (Status::Ended, at, Some(commit), Some("landed".into()))
-            }
-            WorkerEvent::WorkerWaits { why, at } => {
-                (s.status, s.why, s.since, s.over_since, s.quiet) = (Status::Waiting, Some(why), at, None, None);
+            WorkerEvent::WorkerStarted(started) => s.started = Some(*started),
+            WorkerEvent::LandingRed { .. } => s.reds += 1,
+            WorkerEvent::WorkerLanded { commit, .. } => s.landed = Some(commit),
+            WorkerEvent::WorkerWaits { .. } => {
+                (s.over_since, s.quiet) = (None, None);
                 s.heard.clear();
             }
-            WorkerEvent::WorkerResumed { at } => {
-                (s.status, s.reds, s.why, s.since, s.quiet) = (Status::Working, 0, None, at, None);
+            WorkerEvent::WorkerResumed { .. } => {
+                (s.reds, s.quiet) = (0, None);
                 s.heard.clear();
             }
             WorkerEvent::WorkerHeard { text, at } => s.heard.push((at, text)),
@@ -180,9 +188,7 @@ impl Aggregate for Workers {
             WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
             WorkerEvent::CameUnder => s.over_since = None,
-            WorkerEvent::BriefHanded => {}
-            WorkerEvent::WorkerEnded { why, at } => (s.status, s.why, s.since) = (Status::Ended, Some(why), at),
-            WorkerEvent::SessionClosed { .. } | WorkerEvent::WentHot { .. } | WorkerEvent::UsedUp { .. } => {}
+            _ => {}
         }
     }
 

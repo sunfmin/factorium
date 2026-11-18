@@ -284,3 +284,75 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
     w.app.worker_done(me).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
 }
+
+/// A heavy command run in `dir` that holds its slot until `release` is
+/// there, and ends by itself after about 20s.
+const HOLDS: &str = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+
+#[tokio::test]
+async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entries_and_one_just_due_keeps_its_place() {
+    let w = World::new();
+    // #2 keeps working: the checkout is never idle, so only the bound promotes.
+    working(&w, &["a", "b"]).await;
+    let two = id(&worker_of(&w, 2).await);
+    let landed = land(&w, 1, "a").await;
+    // It falls due however busy at the promotion bound less the hold bound: 30 min.
+    w.advance(29);
+    // No room beside what runs: one heavy command at a time.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let dirs: Vec<PathBuf> = ["running", "w1", "w2"].iter().map(|d| w.dir.join(d)).collect();
+    for d in &dirs {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let started = |d: &PathBuf| d.join("started").exists();
+    let (a, w1, w2) = (w.run(), w.run(), w.run());
+    let running = a.worker_exclusive(None, &dirs[0], HOLDS);
+    let line = async {
+        until_file(&dirs[0].join("started")).await;
+        // Two of #2's entries wait behind what runs.
+        let (one, other) =
+            (w1.worker_exclusive(Some(two), &dirs[1], HOLDS), w2.worker_exclusive(Some(two), &dirs[2], HOLDS));
+        let script = async {
+            while heavy(&w).await.len() < 3 {
+                tokio::task::yield_now().await;
+            }
+            w.advance(1);
+            assert!(w.tick().await.lines.is_empty(), "just due, its slow gate queues behind them");
+            assert!(heavy(&w).await.contains(&"slow gate of web".to_string()));
+
+            // What runs ends: just due, the slow gate keeps its FIFO place.
+            std::fs::write(dirs[0].join("release"), "").unwrap();
+            while heavy(&w).await.len() > 3 {
+                tokio::task::yield_now().await;
+            }
+            assert!(w.tick().await.lines.is_empty(), "a worker's entry starts ahead of it");
+            let first = loop {
+                if let Some(d) = dirs[1..].iter().find(|d| started(d)) {
+                    break d.clone();
+                }
+                tokio::task::yield_now().await;
+            };
+            let second = dirs[1..].iter().find(|d| **d != first).unwrap().clone();
+
+            // Past when it fell due, it goes ahead of the worker's entry still waiting.
+            w.advance(1);
+            std::fs::write(first.join("release"), "").unwrap();
+            while heavy(&w).await.len() > 2 {
+                tokio::task::yield_now().await;
+            }
+            let t = w.tick().await;
+            assert!(
+                t.lines.iter().any(|l| l["promoted"] == "web"),
+                "the slow gate starts next, ahead of the worker's entry: {:?}",
+                t.lines
+            );
+            std::fs::write(second.join("release"), "").unwrap();
+        };
+        let (one, other, ()) = tokio::join!(one, other, script);
+        assert_eq!(one.unwrap()["ok"], true);
+        assert_eq!(other.unwrap()["ok"], true);
+    };
+    let (ran, ()) = tokio::time::timeout(STUCK, async { tokio::join!(running, line) }).await.expect("nothing hangs");
+    assert_eq!(ran.unwrap()["ok"], true);
+    assert_eq!(w.remote_tip("web", "main"), landed);
+}

@@ -6,6 +6,7 @@ use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
+use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Move;
@@ -63,9 +64,15 @@ impl App {
         let settings = self.settings().await?;
         // Workers: their sessions, and their share of the host.
         let procs = self.host.processes();
+        let queue = self.state::<Heavy>(queue_id()).await?;
         for w in self.live_workers().await? {
             let id = w.worker;
-            let mine: Vec<_> = procs.iter().filter(|p| p.worker.as_deref() == Some(&id.to_string())).collect();
+            // What runs in its heavy slot is the queue's to bound, not its share's.
+            let held = crate::heavy::granted(&procs, queue.entries.iter().filter(|e| e.worker == Some(id)));
+            let mine: Vec<_> = procs
+                .iter()
+                .filter(|p| p.worker.as_deref() == Some(&id.to_string()) && !held.contains(&p.pid))
+                .collect();
             let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
             let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
             let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
@@ -99,7 +106,9 @@ impl App {
             .await?;
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
-            let reading = self.reading();
+            // What the heavy queue granted is its to bound: admission counts the rest.
+            let (procs, queue) = (self.host.processes(), self.state::<Heavy>(queue_id()).await?);
+            let reading = self.reading_outside(&procs, &crate::heavy::granted(&procs, &queue.entries));
             let held = admission::admit(&reading, &settings);
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {

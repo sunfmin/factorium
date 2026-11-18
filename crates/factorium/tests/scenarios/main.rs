@@ -361,6 +361,8 @@ pub struct FakeHost {
     pub service: Mutex<bool>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
+    /// Runs, once, on the next `sleep`: what happens while the app waits.
+    pub while_sleeping: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     root: PathBuf,
 }
 
@@ -389,7 +391,12 @@ impl Programs for FakeHost {
                 };
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
             }
-            "sleep" => Said { ok: true, ..Default::default() },
+            "sleep" => {
+                if let Some(then) = self.while_sleeping.lock().unwrap().take() {
+                    then();
+                }
+                Said { ok: true, ..Default::default() }
+            }
             "launchctl" => {
                 // As launchd: this user's GUI domain, the agent by its label.
                 use std::os::unix::fs::MetadataExt;
@@ -506,6 +513,7 @@ impl World {
             ran: Mutex::default(),
             missing: Mutex::default(),
             service: Mutex::default(),
+            while_sleeping: Mutex::default(),
             root: dir.clone(),
         });
         let db = dir.join("data").join(name);

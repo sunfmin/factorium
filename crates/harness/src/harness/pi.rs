@@ -15,13 +15,8 @@ use super::session::{self, json_lines};
 use super::store::Layout;
 use crate::harness::{Call, Harness};
 use crate::line::Line;
-use crate::start::SKILLS;
-use crate::start::{START_DIR_ENV, Start, WORKTREE_ENV};
+use crate::start::{SKILLS, Start};
 use crate::turn::{Marker, Note, Turn};
-
-const KEY: &str = "pi";
-/// What a bare program is started with: nothing; `APPROVE` is always added.
-const STOCK_ARGUMENTS: &str = "";
 
 /// pi's flag that answers, for one run, the question it asks before it loads
 /// what the directory it starts in holds of pi's own: a start directory's limits in pi's
@@ -68,66 +63,8 @@ const KEPT_LINKS: &[Link] = &[
     Link { home: ".pi/agent/extensions/orca-agent-status.ts", kept: "extensions/orca-agent-status.ts" },
 ];
 
-/// What the host keeps for pi beside the links: the tool's extension.
-fn kept(_start: &Start) -> Vec<(&'static str, String)> {
-    vec![(EXTENSION_FILE, include_str!("pi/extension.js").to_string())]
-}
-
-/// The guard line the kept extension runs: its variable's, where it reads it.
-fn guards(home: &std::path::Path) -> Vec<String> {
-    let extension = std::fs::read_to_string(home.join(EXTENSION_FILE)).unwrap_or_default();
-    extension.contains(GUARD_ENV).then(|| format!("${GUARD_ENV}")).into_iter().collect()
-}
-
 /// The tool pi runs shell lines with.
 const SHELL_TOOL: &str = "bash";
-/// The exit code with which the guard refuses a call of pi's: the tool's
-/// extension takes any but 0 for a refusal.
-const REFUSED: u8 = 2;
-
-/// `line`, which exports a session's environment, with what pi and the
-/// the tool's extension read from it: the user directory the host keeps, the
-/// line that runs the guard, the worktree, and the added directory,
-/// whose rules a pi session is given as it is its worktree's.
-fn environment(line: Line, start: &Start) -> Line {
-    line.fixed(" ")
-        .fixed(USER_DIR)
-        .fixed("=")
-        .word(start.home.dir())
-        .fixed(" ")
-        .fixed(GUARD_ENV)
-        .fixed("=")
-        .word(&start.hook(Harness::Pi))
-        .fixed(" ")
-        .fixed(WORKTREE_ENV)
-        .fixed("=")
-        .word(start.worktree)
-        .fixed(" ")
-        .fixed(START_DIR_ENV)
-        .fixed("=")
-        .word(start.dir)
-}
-
-/// `line`, which starts the launch command, with what pi is given to
-/// put a session in its start directory: its question answered, the start directory's skills, then
-/// the host user's where it is given them, and no others, the tool's
-/// extension, and the caller's model.
-fn added(line: Line, start: &Start) -> Line {
-    let line = line
-        .fixed(" ")
-        .fixed(APPROVE)
-        .fixed(" ")
-        .fixed(NO_SKILLS)
-        .fixed(" ")
-        .fixed(SKILL)
-        .fixed(" ")
-        .word(&format!("{}/{SKILLS}", start.dir));
-    let line = line.fixed(" ").fixed(EXTENSION).fixed(" ").word(&format!("{}/{EXTENSION_FILE}", start.home.dir()));
-    match start.model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    }
-}
 
 /// One tool call, as the tool's extension passes on what pi describes to it
 /// before making the call.
@@ -176,38 +113,6 @@ fn zai_limit(text: &str) -> bool {
     known_code && explicit_limit
 }
 
-/// The tool call `described` to the tool's extension, as the guard judges
-/// one.
-fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-    let described = Described::deserialize(described)?;
-    Ok(match described.input.command {
-        Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
-        _ => Call::Other,
-    })
-}
-
-/// Where pi keeps the session of `cwd`: one JSONL file for each session, in
-/// the directory it names from the worktree path.
-fn layout(cwd: &str) -> Layout {
-    Layout::Files { dir: format!("sessions/{}", session::wrapped_dir(cwd)), extension: "jsonl" }
-}
-
-/// The turn `text` records for `cwd`. A session header for another worktree
-/// is not this file. pi records no child session.
-fn recorded_turn(cwd: &str, text: &str) -> Option<Turn> {
-    let mut notes = Vec::new();
-    for value in json_lines(text) {
-        if value["type"] == "session" && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
-        {
-            return None;
-        }
-        if let Some(note) = note(&value) {
-            notes.push(note);
-        }
-    }
-    session::turn_of(&notes)
-}
-
 fn note(value: &Value) -> Option<Note> {
     if value["type"] != "message" {
         return None;
@@ -223,99 +128,128 @@ fn note(value: &Value) -> Option<Note> {
     }
 }
 
-/// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, open: bool, at: u64) -> String {
-    let iso = session::format_iso(at);
-    let mut body = format!(
-        "{}\n",
-        session::object(vec![("type", "session".into()), ("cwd", cwd.into()), ("timestamp", iso.clone().into()),])
-    );
-    body.push_str(&format!(
-        "{}\n",
-        session::object(vec![
-            ("type", "message".into()),
-            ("timestamp", iso.clone().into()),
-            ("message", session::object(vec![("role", "user".into())])),
-        ])
-    ));
-    if !open {
-        body.push_str(&format!(
-            "{}\n",
-            session::object(vec![
-                ("type", "message".into()),
-                ("timestamp", iso.into()),
-                ("message", session::object(vec![("role", "assistant".into()), ("stopReason", "stop".into()),]),),
-            ])
-        ));
-    }
-    body
-}
-
 /// pi, as a harness: what its module says of it.
 pub(super) struct Pi;
 
 impl Kind for Pi {
-    const KEY: &'static str = KEY;
+    const KEY: &'static str = "pi";
     const LOGIN: Login = Login::Unused;
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
-    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    /// Nothing; `APPROVE` is always added.
+    const STOCK_ARGUMENTS: &'static str = "";
     const ASKS_FIRST: Option<&'static str> = None;
     const SHOWS_UP: Option<&'static str> = None;
     const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &[];
-    const REFUSED: u8 = REFUSED;
+    /// The tool's extension takes any exit but 0 for a refusal.
+    const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
 
-    fn kept(start: &Start) -> Result<Vec<(&'static str, String)>, String> {
-        Ok(kept(start))
+    /// What the host keeps for pi beside the links: the tool's extension.
+    fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
+        Ok(vec![(EXTENSION_FILE, include_str!("pi/extension.js").to_string())])
     }
 
     const TOLD_IN: Option<&'static str> = None;
 
+    /// The guard line the kept extension runs: its variable's, where it reads it.
     fn guards(home: &std::path::Path) -> Option<Vec<String>> {
-        Some(guards(home))
+        let extension = std::fs::read_to_string(home.join(EXTENSION_FILE)).unwrap_or_default();
+        Some(extension.contains(GUARD_ENV).then(|| format!("${GUARD_ENV}")).into_iter().collect())
     }
 
     fn start_dir<'a>(start: &Start<'a>) -> &'a str {
         start.dir
     }
 
+    /// What pi and the tool's extension read from its environment: the user
+    /// directory the host keeps, the line that runs the guard, the worktree, and
+    /// the added directory, whose rules a pi session is given as it is its
+    /// worktree's.
     fn environment(line: Line, start: &Start) -> Line {
-        environment(line, start)
+        start.rules_env(line.set(USER_DIR, start.home.dir()).set(GUARD_ENV, &start.hook(Harness::Pi)))
     }
 
+    /// What pi is given to put a session in its start directory: its question
+    /// answered, the start directory's skills and no others, the tool's
+    /// extension, and the caller's model.
     fn added(line: Line, start: &Start) -> Line {
-        added(line, start)
+        let line = line.arg(APPROVE).arg(NO_SKILLS).flag(SKILL, &format!("{}/{SKILLS}", start.dir));
+        line.flag(EXTENSION, &format!("{}/{EXTENSION_FILE}", start.home.dir())).flag_if(MODEL, start.model)
     }
 
     fn briefed(line: String, brief: &str) -> (String, Option<String>) {
         (line, Some(crate::brief::brief_pointer(brief)))
     }
 
+    /// The tool call `described` to the tool's extension, as the guard judges
+    /// one.
     fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-        call(described)
+        let described = Described::deserialize(described)?;
+        Ok(match described.input.command {
+            Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
+            _ => Call::Other,
+        })
     }
 
     fn stopped(screen: &[String]) -> Option<Stop> {
         account_quota(screen).map(Stop::Quota)
     }
 
+    /// Where pi keeps the session of `cwd`: one JSONL file for each session, in
+    /// the directory it names from the worktree path.
     fn layout(cwd: &str) -> Layout {
-        layout(cwd)
+        Layout::Files { dir: format!("sessions/{}", session::wrapped_dir(cwd)), extension: "jsonl" }
     }
 
     fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
         true
     }
 
+    /// The turn `text` records for `cwd`. A session header for another worktree
+    /// is not this file. pi records no child session.
     fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text)
+        let mut notes = Vec::new();
+        for value in json_lines(text) {
+            if value["type"] == "session" && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
+            {
+                return None;
+            }
+            if let Some(note) = note(&value) {
+                notes.push(note);
+            }
+        }
+        crate::turn::latest(&notes)
     }
 
+    /// The session a stand-in writes for this turn.
     fn stand_in(cwd: &str, _brief: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, open, at)
+        let iso = session::format_iso(at);
+        let mut body = format!(
+            "{}\n",
+            session::object(vec![("type", "session".into()), ("cwd", cwd.into()), ("timestamp", iso.clone().into()),])
+        );
+        body.push_str(&format!(
+            "{}\n",
+            session::object(vec![
+                ("type", "message".into()),
+                ("timestamp", iso.clone().into()),
+                ("message", session::object(vec![("role", "user".into())])),
+            ])
+        ));
+        if !open {
+            body.push_str(&format!(
+                "{}\n",
+                session::object(vec![
+                    ("type", "message".into()),
+                    ("timestamp", iso.into()),
+                    ("message", session::object(vec![("role", "assistant".into()), ("stopReason", "stop".into()),]),),
+                ])
+            ));
+        }
+        body
     }
 
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {

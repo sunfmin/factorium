@@ -91,3 +91,9 @@ macro_rules! command {
 pub fn no<T>(code: &str, message: impl Into<String>) -> Result<T, factum_core::Rejection> {
     Err(factum_core::Rejection::new(code, message))
 }
+
+/// The name serde gives `v`, a unit variant: the one spelling of a status
+/// or a kind, in rows, answers and words alike.
+pub fn named(v: impl serde::Serialize) -> String {
+    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+}

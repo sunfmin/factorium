@@ -99,3 +99,21 @@ async fn a_worker_is_hot_only_past_each_of_its_shares() {
     let (status, why) = after_holding(many(402)).await;
     assert!(status == "waiting" && why.starts_with("hot: 402 processes, over 400"), "{why}");
 }
+
+#[tokio::test]
+async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    let id = crate::id(&wk);
+    *w.host.procs.lock().unwrap() = vec![proc(wk["worker"].as_str().unwrap(), 51.0 * cores(), 10)];
+    w.tick().await;
+    w.app.worker_escalate(id, "which API version?").await.unwrap();
+    w.advance(3);
+    w.app.watch_restart(id, "v2", false).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "working", "its time over its share starts again");
+    w.advance(3);
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert!(wk["status"] == "waiting" && wk["why"].as_str().unwrap().starts_with("hot: cpu 51%"), "{wk}");
+}

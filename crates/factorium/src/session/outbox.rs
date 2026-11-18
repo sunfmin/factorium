@@ -108,15 +108,25 @@ impl App {
             Ok(seen) => seen,
             Err(e) => return not_typed("orca", e),
         };
-        // Orca misses a turn that starts right after an interrupt or ends
-        // within a second; the session's own file, where its harness keeps
-        // one, says whether the text was taken as a prompt.
-        let home = self.session_home(s.harness, s.account.as_deref());
-        if seen == Delivery::Submitted || s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, since) == Some(true) {
+        if seen == Delivery::Submitted {
             return Outcome::Submitted;
         }
-        if matches!(self.turn(s), Some(Turn::Open { .. })) {
-            return Outcome::Queued;
+        // Orca misses a turn that starts right after an interrupt or ends
+        // within a second; the session's own file, where its harness keeps
+        // one, says whether the text was taken as a prompt. One taken at the
+        // end of Orca's window is written a moment after it: the file is
+        // read again for a few seconds before the text is called missed.
+        let home = self.session_home(s.harness, s.account.as_deref());
+        for waited in 0..=GRACE_SECS {
+            if s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, since) == Some(true) {
+                return Outcome::Submitted;
+            }
+            if matches!(self.turn(s), Some(Turn::Open { .. })) {
+                return Outcome::Queued;
+            }
+            if waited < GRACE_SECS {
+                self.host.programs().run("sleep", &["1"]);
+            }
         }
         let shows = match orca.screen(&s.terminal) {
             Term::Running(screen) => {
@@ -127,6 +137,9 @@ impl App {
         Outcome::Missed { why: format!("typed, it started no turn and none runs; its screen ends: {shows}") }
     }
 }
+
+/// How long a session has, after Orca's window, to write the prompt it took.
+const GRACE_SECS: u32 = 3;
 
 /// What a sender who waits on the answer hears: the refusal of a message
 /// not typed.

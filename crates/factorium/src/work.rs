@@ -79,7 +79,7 @@ impl App {
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
         let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
         let steps = [cmd.to_string()];
-        let job = Job { what: cmd.into(), worker, dir, steps: &steps, env: &[], limit };
+        let job = Job { what: cmd.into(), worker, bound_at: None, dir, steps: &steps, env: &[], limit };
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
     }
