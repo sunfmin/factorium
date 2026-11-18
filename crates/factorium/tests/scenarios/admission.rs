@@ -93,6 +93,8 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     let w = World::new();
     ready(&w).await;
     w.tick().await;
+    // One worker: admission would start the other issue beside its slot's load.
+    w.app.issue_park("web", 2, "one worker here").await.unwrap();
     let wk = worker(&w.app).await;
     let cores = std::thread::available_parallelism().unwrap().get() as f64;
     let tag = Some(wk["worker"].as_str().unwrap().to_string());
@@ -128,6 +130,40 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     w.tick().await;
     let hot = worker(&w.app).await;
     assert!(hot["status"] == "waiting" && hot["why"].as_str().unwrap().starts_with("hot: cpu"), "{hot}");
+}
+
+#[tokio::test]
+async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_it_does() {
+    let w = World::new();
+    ready(&w).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    // A sweep's shard: under the `worker exclusive` that holds the slot, this process.
+    let sweep = Proc {
+        pid: 77,
+        ppid: std::process::id(),
+        cpu: 90.0 * cores,
+        command: "cargo mutants".into(),
+        ..Default::default()
+    };
+    let dir = w.dir.join("slot");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+    let body = async {
+        crate::queue::until_file(&dir.join("started")).await;
+        *w.host.procs.lock().unwrap() = vec![sweep.clone()];
+        w.host.reading.lock().unwrap().cpu_busy = 95;
+        let t = w.tick().await;
+        assert!(t.started.is_some(), "the slot's load is the queue's to bound: {:?}", t.held);
+        std::fs::write(dir.join("release"), "").unwrap();
+    };
+    let cli = w.run();
+    let ran = async { tokio::join!(cli.worker_exclusive(None, &dir, line), body) };
+    let (held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the slot's command ends");
+    assert_eq!(held.unwrap()["ok"], true);
+    // The same load outside any slot holds admission.
+    *w.host.procs.lock().unwrap() = vec![Proc { ppid: 1, ..sweep }];
+    let t = w.tick().await;
+    assert!(t.started.is_none() && t.held.as_deref().unwrap().starts_with("cpu"), "{:?}", t.held);
 }
 
 #[tokio::test]

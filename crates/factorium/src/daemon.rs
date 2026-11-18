@@ -68,8 +68,7 @@ impl App {
         for w in self.live_workers().await? {
             let id = w.worker;
             // What runs in its heavy slot is the queue's to bound, not its share's.
-            let slot = queue.entries.iter().filter(|e| e.worker == Some(id) && e.started_at.is_some());
-            let held = descendants(&procs, slot.map(|e| e.pid).collect());
+            let held = crate::heavy::granted(&procs, queue.entries.iter().filter(|e| e.worker == Some(id)));
             let mine: Vec<_> = procs
                 .iter()
                 .filter(|p| p.worker.as_deref() == Some(&id.to_string()) && !held.contains(&p.pid))
@@ -107,7 +106,9 @@ impl App {
             .await?;
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
-            let reading = self.reading();
+            // What the heavy queue granted is its to bound: admission counts the rest.
+            let (procs, queue) = (self.host.processes(), self.state::<Heavy>(queue_id()).await?);
+            let reading = self.reading_outside(&procs, &crate::heavy::granted(&procs, &queue.entries));
             let held = admission::admit(&reading, &settings);
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
@@ -264,15 +265,4 @@ impl App {
         answer["watch_closed"] = json!(self.close_watch_session().await?);
         Ok(answer)
     }
-}
-
-/// `roots` and every process under them.
-fn descendants(procs: &[factorium_host::Proc], mut roots: Vec<u32>) -> std::collections::BTreeSet<u32> {
-    let mut all = std::collections::BTreeSet::new();
-    while let Some(pid) = roots.pop() {
-        if all.insert(pid) {
-            roots.extend(procs.iter().filter(|p| p.ppid == pid).map(|p| p.pid));
-        }
-    }
-    all
 }
