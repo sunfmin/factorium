@@ -13,7 +13,6 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, DB_ENV, Refusal, default_db};
 use factorium_domain::issue::Blocker;
-use factorium_harness::{Call, Harness};
 use factum::{SystemClock, Uuid};
 use serde_json::json;
 
@@ -406,33 +405,16 @@ fn shell_word(s: &str) -> String {
     }
 }
 
-/// The guard hook: what a worker's session may not run, refused, and so is
-/// a call it cannot read. A harness it does not know is refused with 2,
-/// the code every harness refuses with.
-fn hook(harness: &str) -> ExitCode {
-    let Some(h) = Harness::read(harness) else {
-        eprintln!("factorium refuses this: the guard knows no harness `{harness}`");
-        return ExitCode::from(2);
-    };
-    let mut payload = String::new();
-    let _ = std::io::stdin().read_to_string(&mut payload);
-    let why = match h.shell_call(&payload) {
-        Call::NotShell => return ExitCode::SUCCESS,
-        Call::Unreadable(why) => format!("the guard cannot read this tool call ({why})"),
-        Call::Shell(line) => match Caller::here().may_run_line(&line) {
-            Ok(()) => return ExitCode::SUCCESS,
-            Err(refusal) => refusal.message,
-        },
-    };
-    eprintln!("factorium refuses this: {why}");
-    ExitCode::from(h.refused())
-}
-
 fn main() -> ExitCode {
     let matches = Cli::command().get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     if let Top::Guard { harness } = &cli.command {
-        return hook(harness);
+        // The guard hook: the tool call on stdin, refused with the code its harness reads.
+        let mut payload = String::new();
+        let _ = std::io::stdin().read_to_string(&mut payload);
+        let Err((code, why)) = Caller::here().guard(harness, &payload) else { return ExitCode::SUCCESS };
+        eprintln!("factorium refuses this: {why}");
+        return ExitCode::from(code);
     }
     let exclusive = matches!(cli.command, Top::Worker(WorkerCmd::Exclusive { .. }));
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a tokio runtime");
