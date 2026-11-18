@@ -59,8 +59,9 @@ formula = "web"
 
 `./gate.sh`: fmt, clippy, the per-crate line budgets, and the tests (a CPU-time cap, SPEC.md §6).
 
-`./slow.sh`: the slow gate, before a promotion: `./gate.sh`, then
-`slimfit check` against `.slimfit/baseline.json` (no failures, no more
+`./slow.sh`: the slow gate, before a promotion: `./checks.sh` (the fast
+gate's checks without its test run), then `slimfit check`, which runs the
+tests once, instrumented, against `.slimfit/baseline.json` (no failures, no more
 uncovered lines, tests no slower than the baseline allows; SPEC.md §6).
 The loop, for a worker on factorium:
 

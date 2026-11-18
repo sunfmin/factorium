@@ -262,13 +262,15 @@ depend on nothing else of factorium.
   measurement shows the suite spends less. slimfit#13, not landed yet,
   fixes slimfit's `test_seconds` by dividing by a measured load instead.
 - **slimfit holds the suite.** factorium's slow gate (`./slow.sh`) is
-  `./gate.sh` then `slimfit check` against the committed
+  `./checks.sh` (the line budgets of §5, fmt, clippy: what `./gate.sh`
+  runs before its tests) then `slimfit check` against the committed
   `.slimfit/baseline.json`: no failing test, no more uncovered lines than
   the baseline (code may grow, untested code may not), and the tests'
-  summed durations within the baseline's tolerance. The CPU bound
-  and the line budgets (§5) stay in `gate.sh`: slimfit records line counts
-  but does not bound them, and its `test_seconds` sums the tests'
-  durations, not the CPU they spend.
+  summed durations within the baseline's tolerance. The suite runs once
+  there, the instrumented run. The CPU bound is held in `gate.sh`, on the
+  uninstrumented run every landing passes before it reaches proving:
+  slimfit records line counts but does not bound them, and its
+  `test_seconds` sums the tests' durations, not the CPU they spend.
   A change that gains (fewer uncovered lines, faster tests) runs
   `slimfit ratchet` and commits the moved baseline with the code, in the
   same commit; a bound is raised only by `slimfit ratchet --loosen`, with
