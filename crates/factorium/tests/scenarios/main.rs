@@ -20,6 +20,7 @@ mod line;
 mod one_harness;
 mod outbox;
 mod path;
+mod priority;
 mod queue;
 mod stall;
 mod terminals;

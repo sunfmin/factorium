@@ -13,7 +13,7 @@ use std::time::Duration;
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, StartHeavy, queue_id};
 use factorium_domain::settings::Time;
-use factorium_host::{Proc, Ran, run};
+use factorium_host::{Priority, Proc, Ran, run};
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal};
@@ -34,6 +34,8 @@ pub(crate) struct Job<'a> {
     pub steps: &'a [String],
     pub env: &'a [(String, String)],
     pub limit: Duration,
+    /// Normal for a gate, background for any other (SPEC §1.9).
+    pub priority: Priority,
 }
 
 /// How a job takes its turn.
@@ -158,9 +160,10 @@ impl App {
         let mut rans = Vec::new();
         for step in job.steps {
             let (dir, line, env, limit) = (job.dir.to_path_buf(), step.clone(), job.env.to_vec(), job.limit);
-            let flag = held.clone();
-            let mut run =
-                tokio::task::spawn_blocking(move || run(&dir, &line, &env, limit, &|| flag.load(Ordering::Relaxed)));
+            let (flag, priority) = (held.clone(), job.priority);
+            let mut run = tokio::task::spawn_blocking(move || {
+                run(&dir, &line, &env, limit, priority, &|| flag.load(Ordering::Relaxed))
+            });
             let mut ran = loop {
                 tokio::select! {
                     ran = &mut run => break ran.map_err(|e| Refusal::new("internal", e.to_string()))?,

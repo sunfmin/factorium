@@ -15,7 +15,7 @@ use factorium_domain::line::{self, Due, Lines, Move, next_version};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{self as w, Status, Workers};
-use factorium_host::{Git, Lag};
+use factorium_host::{Git, Lag, Priority};
 use factum::Uuid;
 use serde_json::{Value, json};
 
@@ -217,6 +217,7 @@ impl App {
             steps: &cut.steps,
             env: &env,
             limit: Duration::from_secs(cut.limit),
+            priority: Priority::Background,
         };
         let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
         let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
