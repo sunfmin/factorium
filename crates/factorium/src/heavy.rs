@@ -11,9 +11,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
-use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, StartHeavy, queue_id};
+use factorium_domain::heavy::{
+    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, Rules, StartHeavy, older, queue_id,
+};
 use factorium_domain::settings::Time;
-use factorium_host::{Priority, Proc, Ran, run};
+use factorium_host::{PLACE, Priority, Proc, Ran, run};
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal};
@@ -80,7 +82,8 @@ impl App {
     /// that failed. `None`: [`Turn::Once`] and not its turn yet.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
         let id = match &turn {
-            Turn::Wait => Uuid::now_v7(),
+            // A waiter that execs the installed binary keeps its place.
+            Turn::Wait => std::env::var(PLACE).ok().and_then(|p| p.parse().ok()).unwrap_or_else(Uuid::now_v7),
             Turn::Once(key) => {
                 let id = factorium_domain::id(&format!("heavy:{key}"));
                 self.memory.lock().unwrap().asked.insert(id);
@@ -88,7 +91,19 @@ impl App {
             }
         };
         loop {
-            match (self.take_turn(id, &job).await?, &turn) {
+            let took = match self.take_turn(id, &job).await {
+                Err(r) if r.code == "stale" => match &turn {
+                    Turn::Wait => {
+                        let r = self.as_installed(id, r);
+                        self.submit::<EndHeavy>(End { id }).await?;
+                        return Err(r);
+                    }
+                    // The daemon execs the installed binary after this tick.
+                    Turn::Once(_) => false,
+                },
+                took => took?,
+            };
+            match (took, &turn) {
                 (true, _) => break,
                 (false, Turn::Wait) => tokio::time::sleep(POLL).await,
                 (false, Turn::Once(_)) => {
@@ -122,10 +137,35 @@ impl App {
         Ok(done)
     }
 
+    /// A waiter whose rules the queue no longer takes (refused as `stale`)
+    /// execs the binary Homebrew links now, as the same pid, keeping its
+    /// entry `id`; answers why not if it cannot.
+    fn as_installed(&self, id: Uuid, stale: Refusal) -> Refusal {
+        use std::os::unix::process::CommandExt;
+        let me = std::env::current_exe().and_then(|e| e.canonicalize());
+        let Some(link) = me.as_ref().ok().and_then(|me| self.host.brew().link_of(me).map(|l| (me, l))) else {
+            return stale;
+        };
+        let (me, link) = link;
+        if link.canonicalize().is_ok_and(|now| &now == me) {
+            return stale;
+        }
+        let e = std::process::Command::new(&link).args(std::env::args_os().skip(1)).env(PLACE, id.to_string()).exec();
+        Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
+    }
+
+    /// Records that the rules this app asks under are the newest, if they are.
+    pub(crate) async fn note_rules(&self) -> Answer<()> {
+        self.submit::<NoteRules>(Rules { version: self.rules.clone() }).await
+    }
+
     /// Queues `id` if it is not, and asks once to start it. Entries of
     /// processes that died are forgotten first.
     async fn take_turn(&self, id: Uuid, job: &Job<'_>) -> Answer<bool> {
         let q = self.state::<Heavy>(queue_id()).await?;
+        if older(&q.rules, &self.rules) {
+            self.note_rules().await?;
+        }
         let pid = std::process::id();
         for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
             self.submit::<EndHeavy>(End { id: e.id }).await?;
@@ -145,7 +185,7 @@ impl App {
         let read_at = self.now();
         let room = admission::room(&self.reading(), &settings);
         let settle = settings.ms(Time::HeavySettle);
-        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle }).await {
+        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules: self.rules.clone() }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
             Err(r) => Err(r),

@@ -100,6 +100,9 @@ pub struct App {
     db: PathBuf,
     by: By,
     memory: std::sync::Mutex<Memory>,
+    /// The heavy queue's rules it asks under: [`factorium_domain::heavy::RULES`], unless a
+    /// scenario stands in for another version.
+    rules: String,
 }
 
 impl App {
@@ -115,7 +118,21 @@ impl App {
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
         let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock, by);
-        Ok(App { engine, host, db, by: By::Principal(by.into()), memory: Default::default() })
+        Ok(App {
+            engine,
+            host,
+            db,
+            by: By::Principal(by.into()),
+            memory: Default::default(),
+            rules: factorium_domain::heavy::RULES.into(),
+        })
+    }
+
+    /// The same app, asking the heavy queue under the rules of `version`: a
+    /// binary of another version, as a scenario has one.
+    pub fn under_rules(mut self, version: &str) -> App {
+        self.rules = version.into();
+        self
     }
 
     fn now(&self) -> i64 {

@@ -17,7 +17,7 @@ pub use git::{Git, Lag};
 pub use orca::{Delivery, Orca, Term};
 pub use procs::Proc;
 pub use reading::Reading;
-pub use shell::{Priority, Programs, Ran, Said, System, run};
+pub use shell::{PLACE, Priority, Programs, Ran, Said, System, run};
 
 /// What the app asks of the machine beyond git and the shell.
 pub trait Host: Send + Sync {

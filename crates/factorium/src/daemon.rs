@@ -226,6 +226,8 @@ impl App {
         let missing: Vec<String> = needed.into_iter().filter(|p| !self.host.programs().found(p)).collect();
         let path = std::env::var("PATH").unwrap_or_default();
         self.submit::<StartDaemon>(Start { path: path.clone(), missing: missing.clone() }).await?;
+        // Waiters of older binaries no longer start once this one runs.
+        self.note_rules().await?;
         Ok(json!({ "path": path, "missing": missing }))
     }
 

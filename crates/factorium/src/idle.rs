@@ -132,6 +132,7 @@ impl App {
                 room: Ok(()),
                 read_at: self.now(),
                 settle: settings.ms(Time::HeavySettle),
+                rules: self.rules.clone(),
             })
             .await
         {
