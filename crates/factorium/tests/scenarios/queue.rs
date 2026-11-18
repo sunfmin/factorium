@@ -10,8 +10,11 @@ use serde_json::json;
 
 use crate::{CLAUDE, World, id, worker, worktree};
 
-/// Long enough that only a broken rule gets there.
-pub(crate) const STUCK: Duration = Duration::from_secs(20);
+/// A hang guard, not a timing bound: far above a loaded run of any one
+/// scenario (the slowest: 6s at load 19, 17s under 36 CPU hogs on 18 cores),
+/// so it fails only on a hang.
+/// How fast the suite runs is the gate's bound to keep.
+pub(crate) const STUCK: Duration = Duration::from_secs(180);
 
 pub(crate) async fn until_file(path: &Path) {
     while !path.exists() {
