@@ -241,7 +241,7 @@ impl Kind for Grok {
         .flatten();
         Ok(match command {
             Some(line) if name == "run_terminal_command" => Call::Shell(line),
-            _ => Call::Other,
+            _ => Call::NotShell,
         })
     }
 
