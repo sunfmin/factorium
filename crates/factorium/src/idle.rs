@@ -151,7 +151,8 @@ impl App {
             return if r.code == "wait" { Ok(None) } else { Err(r) };
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let (dir, flag, limit, clock) = (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit), self.clock.clone());
+        let (dir, flag, limit, clock) =
+            (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit), self.clock.clone());
         let run = std::thread::spawn(move || steps(dir, work.steps, limit, clock, flag));
         let (checkout, at) = (c.name.clone(), self.now());
         self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), id, at, stop, run });
