@@ -112,10 +112,10 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
         assert!(ok, "{args:?}: {answer}");
         answer
     };
-    issue(&["add", "web", "Then this", "--parked"]);
+    issue(&["add", "web", "Then this", "--waiting-for-human"]);
     assert_eq!(issue(&["block", "web", "2", "--by", "1"])["blocked_by"], json!([1]));
     assert_eq!(issue(&["comment", "web", "1", "a note"])["comments"][0]["text"], "a note");
-    assert_eq!(issue(&["park", "web", "1", "later"])["status"], "parked");
+    assert_eq!(issue(&["wait-for-human", "web", "1", "--why", "later"])["status"], "waiting_for_human");
     assert_eq!(issue(&["ready", "web", "1"])["status"], "ready");
     assert_eq!(issue(&["start-over", "web", "1", "--why", "again"])["discarded"], false, "it had no worker");
     let closed = issue(&["close", "web", "2", "--reason", "dup"]);
