@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_harness::account::{self, Here};
-use factorium_harness::{Harness, Kept, RULES, Start};
+use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal, fail};
@@ -83,6 +83,26 @@ impl Caller {
             ("watch", Caller::Owner) => Err(Refusal::new("guarded", "only the watch runs `factorium watch …`")),
             _ => Ok(()),
         }
+    }
+
+    /// The guard hook's answer to the tool call `payload` harness `harness`
+    /// is about to make: nothing when it may run, else why not and the exit
+    /// code that harness refuses with. A call it cannot read is refused, and
+    /// so is any call of a harness it does not know, with 2, the code every
+    /// harness refuses with.
+    pub fn guard(&self, harness: &str, payload: &str) -> Result<(), (u8, String)> {
+        let Some(h) = Harness::read(harness) else {
+            return Err((2, format!("the guard knows no harness `{harness}`")));
+        };
+        let why = match h.shell_call(payload) {
+            Call::NotShell => return Ok(()),
+            Call::Unreadable(why) => format!("the guard cannot read this tool call ({why})"),
+            Call::Shell(line) => match self.may_run_line(&line) {
+                Ok(()) => return Ok(()),
+                Err(refusal) => refusal.message,
+            },
+        };
+        Err((h.refused(), why))
     }
 
     /// Refuses the shell `line` its session would run, as the guard hook:
