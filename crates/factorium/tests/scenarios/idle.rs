@@ -46,6 +46,12 @@ fn started(idle: &[Value]) -> bool {
     idle.iter().any(|v| v["idle"] == "web" && v["started"] == true)
 }
 
+#[test]
+fn idle_work_left_without_every_or_limit_runs_once_a_day_within_an_hour() {
+    let idle = factorium_domain::declared::read(Some("[idle]\nsteps = [\"./mutants.sh\"]\n")).unwrap().idle.unwrap();
+    assert_eq!((idle.every, idle.limit), (86400, 3600));
+}
+
 #[tokio::test]
 async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     let w = World::new();
