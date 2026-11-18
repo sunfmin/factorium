@@ -1,0 +1,14 @@
+{
+  "suites": {
+    "rust": {
+      "prod_lines": 10493,
+      "test_lines": 6193,
+      "tests": 193,
+      "failures": 0,
+      "test_seconds": 449.109,
+      "covered_lines": 4648,
+      "uncovered_lines": 265
+    }
+  },
+  "loosened": []
+}

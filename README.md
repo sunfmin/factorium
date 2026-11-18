@@ -59,6 +59,22 @@ formula = "web"
 
 `./gate.sh`: fmt, clippy, the per-crate line budgets, and the tests (60s cap).
 
+`./slow.sh`: the slow gate, before a promotion: `./gate.sh`, then
+`slimfit check` against `.slimfit/baseline.json` (no failures, no more
+uncovered lines, tests no slower than the baseline allows; SPEC.md §6).
+The loop, for a worker on factorium:
+
+1. `slimfit next`: one task (an uncovered line, a slow test, …) with its
+   files and the command that accepts it. This is how to find what to
+   test or make smaller.
+2. Do that task; run its accept command (`slimfit check`).
+3. `slimfit ratchet` locks the gain into `.slimfit/baseline.json`; commit
+   the baseline with the code, in the same commit.
+
+Any change that lowers uncovered lines or test time ratchets the same
+way. A bound is raised only by `slimfit ratchet --loosen <bound> --reason
+"<why>"`.
+
 `./mutants.sh`: mutation testing (SPEC.md §6), too slow for the gate. Run
 it after changing a rule or a scenario, before the change lands; pass
 `-f <file>` to mutate only what you touched. Each mutant is caught or
