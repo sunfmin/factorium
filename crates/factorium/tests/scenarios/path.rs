@@ -139,17 +139,17 @@ async fn a_branch_that_does_not_merge_is_red() {
 }
 
 #[tokio::test]
-async fn blocked_and_parked_issues_wait_and_the_oldest_ready_one_starts_first() {
+async fn blocked_issues_and_ones_waiting_for_a_human_wait_and_the_oldest_ready_one_starts_first() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "first", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "second", "", false, &[]).await.unwrap();
-    w.app.issue_add("web", "parked", "", true, &[]).await.unwrap();
+    w.app.issue_add("web", "for a human", "", true, &[]).await.unwrap();
     w.app.issue_block("web", 1, 2, false).await.unwrap();
 
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#2", "#1 waits for #2");
-    assert!(w.tick().await.started.is_none(), "#1 waits, #3 is parked");
+    assert!(w.tick().await.started.is_none(), "#1 waits, #3 waits for a human");
     w.app.issue_close("web", 2, "done").await.unwrap();
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1");
 }
@@ -162,7 +162,7 @@ async fn an_issue_added_with_its_blockers_waits_for_them_from_the_start() {
     w.app.issue_add("web", "blocker", "", true, &[]).await.unwrap();
     let added = w.app.issue_add("web", "waits", "", false, &[1.into(), 1.into()]).await.unwrap();
     assert_eq!((added["status"].clone(), added["blocked_by"].clone()), (json!("ready"), json!([1])));
-    assert!(w.tick().await.started.is_none(), "#2 waits for #1, which is parked");
+    assert!(w.tick().await.started.is_none(), "#2 waits for #1, which waits for a human");
 
     refused(w.app.issue_add("web", "orphan", "", false, &[1.into(), 9.into()]).await, "no_issue");
     refused(w.app.issue_show("web", 3).await, "no_issue");
@@ -173,7 +173,7 @@ async fn an_issue_added_with_its_blockers_waits_for_them_from_the_start() {
 }
 
 #[tokio::test]
-async fn closing_or_parking_an_issue_ends_its_worker() {
+async fn closing_an_issue_or_leaving_it_to_a_human_ends_its_worker() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
@@ -185,11 +185,11 @@ async fn closing_or_parking_an_issue_ends_its_worker() {
     let (a, b) = (ws[0].clone(), ws[1].clone());
     let b_tree = worktree(&b);
     w.app.issue_close("web", a["number"].as_u64().unwrap(), "not needed").await.unwrap();
-    w.app.issue_park("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
+    w.app.issue_wait_for_human("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     assert!(crate::closed(&w.app, a["terminal"].as_str().unwrap()).await);
     assert!(crate::closed(&w.app, b["terminal"].as_str().unwrap()).await);
-    assert!(b_tree.exists(), "a parked issue's worktree stays");
+    assert!(b_tree.exists(), "the worktree of an issue waiting for a human stays");
     w.app.issue_ready("web", b["number"].as_u64().unwrap()).await.unwrap();
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", b["number"].as_u64().unwrap(), 2)));
@@ -202,14 +202,14 @@ fn brief_of(w: &World, name: &str) -> String {
 }
 
 #[tokio::test]
-async fn readying_a_parked_issue_resumes_in_the_worktree_it_kept() {
+async fn readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept() {
     let w = World::new();
     let first = w.working(CLAUDE, "t").await;
     let tree = worktree(&first);
     w.commit(&tree, "kept.txt", "x");
     std::fs::write(tree.join("wip.txt"), "half done").unwrap();
-    w.app.issue_park("web", 1, "a mutants run holds the CPU").await.unwrap();
-    // Proving moves on while the issue is parked.
+    w.app.issue_wait_for_human("web", 1, "a mutants run holds the CPU").await.unwrap();
+    // Proving moves on while the issue waits for a human.
     w.app.issue_add("web", "other", "", false, &[]).await.unwrap();
     w.tick().await;
     let other = worker(&w.app).await;
@@ -239,7 +239,7 @@ async fn readying_a_parked_issue_resumes_in_the_worktree_it_kept() {
 }
 
 #[tokio::test]
-async fn starting_a_parked_issue_over_discards_its_kept_worktree_and_keeps_its_branch() {
+async fn starting_an_issue_waiting_for_a_human_over_discards_its_kept_worktree_and_keeps_its_branch() {
     let w = World::new();
     let repo = w.checkout("web").await;
     w.kit().await;
@@ -252,12 +252,12 @@ async fn starting_a_parked_issue_over_discards_its_kept_worktree_and_keeps_its_b
 
     let live = w.app.issue_start_over("web", 1, "wrong approach").await.unwrap_err();
     assert_eq!(live.code, "live_worker");
-    assert!(live.message.contains("park"), "{}", live.message);
+    assert!(live.message.contains("wait-for-human"), "{}", live.message);
     assert!(tree.exists(), "refused, nothing changes");
 
-    w.app.issue_park("web", 1, "wrong approach").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "wrong approach").await.unwrap();
     let over = w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
-    assert_eq!(over["status"], "parked", "its state stays");
+    assert_eq!(over["status"], "waiting_for_human", "its state stays");
     assert_eq!(over["abandoned"], "factorium/web-1-1-abandoned");
     assert!(!tree.exists(), "the kept worktree is gone");
     let last = over["comments"].as_array().unwrap().last().unwrap().clone();
@@ -289,13 +289,13 @@ async fn starting_over_an_issue_with_nothing_kept_changes_nothing() {
     let over = w.app.issue_start_over("web", 1, "why not").await.unwrap();
     assert_eq!(over["discarded"], false);
     assert!(over["said"].as_str().unwrap().contains("nothing"));
-    assert_eq!(over["status"], "parked");
+    assert_eq!(over["status"], "waiting_for_human");
     assert_eq!(over["comments"], json!([]));
 
     // An attempt that ended holding nothing of its own kept nothing either.
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
-    w.app.issue_park("web", 1, "later").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
     let over = w.app.issue_start_over("web", 1, "why not").await.unwrap();
     assert_eq!(over["discarded"], false);
     assert_eq!(over["comments"], json!([]));
@@ -311,7 +311,7 @@ async fn a_start_after_a_kept_worktree_was_removed_starts_fresh() {
     let first = worker(&w.app).await;
     let tree = worktree(&first);
     w.commit(&tree, "kept.txt", "x");
-    w.app.issue_park("web", 1, "later").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
     w.git(&repo, &["worktree", "remove", "--force", &tree.to_string_lossy()]).unwrap();
 
     w.app.issue_ready("web", 1).await.unwrap();

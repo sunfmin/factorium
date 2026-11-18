@@ -64,7 +64,7 @@ async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
     assert_eq!(w.app.issue_comment("web", 1, "and log it").await.unwrap()["delivery"], "none");
 
     // The next worker's brief carries both.
-    w.app.issue_park("web", 1, "its session died").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "its session died").await.unwrap();
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
     let brief = std::fs::read_to_string(w.data().brief("web-1-2")).unwrap();
@@ -77,7 +77,7 @@ async fn a_comment_factorium_writes_itself_is_typed_at_no_one() {
     let wk = w.working(CLAUDE, "t").await;
     let tree = worktree(&wk);
     w.commit(&tree, "kept.txt", "x");
-    w.app.issue_park("web", 1, "wrong approach").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "wrong approach").await.unwrap();
     w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
     let terminals = w.host.orca.terminals.lock().unwrap().clone();
     for t in terminals.values() {
@@ -141,7 +141,7 @@ async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_on
     assert!(sent[0].starts_with("factorium (the watch): use the v2 API. Then go on"), "{sent:?}");
 
     // The next worker's brief carries all of it, each with who said it.
-    w.app.issue_park("web", 1, "again").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "again").await.unwrap();
     w.app.issue_ready("web", 1).await.unwrap();
     w.tick().await;
     let brief = std::fs::read_to_string(w.data().brief("web-1-2")).unwrap();
