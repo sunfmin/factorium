@@ -330,8 +330,9 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
 fn run_ticks_quietly_until_stop_ends_it() {
     let dir = Dir::new();
     assert!(run(&dir, &["settings", "tick_every", "1"]).0);
-    // A tick with nothing to do, done once the next one starts.
-    let out = daemon_for(&dir, 2);
+    // Ticks with nothing to do, past the first (which looks), each done
+    // once the next one starts.
+    let out = daemon_for(&dir, 3);
     assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
 }
 
