@@ -79,6 +79,20 @@ fn run(dir: &Dir, args: &[&str]) -> (bool, Value) {
     run_with(dir, &[], args)
 }
 
+/// With no `--db` or `FACTORIUM_DB`, the database lives under `XDG_DATA_HOME`,
+/// else under `HOME`'s `.local/share` (a Mac's usual case), else here.
+#[test]
+fn the_default_database_is_under_xdg_data_home_else_under_home_s_local_share() {
+    let env = |vars: &'static [(&'static str, &'static str)]| {
+        move |name: &str| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).into())
+    };
+    let both = env(&[("XDG_DATA_HOME", "/x/data"), ("HOME", "/x/home")]);
+    assert_eq!(factorium::default_db(both), Path::new("/x/data/factorium/factorium.db"));
+    let home = env(&[("HOME", "/x/home")]);
+    assert_eq!(factorium::default_db(home), Path::new("/x/home/.local/share/factorium/factorium.db"));
+    assert_eq!(factorium::default_db(env(&[])), Path::new("./factorium/factorium.db"));
+}
+
 #[test]
 fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let dir = Dir::new();

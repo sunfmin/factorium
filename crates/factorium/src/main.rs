@@ -288,7 +288,7 @@ enum WatchCmd {
 }
 
 async fn run(cli: Cli, caller: Caller) -> Answer {
-    let db = cli.db.unwrap_or_else(default_db);
+    let db = cli.db.unwrap_or_else(|| default_db(|name| std::env::var_os(name)));
     let by = caller.by();
     let worker_id = || caller.worker();
     let data = factorium::Data::of(&db).root().to_path_buf();
