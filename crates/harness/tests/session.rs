@@ -35,3 +35,47 @@ fn a_kimi_stand_in_names_itself_in_the_index_and_keeps_the_other_lines() {
     );
     let _ = std::fs::remove_dir_all(&kept);
 }
+
+/// One JSON object per line, as a harness writes its session file.
+fn jsonl(lines: &[serde_json::Value]) -> String {
+    lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// Codex handed a brief as its goal, started outside the worktree, is that
+/// worktree's session by the goal alone: the objective it was typed, and no
+/// other brief's, not even one whose path begins it.
+#[test]
+fn a_codex_session_handed_the_brief_as_its_goal_is_the_worktree_s() {
+    use serde_json::json;
+    let codex = Harness::read("codex").unwrap();
+    let kept = scratch("codex-goal");
+    let home = codex.home(&kept, None, &kept);
+    let brief = "/briefs/web-1-1.md";
+    let start = factorium_harness::Start {
+        command: "codex",
+        dir: "/start",
+        worktree: "/worktree",
+        model: None,
+        guard: "factorium",
+        home: &home,
+        user_home: &kept,
+        env: Vec::new(),
+        brief,
+        secrets: None,
+    };
+    let typed = codex.launch(&start).unwrap().typed.unwrap();
+    let objective = typed.strip_prefix("/goal ").unwrap();
+    let at = |seconds| format!("2027-01-15T08:00:{seconds:02}Z");
+    let session = jsonl(&[
+        json!({"timestamp": at(0), "type": "session_meta", "payload": {"cwd": "/start", "id": "t"}}),
+        json!({"timestamp": at(0), "type": "event_msg",
+               "payload": {"type": "thread_goal_updated", "goal": {"objective": objective}}}),
+        json!({"timestamp": at(1), "type": "event_msg", "payload": {"type": "task_started", "started_at": 1_800_000_001u64}}),
+    ]);
+    std::fs::create_dir_all(kept.join("sessions/2027")).unwrap();
+    std::fs::write(kept.join("sessions/2027/rollout-t.jsonl"), session).unwrap();
+
+    assert_eq!(codex.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_001 }));
+    assert_eq!(codex.turn(&home, "/worktree", "/briefs/web-1-1"), None, "a brief whose path begins the goal's");
+    let _ = std::fs::remove_dir_all(&kept);
+}
