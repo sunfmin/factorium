@@ -187,6 +187,56 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_eq!(by_tool("apply_patch", "git push origin HEAD", worker), Some(0));
 }
 
+/// The guard lets a call through only when it has read it: a payload it
+/// cannot read is refused, with the harness's refused code (factorium#99).
+#[test]
+fn the_guard_hook_refuses_a_tool_call_it_cannot_read() {
+    let guard = |harness: &str, payload: &str| -> (Option<i32>, String) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_factorium"))
+            .args(["guard", harness])
+            .env("FACTORIUM_WORKER", WORKER)
+            .env_remove("FACTORIUM_WATCH")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let refused = |h: factorium_harness::Harness, payload: &str| {
+        let (code, said) = guard(h.key(), payload);
+        assert_eq!(code, Some(h.refused().into()), "{}: {payload}: {said}", h.key());
+        assert_ne!(code, Some(0));
+        assert!(said.contains("cannot read this tool call"), "{}: {said}", h.key());
+    };
+    for &h in factorium_harness::Harness::all() {
+        for malformed in ["", "{", "not json", "{\"tool_name\": 1}", "{} trailing", "[]"] {
+            refused(h, malformed);
+        }
+    }
+    // Grok's two spellings of one field disagree: which one the tool runs is
+    // not known, so neither is judged.
+    let grok = factorium_harness::Harness::Grok;
+    let ls = json!({ "command": "ls" });
+    let push = json!({ "command": "git push origin HEAD" });
+    let names = json!({ "toolName": "read_file", "tool_name": "run_terminal_command", "toolInput": push });
+    refused(grok, &names.to_string());
+    let inputs = json!({ "toolName": "run_terminal_command", "toolInput": ls, "tool_input": push });
+    refused(grok, &inputs.to_string());
+    // A well-formed call that runs no shell line, and a shell line a worker may run, still pass.
+    let read = json!({ "toolName": "read_file", "toolInput": { "path": "x" } });
+    assert_eq!(guard("grok", &read.to_string()).0, Some(0));
+    let same = json!({ "toolName": "run_terminal_command", "tool_name": "run_terminal_command", "toolInput": ls });
+    assert_eq!(guard("grok", &same.to_string()).0, Some(0));
+    let read = json!({ "tool_name": "Read", "tool_input": { "file_path": "x" } });
+    assert_eq!(guard("claude-code", &read.to_string()).0, Some(0));
+    // A harness the guard does not know is no reason to let a call by.
+    let (code, said) = guard("no-such-harness", &read.to_string());
+    assert_eq!(code, Some(2), "{said}");
+}
+
 #[test]
 fn a_body_from_a_file_or_stdin_comes_back_byte_for_byte() {
     let dir = Dir::new();
@@ -328,7 +378,46 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
         let _ = daemon.kill();
     }
     assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
-    daemon.wait_with_output().unwrap()
+    ended_in_order(dir, daemon)
+}
+
+/// Waits (a bounded while) for a daemon sent SIGTERM or SIGINT: it exits 0,
+/// as a normal return from main, and its pid file is gone.
+fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::Output {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while daemon.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon did not end within 10s of its signal");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = daemon.wait_with_output().unwrap();
+    assert!(out.status.success(), "{:?}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    assert!(!pid.exists(), "{} stays", pid.display());
+    out
+}
+
+#[test]
+fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
+    let dir = Dir::new();
+    // A long wait between ticks: the signal ends it, not its next tick.
+    assert!(run(&dir, &["settings", "tick_every", "600"]).0);
+    let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !pid.exists() {
+        if daemon.try_wait().unwrap().is_some() || std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon never wrote its pid file");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(Command::new("kill").args(["-INT", &daemon.id().to_string()]).status().unwrap().success());
+    let out = ended_in_order(&dir, daemon);
+    let said: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(said["stopped"], true, "{said}");
 }
 
 #[test]
@@ -338,7 +427,9 @@ fn run_ticks_quietly_until_stop_ends_it() {
     // Ticks with nothing to do, past the first (which looks), each done
     // once the next one starts.
     let out = daemon_for(&dir, 3);
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
+    // Its only words are its answer at the end: a tick that did nothing prints nothing.
+    let said: Value = serde_json::from_slice(&out.stdout).expect("one answer, no tick lines");
+    assert_eq!(said["stopped"], true, "{said}");
 }
 
 #[test]

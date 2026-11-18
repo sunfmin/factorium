@@ -13,7 +13,7 @@ use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
-use factorium_domain::settings::Settings;
+use factorium_domain::settings::{Settings, Time};
 use factorium_host::Priority;
 use factum::{Uuid, Value};
 use serde_json::json;
@@ -126,7 +126,15 @@ impl App {
         let (id, pid) = (Uuid::now_v7(), std::process::id());
         let what = idle::job(&c.name);
         self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker: None, bound_at: None }).await?;
-        if let Err(r) = self.submit::<StartHeavy>(Begin { id, room: Ok(()), read_at: self.now() }).await {
+        if let Err(r) = self
+            .submit::<StartHeavy>(Begin {
+                id,
+                room: Ok(()),
+                read_at: self.now(),
+                settle: settings.ms(Time::HeavySettle),
+            })
+            .await
+        {
             self.submit::<EndHeavy>(End { id }).await?;
             return if r.code == "wait" { Ok(None) } else { Err(r) };
         }

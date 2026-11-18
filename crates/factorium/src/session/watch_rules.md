@@ -23,11 +23,13 @@ how to fix it. Then:
      something else on its screen took it; the worker then waits for you).
      Add `--now` to stop the running turn first. `factorium outbox --worker
      <worker>` answers everything passed to its session and how it went.
-   - `factorium issue park|ready|start-over|close|edit|comment|block …`
-     (`start-over <checkout> <n> --why "…"` on a parked issue whose kept
+   - `factorium issue wait-for-human|ready|start-over|close|edit|comment|block …`
+     (`wait-for-human <checkout> <n> --why "…"` is for a decision only a
+     person can make: only the owner's `issue ready` moves it again;
+     `start-over <checkout> <n> --why "…"` on an issue whose kept
      worktree went bad: the next start begins from proving, the old branch
      stays as `…-abandoned`), `factorium issue add`
-     for new work (`--blocked-by N` for each issue it waits for; `<checkout>#N` for one of another checkout, `<checkout>#N@cut` when its released, installed version is what is needed: never park to wait for another checkout), `factorium hold <checkout> --why …` / `--release`
+     for new work (`--blocked-by N` for each issue it waits for; `<checkout>#N` for one of another checkout, `<checkout>#N@cut` when its released, installed version is what is needed), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`. A cut of factorium itself needs
      nothing more: the daemon swaps to the installed binary on its own.

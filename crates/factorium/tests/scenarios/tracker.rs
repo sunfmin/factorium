@@ -70,7 +70,7 @@ async fn issues_are_numbered_per_checkout_from_one() {
         numbers(&w.app.issue_list(None, false).await.unwrap()),
         vec![("api".into(), 1), ("web".into(), 1), ("web".into(), 2), ("web".into(), 3)]
     );
-    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["status"], "parked");
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["status"], "waiting_for_human");
 }
 
 #[tokio::test]
@@ -136,13 +136,13 @@ async fn an_edit_shows_in_the_list_and_keeps_what_it_does_not_name() {
 }
 
 #[tokio::test]
-async fn a_parked_issue_is_parked_in_the_list_until_readied() {
+async fn an_issue_waiting_for_a_human_is_listed_so_until_readied() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
-    let p = w.app.issue_park("web", 1, "needs a decision").await.unwrap();
-    assert_eq!((p["status"].clone(), p["reason"].clone()), (json!("parked"), json!("needs a decision")));
-    assert_eq!(w.app.issue_list(None, false).await.unwrap()[0]["status"], "parked");
+    let p = w.app.issue_wait_for_human("web", 1, "needs a decision").await.unwrap();
+    assert_eq!((p["status"].clone(), p["reason"].clone()), (json!("waiting_for_human"), json!("needs a decision")));
+    assert_eq!(w.app.issue_list(None, false).await.unwrap()[0]["status"], "waiting_for_human");
     let r = w.app.issue_ready("web", 1).await.unwrap();
     assert_eq!((r["status"].clone(), r["reason"].clone()), (json!("ready"), json!(null)));
     assert_eq!(w.app.issue_list(None, false).await.unwrap()[0]["status"], "ready");
@@ -173,4 +173,66 @@ async fn what_one_run_records_the_next_run_reads() {
     let next = w.run();
     assert_eq!(numbers(&next.issue_list(None, false).await.unwrap()), vec![("web".into(), 1)]);
     assert_eq!(next.issue_add("web", "two", "", false, &[]).await.unwrap()["number"], 2);
+}
+
+/// A db written before the state was named for who resumes it is rewritten
+/// by `packaging/migrate-wait-for-human.sql`, and then reads as before.
+#[tokio::test]
+async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "one", "", true, &[]).await.unwrap();
+    w.app.issue_add("web", "two", "", false, &[]).await.unwrap();
+    w.app.issue_wait_for_human("web", 2, "needs a decision").await.unwrap();
+    w.app.issue_add("web", "three", "", false, &[]).await.unwrap();
+    let sql = |text: &str| {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("sqlite3")
+            .arg(&w.db)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+        let ran = child.wait_with_output().unwrap();
+        assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+        String::from_utf8(ran.stdout).unwrap()
+    };
+    // Rewritten as the code before #95 wrote it.
+    let old = r#"
+        UPDATE events SET kind = 'IssueParked' WHERE kind = 'IssueWaitingForHuman';
+        UPDATE events SET data = json_remove(json_set(data, '$.parked', json(CASE WHEN
+            json_extract(data, '$.waiting_for_human') THEN 'true' ELSE 'false' END)), '$.waiting_for_human')
+            WHERE kind = 'IssueOpened';
+        UPDATE events SET meta = json_set(meta, '$.command', 'issue.park')
+            WHERE json_extract(meta, '$.command') = 'issue.wait_for_human';
+        UPDATE "rows:tracker:issues" SET row = json_set(row, '$.status', 'parked')
+            WHERE json_extract(row, '$.status') = 'waiting_for_human';
+        UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');
+        UPDATE answers SET answer = replace(replace(answer, '"IssueWaitingForHuman"', '"IssueParked"'),
+            '"waiting_for_human":', '"parked":');"#;
+    sql(old);
+    let count = "SELECT (SELECT count(*) FROM events WHERE kind = 'IssueParked' OR data LIKE '%\"parked\":%' \
+                 OR meta LIKE '%issue.park\"%') + (SELECT count(*) FROM \"rows:tracker:issues\" WHERE status = \
+                 'parked') + (SELECT count(*) FROM answers WHERE answer LIKE '%parked%');";
+    assert_ne!(sql(count).trim(), "0", "the old names are in");
+    let migration = include_str!("../../../../packaging/migrate-wait-for-human.sql");
+    sql(migration);
+    sql(migration);
+    assert_eq!(sql(count).trim(), "0", "no old name is left");
+    let app = w.run();
+    for (n, status, reason) in [
+        (1, "waiting_for_human", json!(null)),
+        (2, "waiting_for_human", json!("needs a decision")),
+        (3, "ready", json!(null)),
+    ] {
+        let shown = app.issue_show("web", n).await.unwrap();
+        assert_eq!((shown["status"].clone(), shown["reason"].clone()), (json!(status), reason), "#{n}");
+    }
+    let listed = app.issue_list(None, false).await.unwrap();
+    let statuses: Vec<_> = listed.as_array().unwrap().iter().map(|i| i["status"].clone()).collect();
+    assert_eq!(statuses, [json!("waiting_for_human"), json!("waiting_for_human"), json!("ready")]);
+    assert_eq!(app.issue_ready("web", 2).await.unwrap()["status"], "ready");
 }

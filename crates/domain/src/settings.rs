@@ -28,6 +28,7 @@ pub enum Time {
     RoundBound,
     HeldFor,
     TickEvery,
+    HeavySettle,
 }
 
 /// Every setting there is.
@@ -68,7 +69,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 18] = [
+const ALL: [Setting; 19] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -87,6 +88,7 @@ const ALL: [Setting; 18] = [
     S::Time(T::RoundBound),
     S::Time(T::HeldFor),
     S::Time(T::TickEvery),
+    S::Time(T::HeavySettle),
 ];
 
 impl Setting {
@@ -123,6 +125,7 @@ impl Setting {
             S::Time(T::RoundBound) => ("round_bound", 3600, Seconds, "a watch round lasts at most this long"),
             S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),
             S::Time(T::TickEvery) => ("tick_every", 10, Seconds, "the daemon ticks this often"),
+            S::Time(T::HeavySettle) => ("heavy_settle", 30, Seconds, "a heavy command starts beside another only on a reading taken this long after the last start"),
         }
     }
 

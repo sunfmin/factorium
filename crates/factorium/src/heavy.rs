@@ -140,8 +140,12 @@ impl App {
             })
             .await?;
         }
-        let room = admission::room(&self.reading(), &self.settings().await?);
-        match self.submit::<StartHeavy>(Begin { id, room, read_at: self.now() }).await {
+        let settings = self.settings().await?;
+        // Stamped before the host is read: a start after it is not in it.
+        let read_at = self.now();
+        let room = admission::room(&self.reading(), &settings);
+        let settle = settings.ms(Time::HeavySettle);
+        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
             Err(r) => Err(r),
