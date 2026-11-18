@@ -440,3 +440,57 @@ async fn with_nothing_running_the_oldest_starts_at_once_however_recent_the_last_
         assert_eq!(ran.expect("starts at once").unwrap()["ok"], true, "{line}");
     }
 }
+
+/// Seen 2026-11-18 (factorium#106): two `worker exclusive` of binaries older
+/// than the one installed started 3 ms apart beside a running entry, under
+/// the rules they were built with, which lacked #102's one start per reading.
+#[tokio::test]
+async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
+    let w = World::new();
+    let (busy, old, new) = (w.dir.join("busy"), w.dir.join("old"), w.dir.join("new"));
+    let lines = [w.holds(&busy), w.holds(&old), w.holds(&new)];
+    // No room beside what runs: both wait.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let (b, o, n) = (w.run(), w.run().under_rules("1.0.0"), w.run().under_rules("1.0.1"));
+    let runs = async {
+        let held = b.worker_exclusive(None, &w.dir, &lines[0]);
+        let waits = async {
+            until_file(&busy.join("started")).await;
+            let older = async {
+                let r = o.worker_exclusive(None, &w.dir, &lines[1]).await;
+                std::fs::write(w.dir.join("old-asked"), "").unwrap();
+                r
+            };
+            let newer = async {
+                // Queued after the old one, so it waits behind it.
+                while heavy(&w).await.len() < 2 {
+                    tokio::task::yield_now().await;
+                }
+                n.worker_exclusive(None, &w.dir, &lines[2]).await
+            };
+            tokio::join!(older, newer)
+        };
+        tokio::join!(held, waits)
+    };
+    let looks = async {
+        while heavy(&w).await.len() < 3 {
+            tokio::task::yield_now().await;
+        }
+        // The upgrade: a settled reading with room, for one start.
+        w.clock.advance(30_000);
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        until_file(&new.join("started")).await;
+        until_file(&w.dir.join("old-asked")).await;
+        assert!(!old.join("started").exists(), "the old waiter never starts");
+        for d in [&new, &busy] {
+            std::fs::write(d.join("release"), "").unwrap();
+        }
+    };
+    let ((held, (older, newer)), ()) =
+        tokio::time::timeout(STUCK, async { tokio::join!(runs, looks) }).await.expect("the newer one runs");
+    assert_eq!(held.unwrap()["ok"], true);
+    assert_eq!(newer.unwrap()["ok"], true);
+    let refused = older.expect_err("refused under replaced rules");
+    assert_eq!(refused.code, "stale", "{refused}");
+    assert!(heavy(&w).await.is_empty(), "the refused waiter left the queue");
+}

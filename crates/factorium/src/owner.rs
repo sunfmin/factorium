@@ -67,6 +67,7 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
         .command::<heavy::EndHeavy>()
+        .command::<heavy::NoteRules>()
         .aggregate::<daemon::Daemons>()
         .command::<daemon::StartDaemon>()
         .command::<daemon::NoteTick>()

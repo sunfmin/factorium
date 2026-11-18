@@ -51,6 +51,10 @@ const TAIL_LINES: usize = 60;
 /// Runs `line` with `sh -c` in `dir` at `priority`, with `env` added,
 /// ending it after `limit`. `stop` is asked every 100ms whether to end it
 /// early.
+/// The heavy entry a waiter that execs the installed binary keeps: its own,
+/// never a step's.
+pub const PLACE: &str = "FACTORIUM_HEAVY_PLACE";
+
 pub fn run(
     dir: &Path,
     line: &str,
@@ -75,6 +79,7 @@ pub fn run(
     };
     cmd.arg("-c").arg(format!("exec 2>&1; {line}")).current_dir(dir).stdin(Stdio::null());
     cmd.stdout(file).process_group(0);
+    cmd.env_remove(PLACE);
     for (k, v) in env {
         cmd.env(k, v);
     }
