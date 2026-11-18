@@ -221,29 +221,30 @@ impl App {
         };
         let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
         let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
-        if let Some(ran) = rans.last().filter(|r| !r.ok) {
-            let why = format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail);
-            self.submit::<line::RecordCut>(record(&base, Some(why.clone()))).await?;
-            return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": why })));
-        }
-        let tagged = here.sha("HEAD").map_err(fail("git"))?;
-        if let Err(e) = here.tag_pushed(&version, &tagged) {
-            self.submit::<line::RecordCut>(record(&base, Some(format!("tagging failed: {e}")))).await?;
-            return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
-        }
-        let mut installed = None;
-        if let Some(formula) = &cut.formula {
+        // Each step after the queue, in turn; the first that fails is why the
+        // cut failed, and every way it fails is recorded the one way.
+        let done = async {
+            if let Some(ran) = rans.last().filter(|r| !r.ok) {
+                return Err(format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail));
+            }
+            let tagged = here.sha("HEAD").and_then(|t| here.tag_pushed(&version, &t).map(|_| t));
+            let tagged = tagged.map_err(|e| format!("tagging failed: {e}"))?;
+            let Some(formula) = &cut.formula else { return Ok((tagged, None)) };
             // The daemon's own formula: it sees the new link once the tick ends.
             // It waits, up to 90s, for a tap pushed seconds ago: off the runtime's threads.
             let (host, f, v) = (self.host.clone(), formula.clone(), version.clone());
             let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
-            if let Err(e) = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}"))) {
-                self.submit::<line::RecordCut>(record(&base, Some(format!("installing {formula} failed: {e}"))))
-                    .await?;
-                return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
+            let up = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}")));
+            up.map_err(|e| format!("installing {formula} failed: {e}"))?;
+            Ok((tagged, Some(formula.clone())))
+        };
+        let (tagged, installed) = match done.await {
+            Ok(done) => done,
+            Err(why) => {
+                self.submit::<line::RecordCut>(record(&base, Some(why.clone()))).await?;
+                return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": why })));
             }
-            installed = Some(formula.clone());
-        }
+        };
         self.submit::<line::RecordCut>(record(&tagged, None)).await?;
         Ok(Ok(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed })))
     }
