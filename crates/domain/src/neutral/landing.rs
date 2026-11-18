@@ -160,7 +160,7 @@ impl Owed {
 }
 
 impl Line {
-    /// Whether issue `number` landed and is in no cut yet.
+    /// Whether the landing numbered `number` is in no cut yet.
     pub fn awaits_cut(&self, number: u64) -> bool {
         self.unpromoted.iter().chain(&self.uncut).any(|l| l.number == number)
     }
