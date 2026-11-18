@@ -3,6 +3,7 @@
 //! daemon, which asks again next tick), run its steps, end it if it holds
 //! others up past the hold bound, and take it off the queue.
 
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,9 +11,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
-use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
+use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, StartHeavy, queue_id};
 use factorium_domain::settings::Time;
-use factorium_host::{Ran, run};
+use factorium_host::{Proc, Ran, run};
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal};
@@ -49,11 +50,19 @@ impl App {
     /// The host's reading as the rules see it: the workers' share of the CPU
     /// added from their processes.
     pub(crate) fn reading(&self) -> Reading {
+        self.reading_outside(&self.host.processes(), &BTreeSet::new())
+    }
+
+    /// [`App::reading`] with the CPU of the processes in `granted` left out:
+    /// load outside the heavy slots, which the queue does not bound.
+    pub(crate) fn reading_outside(&self, procs: &[Proc], granted: &BTreeSet<u32>) -> Reading {
         let r = self.host.reading();
         let cores = self.cores() as f64;
-        let workers: f64 = self.host.processes().iter().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
+        let outside = || procs.iter().filter(|p| !granted.contains(&p.pid));
+        let workers: f64 = outside().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
+        let slots: f64 = procs.iter().filter(|p| granted.contains(&p.pid)).map(|p| p.cpu).sum();
         Reading {
-            cpu_busy: r.cpu_busy,
+            cpu_busy: r.cpu_busy.saturating_sub((slots / cores).round() as u64),
             memory_free: r.memory_free,
             disk_free: r.disk_free,
             workers_cpu: (workers / cores).round() as u64,
@@ -170,4 +179,17 @@ impl App {
         }
         Ok(rans)
     }
+}
+
+/// The processes the heavy queue granted: the pid of each started entry of
+/// `entries`, and every process under it.
+pub(crate) fn granted<'a>(procs: &[Proc], entries: impl IntoIterator<Item = &'a Entry>) -> BTreeSet<u32> {
+    let mut roots: Vec<u32> = entries.into_iter().filter(|e| e.started_at.is_some()).map(|e| e.pid).collect();
+    let mut all = BTreeSet::new();
+    while let Some(pid) = roots.pop() {
+        if all.insert(pid) {
+            roots.extend(procs.iter().filter(|p| p.ppid == pid).map(|p| p.pid));
+        }
+    }
+    all
 }
