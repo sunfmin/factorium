@@ -93,6 +93,8 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     let w = World::new();
     ready(&w).await;
     w.tick().await;
+    // One worker: admission would start the other issue beside its slot's load.
+    w.app.issue_park("web", 2, "one worker here").await.unwrap();
     let wk = worker(&w.app).await;
     let cores = std::thread::available_parallelism().unwrap().get() as f64;
     let tag = Some(wk["worker"].as_str().unwrap().to_string());
