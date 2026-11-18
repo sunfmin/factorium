@@ -57,7 +57,7 @@ formula = "web"
 
 ## Develop
 
-`./gate.sh`: fmt, clippy, the per-crate line budgets, and the tests (60s cap).
+`./gate.sh`: fmt, clippy, the per-crate line budgets, and the tests (a CPU-time cap, SPEC.md §6).
 
 `./slow.sh`: the slow gate, before a promotion: `./gate.sh`, then
 `slimfit check` against `.slimfit/baseline.json` (no failures, no more
