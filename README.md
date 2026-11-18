@@ -76,14 +76,10 @@ Any change that lowers uncovered lines or test time ratchets the same
 way. A bound is raised only by `slimfit ratchet --loosen <bound> --reason
 "<why>"`.
 
-`./mutants.sh`: mutation testing (SPEC.md §6), too slow for the gate. Run
-it after changing a rule or a scenario, before the change lands; pass
-`-f <file>` to mutate only what you touched. Each mutant is caught or
-missed, with its seconds; a missed one gets a scenario that catches it, or,
-if it cannot be reached from the outermost layer, a line in
-`.cargo/mutants.toml` saying why. It installs cargo-mutants 27.1.0 into
-`~/.cargo/bin` if needed, and leaves the tree as it found it. In a worker
-each shard of at most 40 mutants of one file is its own heavy command
-(`worker exclusive --background`, so gates get the CPU first), a few
-minutes long; the whole tree takes hours, so run it file by file
-(`-f`), never inside one `factorium worker exclusive`.
+Mutation testing (SPEC.md §6) is `slimfit check --mutants`, on a change
+only: it mutates what the change touched, and is too slow for the gate.
+In a worker run it through `factorium worker exclusive --background`, so
+gates get the CPU first. A missed mutant gets a scenario that catches it,
+or, if it cannot be reached from the outermost layer, a line in
+`.cargo/mutants.toml` saying why. Nothing mutates the whole workspace:
+that run took hours on this host.

@@ -1,8 +1,9 @@
-# What ./mutants.sh skips, and why: each mutant here cannot be reached from
-# the outermost layer (SPEC.md §6), so no scenario or binary test can catch
-# it. A pattern names the mutant by what it does; where that names a
-# caught one too, by its line as well, so a moved line shows up as missed
-# again. Every other setting is in ./mutants.sh.
+# What cargo-mutants skips, and why; slimfit's cargo-mutants runs
+# (`slimfit check --mutants`, on a change) read this file. Each mutant
+# here cannot be reached from the outermost layer (SPEC.md §6), so no
+# scenario or binary test can catch it. A pattern names the mutant by what
+# it does; where that names a caught one too, by its line as well, so a
+# moved line shows up as missed again.
 exclude_re = [
   # Equivalent: a stream is named by its aggregate and its id, and these
   # aggregates have one stream each, so any id names it.
