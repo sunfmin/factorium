@@ -79,3 +79,40 @@ fn a_codex_session_handed_the_brief_as_its_goal_is_the_worktree_s() {
     assert_eq!(codex.turn(&home, "/worktree", "/briefs/web-1-1"), None, "a brief whose path begins the goal's");
     let _ = std::fs::remove_dir_all(&kept);
 }
+
+/// The one session file under `dir`, which a stand-in wrote.
+fn only_file(dir: &std::path::Path) -> std::path::PathBuf {
+    let mut found = Vec::new();
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() { dirs.push(path) } else { found.push(path) }
+        }
+    }
+    assert_eq!(found.len(), 1, "{found:?}");
+    found.remove(0)
+}
+
+/// A Codex turn the owner interrupts ends where Codex wrote it aborted
+/// (1_800_000_000 is 2027-01-15T08:00:00Z).
+#[test]
+fn a_codex_turn_aborted_is_a_turn_ended() {
+    let codex = Harness::read("codex").unwrap();
+    let kept = scratch("codex-aborted");
+    let home = codex.home(&kept, None, &kept);
+    codex.write_session(&home, "/worktree", "brief", true, 1_800_000_000).unwrap();
+    assert_eq!(codex.turn(&home, "/worktree", "brief"), Some(Turn::Open { since: 1_800_000_000 }));
+
+    let aborted = serde_json::json!({"timestamp": "2027-01-15T08:00:05Z", "type": "event_msg",
+                                     "payload": {"type": "turn_aborted", "reason": "interrupted"}});
+    let file = only_file(&kept);
+    let session = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, format!("{session}{aborted}\n")).unwrap();
+
+    assert_eq!(
+        codex.turn(&home, "/worktree", "brief"),
+        Some(Turn::Closed { since: 1_800_000_005, started: Some(1_800_000_000) })
+    );
+    let _ = std::fs::remove_dir_all(&kept);
+}
