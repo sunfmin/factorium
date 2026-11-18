@@ -6,7 +6,7 @@
 //! own; it also always loads the host user's home skills, and of two skills
 //! of one name it shows both, so a shadowed host skill is turned off.
 
-use serde::{Deserialize, Deserializer};
+use serde::Deserializer;
 use serde_json::json;
 
 use super::{Dialog, Kind, Link, Login, Stop};
@@ -51,10 +51,6 @@ fn account_quota(output: &[String]) -> Option<String> {
             .unwrap_or_else(|| output.join("\n")),
     )
 }
-
-const KEY: &str = "codex";
-/// What a bare program is started with: no approval prompts, no sandbox.
-const STOCK_ARGUMENTS: &str = "--dangerously-bypass-approvals-and-sandbox";
 
 const ADD_DIR: &str = "--add-dir";
 /// One configuration key, `key=value` with the value in TOML.
@@ -115,30 +111,16 @@ const REPO_S_OWN: &str = "The repo's own rules";
 const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/codex-hook.sh\"; if [ -x \"$hook\" ]; \
      then /bin/sh \"$hook\"; else cat; fi >/dev/null 2>&1; exit 0";
 
-/// The shell tool. `apply_patch` is handed a `command` too, and is another.
-const SHELL_TOOL: &str = "Bash";
-const REFUSED: u8 = 2;
-
 /// `text` as a TOML string, quotes and all.
 fn toml_text(text: &str) -> String {
-    let mut toml = String::from("\"");
-    for c in text.chars() {
-        match c {
-            '"' | '\\' => {
-                toml.push('\\');
-                toml.push(c);
-            }
-            c if c.is_control() => toml.push_str(&format!("\\u{:04X}", u32::from(c))),
-            c => toml.push(c),
-        }
-    }
-    toml.push('"');
-    toml
+    toml::Value::from(text).to_string()
 }
 
-/// The key that has Codex load what `dir` holds of its own.
+/// The key that has Codex load what `dir` holds of its own: `dir` as a
+/// key, quoted as TOML quotes one.
 fn trusted(dir: &str) -> String {
-    format!("{DIRECTORIES}={{{}={{trust_level=\"trusted\"}}}}", toml_text(dir))
+    let trust = toml::Table::from_iter([("trust_level".to_string(), toml::Value::from("trusted"))]);
+    format!("{DIRECTORIES}={}", toml::Value::Table(toml::Table::from_iter([(dir.to_string(), trust.into())])))
 }
 
 /// The guard before every tool call, and `report` at every state change, as
@@ -173,109 +155,34 @@ fn told(file: &str, text: &str) -> String {
     format!("{TOLD}={}", toml_text(&format!("{TOLD_OPENS}{repo}")))
 }
 
-fn environment(line: Line, start: &Start) -> Line {
-    line.fixed(" ").fixed(USER_DIR).fixed("=").word(start.home.dir())
-}
-
 /// Sets a session's goal and starts its first turn (codex-cli 0.166.0).
 /// While it is active Codex begins another turn each time one ends short.
 const GOAL: &str = "/goal ";
 
-/// The line that hands a session `brief`: set as its goal.
-fn brief_line(brief: &str) -> String {
-    format!("{GOAL}{}", crate::brief::goal_objective(brief))
-}
-
 /// Answers both questions Codex asks before loading a directory's own
 /// configuration.
 fn trust(line: Line, dir: &str) -> Line {
-    line.fixed(" ").fixed(HOOKS_REVIEWED).fixed(" ").fixed(CONFIG).fixed(" ").word(&trusted(dir))
+    line.arg(HOOKS_REVIEWED).flag(CONFIG, &trusted(dir))
 }
 
 /// No memories carried between sessions, no bundled skills.
 fn isolated(line: Line) -> Line {
-    line.fixed(" ")
-        .fixed(CONFIG)
-        .fixed(" ")
-        .fixed(NO_MEMORY)
-        .fixed(" ")
-        .fixed(CONFIG)
-        .fixed(" ")
-        .fixed(NO_CARRIED_SKILLS)
-}
-
-/// `line` with the worktree added, hooks reviewed and the start directory
-/// trusted, its rules and none above them, the told rules, the guard and
-/// the report, isolation, shadowed skills off, the host's model settings,
-/// and the kit's model.
-fn added(line: Line, start: &Start) -> Line {
-    let line = line.fixed(" ").fixed(ADD_DIR).fixed(" ").word(start.worktree);
-    let line = trust(line, start.dir)
-        .fixed(" ")
-        .fixed(CONFIG)
-        .fixed(" ")
-        .word(&rules_files())
-        .fixed(" ")
-        .fixed(CONFIG)
-        .fixed(" ")
-        .word(NO_ROOT);
-    let repo = std::path::Path::new(start.worktree).join(RULES);
-    let line = match std::fs::read_to_string(&repo).ok().map(|text| told(&repo.to_string_lossy(), &text)) {
-        Some(told) => line.fixed(" ").fixed(CONFIG).fixed(" ").word(&told),
-        None => line,
-    };
-    let mut line = isolated(line.fixed(" ").fixed(CONFIG).fixed(" ").word(&added_hooks(&start.hook_asked(Harness::Codex), REPORT)));
-    for key in host_model(start) {
-        line = line.fixed(" ").fixed(CONFIG).fixed(" ").word(&key);
-    }
-    match start.model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    }
+    line.arg(CONFIG).arg(NO_MEMORY).arg(CONFIG).arg(NO_CARRIED_SKILLS)
 }
 
 /// A session file is under `SESSIONS`, named to end with its thread id and
 /// `SESSION_ENDS`.
 const SESSIONS: &str = "sessions";
 
-/// One tool call, as Codex describes it to a hook before making it.
-#[derive(Deserialize)]
-struct Described {
-    tool_name: String,
-    #[serde(default)]
-    tool_input: Input,
-}
-
-#[derive(Default, Deserialize)]
-struct Input {
-    /// The shell line, or of `apply_patch` the patch.
-    #[serde(default)]
-    command: Option<String>,
-}
-
-/// The tool call `described` to a hook, as the guard judges one.
-fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-    let described = Described::deserialize(described)?;
-    Ok(match described.tool_input.command {
-        Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
-        _ => Call::Other,
-    })
-}
-
-/// Every JSONL file under [`SESSIONS`]; each file says its worktree.
-fn layout() -> Layout {
-    Layout::Tree { dir: SESSIONS.into(), extension: "jsonl" }
-}
-
 /// The turn `text` records for `cwd`, or for the session handed `brief`
 /// when it started elsewhere. A header is required.
-fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
+fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
     let mut saw_header = false;
     let mut notes = Vec::new();
     for value in json_lines(text) {
         if value["type"] == "session_meta" {
             let recorded = value["payload"]["cwd"].as_str().unwrap_or("");
-            if !session::same_cwd(recorded, cwd) && !brief.is_some_and(|brief| names_brief(text, brief)) {
+            if !session::same_cwd(recorded, cwd) && !names_brief(text, brief) {
                 return None;
             }
             saw_header = true;
@@ -287,7 +194,7 @@ fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
     if !saw_header {
         return None;
     }
-    session::turn_of(&notes)
+    crate::turn::latest(&notes)
 }
 
 /// Whether the first brief pointer in the opening user messages (after any
@@ -334,37 +241,21 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-/// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
-    let iso = session::format_iso(at);
-    let meta = json!({"cwd": cwd, "id": "factorium"});
-    let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
-    let pointer = json!({"type": "input_text", "text": crate::brief::brief_pointer(brief)});
-    let said = json!({"type": "message", "role": "user", "content": [pointer]});
-    body += &format!("{}\n", json!({"timestamp": iso, "type": "response_item", "payload": said}));
-    let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
-    body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": started}));
-    if !open {
-        let done = json!({"type": "task_complete", "completed_at": at, "turn_id": "factorium"});
-        body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": done}));
-    }
-    body
-}
-
 /// Codex, as a harness: what its module says of it.
 pub(super) struct Codex;
 
 impl Kind for Codex {
-    const KEY: &'static str = KEY;
+    const KEY: &'static str = "codex";
     const LOGIN: Login = Login::Machine { user_dir: USER_DIR };
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
-    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    /// No approval prompts, no sandbox.
+    const STOCK_ARGUMENTS: &'static str = "--dangerously-bypass-approvals-and-sandbox";
     const ASKS_FIRST: Option<&'static str> = None;
     const SHOWS_UP: Option<&'static str> = None;
     const ASKS_MIDWAY: &'static [Dialog] = &[];
     const ENVIRONMENT: &'static [&'static str] = &[];
-    const REFUSED: u8 = REFUSED;
+    const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
 
@@ -383,27 +274,43 @@ impl Kind for Codex {
     }
 
     fn environment(line: Line, start: &Start) -> Line {
-        environment(line, start)
+        line.set(USER_DIR, start.home.dir())
     }
 
+    /// `line` with the worktree added, hooks reviewed and the start
+    /// directory trusted, its rules and none above them, the told rules, the
+    /// guard and the report, isolation, the host's model settings, and the
+    /// kit's model.
     fn added(line: Line, start: &Start) -> Line {
-        added(line, start)
+        let line = trust(line.flag(ADD_DIR, start.worktree), start.dir);
+        let line = line.flag(CONFIG, &rules_files()).flag(CONFIG, NO_ROOT);
+        let repo = std::path::Path::new(start.worktree).join(RULES);
+        let told = std::fs::read_to_string(&repo).ok().map(|text| told(&repo.to_string_lossy(), &text));
+        let line = line.flag_if(CONFIG, told.as_deref());
+        let mut line = isolated(line.flag(CONFIG, &added_hooks(&start.hook_asked(Harness::Codex), REPORT)));
+        for key in host_model(start) {
+            line = line.flag(CONFIG, &key);
+        }
+        line.flag_if(MODEL, start.model)
     }
 
+    /// The brief set as the session's goal.
     fn briefed(line: String, brief: &str) -> (String, Option<String>) {
-        (line, Some(brief_line(brief)))
+        (line, Some(format!("{GOAL}{}", crate::brief::goal_objective(brief))))
     }
 
+    /// The shell tool. `apply_patch` is handed a `command` too, and is another.
     fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-        call(described)
+        super::tool_call(described, "Bash")
     }
 
     fn stopped(screen: &[String]) -> Option<Stop> {
         account_quota(screen).map(Stop::Quota).or_else(|| task_refusal(screen).or_else(|| capacity_stop(screen)).map(Stop::Refused))
     }
 
+    /// Every JSONL file under [`SESSIONS`]; each file says its worktree.
     fn layout(_cwd: &str) -> Layout {
-        layout()
+        Layout::Tree { dir: SESSIONS.into(), extension: "jsonl" }
     }
 
     fn could_record(cwd: &str, text: &str, brief: &str) -> bool {
@@ -411,11 +318,24 @@ impl Kind for Codex {
     }
 
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, Some(brief))
+        recorded_turn(cwd, text, brief)
     }
 
+    /// The session a stand-in writes for this turn.
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, brief, open, at)
+        let iso = session::format_iso(at);
+        let meta = json!({"cwd": cwd, "id": "factorium"});
+        let mut body = format!("{}\n", json!({"timestamp": iso, "type": "session_meta", "payload": meta}));
+        let pointer = json!({"type": "input_text", "text": crate::brief::brief_pointer(brief)});
+        let said = json!({"type": "message", "role": "user", "content": [pointer]});
+        body += &format!("{}\n", json!({"timestamp": iso, "type": "response_item", "payload": said}));
+        let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
+        body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": started}));
+        if !open {
+            let done = json!({"type": "task_complete", "completed_at": at, "turn_id": "factorium"});
+            body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": done}));
+        }
+        body
     }
 
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
