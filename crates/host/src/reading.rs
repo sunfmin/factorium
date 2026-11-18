@@ -32,7 +32,8 @@ pub fn read(cpu: &mut Cpu, data: &Path) -> Reading {
 impl Cpu {
     fn busy(&mut self) -> u64 {
         let now = Instant::now();
-        let Some((busy, total)) = ticks() else { return load_share() };
+        // Unread ticks (never seen) read as idle, as unread memory reads as free.
+        let (busy, total) = ticks().unwrap_or_default();
         self.samples.push_back((now, busy, total));
         while self.samples.len() > 2 && now.duration_since(self.samples[1].0).as_secs() >= 60 {
             self.samples.pop_front();
@@ -76,14 +77,6 @@ fn ticks() -> Option<(u64, u64)> {
     let idle = f.get(3)? + f.get(4).copied().unwrap_or(0);
     let total: u64 = f.iter().take(8).sum();
     Some((total.saturating_sub(idle), total))
-}
-
-/// The one-minute load over the cores, as a percent: when ticks are not read.
-fn load_share() -> u64 {
-    let said = crate::shell::output("sysctl", &["-n", "vm.loadavg"]).unwrap_or_default();
-    let load: f64 = said.split_whitespace().find(|w| *w != "{").and_then(|w| w.parse().ok()).unwrap_or(0.0);
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
-    ((load / cores) * 100.0).round().clamp(0.0, 100.0) as u64
 }
 
 fn memory_free() -> Option<u64> {
