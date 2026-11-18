@@ -389,13 +389,15 @@ async fn started(w: &World) -> Vec<String> {
 async fn beside_what_runs_asks_in_one_second_start_one_per_settled_reading() {
     let w = World::new();
     running_on(&w).await;
+    let settle = 30_000;
+    // The running one started a settle interval ago; the host has room.
+    w.clock.advance(settle);
     w.host.reading.lock().unwrap().cpu_busy = 10;
     let dirs: Vec<_> = (0..3).map(|k| w.dir.join(format!("ask{k}"))).collect();
     let lines: Vec<_> = dirs.iter().map(|d| w.holds(d)).collect();
     let clis: Vec<_> = (0..3).map(|_| w.run()).collect();
     let ask = |k: usize| clis[k].worker_exclusive(None, &w.dir, &lines[k]);
     let asks = async { tokio::join!(ask(0), ask(1), ask(2)) };
-    let settle = 30_000;
     let looks = async {
         // Each look waits until `n` of the three started, then for a few more
         // asks (they ask every 500ms), and answers how many started.
