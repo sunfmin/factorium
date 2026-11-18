@@ -448,3 +448,35 @@ fn landing_or_ending_a_worker_that_is_gone_is_refused_by_the_command_itself() {
         assert_eq!(refused(EndWorker::decide(state, &why, &by, now)), code);
     }
 }
+
+#[tokio::test]
+async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them() {
+    let w = World::new();
+    let web = w.checkout("web").await;
+    w.kit().await;
+    // Both gates describe the tip by its tags once `DESCRIBE` exists.
+    let describe = "test ! -e DESCRIBE || git describe --tags";
+    let toml = format!("[gate]\nfast = \"{describe}\"\nslow = \"{describe}\"\n");
+    let clone = w.dir.join("edit");
+    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
+    w.git(&clone, &["fetch", "-q"]).unwrap();
+    w.git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
+    w.commit(&clone, "factorium.toml", &toml);
+    w.git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
+    // #1 lands and is promoted while origin has no tag: the clones are made.
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let _ = land(&w, 1, "a").await;
+    let promotion = w.data().clone_of(LineClone::Promotion, "web");
+    assert!(promotion.join(".git").is_dir(), "the promotion clone is made");
+    assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "");
+    // Origin gets a tag; #2's gates describe the tip by it.
+    w.git(&clone, &["tag", "-a", "v0.0.9", "-m", "v0.0.9", "HEAD"]).unwrap();
+    w.git(&clone, &["push", "-q", "origin", "v0.0.9"]).unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let landed = land(&w, 2, "DESCRIBE").await;
+    assert_eq!(w.remote_tip("web", "main"), landed, "the slow gate is green on proving");
+    assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "v0.0.9", "the promotion clone has origin's tags");
+}

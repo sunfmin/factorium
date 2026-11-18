@@ -106,9 +106,15 @@ impl Git {
         self.run(&["show", &format!("{rev}:{file}")]).ok()
     }
 
-    /// Fetches `branch` from origin; answers its tip there.
+    /// Fetches `branch` from origin, and origin's tags with it; answers its
+    /// tip there. The tags come along so that what gates in a clone of this
+    /// repo sees the refs a worker's worktree sees (factorium#109). A tag
+    /// here that origin moved is left as it is: the branch is still fetched.
     pub fn fetch(&self, branch: &str) -> Result<String, String> {
-        self.run(&["fetch", "--quiet", "origin", &format!("+refs/heads/{branch}:refs/remotes/origin/{branch}")])?;
+        let refspec = format!("+refs/heads/{branch}:refs/remotes/origin/{branch}");
+        if self.run(&["fetch", "--quiet", "--tags", "origin", &refspec]).is_err() {
+            self.run(&["fetch", "--quiet", "origin", &refspec])?;
+        }
         self.sha(&format!("refs/remotes/origin/{branch}"))
     }
 
@@ -126,23 +132,25 @@ impl Git {
 
     /// A work dir of this repo at `path`, detached on `rev`: a clone sharing
     /// this repo's objects, whose `origin` is this one's origin, keeping its
-    /// ignored files (builds) from before. Neither git nor Orca counts it
-    /// among this repo's worktrees; one made as a worktree before is made
-    /// again as a clone.
+    /// ignored files (builds) from before, and this repo's tags as they are
+    /// now: a gate there sees the refs a worktree of this repo sees
+    /// (factorium#109). Neither git nor Orca counts it among this repo's
+    /// worktrees; one made as a worktree before is made again as a clone.
     pub fn fresh(&self, path: &Path, rev: &str) -> Result<Git, String> {
         let here = self.at(path);
         if path.join(".git").is_file() {
             self.worktree_remove(path)?;
         }
+        let from = self.dir.to_string_lossy();
         if path.join(".git").is_dir() {
+            here.run(&["fetch", "--quiet", "--force", "--prune", &from, "+refs/tags/*:refs/tags/*"])?;
             here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
             here.run(&["clean", "-fdq"])?;
             return Ok(here);
         }
         std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
         let origin = self.run(&["remote", "get-url", "origin"])?;
-        let (from, to) = (self.dir.to_string_lossy(), path.to_string_lossy());
-        self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &to])?;
+        self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &path.to_string_lossy()])?;
         here.run(&["remote", "set-url", "origin", &origin])?;
         here.run(&["checkout", "--quiet", "--detach", rev])?;
         Ok(here)
