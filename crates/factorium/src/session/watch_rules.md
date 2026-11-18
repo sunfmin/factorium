@@ -27,7 +27,7 @@ how to fix it. Then:
      (`start-over <checkout> <n> --why "…"` on a parked issue whose kept
      worktree went bad: the next start begins from proving, the old branch
      stays as `…-abandoned`), `factorium issue add`
-     for new work (`--blocked-by N` for each issue it waits for), `factorium hold <checkout> --why …` / `--release`
+     for new work (`--blocked-by N` for each issue it waits for; `<checkout>#N` for one of another checkout, `<checkout>#N@cut` when its released, installed version is what is needed: never park to wait for another checkout), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`. A cut of factorium itself needs
      nothing more: the daemon swaps to the installed binary on its own.

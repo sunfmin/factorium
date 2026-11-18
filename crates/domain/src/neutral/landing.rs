@@ -17,8 +17,8 @@ pub struct Landing {
 pub struct Line {
     /// Landed, oldest first, and not yet promoted.
     pub unpromoted: Vec<Landing>,
-    /// Promoted, and not yet in a cut: when each landed.
-    pub uncut: Vec<i64>,
+    /// Promoted, and not yet in a cut.
+    pub uncut: Vec<Landing>,
     pub promoted: Option<String>,
     /// The proving tip whose slow gate went red, while it is the tip.
     pub red: Option<(String, String)>,
@@ -51,7 +51,7 @@ impl Line {
             LineEvent::Promoted { tip, .. } => {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
-                s.uncut.extend(s.unpromoted.drain(..n).map(|l| l.at));
+                s.uncut.extend(s.unpromoted.drain(..n));
                 (s.promoted, s.red) = (Some(tip), None);
             }
             LineEvent::CutMade { version, .. } => {
@@ -160,6 +160,11 @@ impl Owed {
 }
 
 impl Line {
+    /// Whether the landing numbered `number` is in no cut yet.
+    pub fn awaits_cut(&self, number: u64) -> bool {
+        self.unpromoted.iter().chain(&self.uncut).any(|l| l.number == number)
+    }
+
     /// What the line owes of `mv` at `now`: a promotion of its oldest
     /// unpromoted landing, a cut of its oldest uncut promotion. A landing
     /// is asked for, not owed.
@@ -167,7 +172,7 @@ impl Line {
         let (since, bound) = match mv {
             Move::Land => return None,
             Move::Promote => (self.unpromoted.first()?.at, bounds.promotion),
-            Move::Cut => (*self.uncut.first()?, bounds.cut),
+            Move::Cut => (self.uncut.first()?.at, bounds.cut),
         };
         let due_at = since + (bound - bounds.lead).max(0);
         Some(Owed { since, bound, due_at, now })

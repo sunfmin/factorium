@@ -25,6 +25,8 @@ pub struct Issue {
     pub status: Status,
     /// The numbers of the issues of its checkout it waits for.
     pub blocked_by: Vec<u64>,
+    /// The issues of other checkouts it waits for.
+    pub across: Vec<Across>,
     /// Why it is parked or closed.
     pub reason: Option<String>,
     /// The worker that holds it now.
@@ -65,6 +67,74 @@ pub struct Note {
     pub at: Option<i64>,
 }
 
+/// An issue of another checkout an issue waits for. It is met once that
+/// issue is closed; with `cut`, once a cut of that checkout holds its
+/// landing too, installed where the repo's cut names a formula (a tool used
+/// from another repo is needed as the installed release).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Across {
+    pub checkout: String,
+    pub number: u64,
+    #[serde(default)]
+    pub cut: bool,
+}
+
+impl Across {
+    fn same(&self, other: &Across) -> bool {
+        (self.checkout.as_str(), self.number) == (other.checkout.as_str(), other.number)
+    }
+}
+
+impl std::fmt::Display for Across {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}#{}{}", self.checkout, self.number, if self.cut { "@cut" } else { "" })
+    }
+}
+
+/// What an issue waits for, as the CLI names it: `N`, an issue of its own
+/// checkout; `<checkout>#N`, one of another, met when it is closed;
+/// `<checkout>#N@cut`, met once a cut holds its landing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Blocker {
+    Here(u64),
+    Across(Across),
+}
+
+impl From<u64> for Blocker {
+    fn from(n: u64) -> Self {
+        Blocker::Here(n)
+    }
+}
+
+impl std::str::FromStr for Blocker {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        let bad = || format!("`{s}`: name an issue as N, <checkout>#N or <checkout>#N@cut");
+        let Some((checkout, rest)) = s.split_once('#') else { return s.parse().map(Blocker::Here).map_err(|_| bad()) };
+        let (number, cut) = match rest.split_once('@') {
+            Some((n, "cut")) => (n, true),
+            Some(_) => return Err(bad()),
+            None => (rest, false),
+        };
+        let number = number.parse().map_err(|_| bad())?;
+        if checkout.is_empty() {
+            return Err(bad());
+        }
+        Ok(Blocker::Across(Across { checkout: checkout.into(), number, cut }))
+    }
+}
+
+impl Blocker {
+    /// As an issue of `checkout` waits for it: one of its own checkout
+    /// named in full is one of its own, unless it waits for a cut.
+    pub fn of(self, checkout: &str) -> Blocker {
+        match self {
+            Blocker::Across(a) if a.checkout == checkout && !a.cut => Blocker::Here(a.number),
+            b => b,
+        }
+    }
+}
+
 impl Issue {
     pub fn opened(&self) -> bool {
         self.number > 0
@@ -78,6 +148,8 @@ pub enum IssueEvent {
     IssueEdited { title: String, body: String },
     BlockedBy { number: u64 },
     Unblocked { number: u64 },
+    BlockedAcross(Across),
+    UnblockedAcross { checkout: String, number: u64 },
     IssueParked { reason: String },
     IssueReadied,
     IssueClosed { reason: String },
@@ -133,6 +205,10 @@ impl Aggregate for Issues {
             IssueEvent::IssueEdited { title, body } => (s.title, s.body) = (title, body),
             IssueEvent::BlockedBy { number } => s.blocked_by.push(number),
             IssueEvent::Unblocked { number } => s.blocked_by.retain(|n| *n != number),
+            IssueEvent::BlockedAcross(a) => s.across.push(a),
+            IssueEvent::UnblockedAcross { checkout, number } => {
+                s.across.retain(|a| (a.checkout.as_str(), a.number) != (checkout.as_str(), number))
+            }
             IssueEvent::IssueTaken { worker } => {
                 s.worker = Some(worker);
                 s.attempts += 1;
@@ -154,9 +230,9 @@ impl Aggregate for Issues {
         vec![("IssueCommented", authored)]
     }
 
-    /// "2": comments keep their author and time.
+    /// "3": it waits for issues of other checkouts too.
     fn code() -> &'static str {
-        "2"
+        "3"
     }
 }
 
@@ -179,6 +255,9 @@ pub struct Open {
     /// The issues of its checkout it waits for from the start.
     #[serde(default)]
     pub blocked_by: Vec<u64>,
+    /// The issues of other checkouts it waits for from the start.
+    #[serde(default)]
+    pub across: Vec<Across>,
 }
 
 command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.number), |s, p, now| {
@@ -191,7 +270,8 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
     if p.title.trim().is_empty() {
         return no("no_title", "an issue needs a title");
     }
-    if p.blocked_by.contains(&p.number) {
+    if p.blocked_by.contains(&p.number) || p.across.iter().any(|a| (a.checkout == p.checkout) && (a.number == p.number))
+    {
         return no("blocks_itself", "an issue cannot wait for itself");
     }
     let mut events = vec![IssueEvent::IssueOpened {
@@ -205,6 +285,13 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
     blockers.sort_unstable();
     blockers.dedup();
     events.extend(blockers.into_iter().map(|number| IssueEvent::BlockedBy { number }));
+    let mut across: Vec<&Across> = Vec::new();
+    for a in &p.across {
+        if !across.iter().any(|b| b.same(a)) {
+            across.push(a);
+        }
+    }
+    events.extend(across.into_iter().cloned().map(IssueEvent::BlockedAcross));
     Ok(events)
 });
 
@@ -263,6 +350,37 @@ on_issue!(BlockIssue, "issue.block", Block, |s, p, now| {
 
 on_issue!(UnblockIssue, "issue.unblock", Block, |s, p, now| {
     Ok(if s.blocked_by.contains(&p.by) { vec![IssueEvent::Unblocked { number: p.by }] } else { Vec::new() })
+});
+
+/// Issue `number` of `checkout` waits for `by`, of another checkout.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockAcross {
+    pub checkout: String,
+    pub number: u64,
+    pub by: Across,
+}
+
+on_issue!(BlockIssueAcross, "issue.block_across", BlockAcross, |s, p, now| {
+    if (p.by.checkout == p.checkout) && (p.by.number == p.number) {
+        return no("blocks_itself", "an issue cannot wait for itself");
+    }
+    Ok(match s.across.iter().find(|a| a.same(&p.by)) {
+        Some(a) if *a == p.by => Vec::new(),
+        // Waits for it otherwise now: for its cut, or no longer.
+        Some(_) => vec![
+            IssueEvent::UnblockedAcross { checkout: p.by.checkout.clone(), number: p.by.number },
+            IssueEvent::BlockedAcross(p.by.clone()),
+        ],
+        None => vec![IssueEvent::BlockedAcross(p.by.clone())],
+    })
+});
+
+on_issue!(UnblockIssueAcross, "issue.unblock_across", BlockAcross, |s, p, now| {
+    Ok(if s.across.iter().any(|a| a.same(&p.by)) {
+        vec![IssueEvent::UnblockedAcross { checkout: p.by.checkout.clone(), number: p.by.number }]
+    } else {
+        Vec::new()
+    })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

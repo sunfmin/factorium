@@ -29,6 +29,8 @@ pub(crate) fn model() -> Model {
         .command::<EditIssue>()
         .command::<BlockIssue>()
         .command::<UnblockIssue>()
+        .command::<BlockIssueAcross>()
+        .command::<UnblockIssueAcross>()
         .command::<ParkIssue>()
         .command::<ReadyIssue>()
         .command::<CloseIssue>()
@@ -117,12 +119,23 @@ impl App {
     // ---- issues ----
 
     /// Makes an issue numbered one past the checkout's last, waiting from
-    /// the start for the issues of the checkout in `blocked_by`, so no tick
-    /// sees it ready without them.
-    pub async fn issue_add(&self, checkout: &str, title: &str, body: &str, parked: bool, blocked_by: &[u64]) -> Answer {
+    /// the start for the issues in `blocked_by`, of its checkout or of
+    /// others, so no tick sees it ready without them.
+    pub async fn issue_add(
+        &self,
+        checkout: &str,
+        title: &str,
+        body: &str,
+        parked: bool,
+        blocked_by: &[Blocker],
+    ) -> Answer {
         self.checkout(checkout).await?;
+        let (mut here, mut across) = (Vec::new(), Vec::new());
         for by in blocked_by {
-            self.issue(checkout, *by).await?;
+            match self.blocker(checkout, by.clone()).await? {
+                Blocker::Here(n) => here.push(n),
+                Blocker::Across(a) => across.push(a),
+            }
         }
         loop {
             let last = self.rows(tracker::last_issue(checkout)).await?;
@@ -133,7 +146,8 @@ impl App {
                 title: title.into(),
                 body: body.into(),
                 parked,
-                blocked_by: blocked_by.to_vec(),
+                blocked_by: here.clone(),
+                across: across.clone(),
             };
             match self.submit::<OpenIssue>(&open).await {
                 // Another command took the number first: take the next.
@@ -164,6 +178,7 @@ impl App {
             "body": i.body,
             "status": i.status,
             "blocked_by": i.blocked_by,
+            "blocked_across": i.across.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "reason": i.reason,
             "worker": i.worker,
             "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
@@ -263,17 +278,42 @@ impl App {
         Ok(())
     }
 
-    /// Makes issue `number` wait for issue `by` of the same checkout, or,
-    /// with `undo`, stop waiting for it.
-    pub async fn issue_block(&self, checkout: &str, number: u64, by: u64, undo: bool) -> Answer {
-        let block = Block { checkout: checkout.into(), number, by };
-        if undo {
-            self.submit::<UnblockIssue>(block).await?;
-        } else {
-            self.issue(checkout, by).await?;
-            self.submit::<BlockIssue>(block).await?;
+    /// Makes issue `number` wait for `by`, an issue of its checkout or of
+    /// another, or, with `undo`, stop waiting for it.
+    pub async fn issue_block(&self, checkout: &str, number: u64, by: impl Into<Blocker>, undo: bool) -> Answer {
+        let by = by.into().of(checkout);
+        let by = if undo { by } else { self.blocker(checkout, by).await? };
+        let c = checkout.to_string();
+        match (by, undo) {
+            (Blocker::Here(by), false) => self.submit::<BlockIssue>(Block { checkout: c, number, by }).await?,
+            (Blocker::Here(by), true) => self.submit::<UnblockIssue>(Block { checkout: c, number, by }).await?,
+            (Blocker::Across(by), false) => {
+                self.submit::<BlockIssueAcross>(BlockAcross { checkout: c, number, by }).await?
+            }
+            (Blocker::Across(by), true) => {
+                self.submit::<UnblockIssueAcross>(BlockAcross { checkout: c, number, by }).await?
+            }
         }
         self.issue_show(checkout, number).await
+    }
+
+    /// `by` as an issue of `checkout` waits for it, refused unless that
+    /// issue exists and, for its cut, its repo declares one.
+    async fn blocker(&self, checkout: &str, by: Blocker) -> Answer<Blocker> {
+        let by = by.of(checkout);
+        match &by {
+            Blocker::Here(n) => drop(self.issue(checkout, *n).await?),
+            Blocker::Across(a) => {
+                let c = self.checkout(&a.checkout).await?;
+                self.issue(&a.checkout, a.number).await?;
+                if a.cut && self.declared(&self.host.git(&c.path), &c.base)?.cut.is_none() {
+                    let why =
+                        format!("{} declares no cut for {a} to wait for: name {}#{}", a.checkout, a.checkout, a.number);
+                    return Err(Refusal::new("no_cut", why));
+                }
+            }
+        }
+        Ok(by)
     }
 
     /// The workers, live ones unless `all`.
