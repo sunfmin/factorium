@@ -5,10 +5,26 @@
 //! gives, so what the app makes of them runs as for real. Time moves when
 //! the scenario moves it.
 
+/// Runs each `async` block at once, each on a thread and runtime of its own,
+/// as [`each`] does.
+macro_rules! at_once {
+    ($($case:expr),+ $(,)?) => {
+        std::thread::scope(|s| {
+            let running = [$(s.spawn(|| $crate::block_on($case))),+];
+            for r in running {
+                if let Err(panic) = r.join() {
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        })
+    };
+}
+
 mod accounts;
 mod across;
 mod admission;
 mod base;
+mod binary;
 mod bounds;
 mod comment;
 mod daemon;
@@ -445,15 +461,47 @@ impl Host for FakeHost {
     }
 }
 
-/// The home of the world at `root`: empty, as a fresh host's.
+/// The home of the world at `root`: as a fresh host's, with no identity.
 fn home(root: &Path) -> PathBuf {
     root.join("home")
+}
+
+/// Makes the home of the world at `root`. Its git config turns off git's
+/// automatic maintenance, which each fetch, commit and merge would otherwise
+/// start as one more process, left running detached (factorium#98).
+fn make_home(root: &Path) {
+    std::fs::create_dir_all(home(root)).unwrap();
+    std::fs::write(home(root).join(".gitconfig"), "[maintenance]\n\tauto = false\n").unwrap();
 }
 
 /// git in `dir` as the host of the world at `root` runs it: with its home,
 /// which holds no config — a fresh host, with no identity of its own.
 fn git_of(root: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     Git::new(home(root), dir).run(args)
+}
+
+/// Raises this process's soft limit of open files, once, as far as 4096
+/// (within its hard limit). Each world holds its database's files and its
+/// git's pipes, and worlds run at once (`each`, `at_once!`): under launchd's
+/// default of 256, which the daemon's gate runs with, the suite ran out
+/// (factorium#98). The limit is the suite's own, not its caller's shell's.
+#[allow(unsafe_code)]
+fn open_files_enough() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: getrlimit and setrlimit only read and write `limit`.
+        if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+            return;
+        }
+        let want = limit.rlim_max.min(4096);
+        if limit.rlim_cur < want {
+            limit.rlim_cur = want;
+            // SAFETY: as above.
+            let raised = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+            assert_eq!(raised, 0, "raising the open-files limit to {want}");
+        }
+    });
 }
 
 /// The repo every scenario starts from, made once per run: a bare remote
@@ -465,9 +513,9 @@ fn template() -> &'static Path {
         let t = std::env::temp_dir().join("factorium-template").join(Uuid::now_v7().to_string());
         let work = t.join("work");
         std::fs::create_dir_all(&work).unwrap();
-        std::fs::create_dir_all(home(&t)).unwrap();
+        make_home(&t);
         let git = |dir: &Path, args: &[&str]| git_of(&t, dir, args);
-        git(&work, &["init", "--quiet", "-b", "main"]).unwrap();
+        git(&work, &["init", "--quiet", "--template=", "-b", "main"]).unwrap();
         std::fs::write(work.join("README"), "a repo\n").unwrap();
         std::fs::write(
             work.join("factorium.toml"),
@@ -476,9 +524,28 @@ fn template() -> &'static Path {
         .unwrap();
         git(&work, &["add", "."]).unwrap();
         git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
-        git(&t, &["clone", "--quiet", "--bare", "work", "remote.git"]).unwrap();
+        git(&t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
+        git(&t, &["clone", "--quiet", "--template=", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
         t
     })
+}
+
+/// Copies the tree at `from` to `to`, in-process: a scenario's repos are
+/// copies of the template's, made without a program per repo (factorium#98).
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        let kind = entry.file_type().unwrap();
+        if kind.is_dir() {
+            copy_tree(&src, &dst);
+        } else if kind.is_symlink() {
+            std::os::unix::fs::symlink(std::fs::read_link(&src).unwrap(), &dst).unwrap();
+        } else {
+            std::fs::copy(&src, &dst).unwrap();
+        }
+    }
 }
 
 pub struct World {
@@ -498,9 +565,10 @@ impl World {
 
     /// A world whose database is the file `name` in its data directory.
     pub fn on(name: &str) -> World {
+        open_files_enough();
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
-        std::fs::create_dir_all(home(&dir)).unwrap();
+        make_home(&dir);
         let clock = Arc::new(ManualClock::new(Instant(1_800_000_000_000)));
         let host = Arc::new(FakeHost {
             orca: FakeOrca::default(),
@@ -538,11 +606,15 @@ impl World {
     /// A clone of its own remote; answers its path.
     pub fn repo(&self, name: &str) -> PathBuf {
         let remote = self.dir.join("remotes").join(format!("{name}.git"));
-        std::fs::create_dir_all(remote.parent().unwrap()).unwrap();
-        let t = template().join("remote.git");
-        Command::new("cp").args(["-R", &t.to_string_lossy(), &remote.to_string_lossy()]).status().unwrap();
+        copy_tree(&template().join("remote.git"), &remote);
+        // The template's clone, its origin this remote: as `git clone` of it makes.
         let path = self.dir.join("repos").join(name);
-        self.git(&self.dir, &["clone", "--quiet", &remote.to_string_lossy(), &path.to_string_lossy()]).unwrap();
+        copy_tree(&template().join("clone"), &path);
+        let config = path.join(".git/config");
+        let was = template().join("remote.git").to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(&config).unwrap();
+        assert!(text.contains(&was), "the clone's origin is the template's remote: {text}");
+        std::fs::write(&config, text.replace(&was, &remote.to_string_lossy())).unwrap();
         path
     }
 
@@ -741,6 +813,26 @@ pub fn worktree(w: &Value) -> PathBuf {
 
 pub fn id(w: &Value) -> Uuid {
     w["worker"].as_str().unwrap().parse().unwrap()
+}
+
+/// Runs `case` for each of `inputs` at once, each on a thread and runtime of
+/// its own: a scenario that goes through several worlds takes as long as its
+/// slowest one, not their sum (factorium#98). Answers what each answered,
+/// in order; a case's panic is the scenario's.
+pub fn each<I: Send, T: Send, F: Future<Output = T>>(
+    inputs: impl IntoIterator<Item = I>,
+    case: impl Fn(I) -> F + Sync,
+) -> Vec<T> {
+    std::thread::scope(|s| {
+        let case = &case;
+        let running: Vec<_> = inputs.into_iter().map(|i| s.spawn(move || block_on(case(i)))).collect();
+        running.into_iter().map(|r| r.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    })
+}
+
+/// Runs `f` to its end on a runtime of its own, as a `#[tokio::test]` does.
+pub fn block_on<T>(f: impl Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
 }
 
 pub fn refused(answer: Answer, code: &str) {

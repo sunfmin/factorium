@@ -5,11 +5,11 @@ cd "$(dirname "$0")"
 
 ./checks.sh
 
-# The tests spend 240 seconds of CPU or less once built (SPEC.md §6):
+# The tests spend 200 seconds of CPU or less once built (SPEC.md §6):
 # user+sys of the cargo test tree, read from the shell's `times` before and
 # after. CPU time is the work the tests do; wall time also counts how busy
 # the host is.
-bound=240
+bound=200
 cargo test --workspace --no-run --quiet
 cpu=$(mktemp)
 trap 'rm -f "$cpu"' EXIT

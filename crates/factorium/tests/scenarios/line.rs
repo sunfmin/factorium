@@ -348,7 +348,8 @@ async fn factorium_commits_as_the_hosts_own_identity_or_as_itself_on_a_fresh_hos
     let landed = land(&w, 1, "a").await;
     assert_eq!(author(&landed), "factorium <factorium@localhost>", "a fresh host has no identity");
 
-    std::fs::write(w.host.home().join(".gitconfig"), "[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
+    let mut config = std::fs::OpenOptions::new().append(true).open(w.host.home().join(".gitconfig")).unwrap();
+    std::io::Write::write_all(&mut config, b"[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     let landed = land(&w, 2, "b").await;

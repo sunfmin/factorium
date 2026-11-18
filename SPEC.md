@@ -246,7 +246,7 @@ depend on nothing else of factorium.
 - **Real harnesses.** Opt-in smoke tests per harness, run by hand.
 - **Every scenario is held to account by mutation**: break the rule it
   guards and it must fail.
-- **Bounds.** The tests spend 240 seconds of CPU or less once built: the
+- **Bounds.** The tests spend 200 seconds of CPU or less once built: the
   user+sys time of the `cargo test` tree, which `gate.sh` reads from the
   shell's `times`. No test sleeps; time moves when a scenario moves it.
   CPU time, not wall time, because the bound must fail when the tests got
@@ -256,11 +256,19 @@ depend on nothing else of factorium.
   18 busy loops added (load ~110-134), against 195s and 158s of wall time.
   Re-running when over a wall bound only helps while the load passes, and
   scaling by the load average guesses at how much of the host the tests
-  got; CPU time is what they used. The bound is that measurement with a
-  fifth to spare, so a test that adds a minute of CPU fails it; it was
-  measured on a loaded host (no idle window), and is lowered when an idle
-  measurement shows the suite spends less. slimfit#13, not landed yet,
-  fixes slimfit's `test_seconds` by dividing by a measured load instead.
+  got; CPU time is what they used. factorium#98 halved the suite: 26.5s to
+  13.0s of wall time and 210s to 138s of CPU (medians of 3, interleaved,
+  load 6-21). Nearly all of its CPU is git's processes, about 50 a
+  scenario, so a scenario's cost is the git it runs: git is run as its
+  binary, not macOS's `/usr/bin/git` shim, which more than doubled each
+  call; the scenarios' homes turn off git's auto maintenance; a world's
+  repos are copied in-process; a scenario of several worlds runs them at
+  once (`each`, `at_once!`), so it takes its slowest world's time, not
+  their sum; and the binary's tests run in the scenarios' binary, beside
+  them rather than after. The bound is about 1.5 times that 138s, so the
+  gain holds and a test that adds a minute of CPU fails it.
+  slimfit#13, not landed yet, fixes slimfit's `test_seconds` by dividing
+  by a measured load instead.
 - **slimfit holds the suite.** factorium's slow gate (`./slow.sh`) is
   `./checks.sh` (the line budgets of §5, fmt, clippy: what `./gate.sh`
   runs before its tests) then `slimfit check` against the committed
