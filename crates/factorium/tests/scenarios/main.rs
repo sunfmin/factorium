@@ -480,6 +480,30 @@ fn git_of(root: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     Git::new(home(root), dir).run(args)
 }
 
+/// Raises this process's soft limit of open files, once, as far as 4096
+/// (within its hard limit). Each world holds its database's files and its
+/// git's pipes, and worlds run at once (`each`, `at_once!`): under launchd's
+/// default of 256, which the daemon's gate runs with, the suite ran out
+/// (factorium#98). The limit is the suite's own, not its caller's shell's.
+#[allow(unsafe_code)]
+fn open_files_enough() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: getrlimit and setrlimit only read and write `limit`.
+        if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+            return;
+        }
+        let want = limit.rlim_max.min(4096);
+        if limit.rlim_cur < want {
+            limit.rlim_cur = want;
+            // SAFETY: as above.
+            let raised = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+            assert_eq!(raised, 0, "raising the open-files limit to {want}");
+        }
+    });
+}
+
 /// The repo every scenario starts from, made once per run: a bare remote
 /// whose main holds a factorium.toml whose fast gate is red while `RED`
 /// exists and whose slow gate is red while `SLOWRED` exists.
@@ -541,6 +565,7 @@ impl World {
 
     /// A world whose database is the file `name` in its data directory.
     pub fn on(name: &str) -> World {
+        open_files_enough();
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
         make_home(&dir);

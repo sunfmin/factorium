@@ -152,6 +152,7 @@ dependencies = [
  "factorium-host",
  "factum",
  "factum-sqlite",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
