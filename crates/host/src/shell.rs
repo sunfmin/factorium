@@ -23,11 +23,12 @@ pub struct Ran {
 /// The CPU a command's whole process tree gets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Priority {
-    /// As any other process: a gate.
+    /// As any other process: a gate, and any heavy command whose time a
+    /// gate compares, so both measure at the same priority.
     Normal,
-    /// Only what others leave: every heavy command that is not a gate, so
-    /// a gate running beside it is not slowed. Inherited by every process
-    /// it starts.
+    /// Only what others leave: heavy work whose time no gate compares (a
+    /// cut, idle work, a mutation run), so a gate running beside it is not
+    /// slowed. Inherited by every process it starts.
     Background,
 }
 

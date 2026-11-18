@@ -8,7 +8,9 @@ Your brief (the file you were handed) says what the issue is.
   as often as you like; a green run on committed work is remembered.
 - Heavy commands (builds, test suites) go through
   `factorium worker exclusive -- <command>`, which waits until the machine
-  has room.
+  has room and runs it at a gate's priority, so what it times (tests,
+  `slimfit check`) is what the gate would. Work whose time nothing
+  compares (a mutation run) goes through `worker exclusive --background`.
 - When the work is committed and the gate is green, run
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told

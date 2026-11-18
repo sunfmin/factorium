@@ -1,6 +1,7 @@
-//! Gates first (SPEC.md §1.9): a gate runs at the priority factorium runs
-//! at; every other heavy command — a worker's `worker exclusive`, a cut,
-//! idle work — runs below it, its whole process tree.
+//! Gates first (SPEC.md §1.9): a gate, and a worker's `worker exclusive`
+//! (whose times a gate compares), run at the priority factorium runs at;
+//! other heavy work — a cut, idle work, `worker exclusive --background` —
+//! runs below it, its whole process tree.
 
 use serde_json::json;
 
@@ -46,10 +47,21 @@ async fn gates_run_at_factoriums_priority_and_a_cut_below_it() {
     assert_eq!(cut["failed"], json!(null), "the cut runs below: {cut}");
 }
 
+/// factorium#110: at background priority a worker's `slimfit check`
+/// measured 2.7x what the gate measured of the same tree, so the baselines
+/// it recorded were not the gate's.
 #[tokio::test]
-async fn a_workers_heavy_command_runs_below_factoriums_priority() {
+async fn a_workers_heavy_command_runs_at_a_gates_priority() {
     let w = World::new();
     let dir = w.dir.clone();
-    let ran = w.app.worker_exclusive(None, &dir, &nice_is("-gt", own_nice())).await.unwrap();
+    let ran = w.app.worker_exclusive(None, &dir, &nice_is("-eq", own_nice())).await.unwrap();
+    assert_eq!(ran["ok"], true, "{ran}");
+}
+
+#[tokio::test]
+async fn a_workers_background_command_runs_below_factoriums_priority() {
+    let w = World::new();
+    let dir = w.dir.clone();
+    let ran = w.app.worker_exclusive_background(None, &dir, &nice_is("-gt", own_nice())).await.unwrap();
     assert_eq!(ran["ok"], true, "{ran}");
 }
