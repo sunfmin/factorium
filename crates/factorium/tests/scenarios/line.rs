@@ -427,3 +427,24 @@ async fn an_ended_worker_s_worktree_stays_while_it_holds_commits_nowhere_else() 
     w.app.issue_close("web", 1, "not needed").await.unwrap();
     assert!(tree.exists(), "its commit is nowhere else");
 }
+
+/// The app reads a worker before it asks to land it or end it; the worker
+/// may end in between (the daemon's tick, the watch). The command itself
+/// refuses a worker that never started or has ended, so nothing is recorded
+/// on it.
+#[test]
+fn landing_or_ending_a_worker_that_is_gone_is_refused_by_the_command_itself() {
+    use factorium_domain::worker::{AskLanding, Because, EndWorker, GreenLanding, Land, Of, Status, Worker};
+    use factum::{By, Command, Instant};
+    let worker = factum::Uuid::now_v7();
+    let ended = Worker { started: Some(Default::default()), status: Status::Ended, ..Default::default() };
+    let (by, now) = (By::Principal("test".into()), Instant(0));
+    let refused = |r: Result<_, factum::Rejection>| r.map(drop).unwrap_err().code;
+    for (state, code) in [(&Worker::default(), "no_worker"), (&ended, "ended")] {
+        assert_eq!(refused(AskLanding::decide(state, &Of { worker }, &by, now)), code);
+        let land = Land { worker, commit: "c".into() };
+        assert_eq!(refused(GreenLanding::decide(state, &land, &by, now)), code);
+        let why = Because { worker, why: "x".into() };
+        assert_eq!(refused(EndWorker::decide(state, &why, &by, now)), code);
+    }
+}
