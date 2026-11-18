@@ -149,7 +149,7 @@ fn neither_the_watch_nor_a_worker_stops_the_daemon() {
 
 #[test]
 fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
-    let as_role = |line: &str, role: Option<(&str, &str)>| -> Option<i32> {
+    let by_tool = |tool: &str, line: &str, role: Option<(&str, &str)>| -> Option<i32> {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
         cmd.args(["guard", "claude-code"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
         cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
@@ -157,10 +157,11 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
             cmd.env(name, value);
         }
         let mut child = cmd.spawn().unwrap();
-        let payload = json!({ "tool_name": "Bash", "tool_input": { "command": line } });
+        let payload = json!({ "tool_name": tool, "tool_input": { "command": line } });
         child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
         child.wait().unwrap().code()
     };
+    let as_role = |line: &str, role: Option<(&str, &str)>| by_tool("Bash", line, role);
     let hook = |line: &str, worker: bool| as_role(line, worker.then_some(("FACTORIUM_WORKER", WORKER)));
     assert_eq!(hook("factorium worker gate", true), Some(0));
     assert_eq!(hook("cd x && factorium issue close web 1", true), Some(2));
@@ -180,6 +181,10 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_eq!(as_role("factorium watch report --text done", watch), Some(0));
     assert_eq!(hook("factorium watch report --text done", true), Some(2));
     assert_eq!(as_role("factorium issue close web 1 && git push", watch), Some(0), "the watch acts as the operator");
+    // Only the shell tool's command is a shell line: another tool handed a
+    // `command` (Codex's `apply_patch`, its patch) runs none.
+    let worker = Some(("FACTORIUM_WORKER", WORKER));
+    assert_eq!(by_tool("apply_patch", "git push origin HEAD", worker), Some(0));
 }
 
 #[test]
