@@ -2,12 +2,12 @@
   "suites": {
     "rust": {
       "prod_lines": 10977,
-      "test_lines": 7053,
-      "tests": 215,
+      "test_lines": 7067,
+      "tests": 216,
       "failures": 0,
-      "test_seconds": 174.79,
-      "covered_lines": 4950,
-      "uncovered_lines": 161
+      "test_seconds": 384.215,
+      "covered_lines": 4953,
+      "uncovered_lines": 158
     }
   },
   "loosened": [
@@ -24,6 +24,13 @@
       "from": 171.924,
       "to": 468.295,
       "reason": "summed test durations are bimodal on this host, not tied to load or code: 124s and 172s, then 413s, 472s, 468s on trees differing by one 0.00s test or a deleted function (1-min load 5-33, 18 cores; batch 1 saw 449s); nextest's wall time 66s. slimfit 0.1.6 has no load correction (slimfit#13); gate.sh's CPU bound is the time guard (SPEC 6). factorium#80"
+    },
+    {
+      "suite": "rust",
+      "metric": "test_seconds",
+      "from": 174.79,
+      "to": 384.215,
+      "reason": "summed test durations bimodal on this host again: this tree measured 102.6s and 128.0s for tasks 1-2 at load 47/28, then 383.4s, 391.5s, 384.2s with a 0.014s test added and 356.8s on the same tree without it (fresh runs, 1-min load 14-24 on 18 cores; raw sums 867-916s, git-heavy scenarios 10-14s each). Not this change; gate.sh's CPU bound is the time guard (SPEC 6). factorium#82"
     }
   ]
 }
