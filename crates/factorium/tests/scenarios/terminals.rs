@@ -60,6 +60,14 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     let rows = rows.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert!(closed(&w, &rows[0]).await, "{rows:?}");
+
+    // Its next start fails too, and Orca will not close that terminal: the
+    // refusal names the terminal left open.
+    *w.host.orca.refuse_close.lock().unwrap() = true;
+    let refused = format!("{:?}", w.app.tick().await.unwrap_err());
+    let rows = w.app.workers(true).await.unwrap();
+    let open = rows.as_array().unwrap().iter().find(|r| r["closed"] == false).expect("one left open");
+    assert!(refused.contains(&format!("its terminal {} is not closed", handle(open))), "{refused}");
 }
 
 /// A start that fails once its session opened is undone: its terminal is
