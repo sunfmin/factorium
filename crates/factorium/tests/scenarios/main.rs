@@ -24,6 +24,7 @@ mod accounts;
 mod across;
 mod admission;
 mod base;
+mod binary;
 mod bounds;
 mod comment;
 mod daemon;

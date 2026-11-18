@@ -6,6 +6,16 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+# Tested only from the outermost layer (SPEC §6): no unit or doc tests of its own.
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "factorium"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 factorium-domain.workspace = true
 factum.workspace = true

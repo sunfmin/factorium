@@ -50,9 +50,9 @@ start=$(date +%s)
 # The baseline: the unmutated tree passes, and how long its tests take.
 # (cargo-mutants' own baseline runs the mutated crates' tests, which are
 # none, so it is skipped.)
-heavy sh -c 'cargo test -p factorium --test scenarios --test binary --no-run --quiet &&
+heavy sh -c 'cargo test -p factorium --test scenarios --no-run --quiet &&
   t=$(date +%s) &&
-  cargo test -p factorium --test scenarios --test binary --quiet >/dev/null &&
+  cargo test -p factorium --test scenarios --quiet >/dev/null &&
   echo $(( $(date +%s) - t )) >target/mutants.base'
 base=$(cat target/mutants.base)
 rm -f target/mutants.base
