@@ -246,15 +246,29 @@ depend on nothing else of factorium.
 - **Real harnesses.** Opt-in smoke tests per harness, run by hand.
 - **Every scenario is held to account by mutation**: break the rule it
   guards and it must fail.
-- **Bounds.** The whole gate runs in 60 seconds or less. No test sleeps;
-  time moves when a scenario moves it.
+- **Bounds.** The tests spend 240 seconds of CPU or less once built: the
+  user+sys time of the `cargo test` tree, which `gate.sh` reads from the
+  shell's `times`. No test sleeps; time moves when a scenario moves it.
+  CPU time, not wall time, because the bound must fail when the tests got
+  slower and pass the same code on the same host however busy it is.
+  Wall time does not: the suite took 24s idle and 75-193s at load 55-73 on
+  18 cores (factorium#103). CPU time held: 200s at load ~90 and 194s with
+  18 busy loops added (load ~110-134), against 195s and 158s of wall time.
+  Re-running when over a wall bound only helps while the load passes, and
+  scaling by the load average guesses at how much of the host the tests
+  got; CPU time is what they used. The bound is that measurement with a
+  fifth to spare, so a test that adds a minute of CPU fails it; it was
+  measured on a loaded host (no idle window), and is lowered when an idle
+  measurement shows the suite spends less. slimfit#13, not landed yet,
+  fixes slimfit's `test_seconds` by dividing by a measured load instead.
 - **slimfit holds the suite.** factorium's slow gate (`./slow.sh`) is
   `./gate.sh` then `slimfit check` against the committed
   `.slimfit/baseline.json`: no failing test, no more uncovered lines than
   the baseline (code may grow, untested code may not), and the tests'
-  summed durations within the baseline's tolerance. The 60-second bound
+  summed durations within the baseline's tolerance. The CPU bound
   and the line budgets (§5) stay in `gate.sh`: slimfit records line counts
-  but does not bound them, and its `test_seconds` is a sum, not wall time.
+  but does not bound them, and its `test_seconds` sums the tests'
+  durations, not the CPU they spend.
   A change that gains (fewer uncovered lines, faster tests) runs
   `slimfit ratchet` and commits the moved baseline with the code, in the
   same commit; a bound is raised only by `slimfit ratchet --loosen`, with
