@@ -45,8 +45,9 @@ pub struct Entry {
     pub worker: Option<Uuid>,
     pub queued_at: i64,
     pub started_at: Option<i64>,
-    /// When the line move it is for passes its bound, ms: past then, it goes
-    /// ahead of workers' waiting entries.
+    /// When the line move it is for falls due however busy its checkout is
+    /// (a hold bound before its bound), ms: past then, it goes ahead of
+    /// workers' waiting entries.
     #[serde(default)]
     pub bound_at: Option<i64>,
 }

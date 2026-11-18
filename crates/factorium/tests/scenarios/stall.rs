@@ -301,13 +301,14 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
 const HOLDS: &str = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
 
 #[tokio::test]
-async fn a_promotion_past_its_bound_goes_ahead_of_workers_waiting_entries_and_one_at_its_bound_keeps_its_place() {
+async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entries_and_one_just_due_keeps_its_place() {
     let w = World::new();
     // #2 keeps working: the checkout is never idle, so only the bound promotes.
     working(&w, &["a", "b"]).await;
     let two = id(&worker_of(&w, 2).await);
     let landed = land(&w, 1, "a").await;
-    w.advance(59);
+    // It falls due however busy at the promotion bound less the hold bound: 30 min.
+    w.advance(29);
     // No room beside what runs: one heavy command at a time.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let dirs: Vec<PathBuf> = ["running", "w1", "w2"].iter().map(|d| w.dir.join(d)).collect();
@@ -327,10 +328,10 @@ async fn a_promotion_past_its_bound_goes_ahead_of_workers_waiting_entries_and_on
                 tokio::task::yield_now().await;
             }
             w.advance(1);
-            assert!(w.tick().await.lines.is_empty(), "at the bound, its slow gate queues behind them");
+            assert!(w.tick().await.lines.is_empty(), "just due, its slow gate queues behind them");
             assert!(heavy(&w).await.contains(&"slow gate of web".to_string()));
 
-            // What runs ends: at its bound, the slow gate keeps its FIFO place.
+            // What runs ends: just due, the slow gate keeps its FIFO place.
             std::fs::write(dirs[0].join("release"), "").unwrap();
             while heavy(&w).await.len() > 3 {
                 tokio::task::yield_now().await;
@@ -344,7 +345,7 @@ async fn a_promotion_past_its_bound_goes_ahead_of_workers_waiting_entries_and_on
             };
             let second = dirs[1..].iter().find(|d| **d != first).unwrap().clone();
 
-            // Past its bound, it goes ahead of the worker's entry still waiting.
+            // Past when it fell due, it goes ahead of the worker's entry still waiting.
             w.advance(1);
             std::fs::write(first.join("release"), "").unwrap();
             while heavy(&w).await.len() > 2 {

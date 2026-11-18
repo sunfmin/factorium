@@ -64,8 +64,8 @@ impl App {
             .collect();
         let look = line::look(self.now(), &settings, &workers, by_hand);
         let git = self.host.git(&c.path);
-        // Past this, the move goes ahead of workers' waiting heavy entries.
-        let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.since + o.bound);
+        // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
+        let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);
         match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
             Err(not) => Ok(Err(line::why(not))),
             Ok(Due::Land(worker)) => self.land(c, worker).await,
@@ -125,7 +125,7 @@ impl App {
     }
 
     /// Promotes the proving `tip` of `c`: its slow gate, then the base
-    /// fast-forwarded to it. `bound_at`: when the promotion passes its bound.
+    /// fast-forwarded to it. `bound_at`: when the promotion falls due however busy.
     async fn promote_tip(
         &self,
         c: &Checkout,
@@ -154,7 +154,7 @@ impl App {
     }
 
     /// Cuts a version of `c` from its base tip, if it declares a cut.
-    /// `bound_at`: when the cut passes its bound.
+    /// `bound_at`: when the cut falls due however busy.
     async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>) -> Answer<Did> {
         let git = self.host.git(&c.path);
         let base = git.fetch(&c.base).map_err(fail("git"))?;

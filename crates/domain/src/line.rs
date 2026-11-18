@@ -39,9 +39,14 @@ pub fn look(now: i64, settings: &Settings, workers: &[(Uuid, Status)], by_hand: 
     }
 }
 
-/// How long what the line owes waits at most, from the settings.
+/// How long what the line owes waits at most, from the settings; it falls
+/// due a hold bound before, so a heavy command running then cannot push it past.
 pub fn bounds(settings: &Settings) -> Bounds {
-    Bounds { promotion: settings.ms(Time::PromotionBound), cut: settings.ms(Time::CutBound) }
+    Bounds {
+        promotion: settings.ms(Time::PromotionBound),
+        cut: settings.ms(Time::CutBound),
+        lead: settings.ms(Time::HoldBound),
+    }
 }
 
 /// Why a move is not due, in the words the CLI answers.
@@ -50,12 +55,13 @@ pub fn why(not: NotDue) -> String {
         NotDue::Held(why) => format!("landings are held: {why}"),
         NotDue::NoAsk => "no worker asks to land".into(),
         NotDue::NothingToPromote => "nothing to promote".into(),
-        NotDue::Busy => "the checkout is busy and its oldest landing waits within the promotion bound".into(),
+        NotDue::Busy => "the checkout is busy and its oldest landing waits within the promotion bound less the hold bound".into(),
         NotDue::Red { tip, why } => format!("the slow gate is red on the proving tip {tip}: {why}"),
         NotDue::NothingToCut => "nothing promoted since the last cut".into(),
         NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand tries again: {why}"),
         NotDue::Unsettled => {
-            "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound".into()
+            "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound less the hold bound"
+                .into()
         }
     }
 }
