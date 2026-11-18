@@ -150,17 +150,25 @@ impl App {
         Ok(t)
     }
 
-    /// The daemon runs the binary `me` (canonical): if Homebrew installed it,
-    /// each tick asks whether its link now names another version.
+    /// This process runs the binary `me` (canonical): if Homebrew installed
+    /// it, each tick of the daemon, or a waiter refused as stale, asks whether
+    /// its link now names another version.
     pub fn runs_as(&self, me: &std::path::Path) {
         let link = self.host.brew().link_of(me);
         self.memory.lock().unwrap().running = link.map(|l| (me.to_path_buf(), l));
     }
 
+    /// [`App::runs_as`] this process's own binary.
+    pub(crate) fn runs_as_this(&self) {
+        if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
+            self.runs_as(&me);
+        }
+    }
+
     /// The link to exec in place of this binary: Homebrew links a version
     /// other than the one running, by a cut from the daemon, the CLI or
     /// by hand. Mid-upgrade, when the link resolves to nothing, not yet.
-    fn swapped(&self) -> Option<std::path::PathBuf> {
+    pub(crate) fn swapped(&self) -> Option<std::path::PathBuf> {
         let (me, link) = self.memory.lock().unwrap().running.clone()?;
         let now = link.canonicalize().ok()?;
         (now != me).then_some(link)
@@ -243,9 +251,7 @@ impl App {
             return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
-        if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
-            self.runs_as(&me);
-        }
+        self.runs_as_this();
         eprintln!("started: {}", self.daemon_start().await?);
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {

@@ -86,7 +86,7 @@ pub fn default_db() -> PathBuf {
 struct Memory {
     queued: std::collections::BTreeSet<Uuid>,
     asked: std::collections::BTreeSet<Uuid>,
-    /// The binary the daemon runs, and the Homebrew link that was it.
+    /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
     /// The idle work running beside the ticks.
     idle: Option<idle::Running>,
