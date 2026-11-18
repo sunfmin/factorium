@@ -2,13 +2,21 @@
   "suites": {
     "rust": {
       "prod_lines": 10989,
-      "test_lines": 6963,
-      "tests": 210,
+      "test_lines": 6985,
+      "tests": 211,
       "failures": 0,
-      "test_seconds": 123.635,
-      "covered_lines": 4924,
-      "uncovered_lines": 204
+      "test_seconds": 171.924,
+      "covered_lines": 4929,
+      "uncovered_lines": 199
     }
   },
-  "loosened": []
+  "loosened": [
+    {
+      "suite": "rust",
+      "metric": "test_seconds",
+      "from": 123.635,
+      "to": 171.924,
+      "reason": "slimfit 0.1.6 sums test durations with no load correction (slimfit#13): the same tree measured 413s then 472s minutes after a 124s run that set the bound, at 1-min load 17-33 on 18 cores, every git-heavy scenario uniformly 14-20s; gate.sh's CPU bound is the real time guard (SPEC 6). factorium#80"
+    }
+  ]
 }
