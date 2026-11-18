@@ -28,7 +28,7 @@ approval and an entry here.
 |---|---|---|
 | 1 | **Host** | The one machine and its one user account. One daemon (`factorium run`) and one SQLite database hold everything factorium knows of it. |
 | 2 | **Checkout** | A repo on the host's checkout list: its path, base branch, proving branch, and what the repo declares (§4). |
-| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, parked or closed. |
+| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed. |
 | 4 | **Worker** | One harness session working one issue in its own worktree, branched from the proving tip. It ends with `factorium worker done`, `factorium worker escalate`, or by failing. |
 | 5 | **Harness** | A coding agent program factorium starts: Claude Code, Codex, pi, DSH, Kimi Code, Grok. How each starts, where it keeps its session and which lines start and end a turn are its own module's to say. The session file is the turn. |
 | 6 | **Kit** | The harnesses this host can start now, in priority order, with their models. A worker starts on the first eligible one. |
@@ -87,7 +87,7 @@ watch's look and the operator's view.
    the issue: its uncommitted changes are committed, its branch is kept as
    `<branch>-abandoned`, a comment names that branch and the why, and the
    worktree goes, so the next start is branched from the proving tip. The
-   issue stays ready or parked as it was.
+   issue stays ready or waiting for a human as it was.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
 
@@ -101,7 +101,7 @@ queue that starts nothing past `stall_bound` (or whose oldest waits past
 `hold_bound` and `stall_bound` more), a landing no gate runs for past
 `stall_bound`, the oldest unpromoted landing past `promotion_bound` with
 no promotion running, the oldest uncut promotion past `cut_bound` with no
-cut running. The watch fixes, restarts, re-briefs, parks or closes, and reports.
+cut running. The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
 which `doctor` shows.
 
@@ -129,9 +129,9 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
-| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it parks with `issue park`, releases a hold with `hold --release`) |
+| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
 Every message to a session — a brief, a landing's red, a round, `watch
 tell` and `watch restart`, a comment — goes through that session's outbox,
