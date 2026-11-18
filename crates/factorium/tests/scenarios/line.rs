@@ -29,7 +29,7 @@ pub(crate) async fn land(w: &World, number: u64, file: &str) -> String {
 }
 
 #[tokio::test]
-async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound() {
+async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound_less_the_hold_bound() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
@@ -42,7 +42,9 @@ async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound() {
     let main = w.remote_tip("web", "main");
     let landed = land(&w, 1, "a").await;
     assert_eq!(w.remote_tip("web", "main"), main, "#2 still works: not idle");
-    w.advance(61);
+    w.advance(29);
+    assert!(w.tick().await.lines.is_empty(), "busy, within the bound less the hold bound");
+    w.advance(2);
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert_eq!(w.remote_tip("web", "main"), landed);
@@ -385,13 +387,13 @@ async fn a_promotion_takes_every_landing_up_to_its_tip() {
 }
 
 #[tokio::test]
-async fn a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound() {
+async fn a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound_less_the_hold_bound() {
     let w = World::new();
     two_working(&w).await;
     land(&w, 1, "a").await;
     assert!(w.app.promote("web").await.unwrap()["promoted"].is_string());
-    w.advance(24 * 60 - 1);
-    assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, under a day");
+    w.advance(24 * 60 - 30 - 1);
+    assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, under a day less the hold bound");
     w.advance(1);
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);

@@ -17,7 +17,7 @@ use crate::{Answer, App, fail};
 /// What a gate is run on.
 pub(crate) enum At<'a> {
     /// A commit of the line's clone: the daemon asks once per tick; by hand
-    /// it waits its turn. `bound_at`: when the move it is for passes its bound.
+    /// it waits its turn. `bound_at`: when the move it is for falls due however busy.
     Commit { rev: &'a str, by_hand: bool, bound_at: Option<i64> },
     /// A worker's worktree as it stands, waiting its turn. A dirty one is
     /// run but not recorded: its tree is no commit's.

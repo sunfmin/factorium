@@ -272,3 +272,71 @@ async fn promote_by_hand_waits_out_a_busy_queue_and_then_promotes() {
     assert_eq!(promoted.unwrap()["promoted"], "web");
     assert_eq!(w.app.promote("web").await.unwrap()["why"], "nothing to promote");
 }
+
+/// `web` busy with #2 at work, and #1 landed: answers the landed commit.
+async fn busy_with_one_landed(w: &World) -> String {
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    crate::line::land(w, 1, "a").await
+}
+
+/// The doctor's finding keys.
+async fn finding_keys(w: &World) -> Vec<String> {
+    let d = w.run().doctor().await.unwrap();
+    d["findings"].as_array().unwrap().iter().map(|f| f["key"].as_str().unwrap().to_string()).collect()
+}
+
+#[tokio::test]
+async fn a_busy_checkout_queues_its_slow_gate_a_hold_bound_early_and_promotes_within_the_bound() {
+    let w = World::new();
+    let landed = busy_with_one_landed(&w).await;
+    // Promotion bound 60 min, hold bound 30 min: due however busy at 30 min.
+    w.advance(29);
+    assert!(w.tick().await.lines.is_empty(), "busy, within the bound less the lead");
+    let t = while_busy(&w, async {
+        w.advance(2);
+        let t = w.tick().await;
+        assert!(heavy(&w).await.contains(&"slow gate of web".to_string()), "queued a hold bound early");
+        // The heavy command runs on, within its hold bound, to just short of the promotion bound.
+        w.advance(27);
+        let keys = finding_keys(&w).await;
+        assert!(!keys.iter().any(|k| k.starts_with("unpromoted:") || k.starts_with("queue:")), "{keys:?}");
+        t
+    })
+    .await;
+    assert!(!t.lines.iter().any(|l| l["promoted"] == "web"), "the slow gate waited its turn: {:?}", t.lines);
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "promoted within the bound: {:?}", t.lines);
+    assert_eq!(w.remote_tip("web", "main"), landed);
+    assert_eq!(finding_keys(&w).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_busy_checkout_queues_its_cut_a_hold_bound_early_and_cuts_within_the_bound() {
+    let w = World::new();
+    busy_with_one_landed(&w).await;
+    assert!(w.app.promote("web").await.unwrap()["promoted"] == "web");
+    // Cut bound 24 h, hold bound 30 min: due however busy at 23 h 30 min.
+    w.advance(24 * 60 - 31);
+    assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, within the bound less the lead");
+    let t = while_busy(&w, async {
+        w.advance(2);
+        let t = w.tick().await;
+        assert_eq!(heavy(&w).await.len(), 2, "the busy command and the cut, queued a hold bound early");
+        w.advance(27);
+        let keys = finding_keys(&w).await;
+        assert!(!keys.iter().any(|k| k.starts_with("uncut:") || k.starts_with("queue:")), "{keys:?}");
+        t
+    })
+    .await;
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "the cut waited its turn: {:?}", t.lines);
+    let t = w.tick().await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("cut within the bound");
+    assert_eq!(cut["version"], "v0.1.0", "{cut}");
+    assert_eq!(finding_keys(&w).await, Vec::<String>::new());
+}
