@@ -131,10 +131,14 @@ use store::Layout;
 
 /// One tool call a session is about to make, as far as a hook judges it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Call {
+pub enum Call {
     /// It runs this shell line: the only kind a hook judges.
     Shell(String),
-    Other,
+    /// It was read, and runs no shell line.
+    NotShell,
+    /// It could not be read, for this reason: the hook refuses it, since
+    /// what it runs is not known.
+    Unreadable(String),
 }
 
 /// One tool call as Claude Code describes it to a hook before making it, and
@@ -160,7 +164,7 @@ fn tool_call<'de, D: Deserializer<'de>>(described: D, shell_tool: &str) -> Resul
     let described = Described::deserialize(described)?;
     Ok(match described.tool_input.command {
         Some(line) if described.tool_name == shell_tool => Call::Shell(line),
-        _ => Call::Other,
+        _ => Call::NotShell,
     })
 }
 
@@ -295,13 +299,13 @@ impl Harness {
         Some(std::fs::read_to_string(home.path().join(file)).unwrap_or_default())
     }
 
-    /// The shell line of the tool call a hook is handed as `payload`;
-    /// `None` when it is no shell call.
-    pub fn shell_call(self, payload: &str) -> Option<String> {
+    /// The tool call a hook is handed as `payload`, as the guard judges it:
+    /// unreadable when it is not one whole call as this harness describes one.
+    pub fn shell_call(self, payload: &str) -> Call {
         let mut described = serde_json::Deserializer::from_str(payload);
-        match each!(self, |K| K::call(&mut described)) {
-            Ok(Call::Shell(line)) => Some(line),
-            _ => None,
+        match each!(self, |K| K::call(&mut described)).and_then(|call| described.end().map(|()| call)) {
+            Ok(call) => call,
+            Err(e) => Call::Unreadable(format!("{} hook payload: {e}", self.key())),
         }
     }
 

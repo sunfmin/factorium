@@ -193,7 +193,7 @@ impl Kind for Pi {
         let described = Described::deserialize(described)?;
         Ok(match described.input.command {
             Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
-            _ => Call::Other,
+            _ => Call::NotShell,
         })
     }
 
