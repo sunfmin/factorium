@@ -31,7 +31,7 @@ the guard, and had to be threaded through the dispatch: `Top::Guard` was an
   `may_run_line` answers whether a session's tool call may run, and if not
   why and with which exit code. What the guard refuses, and how, lands in
   `session/launch.rs` alone; the binary reads stdin and exits as told.
-- `cli.rs` is the command line: the clap types and `Command::answer`, which
+- `cli.rs` is the command line: the clap types and `Top::answer`, which
   turns each command into its one `App` call. A new command or flag edits
   this file and the `App` method behind it.
 - `main.rs` is the process edge: the guard before any database, the

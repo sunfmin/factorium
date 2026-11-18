@@ -1,408 +1,49 @@
-//! The `factorium` binary: arguments in, one [`App`] call, JSON out. A
+//! The `factorium` binary, the process edge: the command line ([`cli`]) in,
+//! the guard hook answered before any database, the caller's permission,
+//! the daemon's signals, the one [`App`] call's answer out as JSON. A
 //! refusal prints `{"error": {"code", "message"}}` and exits 1.
 //!
 //! Who runs a command, and what each may run, is [`Caller`]'s to say.
 
+mod cli;
+
 use std::io::Read;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches};
+use cli::{Cli, Top, WorkerCmd};
 use factorium::host::Machine;
-use factorium::{Answer, App, Caller, DB_ENV, Refusal, default_db};
-use factorium_domain::issue::Blocker;
-use factum::{SystemClock, Uuid};
+use factorium::{Answer, App, Caller, Refusal, default_db};
+use factum::SystemClock;
 use serde_json::json;
-
-/// Runs AI coding agents on one machine while nobody watches: issues from a
-/// local tracker go to workers in their own worktrees, green work lands on a
-/// proving branch, the proving branch is promoted to the base, versions are
-/// cut, and a resident watch deals with what goes wrong. Every answer is JSON.
-#[derive(Parser)]
-#[command(name = "factorium", version)]
-struct Cli {
-    /// The database. Default: $XDG_DATA_HOME/factorium/factorium.db.
-    #[arg(long, global = true, env = DB_ENV)]
-    db: Option<PathBuf>,
-    #[command(subcommand)]
-    command: Top,
-}
-
-#[derive(Subcommand)]
-enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`; refused
-    /// while another runs. At start it looks for git, orca and the kit's
-    /// harnesses on its PATH; what is missing is a finding. When a cut
-    /// installs the formula it runs from, it runs the new binary in its place
-    /// between ticks, as the same pid. As a service, launchd runs it.
-    Run,
-    /// Stops the daemon; run as the service, unloads the service.
-    Stop,
-    /// The daemon as a launchd agent, kept running and restarted when it exits.
-    #[command(subcommand)]
-    Service(ServiceCmd),
-    /// The repos on the list.
-    #[command(subcommand)]
-    Checkout(CheckoutCmd),
-    /// The host's issues.
-    #[command(subcommand)]
-    Issue(IssueCmd),
-    /// Answers the live workers (`--all`: the ended ones too).
-    Workers {
-        #[arg(long)]
-        all: bool,
-    },
-    /// Answers what was passed to a worker's session (`--worker`) or the
-    /// watch's, oldest first: who from, the line typed, and how its
-    /// delivery went (typed, submitted, queued, brief, not_typed, missed).
-    Outbox {
-        #[arg(long)]
-        worker: Option<Uuid>,
-    },
-    /// Answers the findings, each with its fix; the reading; and what the
-    /// watch's reports leave to the owner.
-    Doctor,
-    /// Promotes a checkout's proving branch to its base now: slow gate, then
-    /// a fast-forward.
-    Promote { checkout: String },
-    /// Cuts a version of a checkout now, as its factorium.toml declares.
-    Cut { checkout: String },
-    /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
-    /// queue, waiting or running: one that does not move and holds the rest
-    /// up. Its owner, if it still asks, queues again behind the rest.
-    Unqueue { entry: Uuid },
-    /// Holds a checkout's landings (`--why`), or releases them (`--release`).
-    Hold {
-        checkout: String,
-        #[arg(long, required_unless_present = "release")]
-        why: Option<String>,
-        #[arg(long)]
-        release: bool,
-    },
-    /// The kit: the harnesses this host starts, in priority order.
-    #[command(subcommand)]
-    Kit(KitCmd),
-    /// Answers the engine accounts mytokens holds (`agent-account-<name>`),
-    /// as this machine can use them, with what each has left.
-    Accounts,
-    /// Answers the settings; with a name, one; with a value, sets it.
-    Settings { name: Option<String>, value: Option<u64> },
-    /// A worker's commands.
-    #[command(subcommand)]
-    Worker(WorkerCmd),
-    /// The watch's commands.
-    #[command(subcommand)]
-    Watch(WatchCmd),
-    /// The hook a session runs before each tool call: refuses what its
-    /// session may not run.
-    #[command(hide = true)]
-    Guard { harness: String },
-}
-
-#[derive(Subcommand)]
-enum ServiceCmd {
-    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
-    /// and this database, and loads it (in place of one loaded before).
-    /// Run it from a shell that finds git, orca and the kit's harnesses.
-    Install,
-    /// Unloads the agent and deletes its file.
-    Remove,
-    /// Answers the agent's definition as `install` would write it.
-    Show,
-}
-
-#[derive(Subcommand)]
-enum CheckoutCmd {
-    /// Puts a repo on the list. It needs an `origin` holding the base; a
-    /// proving branch origin lacks is made at the base.
-    Add {
-        name: String,
-        path: PathBuf,
-        #[arg(long, default_value = "main")]
-        base: String,
-        #[arg(long, default_value = "proving")]
-        proving: String,
-    },
-    /// Takes a repo off the list.
-    Remove { name: String },
-    /// Answers the checkouts on the list.
-    List,
-}
-
-#[derive(Subcommand)]
-enum IssueCmd {
-    /// Makes an issue, numbered one past the checkout's last. Answers it.
-    Add {
-        checkout: String,
-        title: String,
-        #[arg(long)]
-        body: Option<String>,
-        /// Reads the body from this file; `-` reads stdin.
-        #[arg(long, conflicts_with = "body")]
-        body_file: Option<PathBuf>,
-        /// Waits for a person from the start: no worker takes it until a
-        /// person readies it.
-        #[arg(long)]
-        waiting_for_human: bool,
-        /// An issue it waits for, repeat for each: `N` of its checkout;
-        /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
-        /// until a cut of that checkout holds its landing (and installs it).
-        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
-        blocked_by: Vec<Blocker>,
-    },
-    /// Answers the open issues, of one checkout or of all.
-    List {
-        checkout: Option<String>,
-        #[arg(long)]
-        closed: bool,
-    },
-    /// Answers one issue, with its comments: what the owner, its workers,
-    /// the watch and factorium said about it, each with who and when (ms).
-    Show { checkout: String, number: u64 },
-    /// Changes an issue's title or body.
-    Edit {
-        checkout: String,
-        number: u64,
-        #[arg(long)]
-        title: Option<String>,
-        #[arg(long)]
-        body: Option<String>,
-        /// Reads the body from this file; `-` reads stdin.
-        #[arg(long, conflicts_with = "body")]
-        body_file: Option<PathBuf>,
-    },
-    /// Closes an issue; a worker on it ends.
-    Close {
-        checkout: String,
-        number: u64,
-        #[arg(long, default_value = "closed by hand")]
-        reason: String,
-    },
-    /// Leaves an issue to a person, for a decision only a person can make:
-    /// only `issue ready` moves it again. A worker on it ends, keeping its
-    /// worktree.
-    WaitForHuman {
-        checkout: String,
-        number: u64,
-        #[arg(long)]
-        why: String,
-    },
-    /// Readies an issue that waits for a person.
-    Ready { checkout: String, number: u64 },
-    /// Starts an issue over: removes the worktree its last attempt kept, so
-    /// the next start begins from proving; the old branch is kept as
-    /// `<branch>-abandoned` and named in a comment with the why. Refused
-    /// while a worker is on it (leave it to a person first); ready or waiting for a person stays as it is.
-    StartOver {
-        checkout: String,
-        number: u64,
-        #[arg(long)]
-        why: String,
-    },
-    /// Adds a comment: it reaches the live worker on the issue at once
-    /// (typed at its session, or in its brief not yet handed; a waiting
-    /// worker's through its watch episode), and the next worker's brief
-    /// carries it.
-    Comment { checkout: String, number: u64, text: String },
-    /// Makes an issue wait for another, of its checkout or of another (`--undo`: stop).
-    Block {
-        checkout: String,
-        number: u64,
-        /// `N` of its checkout, `<checkout>#N` or `<checkout>#N@cut`, as for `issue add`.
-        #[arg(long, alias = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
-        by: Blocker,
-        #[arg(long)]
-        undo: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum KitCmd {
-    /// Answers the kit.
-    Show,
-    /// Sets the kit: `harness=command[@model]`, highest priority first.
-    /// An unknown harness is refused, naming those there are.
-    /// A command that is only a program (a path or a name) gets that
-    /// harness's stock arguments; one with arguments is taken as given.
-    Set { entries: Vec<String> },
-    /// Pins a checkout to one harness (`--harness`), or unpins it.
-    Pin {
-        checkout: String,
-        #[arg(long)]
-        harness: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum WorkerCmd {
-    /// Runs the repo's fast gate on your worktree, through the queue.
-    Gate,
-    /// Asks to land your branch. Then stop: you are told if it is red.
-    Done,
-    /// Hands you to the watch with what you need, kept as a comment on your
-    /// issue. Then stop.
-    Escalate { why: String },
-    /// Runs a heavy command once the machine has room, after those queued
-    /// before it, at a gate's priority. Exits with its exit code.
-    Exclusive {
-        /// Runs it at background priority instead: for work whose time no
-        /// gate compares (a mutation run), so gates get the CPU first.
-        #[arg(long)]
-        background: bool,
-        #[arg(trailing_var_arg = true, required = true)]
-        command: Vec<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum WatchCmd {
-    /// Answers the round running now and every open episode.
-    Next,
-    /// Ends the round with what you found and did.
-    Report {
-        #[arg(long)]
-        text: String,
-        /// What only the owner can do (spend money).
-        #[arg(long)]
-        human: Option<String>,
-    },
-    /// Sends a waiting worker back to work, told `--text`, kept as a comment
-    /// on its issue.
-    Restart {
-        worker: Uuid,
-        #[arg(long, default_value = "The watch looked at what stopped you; go on.")]
-        text: String,
-        /// First stops its running turn (a hung call), so it reads this now.
-        #[arg(long)]
-        now: bool,
-    },
-    /// Types a line at a worker, kept as a comment on its issue; answers
-    /// `submitted` (it started a turn) or `queued` (it waits behind the
-    /// worker's running turn).
-    Tell {
-        worker: Uuid,
-        text: String,
-        /// First stops its running turn (a hung call), so it reads this now.
-        #[arg(long)]
-        now: bool,
-    },
-}
 
 async fn run(cli: Cli, caller: Caller) -> Answer {
     let db = cli.db.unwrap_or_else(|| default_db(|name| std::env::var_os(name)));
-    let by = caller.by();
-    let worker_id = || caller.worker();
     let data = factorium::Data::of(&db).root().to_path_buf();
-    let app = App::open(&db, Arc::new(SystemClock), by, Arc::new(Machine::new(data)))?;
+    let app = App::open(&db, Arc::new(SystemClock), caller.by(), Arc::new(Machine::new(data)))?;
     match cli.command {
-        Top::Run => {
-            let stop = Arc::new(AtomicBool::new(false));
-            // SIGTERM (stop, launchd) and SIGINT end it in order, not mid-write:
-            // the handlers are in place before its first tick.
-            use tokio::signal::unix::{SignalKind, signal};
-            let fail = |e: std::io::Error| Refusal::new("io", e.to_string());
-            let (mut term, mut int) =
-                (signal(SignalKind::terminate()).map_err(fail)?, signal(SignalKind::interrupt()).map_err(fail)?);
-            let flag = stop.clone();
-            tokio::spawn(async move {
-                tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
-                flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            });
-            app.run(&stop).await
-        }
-        Top::Stop => app.stop().await,
-        Top::Service(s) => match s {
-            ServiceCmd::Install => app.service_install(),
-            ServiceCmd::Remove => app.service_remove(),
-            ServiceCmd::Show => app.service_show(),
-        },
-        Top::Checkout(c) => match c {
-            CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
-            CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
-            CheckoutCmd::List => app.checkout_list().await,
-        },
-        Top::Issue(i) => match i {
-            IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by } => {
-                let body = body_text(body, body_file)?.unwrap_or_default();
-                app.issue_add(&checkout, &title, &body, waiting_for_human, &blocked_by).await
-            }
-            IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
-            IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
-            IssueCmd::Edit { checkout, number, title, body, body_file } => {
-                let body = body_text(body, body_file)?;
-                app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
-            }
-            IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
-            IssueCmd::WaitForHuman { checkout, number, why } => app.issue_wait_for_human(&checkout, number, &why).await,
-            IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
-            IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
-            IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
-            IssueCmd::Block { checkout, number, by, undo } => app.issue_block(&checkout, number, by, undo).await,
-        },
-        Top::Workers { all } => app.workers(all).await,
-        Top::Outbox { worker } => app.outbox_of(worker).await,
-        Top::Doctor => app.doctor().await,
-        Top::Promote { checkout } => app.promote(&checkout).await,
-        Top::Cut { checkout } => app.cut(&checkout).await,
-        Top::Unqueue { entry } => app.unqueue(entry).await,
-        Top::Hold { checkout, why, release } => app.hold(&checkout, if release { None } else { why.as_deref() }).await,
-        Top::Kit(k) => match k {
-            KitCmd::Show => app.kit().await,
-            KitCmd::Set { entries } => app.kit_set(&entries).await,
-            KitCmd::Pin { checkout, harness } => app.kit_pin(&checkout, harness.as_deref()).await,
-        },
-        Top::Accounts => app.accounts().await,
-        Top::Settings { name, value } => app.settings_set(name.as_deref(), value).await,
-        Top::Worker(w) => match w {
-            WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
-            WorkerCmd::Done => app.worker_done(worker_id()?).await,
-            WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
-            WorkerCmd::Exclusive { background, command } => {
-                let dir = std::env::current_dir().map_err(|e| Refusal::new("io", e.to_string()))?;
-                let line = command.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ");
-                if background {
-                    app.worker_exclusive_background(worker_id().ok(), &dir, &line).await
-                } else {
-                    app.worker_exclusive(worker_id().ok(), &dir, &line).await
-                }
-            }
-        },
-        Top::Watch(w) => match w {
-            WatchCmd::Next => app.watch_next().await,
-            WatchCmd::Report { text, human } => app.watch_report(&text, human.as_deref()).await,
-            WatchCmd::Restart { worker, text, now } => app.watch_restart(worker, &text, now).await,
-            WatchCmd::Tell { worker, text, now } => app.watch_tell(worker, &text, now).await,
-        },
-        Top::Guard { .. } => unreachable!("answered before the database opens"),
+        Top::Run => app.run(&*stopped_by_signals()?).await,
+        command => command.answer(&app, &caller).await,
     }
 }
 
-/// The body given by `--body`, or read as UTF-8 text from `--body-file`
-/// (`-` is stdin), as is.
-fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<String>, Refusal> {
-    let Some(file) = file else { return Ok(body) };
-    let bytes = if file.as_os_str() == "-" {
-        let mut b = Vec::new();
-        std::io::stdin().read_to_end(&mut b).map(|_| b)
-    } else {
-        std::fs::read(&file)
-    };
-    let bytes = bytes.map_err(|e| Refusal::new("io", format!("{}: {e}", file.display())))?;
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| Refusal::new("not_utf8", format!("{} is not UTF-8 text", file.display())))
-}
-
-/// `s` as one word of the line `worker exclusive` runs: bare where a shell
-/// reads it as it is, so the queue shows the command as it was typed.
-fn shell_word(s: &str) -> String {
-    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-=:,@+".contains(c)) {
-        s.into()
-    } else {
-        factorium_harness::quoted(s)
-    }
+/// A flag set when SIGTERM (stop, launchd) or SIGINT arrives, so the daemon
+/// ends in order, not mid-write: the handlers are in place before its first
+/// tick.
+fn stopped_by_signals() -> Answer<Arc<AtomicBool>> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let fail = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let (mut term, mut int) =
+        (signal(SignalKind::terminate()).map_err(fail)?, signal(SignalKind::interrupt()).map_err(fail)?);
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    tokio::spawn(async move {
+        tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    Ok(stop)
 }
 
 fn main() -> ExitCode {
