@@ -144,12 +144,14 @@ async fn red_idle_work_is_a_finding_and_opens_an_episode() {
 async fn idle_work_past_its_limit_ends_red_with_its_tail() {
     let w = World::new();
     let dir = w.dir.join("long");
-    declares(&w, &[format!("echo still mutating; {}", w.holds(&dir))], 3600, 1).await;
+    // Idle work runs at background priority, which a busy host starves:
+    // the limit leaves it time to start.
+    declares(&w, &[format!("echo still mutating; {}", w.holds(&dir))], 3600, 5).await;
     w.tick().await;
     let run = ended(&w).await;
     assert_eq!(run["green"], false, "{run}");
     let tail = run["tail"].as_str().unwrap();
-    assert!(tail.contains("past its limit of 1s") && tail.contains("still mutating"), "{tail}");
+    assert!(tail.contains("past its limit of 5s") && tail.contains("still mutating"), "{tail}");
     assert!(w.finding(&format!("idle:web:{}", w.remote_tip("web", "main"))).await.is_some());
 }
 
