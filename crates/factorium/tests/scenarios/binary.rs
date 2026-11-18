@@ -381,7 +381,7 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(dir.0.join("stubs/ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut daemon = bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + crate::queue::STUCK;
     while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
         if gone.is_some() || std::time::Instant::now() > deadline {
@@ -401,11 +401,11 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
 /// Waits (a bounded while) for a daemon sent SIGTERM or SIGINT: it exits 0,
 /// as a normal return from main, and its pid file is gone.
 fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::Output {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + crate::queue::STUCK;
     while daemon.try_wait().unwrap().is_none() {
         if std::time::Instant::now() > deadline {
             let _ = daemon.kill();
-            panic!("the daemon did not end within 10s of its signal");
+            panic!("the daemon did not end after its signal");
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
@@ -423,7 +423,7 @@ fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
     assert!(run(&dir, &["settings", "tick_every", "600"]).0);
     let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let pid = dir.0.join("data/factorium/daemon.pid");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + crate::queue::STUCK;
     while !pid.exists() {
         if daemon.try_wait().unwrap().is_some() || std::time::Instant::now() > deadline {
             let _ = daemon.kill();
