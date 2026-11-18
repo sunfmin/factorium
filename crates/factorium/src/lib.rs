@@ -26,7 +26,7 @@ use factorium_domain::settings::{HostSettings, Settings, settings_id};
 use factorium_domain::tracker::{Rows, TRACKER};
 use factorium_domain::{checkout::Checkouts, checkout_id};
 use factorium_host::{Git, Host};
-use factum::{Aggregate, By, Clock, Command, Engine, StreamId, Submission, Uuid, Value};
+use factum::{Aggregate, By, Clock, Command, Engine, Model, StreamId, Submission, Uuid, Value};
 use factum_sqlite::SqliteStore;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -82,6 +82,76 @@ pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
     data.join("factorium").join("factorium.db")
 }
 
+/// Every aggregate, command and projection the engine runs: a new domain
+/// command is registered here, beside the engine (docs/adr/0001).
+fn model() -> Model {
+    use factorium_domain::{
+        checkout, daemon, gate, health, heavy, idle, issue, kit, line, outbox, settings, tracker, watch, worker,
+    };
+    Model::new()
+        .aggregate::<checkout::Checkouts>()
+        .command::<checkout::AddCheckout>()
+        .command::<checkout::RemoveCheckout>()
+        .aggregate::<issue::Issues>()
+        .command::<issue::OpenIssue>()
+        .command::<issue::EditIssue>()
+        .command::<issue::BlockIssue>()
+        .command::<issue::UnblockIssue>()
+        .command::<issue::BlockIssueAcross>()
+        .command::<issue::UnblockIssueAcross>()
+        .command::<issue::WaitForHuman>()
+        .command::<issue::ReadyIssue>()
+        .command::<issue::CloseIssue>()
+        .command::<issue::TakeIssue>()
+        .command::<issue::ReleaseIssue>()
+        .command::<issue::CommentIssue>()
+        .aggregate::<worker::Workers>()
+        .command::<worker::StartWorker>()
+        .command::<worker::AskLanding>()
+        .command::<worker::RedLanding>()
+        .command::<worker::GreenLanding>()
+        .command::<worker::Wait>()
+        .command::<worker::Resume>()
+        .command::<worker::Hear>()
+        .command::<worker::EndWorker>()
+        .command::<worker::NoteClosed>()
+        .command::<health::Observe>()
+        .aggregate::<gate::Gates>()
+        .command::<gate::RecordGate>()
+        .aggregate::<line::Lines>()
+        .command::<line::RecordLanding>()
+        .command::<line::Promote>()
+        .command::<line::RecordCut>()
+        .command::<line::HoldLandings>()
+        .aggregate::<kit::Kits>()
+        .command::<kit::SetTheKit>()
+        .command::<kit::PinCheckout>()
+        .command::<kit::LimitAccount>()
+        .aggregate::<settings::HostSettings>()
+        .command::<settings::SetSetting>()
+        .aggregate::<idle::Idles>()
+        .command::<idle::RecordIdle>()
+        .aggregate::<heavy::Heavy>()
+        .command::<heavy::EnqueueHeavy>()
+        .command::<heavy::StartHeavy>()
+        .command::<heavy::EndHeavy>()
+        .command::<heavy::NoteRules>()
+        .aggregate::<daemon::Daemons>()
+        .command::<daemon::StartDaemon>()
+        .command::<daemon::NoteTick>()
+        .aggregate::<watch::Watches>()
+        .command::<watch::StartWatch>()
+        .command::<watch::EndWatch>()
+        .command::<watch::LookNow>()
+        .command::<watch::FileReport>()
+        .command::<watch::NoteAdmission>()
+        .command::<watch::SeeHuman>()
+        .aggregate::<outbox::Outboxes>()
+        .command::<outbox::GiveMessage>()
+        .command::<outbox::TryMessage>()
+        .projection(tracker::Tracker)
+}
+
 /// What the daemon keeps between ticks and nowhere else: which of its heavy
 /// jobs wait in the queue, and which this tick asked for.
 #[derive(Default)]
@@ -121,7 +191,7 @@ impl App {
             .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
-        let engine = Engine::new(Arc::new(store), Arc::new(owner::model()), clock.clone(), by);
+        let engine = Engine::new(Arc::new(store), Arc::new(model()), clock.clone(), by);
         Ok(App {
             engine,
             clock,

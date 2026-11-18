@@ -3,86 +3,21 @@
 
 use std::path::Path;
 
-use factorium_domain::checkout::{Add, AddCheckout, Checkouts, Named, RemoveCheckout};
-use factorium_domain::idle::{Idles, RecordIdle, idle_id};
+use factorium_domain::checkout::{Add, AddCheckout, Named, RemoveCheckout};
+use factorium_domain::idle::{Idles, idle_id};
 use factorium_domain::issue::*;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
-use factorium_domain::settings::{HostSettings, Set, SetSetting, Setting};
-use factorium_domain::tracker::{self, Tracker, shown};
-use factorium_domain::{daemon, doctor, gate, health, heavy, line, outbox, watch, worker};
+use factorium_domain::settings::{Set, SetSetting, Setting};
+use factorium_domain::tracker::{self, shown};
+use factorium_domain::{daemon, doctor, heavy, watch, worker};
 use factorium_domain::{issue_id, line_id};
 use factorium_harness::Harness;
-use factum::{Model, Uuid, Value};
+use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::life::End;
 use crate::{Answer, App, Refusal};
-
-pub(crate) fn model() -> Model {
-    Model::new()
-        .aggregate::<Checkouts>()
-        .command::<AddCheckout>()
-        .command::<RemoveCheckout>()
-        .aggregate::<Issues>()
-        .command::<OpenIssue>()
-        .command::<EditIssue>()
-        .command::<BlockIssue>()
-        .command::<UnblockIssue>()
-        .command::<BlockIssueAcross>()
-        .command::<UnblockIssueAcross>()
-        .command::<WaitForHuman>()
-        .command::<ReadyIssue>()
-        .command::<CloseIssue>()
-        .command::<TakeIssue>()
-        .command::<ReleaseIssue>()
-        .command::<CommentIssue>()
-        .aggregate::<worker::Workers>()
-        .command::<worker::StartWorker>()
-        .command::<worker::AskLanding>()
-        .command::<worker::RedLanding>()
-        .command::<worker::GreenLanding>()
-        .command::<worker::Wait>()
-        .command::<worker::Resume>()
-        .command::<worker::Hear>()
-        .command::<worker::EndWorker>()
-        .command::<worker::NoteClosed>()
-        .command::<health::Observe>()
-        .aggregate::<gate::Gates>()
-        .command::<gate::RecordGate>()
-        .aggregate::<Lines>()
-        .command::<line::RecordLanding>()
-        .command::<line::Promote>()
-        .command::<line::RecordCut>()
-        .command::<HoldLandings>()
-        .aggregate::<Kits>()
-        .command::<SetTheKit>()
-        .command::<PinCheckout>()
-        .command::<LimitAccount>()
-        .aggregate::<HostSettings>()
-        .command::<SetSetting>()
-        .aggregate::<Idles>()
-        .command::<RecordIdle>()
-        .aggregate::<heavy::Heavy>()
-        .command::<heavy::EnqueueHeavy>()
-        .command::<heavy::StartHeavy>()
-        .command::<heavy::EndHeavy>()
-        .command::<heavy::NoteRules>()
-        .aggregate::<daemon::Daemons>()
-        .command::<daemon::StartDaemon>()
-        .command::<daemon::NoteTick>()
-        .aggregate::<watch::Watches>()
-        .command::<watch::StartWatch>()
-        .command::<watch::EndWatch>()
-        .command::<watch::LookNow>()
-        .command::<watch::FileReport>()
-        .command::<watch::NoteAdmission>()
-        .command::<watch::SeeHuman>()
-        .aggregate::<outbox::Outboxes>()
-        .command::<outbox::GiveMessage>()
-        .command::<outbox::TryMessage>()
-        .projection(Tracker)
-}
 
 impl App {
     // ---- checkouts ----
