@@ -418,7 +418,8 @@ async fn a_watch_briefed_with_older_rules_gets_the_running_binary_s_before_its_n
 /// The watch's terminal that runs: a closed one stays in Orca's fake.
 fn live_watch(w: &World) -> String {
     let t = w.host.orca.terminals.lock().unwrap();
-    let live: Vec<&String> = t.iter().filter(|(_, t)| t.title == "factorium watch" && t.alive).map(|(h, _)| h).collect();
+    let live: Vec<&String> =
+        t.iter().filter(|(_, t)| t.title == "factorium watch" && t.alive).map(|(h, _)| h).collect();
     assert_eq!(live.len(), 1, "one watch session runs");
     live[0].clone()
 }
