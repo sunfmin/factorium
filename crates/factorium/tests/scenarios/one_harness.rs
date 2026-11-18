@@ -436,24 +436,29 @@ async fn of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks() {
         assert_eq!(one, silent_with(&[("a", b), ("b", a)]).await, "the order the files are read in");
         one
     };
-    // An older session left open does not keep the one that started last busy.
-    assert!(both(&[(true, 1)], &[(true, 2), (false, 5)]).await, "the last start ended 55 min ago");
-    // Nor does an older one that ended make an open one idle.
-    assert!(!both(&[(true, 1), (false, 5)], &[(true, 2)]).await, "the last start is open");
-    // Of sessions on the same start, the end written last.
-    assert!(!both(&[(true, 2), (false, 5)], &[(true, 2), (false, 59)]).await, "it ended a minute ago");
-    // A session that names no start does not outrank one that does.
-    assert!(both(&[(false, 59)], &[(true, 2), (false, 5)]).await, "the one that names its start ended long ago");
-    // With no start named, the end written last.
-    assert!(!both(&[(false, 5)], &[(false, 59)]).await, "it ended a minute ago");
-    assert!(both(&[(false, 5)], &[(false, 6)]).await, "it ended 54 min ago");
+    at_once!(
+        // An older session left open does not keep the one that started last busy.
+        async { assert!(both(&[(true, 1)], &[(true, 2), (false, 5)]).await, "the last start ended 55 min ago") },
+        // Nor does an older one that ended make an open one idle.
+        async { assert!(!both(&[(true, 1), (false, 5)], &[(true, 2)]).await, "the last start is open") },
+        // Of sessions on the same start, the end written last.
+        async { assert!(!both(&[(true, 2), (false, 5)], &[(true, 2), (false, 59)]).await, "it ended a minute ago") },
+        // A session that names no start does not outrank one that does.
+        async {
+            let why = "the one that names its start ended long ago";
+            assert!(both(&[(false, 59)], &[(true, 2), (false, 5)]).await, "{why}")
+        },
+        // With no start named, the end written last.
+        async { assert!(!both(&[(false, 5)], &[(false, 59)]).await, "it ended a minute ago") },
+        async { assert!(both(&[(false, 5)], &[(false, 6)]).await, "it ended 54 min ago") },
+    );
 }
 
 #[tokio::test]
 async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
     // Year's end at 23:59, a leap day, the day after, a month's first: each
     // end at :47.
-    for end in [1_830_297_587_u64, 1_835_440_487, 1_835_481_647, 1_840_789_247] {
+    crate::each([1_830_297_587_u64, 1_835_440_487, 1_835_481_647, 1_840_789_247], |end| async move {
         let w = World::new();
         w.checkout("web").await;
         w.kit().await;
@@ -470,12 +475,12 @@ async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
         w.advance(1);
         w.tick().await;
         assert_eq!(worker(&w.app).await["status"], "waiting", "{end}: ended 30m13s ago");
-    }
+    });
 }
 
 #[tokio::test]
 async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer() {
-    for h in [Harness::ClaudeCode, Harness::Codex] {
+    crate::each([Harness::ClaudeCode, Harness::Codex], |h| async move {
         // Open in the role's directory 45 min, handed `brief`: whether it
         // keeps the worker from silence.
         let working = async |brief: &str| {
@@ -492,9 +497,10 @@ async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer
             w.tick().await;
             worker(&w.app).await["status"] == "working"
         };
-        assert!(working("web-1-1").await, "{}: its own brief", h.key());
-        assert!(!working("web-2-1").await, "{}: another worker's", h.key());
-    }
+        at_once!(async { assert!(working("web-1-1").await, "{}: its own brief", h.key()) }, async {
+            assert!(!working("web-2-1").await, "{}: another worker's", h.key())
+        },);
+    });
 }
 
 /// Claude Code's question quoted at its prompt, and Claude Code's dialog at
@@ -538,10 +544,12 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         w.tick().await.seen.first().map(|seen| seen["ended"].clone())
     };
     let quota = Some(serde_json::Value::from("quota"));
-    assert_eq!(ended(wrapped("limit", true)).await, quota, "wrapped at a word's end");
-    assert_eq!(ended(wrapped("Usage li", false)).await, quota, "wrapped within \"limit\"");
-    assert_eq!(ended(wrapped("quo", false)).await, quota, "wrapped within \"quota\"");
-    assert_eq!(ended(wrapped("13", false)).await, quota, "wrapped within the code");
     let other = r#"Error: 429 {"code":"1302","message":"Rate limit reached for requests"}"#;
-    assert_eq!(ended(vec![other[..30].into(), other[30..].into()]).await, None, "no quota");
+    at_once!(
+        async { assert_eq!(ended(wrapped("limit", true)).await, quota, "wrapped at a word's end") },
+        async { assert_eq!(ended(wrapped("Usage li", false)).await, quota, "wrapped within \"limit\"") },
+        async { assert_eq!(ended(wrapped("quo", false)).await, quota, "wrapped within \"quota\"") },
+        async { assert_eq!(ended(wrapped("13", false)).await, quota, "wrapped within the code") },
+        async { assert_eq!(ended(vec![other[..30].into(), other[30..].into()]).await, None, "no quota") },
+    );
 }

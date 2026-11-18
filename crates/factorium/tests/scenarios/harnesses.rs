@@ -35,7 +35,7 @@ pub fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str,
 #[tokio::test]
 async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_session_files() {
     assert!(Harness::all().len() >= 6, "every harness is listed");
-    for h in Harness::all() {
+    crate::each(Harness::all(), |h| async move {
         let (key, command) = (h.key(), format!("run-{}", h.key()));
         let w = World::new();
         w.checkout("web").await;
@@ -85,7 +85,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         w.tick().await;
         let wk = worker(&w.app).await;
         assert_eq!(wk["status"], "waiting", "{key}: its closed turn, past the bound, is silence: {wk}");
-    }
+    });
 }
 
 #[tokio::test]
@@ -134,7 +134,7 @@ async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, 
 
 #[tokio::test]
 async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_session_starts() {
-    for &h in Harness::all() {
+    crate::each(Harness::all(), |&h| async move {
         let key = h.key();
         let w = World::new();
         let repo = w.repo("web");
@@ -189,7 +189,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
                 assert!(!mine, "{key}: {} holds one session's:\n{text}", path.display());
             }
         }
-    }
+    });
 }
 
 /// What the harness crate offers, item by item: what factorium uses of it
@@ -269,8 +269,8 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
 /// kit names a model, so every part a start may hold is written.
 #[tokio::test]
 async fn each_harness_starts_as_it_is_written() {
-    let mut written = String::new();
-    for &h in Harness::all() {
+    let sections = crate::each(Harness::all(), |&h| async move {
+        let mut written = String::new();
         let key = h.key();
         let w = World::new();
         let repo = w.repo("web");
@@ -311,7 +311,9 @@ async fn each_harness_starts_as_it_is_written() {
             let to = from + written[from..].find(":<path>").unwrap();
             written.replace_range(at..to, "PATH=<bin>");
         }
-    }
+        written
+    });
+    let written = sections.concat();
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scenarios/starts.txt");
     if std::env::var_os("FACTORIUM_WRITE_STARTS").is_some() {
         std::fs::write(&file, &written).unwrap();

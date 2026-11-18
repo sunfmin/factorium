@@ -27,17 +27,24 @@ const ROOM: Reading = Reading { cpu_busy: 10, memory_free: 60, disk_free: 500 * 
 #[tokio::test]
 async fn each_admission_bound_has_room_at_its_value_and_none_past_it() {
     // The defaults: disk 20 GiB, cpu 75%, memory 15%, the workers 80%.
-    assert_eq!(held(Reading { disk_free: 20 * GIB, ..ROOM }, vec![]).await, None);
-    let disk = held(Reading { disk_free: 20 * GIB - 1, ..ROOM }, vec![]).await.unwrap();
-    assert_eq!(disk, "disk: 19 GiB free, under the floor of 20 GiB");
-    assert_eq!(held(Reading { cpu_busy: 75, ..ROOM }, vec![]).await, None);
-    assert_eq!(held(Reading { cpu_busy: 76, ..ROOM }, vec![]).await.unwrap(), "cpu: 76% busy, over 75%");
-    assert_eq!(held(Reading { memory_free: 15, ..ROOM }, vec![]).await, None);
-    assert_eq!(held(Reading { memory_free: 14, ..ROOM }, vec![]).await.unwrap(), "memory: 14% free, under 15%");
     let workers =
         |share: f64| vec![Proc { pid: 9, cpu: share * cores(), worker: Some("x".into()), ..Default::default() }];
-    assert_eq!(held(ROOM, workers(80.0)).await, None);
-    assert_eq!(held(ROOM, workers(81.0)).await.unwrap(), "workers: 81% of the CPU, over their 80%");
+    at_once!(
+        async { assert_eq!(held(Reading { disk_free: 20 * GIB, ..ROOM }, vec![]).await, None) },
+        async {
+            let disk = held(Reading { disk_free: 20 * GIB - 1, ..ROOM }, vec![]).await.unwrap();
+            assert_eq!(disk, "disk: 19 GiB free, under the floor of 20 GiB");
+        },
+        async { assert_eq!(held(Reading { cpu_busy: 75, ..ROOM }, vec![]).await, None) },
+        async { assert_eq!(held(Reading { cpu_busy: 76, ..ROOM }, vec![]).await.unwrap(), "cpu: 76% busy, over 75%") },
+        async { assert_eq!(held(Reading { memory_free: 15, ..ROOM }, vec![]).await, None) },
+        async {
+            let memory = held(Reading { memory_free: 14, ..ROOM }, vec![]).await.unwrap();
+            assert_eq!(memory, "memory: 14% free, under 15%");
+        },
+        async { assert_eq!(held(ROOM, workers(80.0)).await, None) },
+        async { assert_eq!(held(ROOM, workers(81.0)).await.unwrap(), "workers: 81% of the CPU, over their 80%") },
+    );
 }
 
 /// A build output in a landing worktree, as a gate leaves it.
@@ -85,19 +92,25 @@ fn proc(tag: &str, cpu: f64, rss_kib: u64) -> Proc {
 async fn a_worker_is_hot_only_past_each_of_its_shares() {
     // The defaults: 50% of the CPU, 16 GiB, 400 processes.
     let working = ("working".to_string(), String::new());
-    assert_eq!(after_holding(|t| vec![proc(&t, 50.0 * cores(), 10)]).await, working);
-    let (status, why) = after_holding(|t| vec![proc(&t, 51.0 * cores(), 10)]).await;
-    assert!(status == "waiting" && why.starts_with("hot: cpu 51% over its share of 50%"), "{why}");
-
     let gib16 = 16 << 20;
-    assert_eq!(after_holding(|t| vec![proc(&t, 1.0, gib16)]).await, working);
-    let (status, why) = after_holding(|t| vec![proc(&t, 1.0, 2 * gib16)]).await;
-    assert!(status == "waiting" && why.starts_with("hot: memory 32 GiB over 16 GiB"), "{why}");
-
     let many = |n: u64| move |t: String| (0..n).map(|i| Proc { pid: 1000 + i as u32, ..proc(&t, 0.0, 1) }).collect();
-    assert_eq!(after_holding(many(400)).await, working);
-    let (status, why) = after_holding(many(402)).await;
-    assert!(status == "waiting" && why.starts_with("hot: 402 processes, over 400"), "{why}");
+    at_once!(
+        async { assert_eq!(after_holding(|t| vec![proc(&t, 50.0 * cores(), 10)]).await, working) },
+        async {
+            let (status, why) = after_holding(|t| vec![proc(&t, 51.0 * cores(), 10)]).await;
+            assert!(status == "waiting" && why.starts_with("hot: cpu 51% over its share of 50%"), "{why}");
+        },
+        async { assert_eq!(after_holding(|t| vec![proc(&t, 1.0, gib16)]).await, working) },
+        async {
+            let (status, why) = after_holding(|t| vec![proc(&t, 1.0, 2 * gib16)]).await;
+            assert!(status == "waiting" && why.starts_with("hot: memory 32 GiB over 16 GiB"), "{why}");
+        },
+        async { assert_eq!(after_holding(many(400)).await, working) },
+        async {
+            let (status, why) = after_holding(many(402)).await;
+            assert!(status == "waiting" && why.starts_with("hot: 402 processes, over 400"), "{why}");
+        },
+    );
 }
 
 #[tokio::test]

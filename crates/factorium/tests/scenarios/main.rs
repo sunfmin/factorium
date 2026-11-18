@@ -5,6 +5,21 @@
 //! gives, so what the app makes of them runs as for real. Time moves when
 //! the scenario moves it.
 
+/// Runs each `async` block at once, each on a thread and runtime of its own,
+/// as [`each`] does.
+macro_rules! at_once {
+    ($($case:expr),+ $(,)?) => {
+        std::thread::scope(|s| {
+            let running = [$(s.spawn(|| $crate::block_on($case))),+];
+            for r in running {
+                if let Err(panic) = r.join() {
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        })
+    };
+}
+
 mod accounts;
 mod across;
 mod admission;
@@ -772,6 +787,26 @@ pub fn worktree(w: &Value) -> PathBuf {
 
 pub fn id(w: &Value) -> Uuid {
     w["worker"].as_str().unwrap().parse().unwrap()
+}
+
+/// Runs `case` for each of `inputs` at once, each on a thread and runtime of
+/// its own: a scenario that goes through several worlds takes as long as its
+/// slowest one, not their sum (factorium#98). Answers what each answered,
+/// in order; a case's panic is the scenario's.
+pub fn each<I: Send, T: Send, F: Future<Output = T>>(
+    inputs: impl IntoIterator<Item = I>,
+    case: impl Fn(I) -> F + Sync,
+) -> Vec<T> {
+    std::thread::scope(|s| {
+        let case = &case;
+        let running: Vec<_> = inputs.into_iter().map(|i| s.spawn(move || block_on(case(i)))).collect();
+        running.into_iter().map(|r| r.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    })
+}
+
+/// Runs `f` to its end on a runtime of its own, as a `#[tokio::test]` does.
+pub fn block_on<T>(f: impl Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
 }
 
 pub fn refused(answer: Answer, code: &str) {
