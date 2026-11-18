@@ -116,3 +116,36 @@ fn a_codex_turn_aborted_is_a_turn_ended() {
     );
     let _ = std::fs::remove_dir_all(&kept);
 }
+
+/// pi's turn ends at a reply that stops or errs; a reply that stops for a
+/// tool call, and the tool's result, leave it open (1_800_000_000 is 2027-01-15T08:00:00Z).
+#[test]
+fn a_pi_turn_ends_at_a_reply_that_stops_or_errs_not_at_a_tool_call() {
+    use serde_json::json;
+    let pi = Harness::read("pi").unwrap();
+    let kept = scratch("pi-replies");
+    let home = pi.home(&kept, None, &kept);
+    pi.write_session(&home, "/worktree", "brief", false, 1_800_000_000).unwrap();
+    assert_eq!(
+        pi.turn(&home, "/worktree", "brief"),
+        Some(Turn::Closed { since: 1_800_000_000, started: Some(1_800_000_000) })
+    );
+    let file = only_file(&kept);
+    let append = |role: &str, stop: Option<&str>, second: u32| {
+        let message = json!({"type": "message", "timestamp": format!("2027-01-15T08:00:{second:02}Z"),
+                             "message": {"role": role, "stopReason": stop}});
+        let session = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, format!("{session}{message}\n")).unwrap();
+    };
+
+    append("user", None, 10);
+    append("assistant", Some("toolUse"), 11);
+    append("toolResult", None, 11);
+    assert_eq!(pi.turn(&home, "/worktree", "brief"), Some(Turn::Open { since: 1_800_000_010 }));
+    append("assistant", Some("error"), 12);
+    assert_eq!(
+        pi.turn(&home, "/worktree", "brief"),
+        Some(Turn::Closed { since: 1_800_000_012, started: Some(1_800_000_010) })
+    );
+    let _ = std::fs::remove_dir_all(&kept);
+}
