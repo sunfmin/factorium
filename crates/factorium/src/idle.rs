@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::heavy::{Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, StartHeavy, queue_id};
+use factorium_domain::heavy::{End, EndHeavy, Heavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
-use factorium_domain::settings::{Settings, Time};
+use factorium_domain::settings::Settings;
 use factorium_host::Priority;
 use factum::{Clock, Uuid, Value};
 use serde_json::json;
@@ -134,21 +134,9 @@ impl App {
         let tip = git.fetch(&c.base).map_err(fail("git"))?;
         let Some(work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
         let here = git.fresh(&self.data().clone_of(LineClone::Idle, &c.name), &tip).map_err(fail("git"))?;
-        let (id, pid) = (Uuid::now_v7(), std::process::id());
-        let what = idle::job(&c.name);
-        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker: None, bound_at: None }).await?;
-        if let Err(r) = self
-            .submit::<StartHeavy>(Begin {
-                id,
-                room: Ok(()),
-                read_at: self.now(),
-                settle: settings.ms(Time::HeavySettle),
-                rules: self.rules.clone(),
-            })
-            .await
-        {
-            self.submit::<EndHeavy>(End { id }).await?;
-            return if r.code == "wait" { Ok(None) } else { Err(r) };
+        let id = Uuid::now_v7();
+        if !self.start_once(id, idle::job(&c.name), settings).await? {
+            return Ok(None);
         }
         let stop = Arc::new(AtomicBool::new(false));
         let (dir, flag, limit, clock) =

@@ -71,11 +71,13 @@ fn fail(code: &str) -> impl Fn(String) -> Refusal + '_ {
     move |m| Refusal::new(code, m)
 }
 
-/// Where the database lives when nothing says otherwise.
-pub fn default_db() -> PathBuf {
-    let data = std::env::var_os("XDG_DATA_HOME")
+/// Where the database lives when nothing says otherwise, as `var` reads the
+/// environment (`std::env::var_os`): under `XDG_DATA_HOME`, else under
+/// `HOME`'s `.local/share`, else in the working directory.
+pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let data = var("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .or_else(|| var("HOME").map(|h| PathBuf::from(h).join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("."));
     data.join("factorium").join("factorium.db")
 }
