@@ -246,8 +246,12 @@ enum WorkerCmd {
     /// issue. Then stop.
     Escalate { why: String },
     /// Runs a heavy command once the machine has room, after those queued
-    /// before it. Exits with its exit code.
+    /// before it, at a gate's priority. Exits with its exit code.
     Exclusive {
+        /// Runs it at background priority instead: for work whose time no
+        /// gate compares (a mutation run), so gates get the CPU first.
+        #[arg(long)]
+        background: bool,
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
@@ -356,10 +360,14 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
             WorkerCmd::Done => app.worker_done(worker_id()?).await,
             WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
-            WorkerCmd::Exclusive { command } => {
+            WorkerCmd::Exclusive { background, command } => {
                 let dir = std::env::current_dir().map_err(|e| Refusal::new("io", e.to_string()))?;
                 let line = command.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ");
-                app.worker_exclusive(worker_id().ok(), &dir, &line).await
+                if background {
+                    app.worker_exclusive_background(worker_id().ok(), &dir, &line).await
+                } else {
+                    app.worker_exclusive(worker_id().ok(), &dir, &line).await
+                }
             }
         },
         Top::Watch(w) => match w {

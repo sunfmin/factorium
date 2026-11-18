@@ -32,7 +32,7 @@ done
 
 heavy() {
   if [ -n "${FACTORIUM_WORKER:-}" ]; then
-    factorium worker exclusive -- "$@" >/dev/null
+    factorium worker exclusive --background -- "$@" >/dev/null
   else
     "$@"
   fi

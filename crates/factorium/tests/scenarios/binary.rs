@@ -372,6 +372,17 @@ fn exclusive_runs_its_words_as_given() {
 }
 
 #[test]
+fn exclusive_runs_at_a_gates_priority_unless_asked_for_background() {
+    let dir = Dir::new();
+    // The CLI runs at this process's nice value, as a gate would.
+    let nice = |op: &str| crate::priority::nice_is(op, crate::priority::own_nice());
+    let (ok, ran) = run(&dir, &["worker", "exclusive", "--", "sh", "-c", &nice("-eq")]);
+    assert!(ok && ran["ok"] == true, "at the gate's priority: {ran}");
+    let (ok, ran) = run(&dir, &["worker", "exclusive", "--background", "--", "sh", "-c", &nice("-gt")]);
+    assert!(ok && ran["ok"] == true, "below it: {ran}");
+}
+
+#[test]
 fn a_heavy_command_whose_process_died_holds_nothing_up() {
     let dir = Dir::new();
     // No reading ever has room: only a queue with nothing running starts one.
