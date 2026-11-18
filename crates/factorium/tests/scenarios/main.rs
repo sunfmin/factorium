@@ -477,8 +477,27 @@ fn template() -> &'static Path {
         git(&work, &["add", "."]).unwrap();
         git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
         git(&t, &["clone", "--quiet", "--bare", "work", "remote.git"]).unwrap();
+        git(&t, &["clone", "--quiet", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
         t
     })
+}
+
+/// Copies the tree at `from` to `to`, in-process: a scenario's repos are
+/// copies of the template's, made without a program per repo (factorium#98).
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        let kind = entry.file_type().unwrap();
+        if kind.is_dir() {
+            copy_tree(&src, &dst);
+        } else if kind.is_symlink() {
+            std::os::unix::fs::symlink(std::fs::read_link(&src).unwrap(), &dst).unwrap();
+        } else {
+            std::fs::copy(&src, &dst).unwrap();
+        }
+    }
 }
 
 pub struct World {
@@ -538,11 +557,15 @@ impl World {
     /// A clone of its own remote; answers its path.
     pub fn repo(&self, name: &str) -> PathBuf {
         let remote = self.dir.join("remotes").join(format!("{name}.git"));
-        std::fs::create_dir_all(remote.parent().unwrap()).unwrap();
-        let t = template().join("remote.git");
-        Command::new("cp").args(["-R", &t.to_string_lossy(), &remote.to_string_lossy()]).status().unwrap();
+        copy_tree(&template().join("remote.git"), &remote);
+        // The template's clone, its origin this remote: as `git clone` of it makes.
         let path = self.dir.join("repos").join(name);
-        self.git(&self.dir, &["clone", "--quiet", &remote.to_string_lossy(), &path.to_string_lossy()]).unwrap();
+        copy_tree(&template().join("clone"), &path);
+        let config = path.join(".git/config");
+        let was = template().join("remote.git").to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(&config).unwrap();
+        assert!(text.contains(&was), "the clone's origin is the template's remote: {text}");
+        std::fs::write(&config, text.replace(&was, &remote.to_string_lossy())).unwrap();
         path
     }
 
