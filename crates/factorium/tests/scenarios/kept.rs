@@ -28,21 +28,21 @@ impl Unreachable {
     }
 }
 
-/// `web` with issue 1 parked, its worker's worktree holding `own` commits
+/// `web` with issue 1 waiting for a human, its worker's worktree holding `own` commits
 /// of its own; answers that worktree.
-async fn parked(w: &World, own: bool) -> PathBuf {
+async fn waiting_for_human(w: &World, own: bool) -> PathBuf {
     let tree = worktree(&w.working(CLAUDE, "t").await);
     if own {
         w.commit(&tree, "kept.txt", "x");
     }
-    w.app.issue_park("web", 1, "later").await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
     tree
 }
 
 #[tokio::test]
 async fn a_start_with_the_proving_tip_unread_takes_nothing_and_resumes_once_it_reads() {
     let w = World::new();
-    let tree = parked(&w, true).await;
+    let tree = waiting_for_human(&w, true).await;
     w.app.issue_ready("web", 1).await.unwrap();
     let away = Unreachable::web(&w);
     let refused = w.app.tick().await.unwrap_err();
@@ -59,7 +59,7 @@ async fn a_start_with_the_proving_tip_unread_takes_nothing_and_resumes_once_it_r
 #[tokio::test]
 async fn a_start_that_failed_after_taking_the_issue_still_resumes_the_kept_worktree() {
     let w = World::new();
-    let tree = parked(&w, true).await;
+    let tree = waiting_for_human(&w, true).await;
     w.app.issue_ready("web", 1).await.unwrap();
     *w.host.orca.refuse_open.lock().unwrap() = true;
     assert!(w.app.tick().await.is_err(), "the session does not open");
@@ -81,7 +81,7 @@ async fn a_worker_that_ends_with_the_proving_tip_unread_keeps_its_worktree() {
 #[tokio::test]
 async fn starting_over_with_the_proving_tip_unread_discards_the_worktree_and_keeps_its_branch() {
     let w = World::new();
-    let tree = parked(&w, false).await;
+    let tree = waiting_for_human(&w, false).await;
     let away = Unreachable::web(&w);
     let over = w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
     assert_eq!(over["discarded"], json!(tree));

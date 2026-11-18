@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+# Tested only from the outermost layer (SPEC §6): no unit or doc tests of its own.
+[lib]
+test = false
+doctest = false
+
 [dependencies]
 factum-core.workspace = true
 serde.workspace = true

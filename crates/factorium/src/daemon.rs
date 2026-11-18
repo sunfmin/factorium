@@ -37,6 +37,9 @@ pub struct Tick {
     pub restart: Option<String>,
 }
 
+/// How soon a stop between ticks is seen.
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
 impl App {
     async fn listed(&self) -> Answer<Vec<Checkout>> {
         self.rows(tracker::listed()).await
@@ -79,7 +82,13 @@ impl App {
             let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
             let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
             let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
-            if let Some(seen) = self.worker_health(id, load, health::quiet(core_percent), &settings).await? {
+            // Its own entry waiting, or running alive within the hold bound: it is not silent.
+            let hold = settings.ms(Time::HoldBound);
+            let heavy = queue.entries.iter().any(|e| {
+                e.worker == Some(id) && self.host.alive(e.pid) && e.started_at.is_none_or(|t| self.now() - t <= hold)
+            });
+            let quiet = health::quiet(core_percent);
+            if let Some(seen) = self.worker_health(id, load, quiet, heavy, &settings).await? {
                 t.seen.push(seen);
             }
         }
@@ -217,11 +226,15 @@ impl App {
         let missing: Vec<String> = needed.into_iter().filter(|p| !self.host.programs().found(p)).collect();
         let path = std::env::var("PATH").unwrap_or_default();
         self.submit::<StartDaemon>(Start { path: path.clone(), missing: missing.clone() }).await?;
+        // Waiters of older binaries no longer start once this one runs.
+        self.note_rules().await?;
         Ok(json!({ "path": path, "missing": missing }))
     }
 
-    /// `factorium run`: ticks until stopped. One daemon runs: another that
-    /// is alive is refused.
+    /// `factorium run`: ticks until `stop` is set (on SIGTERM or SIGINT, as
+    /// `stop` and launchd send), then ends in order: the tick in progress
+    /// finishes, idle work ends, the pid file goes. One daemon runs: another
+    /// that is alive is refused.
     pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
         let pid = self.data().pid();
         if let Some(n) = self.daemon_pid()
@@ -258,7 +271,11 @@ impl App {
                 .await
                 .map(|s| s.ms(Time::TickEvery))
                 .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
-            tokio::time::sleep(std::time::Duration::from_millis(every as u64)).await;
+            // In slices, so a stop between ticks ends the wait.
+            let until = tokio::time::Instant::now() + std::time::Duration::from_millis(every as u64);
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) && tokio::time::Instant::now() < until {
+                tokio::time::sleep_until(until.min(tokio::time::Instant::now() + STOP_POLL)).await;
+            }
         }
         self.idle_end().await;
         let _ = std::fs::remove_file(&pid);

@@ -28,19 +28,19 @@ approval and an entry here.
 |---|---|---|
 | 1 | **Host** | The one machine and its one user account. One daemon (`factorium run`) and one SQLite database hold everything factorium knows of it. |
 | 2 | **Checkout** | A repo on the host's checkout list: its path, base branch, proving branch, and what the repo declares (§4). |
-| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, parked or closed. |
+| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed. |
 | 4 | **Worker** | One harness session working one issue in its own worktree, branched from the proving tip. It ends with `factorium worker done`, `factorium worker escalate`, or by failing. |
 | 5 | **Harness** | A coding agent program factorium starts: Claude Code, Codex, pi, DSH, Kimi Code, Grok. How each starts, where it keeps its session and which lines start and end a turn are its own module's to say. The session file is the turn. |
 | 6 | **Kit** | The harnesses this host can start now, in priority order, with their models. A worker starts on the first eligible one. |
 | 7 | **Account** | An engine subscription, kept in mytokens (`agent-account-<name>`): its usage windows and the limits it met. A worker starts on the account of its harness with the most left. A worker whose screen says its account is used up ends and its issue starts again; the account rests an hour, a fixed bound, not a setting. |
 | 8 | **Admission** | Whether one more worker may start now, from the host's readings alone: CPU busy share (less what runs in started heavy slots, the queue's to bound), free memory, the disk floor, factorium's own share caps, and the accounts' windows. No concurrency number. |
-| 9 | **Heavy command** | A command a worker runs through `factorium worker exclusive -- <cmd>`, and every gate run. One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest, and ends one that holds others up past the hold bound. A line move (promotion, cut) past its bound goes ahead of workers' waiting entries, taking the next free slot; a running entry is never cut short for it. |
+| 9 | **Heavy command** | A command a worker runs through `factorium worker exclusive -- <cmd>`, and every gate run. One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start (so the load a start brings is read before the next), and ends one that holds others up past the hold bound. Gates first: a gate (fast or slow, a worker's or the line's) runs at the priority factorium runs at; every other heavy command — a worker's `worker exclusive`, a cut, idle work — runs at background priority, its whole process tree (on macOS Darwin's background band, and a nice of 10 more), so the CPU goes to a gate before it. A line move (promotion, cut) past its bound goes ahead of workers' waiting entries, taking the next free slot; a running entry is never cut short for it. The rules are those of the newest version that asked (the daemon asks as it starts): a waiter of an older binary is refused, and execs the installed one, keeping its place. |
 | 10 | **Hot worker** | A worker whose processes take more than their share of CPU, memory, disk written, disk held or process creation, or that stalled holding build locks. Its evidence is taken at once; it is a finding for the watch. |
 | 11 | **Gate** | The repo's own fast and slow commands, each with its limit. A green run is recorded against the tree it ran on, so the same tree is never gated twice. |
 | 12 | **Landing** | A worker's `done`: its branch is merged onto the proving tip, the fast gate runs on the merge, and the proving branch is moved to it by a push that requires the tip it read. One landing per checkout at a time. Green closes the issue and ends the worker. |
 | 13 | **Promotion** | One at a time per checkout: the slow gate on the proving tip, then the base branch fast-forwarded to it by a push that requires the base it read. Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound. The checkout's local base follows: fast-forwarded to the promoted tip, and on every tick to origin's base as last fetched, never further — in the tree it is checked out in, if that tree is clean. One with commits of its own, or checked out over changes not committed, is never reset: it is left, and is a doctor finding naming the checkout and how far behind it is. |
 | 14 | **Cut** | A version made from the base branch when the checkout is idle, or once its oldest uncut landing has waited the cut bound less the hold bound, ahead of workers' heavy commands as a promotion is: set, push its own branch, gate, tag, publish, install. |
-| 15 | **Watch** | One resident agent session on the host. A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it. It acts with the operator's commands. |
+| 15 | **Watch** | One resident agent session on the host. A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it. It acts with the operator's commands. It works by the rules of the factorium that runs: its session records which rules (their hash) it was briefed with, and a look that finds them other than the running binary's — a cut installed a version that changed them — closes that session between rounds, never in one, and starts a fresh one briefed with the new rules before the next round. |
 | 16 | **Idle work** | What a checkout declares under `[idle]` (§5): steps too slow for any gate (a full mutation run), run in their own clone at the base's tip while the host is idle — no live worker works (each waits for the watch, or none lives), the heavy queue holds nothing, and the host has room — at most once per `every` (from the last run's start) and within `limit` for all the steps. It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick. A run that ends is recorded with its base tip and tail; past `limit` it ends red. A red run is a doctor finding, and so a watch episode, until a later run is green. One runs at a time on the host. |
 
 `doctor` is not a concept of its own: it is the findings computed from the
@@ -87,7 +87,7 @@ watch's look and the operator's view.
    the issue: its uncommitted changes are committed, its branch is kept as
    `<branch>-abandoned`, a comment names that branch and the why, and the
    worktree goes, so the next start is branched from the proving tip. The
-   issue stays ready or parked as it was.
+   issue stays ready or waiting for a human as it was.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
 
@@ -101,7 +101,7 @@ queue that starts nothing past `stall_bound` (or whose oldest waits past
 `hold_bound` and `stall_bound` more), a landing no gate runs for past
 `stall_bound`, the oldest unpromoted landing past `promotion_bound` with
 no promotion running, the oldest uncut promotion past `cut_bound` with no
-cut running. The watch fixes, restarts, re-briefs, parks or closes, and reports.
+cut running. The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
 which `doctor` shows.
 
@@ -129,9 +129,9 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/park/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive -- <cmd>` |
-| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it parks with `issue park`, releases a hold with `hold --release`) |
+| `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
 Every message to a session — a brief, a landing's red, a round, `watch
 tell` and `watch restart`, a comment — goes through that session's outbox,
@@ -246,15 +246,39 @@ depend on nothing else of factorium.
 - **Real harnesses.** Opt-in smoke tests per harness, run by hand.
 - **Every scenario is held to account by mutation**: break the rule it
   guards and it must fail.
-- **Bounds.** The whole gate runs in 60 seconds or less. No test sleeps;
-  time moves when a scenario moves it.
+- **Bounds.** The tests spend 200 seconds of CPU or less once built: the
+  user+sys time of the `cargo test` tree, which `gate.sh` reads from the
+  shell's `times`. No test sleeps; time moves when a scenario moves it.
+  CPU time, not wall time, because the bound must fail when the tests got
+  slower and pass the same code on the same host however busy it is.
+  Wall time does not: the suite took 24s idle and 75-193s at load 55-73 on
+  18 cores (factorium#103). CPU time held: 200s at load ~90 and 194s with
+  18 busy loops added (load ~110-134), against 195s and 158s of wall time.
+  Re-running when over a wall bound only helps while the load passes, and
+  scaling by the load average guesses at how much of the host the tests
+  got; CPU time is what they used. factorium#98 halved the suite: 26.5s to
+  13.0s of wall time and 210s to 138s of CPU (medians of 3, interleaved,
+  load 6-21). Nearly all of its CPU is git's processes, about 50 a
+  scenario, so a scenario's cost is the git it runs: git is run as its
+  binary, not macOS's `/usr/bin/git` shim, which more than doubled each
+  call; the scenarios' homes turn off git's auto maintenance; a world's
+  repos are copied in-process; a scenario of several worlds runs them at
+  once (`each`, `at_once!`), so it takes its slowest world's time, not
+  their sum; and the binary's tests run in the scenarios' binary, beside
+  them rather than after. The bound is about 1.5 times that 138s, so the
+  gain holds and a test that adds a minute of CPU fails it.
+  slimfit#13, not landed yet, fixes slimfit's `test_seconds` by dividing
+  by a measured load instead.
 - **slimfit holds the suite.** factorium's slow gate (`./slow.sh`) is
-  `./gate.sh` then `slimfit check` against the committed
+  `./checks.sh` (the line budgets of §5, fmt, clippy: what `./gate.sh`
+  runs before its tests) then `slimfit check` against the committed
   `.slimfit/baseline.json`: no failing test, no more uncovered lines than
   the baseline (code may grow, untested code may not), and the tests'
-  summed durations within the baseline's tolerance. The 60-second bound
-  and the line budgets (§5) stay in `gate.sh`: slimfit records line counts
-  but does not bound them, and its `test_seconds` is a sum, not wall time.
+  summed durations within the baseline's tolerance. The suite runs once
+  there, the instrumented run. The CPU bound is held in `gate.sh`, on the
+  uninstrumented run every landing passes before it reaches proving:
+  slimfit records line counts but does not bound them, and its
+  `test_seconds` sums the tests' durations, not the CPU they spend.
   A change that gains (fewer uncovered lines, faster tests) runs
   `slimfit ratchet` and commits the moved baseline with the code, in the
   same commit; a bound is raised only by `slimfit ratchet --loosen`, with

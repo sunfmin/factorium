@@ -31,7 +31,7 @@ pub(crate) fn model() -> Model {
         .command::<UnblockIssue>()
         .command::<BlockIssueAcross>()
         .command::<UnblockIssueAcross>()
-        .command::<ParkIssue>()
+        .command::<WaitForHuman>()
         .command::<ReadyIssue>()
         .command::<CloseIssue>()
         .command::<TakeIssue>()
@@ -67,6 +67,7 @@ pub(crate) fn model() -> Model {
         .command::<heavy::EnqueueHeavy>()
         .command::<heavy::StartHeavy>()
         .command::<heavy::EndHeavy>()
+        .command::<heavy::NoteRules>()
         .aggregate::<daemon::Daemons>()
         .command::<daemon::StartDaemon>()
         .command::<daemon::NoteTick>()
@@ -126,7 +127,7 @@ impl App {
         checkout: &str,
         title: &str,
         body: &str,
-        parked: bool,
+        waiting_for_human: bool,
         blocked_by: &[Blocker],
     ) -> Answer {
         self.checkout(checkout).await?;
@@ -145,7 +146,7 @@ impl App {
                 number,
                 title: title.into(),
                 body: body.into(),
-                parked,
+                waiting_for_human,
                 blocked_by: here.clone(),
                 across: across.clone(),
             };
@@ -201,12 +202,13 @@ impl App {
         self.issue_show(checkout, number).await
     }
 
-    /// Parks an issue; a worker on it ends, keeping its worktree.
-    pub async fn issue_park(&self, checkout: &str, number: u64, reason: &str) -> Answer {
+    /// Leaves an issue to a person: only `issue ready` moves it again. A
+    /// worker on it ends, keeping its worktree.
+    pub async fn issue_wait_for_human(&self, checkout: &str, number: u64, reason: &str) -> Answer {
         let worker = self.issue(checkout, number).await?.worker;
-        self.submit::<ParkIssue>(Because { checkout: checkout.into(), number, reason: reason.into() }).await?;
+        self.submit::<WaitForHuman>(Because { checkout: checkout.into(), number, reason: reason.into() }).await?;
         if let Some(w) = worker {
-            self.end_worker(w, End::because(format!("its issue was parked: {reason}"), true)).await?;
+            self.end_worker(w, End::because(format!("its issue waits for a person: {reason}"), true)).await?;
         }
         self.issue_show(checkout, number).await
     }
@@ -215,7 +217,7 @@ impl App {
     /// is removed, so its next start begins from the proving tip. Nothing is
     /// lost: what was not committed there is committed, the branch is kept
     /// as `<branch>-abandoned`, and a comment names it with `why`. Refused
-    /// while a worker is on the issue; its state (ready or parked) stays.
+    /// while a worker is on the issue; its state (ready or waiting for a person) stays.
     pub async fn issue_start_over(&self, checkout: &str, number: u64, why: &str) -> Answer {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say why the issue starts over"));
@@ -225,7 +227,7 @@ impl App {
             return Err(Refusal::new(
                 "live_worker",
                 format!(
-                    "a worker is on {checkout}#{number}: park it first (factorium issue park {checkout} {number} …)"
+                    "a worker is on {checkout}#{number}: leave it to a person first (factorium issue wait-for-human {checkout} {number} --why …)"
                 ),
             ));
         }

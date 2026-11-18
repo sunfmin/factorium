@@ -2,8 +2,10 @@
 //! the machine — every gate run, and what a worker runs through
 //! `factorium worker exclusive`. The oldest waiting starts when the host
 //! has room, or when nothing runs, so it never starves; one start per
-//! reading; and one that holds others up past the hold bound is ended. A
-//! line move past its bound goes ahead of workers' waiting entries.
+//! reading settled after the last start; and one that holds others up past the hold bound is ended. A
+//! line move past its bound goes ahead of workers' waiting entries. The
+//! rules are those of the newest version that asked: a binary older than it
+//! is refused, however long it has waited (factorium#106).
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
 
@@ -16,6 +18,15 @@ use crate::{command, id, no};
 
 pub fn queue_id() -> Uuid {
     id("heavy")
+}
+
+/// The version of the rules this binary asks under: its own, which a cut sets.
+pub const RULES: &str = env!("CARGO_PKG_VERSION");
+
+/// Whether rules `a` are older than rules `b`: versions compared part by part.
+pub fn older(a: &str, b: &str) -> bool {
+    let parts = |v: &str| v.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    parts(a) < parts(b)
 }
 
 /// A proving line's heavy command. Its name is made here alone: the binary
@@ -57,6 +68,9 @@ pub struct Queue {
     pub entries: Vec<Entry>,
     /// When the last one started: one start per reading.
     pub last_start: i64,
+    /// The newest rules that asked: older ones may not start.
+    #[serde(default)]
+    pub rules: String,
 }
 
 impl Queued for Entry {
@@ -106,10 +120,18 @@ impl Queue {
         self.running().any(|e| e.what == what)
     }
 
-    /// Whether `id` may start at `now`, given whether the host has room and
-    /// when the reading was taken; else why not.
-    pub fn may_start(&self, id: Uuid, room: Result<(), String>, read_at: i64, now: i64) -> Result<(), String> {
-        queue::may_start(&self.entries, self.last_start, id, room, read_at, now)
+    /// Whether `id` may start at `now`, given whether the host has room, when
+    /// the reading was taken, and how long a start takes to show; else why not.
+    pub fn may_start(
+        &self,
+        id: Uuid,
+        room: Result<(), String>,
+        read_at: i64,
+        settle: i64,
+        now: i64,
+    ) -> Result<(), String> {
+        let starts = queue::Starts { last: self.last_start, settle };
+        queue::may_start(&self.entries, starts, id, room, read_at, now)
     }
 
     /// Whether the running `id` holds others up past `bound` and must end.
@@ -137,6 +159,10 @@ pub enum HeavyEvent {
     HeavyEnded {
         id: Uuid,
     },
+    /// A binary with newer rules than any before asked.
+    HeavyRules {
+        version: String,
+    },
 }
 
 pub struct Heavy;
@@ -158,6 +184,7 @@ impl Aggregate for Heavy {
                 s.last_start = at;
             }
             HeavyEvent::HeavyEnded { id } => s.entries.retain(|e| e.id != id),
+            HeavyEvent::HeavyRules { version } => s.rules = version,
         }
     }
 }
@@ -192,12 +219,21 @@ pub struct Begin {
     pub id: Uuid,
     /// Whether the host had room, and why not.
     pub room: Result<(), String>,
-    /// When that reading was taken, ms.
+    /// When that reading was taken, ms: before the host was read.
     pub read_at: i64,
+    /// How long after the last start a reading shows its load, ms.
+    pub settle: i64,
+    /// The rules it asks under: [`RULES`] of the binary that asks.
+    #[serde(default)]
+    pub rules: String,
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
-    match s.may_start(p.id, p.room.clone(), p.read_at, now.0) {
+    if older(&p.rules, &s.rules) {
+        let why = format!("asks under the rules of {}, which {} replaced", p.rules, s.rules);
+        return no("stale", why);
+    }
+    match s.may_start(p.id, p.room.clone(), p.read_at, p.settle, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),
     }
@@ -211,6 +247,19 @@ pub struct End {
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(if s.entries.iter().any(|e| e.id == p.id) {
         vec![HeavyEvent::HeavyEnded { id: p.id }]
+    } else {
+        Vec::new()
+    })
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Rules {
+    pub version: String,
+}
+
+command!(NoteRules, "heavy.rules", Heavy, Rules, |_p| queue_id(), |s, p, _now| {
+    Ok::<_, factum_core::Rejection>(if older(&s.rules, &p.version) {
+        vec![HeavyEvent::HeavyRules { version: p.version.clone() }]
     } else {
         Vec::new()
     })

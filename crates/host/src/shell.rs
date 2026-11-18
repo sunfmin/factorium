@@ -20,21 +20,66 @@ pub struct Ran {
     pub timed_out: bool,
 }
 
+/// The CPU a command's whole process tree gets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Priority {
+    /// As any other process: a gate.
+    Normal,
+    /// Only what others leave: every heavy command that is not a gate, so
+    /// a gate running beside it is not slowed. Inherited by every process
+    /// it starts.
+    Background,
+}
+
+impl Priority {
+    /// The program and arguments that start `sh` at this priority.
+    fn launcher(self) -> &'static [&'static str] {
+        match self {
+            Priority::Normal => &[],
+            // Darwin's background band (lowest CPU, throttled disk), and
+            // a nice of 10 more, which leaves room below: a background
+            // command's own heavy commands go lower still.
+            Priority::Background if cfg!(target_os = "macos") => &["taskpolicy", "-b", "nice", "-n", "10"],
+            Priority::Background => &["nice", "-n", "10"],
+        }
+    }
+}
+
 /// How many of its last lines a run keeps.
 const TAIL_LINES: usize = 60;
 
-/// Runs `line` with `sh -c` in `dir`, with `env` added, ending it after
-/// `limit`. `stop` is asked every 100ms whether to end it early.
-pub fn run(dir: &Path, line: &str, env: &[(String, String)], limit: Duration, stop: &dyn Fn() -> bool) -> Ran {
+/// Runs `line` with `sh -c` in `dir` at `priority`, with `env` added,
+/// ending it after `limit`. `stop` is asked every 100ms whether to end it
+/// early.
+/// The heavy entry a waiter that execs the installed binary keeps: its own,
+/// never a step's.
+pub const PLACE: &str = "FACTORIUM_HEAVY_PLACE";
+
+pub fn run(
+    dir: &Path,
+    line: &str,
+    env: &[(String, String)],
+    limit: Duration,
+    priority: Priority,
+    stop: &dyn Fn() -> bool,
+) -> Ran {
     let started = Instant::now();
     let log = std::env::temp_dir().join(format!("factorium-run-{}-{:?}", std::process::id(), started));
     let file = match std::fs::File::create(&log) {
         Ok(f) => f,
         Err(e) => return failed(format!("cannot make {}: {e}", log.display())),
     };
-    let mut cmd = Command::new("sh");
+    let mut cmd = match priority.launcher() {
+        [] => Command::new("sh"),
+        [program, args @ ..] => {
+            let mut c = Command::new(program);
+            c.args(args).arg("sh");
+            c
+        }
+    };
     cmd.arg("-c").arg(format!("exec 2>&1; {line}")).current_dir(dir).stdin(Stdio::null());
     cmd.stdout(file).process_group(0);
+    cmd.env_remove(PLACE);
     for (k, v) in env {
         cmd.env(k, v);
     }

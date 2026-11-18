@@ -7,6 +7,22 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+
+/// The git program, found once: the binary in the exec path of the `git` on
+/// PATH. On macOS `/usr/bin/git` is a shim that looks Xcode's git up on every
+/// call, which more than doubled a call's time (6.7ms against 15.2ms,
+/// factorium#98); the exec path holds the binary it runs. `git` when there is
+/// none.
+fn binary() -> &'static Path {
+    static BINARY: OnceLock<PathBuf> = OnceLock::new();
+    BINARY.get_or_init(|| {
+        let out = Command::new("git").arg("--exec-path").stdin(Stdio::null()).output();
+        let dir =
+            out.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        dir.map(|d| Path::new(&d).join("git")).filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("git"))
+    })
+}
 
 #[derive(Clone, Debug)]
 pub struct Git {
@@ -27,26 +43,30 @@ impl Git {
 
     /// Runs git; its output trimmed, or its error.
     pub fn run(&self, args: &[&str]) -> Result<String, String> {
-        let mut git = Command::new("git");
-        // The host's own config is what its home holds.
-        git.env("HOME", &self.home).env_remove("XDG_CONFIG_HOME").env_remove("GIT_CONFIG_GLOBAL");
         // What factorium itself commits (a landing merge, a cut tag, the
         // watch's home) needs an identity; a host with none commits as factorium.
-        if matches!(args.first(), Some(&("commit" | "merge" | "tag"))) && !self.holds(&["config", "user.email"]) {
-            for v in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"] {
-                git.env(v, "factorium");
+        let as_factorium =
+            matches!(args.first(), Some(&("commit" | "merge" | "tag"))) && !self.holds(&["config", "user.email"]);
+        let output = |program: &Path| {
+            let mut git = Command::new(program);
+            // The host's own config is what its home holds.
+            git.env("HOME", &self.home).env_remove("XDG_CONFIG_HOME").env_remove("GIT_CONFIG_GLOBAL");
+            if as_factorium {
+                for v in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"] {
+                    git.env(v, "factorium");
+                }
+                for v in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] {
+                    git.env(v, "factorium@localhost");
+                }
             }
-            for v in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] {
-                git.env(v, "factorium@localhost");
-            }
+            git.args(args).current_dir(&self.dir).env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).output()
+        };
+        // A binary found once may be gone since (git upgraded): `git` on PATH then.
+        let out = match output(binary()) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => output(Path::new("git")),
+            out => out,
         }
-        let out = git
-            .args(args)
-            .current_dir(&self.dir)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
         let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if out.status.success() {
             Ok(said)

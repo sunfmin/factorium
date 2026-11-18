@@ -152,3 +152,12 @@ async fn idle_work_past_its_limit_ends_red_with_its_tail() {
     assert!(tail.contains("past its limit of 1s") && tail.contains("still mutating"), "{tail}");
     assert!(w.finding(&format!("idle:web:{}", w.remote_tip("web", "main"))).await.is_some());
 }
+
+#[tokio::test]
+async fn idle_work_runs_below_factoriums_priority() {
+    let w = World::new();
+    declares(&w, &[crate::priority::nice_is("-gt", crate::priority::own_nice())], 3600, 60).await;
+    w.tick().await;
+    let run = ended(&w).await;
+    assert_eq!(run["green"], true, "{run}");
+}

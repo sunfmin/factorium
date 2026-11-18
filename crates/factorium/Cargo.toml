@@ -6,6 +6,16 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+# Tested only from the outermost layer (SPEC §6): no unit or doc tests of its own.
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "factorium"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 factorium-domain.workspace = true
 factum.workspace = true
@@ -16,10 +26,12 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 clap.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
 toml = "0.8"
+# The scenarios raise their own open-files limit (`open_files_enough`).
+libc = "0.2"
 rusqlite = { version = "0.42", features = ["bundled"] }
 # A paused clock: a scenario waits on the daemon's ticks in no real time.
 tokio = { workspace = true, features = ["test-util"] }

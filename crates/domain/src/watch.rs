@@ -51,6 +51,10 @@ pub struct Watch {
     /// The account its session started on, if its harness takes one.
     #[serde(default)]
     pub account: Option<String>,
+    /// The hash of the rules its session was briefed with ([`Started::rules`]);
+    /// `None`: briefed before rules were recorded.
+    #[serde(default)]
+    pub rules: Option<String>,
     pub episodes: BTreeMap<String, Episode>,
     /// The round running now.
     pub round: Option<Round>,
@@ -83,6 +87,8 @@ pub enum WatchEvent {
         harness: String,
         #[serde(default)]
         account: Option<String>,
+        #[serde(default)]
+        rules: Option<String>,
     },
     /// Written before the outbox (#47); read and ignored.
     BriefHanded,
@@ -146,14 +152,14 @@ impl Aggregate for Watches {
 
     fn evolve(s: &mut Watch, event: WatchEvent) {
         match event {
-            WatchEvent::WatchStarted { terminal, harness, account } => {
+            WatchEvent::WatchStarted { terminal, harness, account, rules } => {
                 s.opened.push(terminal.clone());
                 let extra = s.opened.len().saturating_sub(KEPT);
                 s.opened.drain(..extra);
-                (s.terminal, s.harness, s.account) = (Some(terminal), Some(harness), account)
+                (s.terminal, s.harness, s.account, s.rules) = (Some(terminal), Some(harness), account, rules)
             }
             WatchEvent::BriefHanded | WatchEvent::RoundSent { .. } => {}
-            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account) = (None, None, None),
+            WatchEvent::WatchEnded => (s.terminal, s.harness, s.account, s.rules) = (None, None, None, None),
             WatchEvent::WatchCloseFailed { terminal, why } => {
                 s.unclosed.retain(|(t, _)| *t != terminal);
                 s.unclosed.push((terminal, why));
@@ -196,6 +202,10 @@ pub struct Started {
     pub terminal: String,
     pub harness: String,
     pub account: Option<String>,
+    /// The hash of the rules its brief was written from: a binary whose
+    /// rules hash otherwise restarts it between rounds.
+    #[serde(default)]
+    pub rules: Option<String>,
 }
 
 command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, now| {
@@ -203,6 +213,7 @@ command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, no
         terminal: p.terminal.clone(),
         harness: p.harness.clone(),
         account: p.account.clone(),
+        rules: p.rules.clone(),
     }])
 });
 
