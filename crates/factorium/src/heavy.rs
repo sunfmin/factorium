@@ -142,14 +142,10 @@ impl App {
     /// entry `id`; answers why not if it cannot.
     fn as_installed(&self, id: Uuid, stale: Refusal) -> Refusal {
         use std::os::unix::process::CommandExt;
-        let me = std::env::current_exe().and_then(|e| e.canonicalize());
-        let Some(link) = me.as_ref().ok().and_then(|me| self.host.brew().link_of(me).map(|l| (me, l))) else {
-            return stale;
-        };
-        let (me, link) = link;
-        if link.canonicalize().is_ok_and(|now| &now == me) {
-            return stale;
+        if self.memory.lock().unwrap().running.is_none() {
+            self.runs_as_this();
         }
+        let Some(link) = self.swapped() else { return stale };
         let e = std::process::Command::new(&link).args(std::env::args_os().skip(1)).env(PLACE, id.to_string()).exec();
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
     }

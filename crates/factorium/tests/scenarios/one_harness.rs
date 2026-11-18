@@ -123,6 +123,32 @@ async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_i
     assert_eq!(hook("git status --short").0, Some(0));
 }
 
+/// The guard a grok worker's kept config runs before a call, run as Grok runs
+/// a hook, by the built binary, on a call as Grok describes it: the tool and
+/// its input in camelCase and again in snake_case, or in only one of them.
+#[tokio::test]
+async fn a_grok_worker_s_kept_config_has_the_real_guard_refuse_its_push_as_grok_describes_it() {
+    let w = World::new();
+    let wk = w.working("grok=grok", "t").await;
+    let config: toml::Table =
+        std::fs::read_to_string(w.data().kept("grok").join("config.toml")).unwrap().parse().unwrap();
+    let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+    let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard grok"));
+    let guard = guard.expect("a guard before each call");
+    let both = |tool: &str, command: &str| {
+        let input = serde_json::json!({"command": command});
+        serde_json::json!({"hookEventName": "PreToolUse", "toolName": tool, "tool_name": tool,
+            "toolInput": input, "tool_input": input})
+    };
+    let (code, said) = run_guard(&wk, guard, both("run_terminal_command", "git push origin HEAD"));
+    assert_eq!(code, Some(2), "Grok blocks a call on 2: {said}");
+    assert!(said.contains("a worker does not push"), "{said}");
+    let snake = serde_json::json!({"tool_name": "run_terminal_command", "tool_input": {"command": "git push"}});
+    assert_eq!(run_guard(&wk, guard, snake).0, Some(2), "one spelling alone is the call");
+    assert_eq!(run_guard(&wk, guard, both("run_terminal_command", "git status --short")).0, Some(0));
+    assert_eq!(run_guard(&wk, guard, both("edit_file", "git push")).0, Some(0), "only the shell tool runs a line");
+}
+
 /// The config a kimi worker's home keeps, the host user's own Kimi config
 /// being `user`.
 async fn kimi_kept(user: &str) -> String {
@@ -529,7 +555,8 @@ async fn a_dialog_is_dismissed_only_where_its_own_harness_opened_it() {
 
 /// Z.ai's usage limit on a pi worker's screen ends it used up however the
 /// terminal wraps it: at a word's end, or within a word ("quo" / "ta",
-/// "usage li" / "mit"), with pi's footer below it. A screen of no quota does not.
+/// "usage li" / "mit"), with pi's footer below it, or on one line. A screen
+/// of no quota does not, nor the same body on another harness's screen.
 #[tokio::test]
 async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_within_one() {
     let line = r#"Error: 429 {"code":"1308","message":"Usage limit reached for 5 hour quota. Resets at 21:00"}"#;
@@ -537,12 +564,13 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         let cut = line.find(at).unwrap() + if before { 0 } else { at.len() };
         vec![line[..cut].to_string(), line[cut..].to_string(), "~/work (main)  0.0%/200k".to_string()]
     };
-    let ended = |screen: Vec<String>| async move {
+    let ended_on = |kit: &'static str, screen: Vec<String>| async move {
         let w = World::new();
-        let wk = w.working("pi=pi", "t").await;
+        let wk = w.working(kit, "t").await;
         w.set_screen(wk["terminal"].as_str().unwrap(), &screen.iter().map(String::as_str).collect::<Vec<_>>());
         w.tick().await.seen.first().map(|seen| seen["ended"].clone())
     };
+    let ended = |screen: Vec<String>| ended_on("pi=pi", screen);
     let quota = Some(serde_json::Value::from("quota"));
     let other = r#"Error: 429 {"code":"1302","message":"Rate limit reached for requests"}"#;
     at_once!(
@@ -551,5 +579,7 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
         async { assert_eq!(ended(wrapped("quo", false)).await, quota, "wrapped within \"quota\"") },
         async { assert_eq!(ended(wrapped("13", false)).await, quota, "wrapped within the code") },
         async { assert_eq!(ended(vec![other[..30].into(), other[30..].into()]).await, None, "no quota") },
+        async { assert_eq!(ended(vec![line.into()]).await, quota, "on one line") },
+        async { assert_eq!(ended_on("kimi=kimi", vec![line.into()]).await, None, "not kimi's quota") },
     );
 }

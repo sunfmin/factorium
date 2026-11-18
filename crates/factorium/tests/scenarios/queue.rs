@@ -444,6 +444,7 @@ async fn with_nothing_running_the_oldest_starts_at_once_however_recent_the_last_
 /// Seen 2026-11-18 (factorium#106): two `worker exclusive` of binaries older
 /// than the one installed started 3 ms apart beside a running entry, under
 /// the rules they were built with, which lacked #102's one start per reading.
+/// Refused, a waiter execs the binary Homebrew links now in its place.
 #[tokio::test]
 async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     let w = World::new();
@@ -452,6 +453,15 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     // No room beside what runs: both wait.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let (b, o, n) = (w.run(), w.run().under_rules("1.0.0"), w.run().under_rules("1.0.1"));
+    // The old one runs as Homebrew's 0.0.9; Homebrew links a newer one since.
+    let link = w.running_as(&o, "factorium");
+    let newer_keg = w.dir.join("brew/Cellar/factorium/0.1.0/bin");
+    std::fs::create_dir_all(&newer_keg).unwrap();
+    std::fs::write(newer_keg.join("factorium"), "a binary that may not be run").unwrap();
+    std::fs::remove_file(w.dir.join("brew/opt/factorium")).unwrap();
+    std::os::unix::fs::symlink(newer_keg.parent().unwrap(), w.dir.join("brew/opt/factorium")).unwrap();
+    // As the waiter finds its link once refused: after the upgrade.
+    o.runs_as(&w.dir.join("brew/Cellar/factorium/0.0.9/bin/factorium").canonicalize().unwrap());
     let runs = async {
         let held = b.worker_exclusive(None, &w.dir, &lines[0]);
         let waits = async {
@@ -492,5 +502,7 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     assert_eq!(newer.unwrap()["ok"], true);
     let refused = older.expect_err("refused under replaced rules");
     assert_eq!(refused.code, "stale", "{refused}");
+    let exec = format!("and exec {}: Permission denied", link.display());
+    assert!(refused.message.contains(&exec), "it execs the binary Homebrew links now: {refused}");
     assert!(heavy(&w).await.is_empty(), "the refused waiter left the queue");
 }

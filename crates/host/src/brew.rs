@@ -49,12 +49,13 @@ impl Brew<'_> {
 
     /// Where Homebrew links the program `me` (a path canonical, as
     /// `<cellar>/<formula>/<version>/bin/<name>`), if Homebrew installed
-    /// it: the opt link, which follows whichever version is installed.
+    /// it: the opt link, which follows whichever version is installed, `me`'s
+    /// or a newer one.
     pub fn link_of(&self, me: &Path) -> Option<PathBuf> {
-        let formula = me.parent()?.parent()?.parent()?.file_name()?.to_str()?;
-        let prefix = self.brew(&["--prefix", formula]).ok()?;
+        let kegs = me.parent()?.parent()?.parent()?;
+        let prefix = self.brew(&["--prefix", kegs.file_name()?.to_str()?]).ok()?;
         let bin = Path::new(prefix.trim()).join("bin").join(me.file_name()?);
-        (bin.canonicalize().ok()? == me).then_some(bin)
+        (bin.canonicalize().ok()?.parent()?.parent()?.parent()? == kegs).then_some(bin)
     }
 }
 
