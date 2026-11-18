@@ -174,3 +174,21 @@ async fn idle_work_runs_below_factoriums_priority() {
     let run = ended(&w).await;
     assert_eq!(run["green"], true, "{run}");
 }
+
+/// Idle work asks the heavy queue once. Refused, its entry leaves the queue
+/// again, so it holds nothing up: it waits behind what runs, and gives up
+/// under rules a newer binary replaced.
+#[tokio::test]
+async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
+    let w = World::new();
+    let s = factorium_domain::settings::Settings::default();
+    let idle = || w.app.start_once(factum::Uuid::now_v7(), "idle work of web".into(), &s);
+    assert!(w.app.start_once(factum::Uuid::now_v7(), "running".into(), &s).await.unwrap());
+    assert!(!idle().await.unwrap(), "it waits behind what runs");
+    assert_eq!(heavy(&w).await, ["running"]);
+    // A newer binary's daemon starts: its rules replace this one's.
+    w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+    let refused = idle().await.expect_err("refused under replaced rules");
+    assert_eq!(refused.code, "stale", "{refused}");
+    assert_eq!(heavy(&w).await, ["running"]);
+}

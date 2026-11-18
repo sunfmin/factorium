@@ -14,7 +14,7 @@ use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{
     Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, Rules, StartHeavy, older, queue_id,
 };
-use factorium_domain::settings::Time;
+use factorium_domain::settings::{Settings, Time};
 use factorium_host::{PLACE, Priority, Proc, Ran, run};
 use factum::Uuid;
 
@@ -146,6 +146,30 @@ impl App {
         let Some(link) = self.swapped() else { return stale };
         let e = std::process::Command::new(&link).args(std::env::args_os().skip(1)).env(PLACE, id.to_string()).exec();
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
+    }
+
+    /// Queues `id` as `what`, held by no worker, and asks once to start it,
+    /// with room on the host as its caller read it. Refused, it is taken off
+    /// the queue again, so it never holds others up: `false` when it must
+    /// wait, the refusal otherwise (`stale`: a newer binary's rules replaced
+    /// this one's). The daemon's idle work starts so.
+    pub async fn start_once(&self, id: Uuid, what: String, settings: &Settings) -> Answer<bool> {
+        let pid = std::process::id();
+        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker: None, bound_at: None }).await?;
+        let begin = Begin {
+            id,
+            room: Ok(()),
+            read_at: self.now(),
+            settle: settings.ms(Time::HeavySettle),
+            rules: self.rules.clone(),
+        };
+        match self.submit::<StartHeavy>(begin).await {
+            Ok(()) => Ok(true),
+            Err(r) => {
+                self.submit::<EndHeavy>(End { id }).await?;
+                if r.code == "wait" { Ok(false) } else { Err(r) }
+            }
+        }
     }
 
     /// Records that the rules this app asks under are the newest, if they are.
