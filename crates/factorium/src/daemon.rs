@@ -6,6 +6,7 @@ use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
+use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::issue::Status as IssueStatus;
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Move;
@@ -63,9 +64,16 @@ impl App {
         let settings = self.settings().await?;
         // Workers: their sessions, and their share of the host.
         let procs = self.host.processes();
+        let queue = self.state::<Heavy>(queue_id()).await?;
         for w in self.live_workers().await? {
             let id = w.worker;
-            let mine: Vec<_> = procs.iter().filter(|p| p.worker.as_deref() == Some(&id.to_string())).collect();
+            // What runs in its heavy slot is the queue's to bound, not its share's.
+            let slot = queue.entries.iter().filter(|e| e.worker == Some(id) && e.started_at.is_some());
+            let held = descendants(&procs, slot.map(|e| e.pid).collect());
+            let mine: Vec<_> = procs
+                .iter()
+                .filter(|p| p.worker.as_deref() == Some(&id.to_string()) && !held.contains(&p.pid))
+                .collect();
             let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
             let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
             let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
@@ -256,4 +264,15 @@ impl App {
         answer["watch_closed"] = json!(self.close_watch_session().await?);
         Ok(answer)
     }
+}
+
+/// `roots` and every process under them.
+fn descendants(procs: &[factorium_host::Proc], mut roots: Vec<u32>) -> std::collections::BTreeSet<u32> {
+    let mut all = std::collections::BTreeSet::new();
+    while let Some(pid) = roots.pop() {
+        if all.insert(pid) {
+            roots.extend(procs.iter().filter(|p| p.ppid == pid).map(|p| p.pid));
+        }
+    }
+    all
 }

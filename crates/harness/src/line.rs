@@ -34,6 +34,29 @@ impl Line {
         self
     }
 
+    /// Adds ` text`: a word of this tool's source, after a space.
+    pub(crate) fn arg(self, text: &'static str) -> Line {
+        self.fixed(" ").fixed(text)
+    }
+
+    /// Adds the flag `name` and `value`, one word.
+    pub(crate) fn flag(self, name: &'static str, value: &str) -> Line {
+        self.arg(name).fixed(" ").word(value)
+    }
+
+    /// Adds the flag `name` and `value`, where there is one.
+    pub(crate) fn flag_if(self, name: &'static str, value: Option<&str>) -> Line {
+        match value {
+            Some(value) => self.flag(name, value),
+            None => self,
+        }
+    }
+
+    /// Adds the variable `name` set to `value`, one word.
+    pub(crate) fn set(self, name: &'static str, value: &str) -> Line {
+        self.arg(name).fixed("=").word(value)
+    }
+
     /// Adds the number `n`: digits, which a shell reads as they are.
     fn number(mut self, n: u8) -> Line {
         self.text.push_str(&n.to_string());
@@ -59,12 +82,6 @@ impl Line {
     fn quoted_only(self) -> String {
         debug_assert!(!self.launched);
         self.text
-    }
-}
-
-impl Default for Line {
-    fn default() -> Line {
-        Line::new()
     }
 }
 

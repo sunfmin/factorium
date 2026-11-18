@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use serde::Deserializer;
+use serde::{Deserialize, Deserializer};
 
 use crate::line::Line;
 use crate::start::{Home, Kept, Launch, Start};
@@ -135,6 +135,33 @@ enum Call {
     /// It runs this shell line: the only kind a hook judges.
     Shell(String),
     Other,
+}
+
+/// One tool call as Claude Code describes it to a hook before making it, and
+/// Codex and Kimi Code after it: the tool's name, and its input's `command`.
+#[derive(Deserialize)]
+struct Described {
+    tool_name: String,
+    #[serde(default)]
+    tool_input: Input,
+}
+
+#[derive(Default, Deserialize)]
+struct Input {
+    /// The shell line, when the tool runs one (of Codex's `apply_patch`, the
+    /// patch).
+    #[serde(default)]
+    command: Option<String>,
+}
+
+/// The tool call `described` to a hook in Claude Code's form, as the guard
+/// judges one: a shell call when the tool is `shell_tool`.
+fn tool_call<'de, D: Deserializer<'de>>(described: D, shell_tool: &str) -> Result<Call, D::Error> {
+    let described = Described::deserialize(described)?;
+    Ok(match described.tool_input.command {
+        Some(line) if described.tool_name == shell_tool => Call::Shell(line),
+        _ => Call::Other,
+    })
 }
 
 /// A file or directory of the host user's that a kept directory links to.
@@ -337,11 +364,11 @@ fn launch<K: Kind>(start: &Start) -> Result<Launch, String> {
     kept.extend(files.into_iter().map(|(path, text)| Kept::File { path: home.join(path), text }));
     let mut line = Line::new().fixed("cd ").word(K::start_dir(start)).fixed(" && export");
     for variable in K::ENVIRONMENT {
-        line = line.fixed(" ").fixed(variable).fixed("=1");
+        line = line.arg(variable).fixed("=1");
     }
     let mut line = K::environment(line, start);
     for (name, value) in &start.env {
-        line = line.fixed(" ").fixed(name).fixed("=").word(value);
+        line = line.set(name, value);
     }
     let line = K::added(line.fixed(" && ").launch(&command::<K>(start.command)), start).done();
     let (line, typed) = K::briefed(line, start.brief);
@@ -357,6 +384,6 @@ fn command<K: Kind>(given: &str) -> String {
     if K::STOCK_ARGUMENTS.is_empty() || given.contains(char::is_whitespace) {
         given.to_string()
     } else {
-        Line::new().launch(given).fixed(" ").fixed(K::STOCK_ARGUMENTS).done()
+        Line::new().launch(given).arg(K::STOCK_ARGUMENTS).done()
     }
 }

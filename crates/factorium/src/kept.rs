@@ -62,8 +62,8 @@ impl App {
             return Ok(Next { path: PathBuf::from(st.worktree), branch: st.branch, resumed: Some(resumed) });
         }
         let branch = format!("factorium/{name}");
-        let made = self.host.orca().worktree(Path::new(&c.path), name, &branch, tip).map_err(fail("orca"))?;
-        Ok(Next { path: made.path, branch: made.branch, resumed: None })
+        let path = self.host.orca().worktree(Path::new(&c.path), name, &branch, tip).map_err(fail("orca"))?;
+        Ok(Next { path, branch, resumed: None })
     }
 
     /// Frees an ended worker's worktree: it goes if `remove` and it holds

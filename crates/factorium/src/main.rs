@@ -43,8 +43,6 @@ enum Top {
     /// The daemon as a launchd agent, kept running and restarted when it exits.
     #[command(subcommand)]
     Service(ServiceCmd),
-    /// Runs one pass of the daemon and answers what it did.
-    Tick,
     /// The repos on the list.
     #[command(subcommand)]
     Checkout(CheckoutCmd),
@@ -275,10 +273,6 @@ enum WatchCmd {
         #[arg(long)]
         now: bool,
     },
-    /// Looks now: findings to episodes, a round if none runs.
-    Look,
-    /// Answers the reports filed, newest last.
-    Reports,
 }
 
 async fn run(cli: Cli, caller: Caller) -> Answer {
@@ -298,7 +292,6 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             ServiceCmd::Remove => app.service_remove(),
             ServiceCmd::Show => app.service_show(),
         },
-        Top::Tick => app.tick().await.map(|t| json!(t)),
         Top::Checkout(c) => match c {
             CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
             CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
@@ -351,8 +344,6 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
             WatchCmd::Report { text, human } => app.watch_report(&text, human.as_deref()).await,
             WatchCmd::Restart { worker, text, now } => app.watch_restart(worker, &text, now).await,
             WatchCmd::Tell { worker, text, now } => app.watch_tell(worker, &text, now).await,
-            WatchCmd::Look => app.look_now().await,
-            WatchCmd::Reports => app.watch_reports().await,
         },
         Top::Guard { .. } => unreachable!("answered before the database opens"),
     }

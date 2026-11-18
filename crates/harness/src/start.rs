@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::Harness;
+use crate::line::Line;
 
 /// A directory's skills: the directory under it every harness reads one
 /// entry per skill from.
@@ -52,6 +53,12 @@ impl Start<'_> {
         crate::line::guard(self.guard, harness.key())
     }
 
+    /// `line` with the variables that name where this session's rules are:
+    /// its home, shared, cannot.
+    pub(crate) fn rules_env(&self, line: Line) -> Line {
+        line.set(WORKTREE_ENV, self.worktree).set(START_DIR_ENV, self.dir)
+    }
+
     /// The guard hook of a session of `harness`, whose hooks fail open: any
     /// failure to ask the guard refuses the call too.
     pub(crate) fn hook_asked(&self, harness: Harness) -> String {
@@ -84,8 +91,8 @@ pub enum Kept {
 
 /// The variables a session whose home holds the rules it is told is
 /// started with: the worktree, and the directory it would start in.
-pub(crate) const WORKTREE_ENV: &str = "FACTORIUM_WORKTREE";
-pub(crate) const START_DIR_ENV: &str = "FACTORIUM_ADDED_DIR";
+const WORKTREE_ENV: &str = "FACTORIUM_WORKTREE";
+const START_DIR_ENV: &str = "FACTORIUM_ADDED_DIR";
 
 /// The rules a harness that reads neither the start directory's rules file
 /// nor the repo's is told, in its home. A home is shared by every session of

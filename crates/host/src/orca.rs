@@ -8,13 +8,6 @@ use serde_json::Value;
 
 use crate::shell::Programs;
 
-/// A new worktree.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Made {
-    pub path: PathBuf,
-    pub branch: String,
-}
-
 /// A terminal as Orca reports it now.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Term {
@@ -84,8 +77,8 @@ impl Orca<'_> {
     }
 
     /// Makes a worktree of the repo at `repo`, named `name`, on a new branch
-    /// `branch` at `sha`.
-    pub fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<Made, String> {
+    /// `branch` at `sha`: its path.
+    pub fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<PathBuf, String> {
         let repo_sel = format!("path:{}", repo.display());
         if self.call(&["repo", "show", "--repo", &repo_sel]).is_err() {
             self.call(&["repo", "add", "--path", &repo.to_string_lossy()])?;
@@ -111,7 +104,7 @@ impl Orca<'_> {
         // opened next, is to be its one tab.
         let sel = format!("path:{}", path.display());
         let _ = self.call(&["terminal", "close", "--worktree", &sel, "--all"]);
-        Ok(Made { path, branch: branch.to_string() })
+        Ok(path)
     }
 
     /// Removes a worktree and the terminals in it.

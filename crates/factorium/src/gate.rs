@@ -17,8 +17,8 @@ use crate::{Answer, App, fail};
 /// What a gate is run on.
 pub(crate) enum At<'a> {
     /// A commit of the line's clone: the daemon asks once per tick; by hand
-    /// it waits its turn.
-    Commit { rev: &'a str, by_hand: bool },
+    /// it waits its turn. `bound_at`: when the move it is for passes its bound.
+    Commit { rev: &'a str, by_hand: bool, bound_at: Option<i64> },
     /// A worker's worktree as it stands, waiting its turn. A dirty one is
     /// run but not recorded: its tree is no commit's.
     Worktree { worker: Uuid, number: u64 },
@@ -58,18 +58,20 @@ impl App {
         let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None }));
         };
-        let (what, worker, turn) = match at {
-            At::Commit { by_hand, .. } => (
+        let (what, worker, bound_at, turn) = match at {
+            At::Commit { by_hand, bound_at, .. } => (
                 heavy::LineJob::Gate(kind).of(checkout),
                 None,
+                bound_at,
                 if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) },
             ),
             At::Worktree { worker, number } => {
-                (format!("{} gate of {checkout}#{number}", named(kind)), Some(worker), Turn::Wait)
+                (format!("{} gate of {checkout}#{number}", named(kind)), Some(worker), None, Turn::Wait)
             }
         };
         let steps = [cmd];
-        let job = Job { what, worker, dir: &here.dir, steps: &steps, env: &[], limit: Duration::from_secs(limit) };
+        let job =
+            Job { what, worker, bound_at, dir: &here.dir, steps: &steps, env: &[], limit: Duration::from_secs(limit) };
         let Some(mut rans) = self.heavy(job, turn).await? else { return Ok(None) };
         let ran = rans.pop().expect("one step");
         if recorded {

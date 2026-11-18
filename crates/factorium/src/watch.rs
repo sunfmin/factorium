@@ -71,7 +71,7 @@ impl App {
         Ok(false)
     }
 
-    /// `factorium watch look`: looks now.
+    /// Looks now: findings to episodes, a round if none runs.
     pub async fn look(&self, settings: &Settings) -> Answer {
         let before = self.state::<Watches>(watch_id()).await?;
         let found = doctor::findings(&self.seen().await?, settings, self.now());
@@ -123,12 +123,6 @@ impl App {
         self.submit::<FileReport>(Filed { text: text.into(), human: human.map(Into::into) }).await?;
         let s = self.state::<Watches>(watch_id()).await?;
         Ok(json!({ "reported": s.reports.last() }))
-    }
-
-    /// The watch's reports, newest last.
-    pub async fn watch_reports(&self) -> Answer {
-        let s = self.state::<Watches>(watch_id()).await?;
-        Ok(json!(s.reports))
     }
 
     /// `factorium watch restart`: sends a waiting worker back to work, told
@@ -194,19 +188,5 @@ impl App {
         }
         let d = self.tell(&Self::worker_session(worker, st)?, Sender::Comment, text, false).await?;
         Ok((d.word(), d.why().map(str::to_string)))
-    }
-
-    /// The reports' owner part, for `doctor`.
-    pub async fn human(&self) -> Answer<Vec<watch::Report>> {
-        let s = self.state::<Watches>(watch_id()).await?;
-        Ok(s.reports.into_iter().filter(|r| r.human.is_some()).collect())
-    }
-}
-
-impl App {
-    /// `factorium watch look`.
-    pub async fn look_now(&self) -> Answer {
-        let settings = self.settings().await?;
-        self.look(&settings).await
     }
 }

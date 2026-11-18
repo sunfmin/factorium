@@ -4,8 +4,6 @@
 
 use serde_json::Value;
 
-use crate::turn::{Note, Turn, latest};
-
 /// Epoch seconds of an ISO-8601 stamp in UTC, or `None` when it is not one.
 /// A fractional second is dropped. The offset is `Z` or zero.
 pub(crate) fn parse_iso(text: &str) -> Option<u64> {
@@ -140,11 +138,6 @@ pub(super) fn json_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
         let line = line.trim();
         if line.is_empty() { None } else { serde_json::from_str(line).ok() }
     })
-}
-
-/// The turn `notes` leave, in the order the session wrote them.
-pub(super) fn turn_of(notes: &[Note]) -> Option<Turn> {
-    latest(notes)
 }
 
 /// The first brief pointer in a user message: whether it names exactly

@@ -89,6 +89,48 @@ async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
 }
 
 #[tokio::test]
+async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share() {
+    let w = World::new();
+    ready(&w).await;
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    let tag = Some(wk["worker"].as_str().unwrap().to_string());
+    // The worker's `worker exclusive` is this process; its command runs under it.
+    let mutants = Proc {
+        pid: 77,
+        ppid: std::process::id(),
+        cpu: 90.0 * cores,
+        rss_kib: 10,
+        command: "cargo mutants".into(),
+        worker: tag,
+    };
+    let dir = w.dir.join("slot");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = "touch started; for i in $(seq 1000); do [ -e release ] && exit 0; sleep 0.02; done; exit 1";
+    let body = async {
+        crate::queue::until_file(&dir.join("started")).await;
+        *w.host.procs.lock().unwrap() = vec![mutants.clone()];
+        w.host.reading.lock().unwrap().cpu_busy = 95;
+        w.tick().await;
+        w.advance(3);
+        w.tick().await;
+        assert_eq!(worker(&w.app).await["status"], "working", "its load is the heavy slot's");
+        std::fs::write(dir.join("release"), "").unwrap();
+    };
+    let cli = w.run();
+    let ran = async { tokio::join!(cli.worker_exclusive(Some(id(&wk)), &dir, line), body) };
+    let (held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the slot's command ends");
+    assert_eq!(held.unwrap()["ok"], true);
+    // The same load outside the slot is the worker's own.
+    w.tick().await;
+    w.advance(3);
+    w.tick().await;
+    let hot = worker(&w.app).await;
+    assert!(hot["status"] == "waiting" && hot["why"].as_str().unwrap().starts_with("hot: cpu"), "{hot}");
+}
+
+#[tokio::test]
 async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_within_its_share() {
     let w = World::new();
     ready(&w).await;

@@ -64,11 +64,13 @@ impl App {
             .collect();
         let look = line::look(self.now(), &settings, &workers, by_hand);
         let git = self.host.git(&c.path);
+        // Past this, the move goes ahead of workers' waiting heavy entries.
+        let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.since + o.bound);
         match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
             Err(not) => Ok(Err(line::why(not))),
             Ok(Due::Land(worker)) => self.land(c, worker).await,
-            Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand).await,
-            Ok(Due::Cut) => self.cut_base(c, by_hand).await,
+            Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,
+            Ok(Due::Cut) => self.cut_base(c, by_hand, bound_at).await,
         }
     }
 
@@ -91,7 +93,7 @@ impl App {
                 return self.red(worker, why).await.map(Ok);
             }
         };
-        let at = At::Commit { rev: &merged, by_hand: false };
+        let at = At::Commit { rev: &merged, by_hand: false, bound_at: None };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(Err(QUEUED.into())) };
         if !gated.green {
             let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
@@ -123,11 +125,18 @@ impl App {
     }
 
     /// Promotes the proving `tip` of `c`: its slow gate, then the base
-    /// fast-forwarded to it.
-    async fn promote_tip(&self, c: &Checkout, git: &Git, tip: String, by_hand: bool) -> Answer<Did> {
+    /// fast-forwarded to it. `bound_at`: when the promotion passes its bound.
+    async fn promote_tip(
+        &self,
+        c: &Checkout,
+        git: &Git,
+        tip: String,
+        by_hand: bool,
+        bound_at: Option<i64>,
+    ) -> Answer<Did> {
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
-        let at = At::Commit { rev: &tip, by_hand };
+        let at = At::Commit { rev: &tip, by_hand, bound_at };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(Err(QUEUED.into())) };
         let behind = git.is_ancestor(&base, &tip);
         let red = (!gated.green).then(|| gated.why());
@@ -145,7 +154,8 @@ impl App {
     }
 
     /// Cuts a version of `c` from its base tip, if it declares a cut.
-    async fn cut_base(&self, c: &Checkout, by_hand: bool) -> Answer<Did> {
+    /// `bound_at`: when the cut passes its bound.
+    async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>) -> Answer<Did> {
         let git = self.host.git(&c.path);
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let declared = self.declared(&git, &base)?;
@@ -163,6 +173,7 @@ impl App {
         let job = Job {
             what: LineJob::Cut.of(&c.name),
             worker: None,
+            bound_at,
             dir: &here.dir,
             steps: &cut.steps,
             env: &env,

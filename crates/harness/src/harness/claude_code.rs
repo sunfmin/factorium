@@ -5,7 +5,6 @@
 //! more directory, kept by the host and holding nothing else of the user's,
 //! so leaving their settings out still leaves out their hooks.
 
-use serde::de::{Error, IgnoredAny};
 use serde::{Deserialize, Deserializer};
 
 use super::{Dialog, Kind, Link, Login, Stop};
@@ -15,10 +14,6 @@ use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::Start;
 use crate::turn::{Marker, Note, Turn};
-
-const KEY: &str = "claude-code";
-/// What a bare program is started with: no permission prompts.
-const STOCK_ARGUMENTS: &str = "--dangerously-skip-permissions";
 
 /// The field holding an account's token, which `claude setup-token` made:
 /// also the variable a session is given it in.
@@ -54,13 +49,6 @@ const ASKS_MIDWAY: &[Dialog] =
 /// over every settings file, and is set in the launch, so the host user's own
 /// settings are left as they are.
 const NO_SUGGESTIONS: &str = "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";
-
-/// The environment a session in its start directory sets for Claude Code beyond the
-/// switches `ENVIRONMENT` names: its prompt suggestions off. Its home is
-/// the host user's own (`Harness::home`), so nothing points it elsewhere.
-fn environment(line: Line, _start: &Start) -> Line {
-    line.fixed(" ").fixed(NO_SUGGESTIONS)
-}
 
 /// Claude Code's flag for a directory added to the one it was started in.
 const ADD_DIR: &str = "--add-dir";
@@ -121,27 +109,9 @@ const KEPT_LINKS: &[Link] = &[];
 const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/claude-hook.sh\"; if [ -x \"$hook\" ]; \
      then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; else cat >/dev/null; fi";
 
-/// The tool Claude Code runs shell lines with.
-const SHELL_TOOL: &str = "Bash";
-/// The exit code that tells Claude Code a hook refuses the call.
-const REFUSED: u8 = 2;
-
 /// `text` as a JSON string, quotes and all.
 fn json_text(text: &str) -> String {
-    let mut json = String::from("\"");
-    for c in text.chars() {
-        match c {
-            '"' | '\\' => {
-                json.push('\\');
-                json.push(c);
-            }
-            // A shell line holds no control character worth carrying.
-            c if c.is_control() => json.push(' '),
-            c => json.push(c),
-        }
-    }
-    json.push('"');
-    json
+    serde_json::Value::from(text).to_string()
 }
 
 /// The settings added to a session's: the guard, a hook Claude Code runs
@@ -162,82 +132,12 @@ fn added_settings(guard: &str, report: &str) -> String {
     settings
 }
 
-/// `line`, which starts the launch command, with what Claude Code is
-/// given to put a session in its start directory: the worktree and the added directory's copy added,
-/// and the host user's skills and rules where it is given them; the user's
-/// settings left out, the guard and the report added, and the caller's model.
-fn added(line: Line, start: &Start) -> Line {
-    let line = line
-        .fixed(" ")
-        .fixed(ADD_DIR)
-        .fixed(" ")
-        .word(start.worktree)
-        .fixed(" ")
-        .fixed(ADD_DIR)
-        .fixed(" ")
-        .word(start.dir);
-    let line = line
-        .fixed(" ")
-        .fixed(SETTING_SOURCES)
-        .fixed(" ")
-        .fixed(SOURCES)
-        .fixed(" ")
-        .fixed(SETTINGS)
-        .fixed(" ")
-        .word(&added_settings(&start.hook(Harness::ClaudeCode), REPORT));
-    match start.model {
-        Some(model) => line.fixed(" ").fixed(MODEL).fixed(" ").word(model),
-        None => line,
-    }
-}
-
-/// The start `line` with the brief pointer to `brief` as the session's first
-/// prompt. `--` ends its flags first: `--add-dir` takes every word after it,
-/// so a prompt after it alone would be read as a directory.
-fn brief_at_start(line: &str, brief: &str) -> String {
-    Line::new().launch(line).fixed(" -- ").word(&crate::brief::brief_pointer(brief)).done()
-}
-
-/// One tool call, as Claude Code describes it to a hook before making it.
-#[derive(Deserialize)]
-struct Described {
-    tool_name: String,
-    #[serde(default)]
-    tool_input: Input,
-}
-
-#[derive(Default, Deserialize)]
-struct Input {
-    /// The shell line, when the tool runs one.
-    #[serde(default)]
-    command: Option<String>,
-}
-
-/// The tool call `described` to a hook, as the guard judges one.
-fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-    let described = Described::deserialize(described)?;
-    Ok(match described.tool_input.command {
-        Some(line) if described.tool_name == SHELL_TOOL => Call::Shell(line),
-        _ => Call::Other,
-    })
-}
-
-/// The harness directory under a user's home.
-const HOME: &str = ".claude";
-
-/// Sessions are filed under the directory Claude Code starts in, which is
-/// the start directory for a bound session. The session identifies its worktree.
-fn layout() -> Layout {
-    Layout::Tree { dir: "projects".into(), extension: "jsonl" }
-}
-
 /// The turn for `cwd`, or for the session its initial brief pointer names
 /// when Claude Code starts in a start directory. A sidechain is a child session.
-fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
-    let named = brief.is_some_and(|brief| names_brief(text, brief));
+fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
+    let named = names_brief(text, brief);
     // Each line is read once, into only what a turn needs: a long session
-    // is tens of megabytes of tool output nobody looks at here
-    //.
+    // is tens of megabytes of tool output nobody looks at here.
     let mut entries: Vec<Entry> = Vec::new();
     for line in text.lines() {
         let line = line.trim();
@@ -255,12 +155,12 @@ fn recorded_turn(cwd: &str, text: &str, brief: Option<&str>) -> Option<Turn> {
         return None;
     }
     let notes: Vec<Note> = entries.iter().filter_map(|entry| note(cwd, entry, named)).collect();
-    session::turn_of(&notes)
+    crate::turn::latest(&notes)
 }
 
 /// What a turn reads of one session line. Every other field is skipped
 /// unparsed; a field of another shape reads as absent, as a JSON value's
-/// lookup would.
+/// lookup would, but a `message` that is no object leaves the line unread.
 #[derive(Deserialize)]
 struct Entry {
     #[serde(rename = "isSidechain", default)]
@@ -273,8 +173,15 @@ struct Entry {
     kind: Option<serde_json::Value>,
     #[serde(rename = "isCompactSummary", default)]
     compact: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "stop_reason")]
-    message: Option<String>,
+    #[serde(default)]
+    message: Option<Message>,
+}
+
+/// What a turn reads of a line's message.
+#[derive(Deserialize)]
+struct Message {
+    #[serde(default)]
+    stop_reason: Option<serde_json::Value>,
 }
 
 impl Entry {
@@ -285,51 +192,6 @@ impl Entry {
     fn cwd(&self) -> Option<&str> {
         self.cwd.as_ref()?.as_str()
     }
-}
-
-/// A message's `stop_reason` when it is a string; anything else is skipped.
-fn stop_reason<'de, D: Deserializer<'de>>(message: D) -> Result<Option<String>, D::Error> {
-    struct Reason;
-    impl<'de> serde::de::Visitor<'de> for Reason {
-        type Value = Option<String>;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("a message")
-        }
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            let mut reason = None;
-            while let Some(key) = map.next_key::<std::borrow::Cow<'de, str>>()? {
-                if key == "stop_reason" {
-                    reason = map.next_value::<serde_json::Value>()?.as_str().map(str::to_owned);
-                } else {
-                    map.next_value::<IgnoredAny>()?;
-                }
-            }
-            Ok(reason)
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-            while seq.next_element::<IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-        fn visit_str<E: Error>(self, _: &str) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-        fn visit_bool<E: Error>(self, _: bool) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-        fn visit_i64<E: Error>(self, _: i64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-        fn visit_u64<E: Error>(self, _: u64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-        fn visit_f64<E: Error>(self, _: f64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-        fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-    }
-    message.deserialize_any(Reason)
 }
 
 /// The first primary user message must be this session's brief pointer.
@@ -360,7 +222,9 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
         // anything: compacted while idle, the session stays at its prompt.
         "user" if entry.compact == Some(serde_json::Value::Bool(true)) => None,
         "user" => Some(Note { marker: Marker::Start, at, child }),
-        "assistant" if entry.message.as_deref() == Some("end_turn") => Some(Note { marker: Marker::End, at, child }),
+        "assistant" if entry.message.as_ref()?.stop_reason.as_ref()?.as_str() == Some("end_turn") => {
+            Some(Note { marker: Marker::End, at, child })
+        }
         _ => None,
     }
 }
@@ -379,56 +243,23 @@ struct Said {
     content: serde_json::Value,
 }
 
-/// Whether the session file `text` took `said` as the user's prompt, at or
-/// after `since`. Text typed while a turn runs is written first as a
-/// `queue-operation` and becomes a `user` line only once a turn reads it;
-/// a tool's result is a `user` line too, but its content is no string.
-fn prompted(text: &str, said: &str, since: u64) -> bool {
-    text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
-        t.kind == "user"
-            && t.message.content.as_str().map(str::trim) == Some(said.trim())
-            && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
-    })
-}
-
-/// The session a stand-in writes for this turn.
-fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
-    let iso = session::format_iso(at);
-    let user = session::object(vec![
-        ("type", "user".into()),
-        ("timestamp", iso.clone().into()),
-        ("cwd", cwd.into()),
-        ("isSidechain", false.into()),
-        ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
-    ]);
-    let mut body = format!("{user}\n");
-    if !open {
-        let end = session::object(vec![
-            ("type", "assistant".into()),
-            ("timestamp", iso.into()),
-            ("cwd", cwd.into()),
-            ("isSidechain", false.into()),
-            ("message", session::object(vec![("role", "assistant".into()), ("stop_reason", "end_turn".into())])),
-        ]);
-        body.push_str(&format!("{end}\n"));
-    }
-    body
-}
-
 /// Claude Code, as a harness: what its module says of it.
 pub(super) struct ClaudeCode;
 
 impl Kind for ClaudeCode {
-    const KEY: &'static str = KEY;
+    const KEY: &'static str = "claude-code";
     const LOGIN: Login = Login::Token(TOKEN);
-    const USER_HOME: Option<&'static str> = Some(HOME);
+    /// The harness directory under a user's home.
+    const USER_HOME: Option<&'static str> = Some(".claude");
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
-    const STOCK_ARGUMENTS: &'static str = STOCK_ARGUMENTS;
+    /// No permission prompts.
+    const STOCK_ARGUMENTS: &'static str = "--dangerously-skip-permissions";
     const ASKS_FIRST: Option<&'static str> = None;
     const SHOWS_UP: Option<&'static str> = None;
     const ASKS_MIDWAY: &'static [Dialog] = ASKS_MIDWAY;
     const ENVIRONMENT: &'static [&'static str] = &ENVIRONMENT;
-    const REFUSED: u8 = REFUSED;
+    /// The exit code that tells Claude Code a hook refuses the call.
+    const REFUSED: u8 = 2;
     /// Escape. Text queued behind the turn is then submitted as the next turn.
     const INTERRUPT: &'static str = "\x1b";
 
@@ -446,28 +277,43 @@ impl Kind for ClaudeCode {
         start.dir
     }
 
-    fn environment(line: Line, start: &Start) -> Line {
-        environment(line, start)
+    /// Beyond the switches `ENVIRONMENT` names: its prompt suggestions off.
+    /// Its home is the host user's own (`Harness::home`), so nothing points
+    /// it elsewhere.
+    fn environment(line: Line, _start: &Start) -> Line {
+        line.arg(NO_SUGGESTIONS)
     }
 
+    /// What Claude Code is given to put a session in its start directory:
+    /// the worktree and the added directory's copy added; the user's
+    /// settings left out, the guard and the report added, and the caller's
+    /// model.
     fn added(line: Line, start: &Start) -> Line {
-        added(line, start)
+        let settings = added_settings(&start.hook(Harness::ClaudeCode), REPORT);
+        let line = line.flag(ADD_DIR, start.worktree).flag(ADD_DIR, start.dir);
+        line.arg(SETTING_SOURCES).arg(SOURCES).flag(SETTINGS, &settings).flag_if(MODEL, start.model)
     }
 
+    /// The brief pointer as the session's first prompt. `--` ends its flags
+    /// first: `--add-dir` takes every word after it, so a prompt after it
+    /// alone would be read as a directory.
     fn briefed(line: String, brief: &str) -> (String, Option<String>) {
-        (brief_at_start(&line, brief), None)
+        (Line::new().launch(&line).fixed(" -- ").word(&crate::brief::brief_pointer(brief)).done(), None)
     }
 
     fn call<'de, D: Deserializer<'de>>(described: D) -> Result<Call, D::Error> {
-        call(described)
+        super::tool_call(described, "Bash")
     }
 
     fn stopped(_screen: &[String]) -> Option<Stop> {
         None
     }
 
+    /// Sessions are filed under the directory Claude Code starts in, which
+    /// is the start directory for a bound session. The session identifies
+    /// its worktree.
     fn layout(_cwd: &str) -> Layout {
-        layout()
+        Layout::Tree { dir: "projects".into(), extension: "jsonl" }
     }
 
     fn could_record(cwd: &str, text: &str, brief: &str) -> bool {
@@ -475,14 +321,42 @@ impl Kind for ClaudeCode {
     }
 
     fn recorded_turn(cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        recorded_turn(cwd, text, Some(brief))
+        recorded_turn(cwd, text, brief)
     }
 
+    /// The session a stand-in writes for this turn.
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String {
-        stand_in(cwd, brief, open, at)
+        let iso = session::format_iso(at);
+        let user = session::object(vec![
+            ("type", "user".into()),
+            ("timestamp", iso.clone().into()),
+            ("cwd", cwd.into()),
+            ("isSidechain", false.into()),
+            ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
+        ]);
+        let mut body = format!("{user}\n");
+        if !open {
+            let end = session::object(vec![
+                ("type", "assistant".into()),
+                ("timestamp", iso.into()),
+                ("cwd", cwd.into()),
+                ("isSidechain", false.into()),
+                ("message", session::object(vec![("role", "assistant".into()), ("stop_reason", "end_turn".into())])),
+            ]);
+            body.push_str(&format!("{end}\n"));
+        }
+        body
     }
 
+    /// Whether the session file `text` took `said` as the user's prompt, at or
+    /// after `since`. Text typed while a turn runs is written first as a
+    /// `queue-operation` and becomes a `user` line only once a turn reads it;
+    /// a tool's result is a `user` line too, but its content is no string.
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {
-        Some(prompted(text, said, since))
+        Some(text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
+            t.kind == "user"
+                && t.message.content.as_str().map(str::trim) == Some(said.trim())
+                && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
+        }))
     }
 }
