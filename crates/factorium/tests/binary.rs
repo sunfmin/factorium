@@ -328,7 +328,46 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
         let _ = daemon.kill();
     }
     assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
-    daemon.wait_with_output().unwrap()
+    ended_in_order(dir, daemon)
+}
+
+/// Waits (a bounded while) for a daemon sent SIGTERM or SIGINT: it exits 0,
+/// as a normal return from main, and its pid file is gone.
+fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::Output {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while daemon.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon did not end within 10s of its signal");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = daemon.wait_with_output().unwrap();
+    assert!(out.status.success(), "{:?}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    assert!(!pid.exists(), "{} stays", pid.display());
+    out
+}
+
+#[test]
+fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
+    let dir = Dir::new();
+    // A long wait between ticks: the signal ends it, not its next tick.
+    assert!(run(&dir, &["settings", "tick_every", "600"]).0);
+    let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !pid.exists() {
+        if daemon.try_wait().unwrap().is_some() || std::time::Instant::now() > deadline {
+            let _ = daemon.kill();
+            panic!("the daemon never wrote its pid file");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(Command::new("kill").args(["-INT", &daemon.id().to_string()]).status().unwrap().success());
+    let out = ended_in_order(&dir, daemon);
+    let said: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(said["stopped"], true, "{said}");
 }
 
 #[test]
@@ -338,7 +377,9 @@ fn run_ticks_quietly_until_stop_ends_it() {
     // Ticks with nothing to do, past the first (which looks), each done
     // once the next one starts.
     let out = daemon_for(&dir, 3);
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
+    // Its only words are its answer at the end: a tick that did nothing prints nothing.
+    let said: Value = serde_json::from_slice(&out.stdout).expect("one answer, no tick lines");
+    assert_eq!(said["stopped"], true, "{said}");
 }
 
 #[test]

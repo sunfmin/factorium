@@ -288,6 +288,17 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
     match cli.command {
         Top::Run => {
             let stop = Arc::new(AtomicBool::new(false));
+            // SIGTERM (stop, launchd) and SIGINT end it in order, not mid-write:
+            // the handlers are in place before its first tick.
+            use tokio::signal::unix::{SignalKind, signal};
+            let fail = |e: std::io::Error| Refusal::new("io", e.to_string());
+            let (mut term, mut int) =
+                (signal(SignalKind::terminate()).map_err(fail)?, signal(SignalKind::interrupt()).map_err(fail)?);
+            let flag = stop.clone();
+            tokio::spawn(async move {
+                tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
             app.run(&stop).await
         }
         Top::Stop => app.stop().await,

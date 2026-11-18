@@ -16,7 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 clap.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
 toml = "0.8"

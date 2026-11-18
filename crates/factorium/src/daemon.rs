@@ -37,6 +37,9 @@ pub struct Tick {
     pub restart: Option<String>,
 }
 
+/// How soon a stop between ticks is seen.
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
 impl App {
     async fn listed(&self) -> Answer<Vec<Checkout>> {
         self.rows(tracker::listed()).await
@@ -220,8 +223,10 @@ impl App {
         Ok(json!({ "path": path, "missing": missing }))
     }
 
-    /// `factorium run`: ticks until stopped. One daemon runs: another that
-    /// is alive is refused.
+    /// `factorium run`: ticks until `stop` is set (on SIGTERM or SIGINT, as
+    /// `stop` and launchd send), then ends in order: the tick in progress
+    /// finishes, idle work ends, the pid file goes. One daemon runs: another
+    /// that is alive is refused.
     pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
         let pid = self.data().pid();
         if let Some(n) = self.daemon_pid()
@@ -258,7 +263,11 @@ impl App {
                 .await
                 .map(|s| s.ms(Time::TickEvery))
                 .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
-            tokio::time::sleep(std::time::Duration::from_millis(every as u64)).await;
+            // In slices, so a stop between ticks ends the wait.
+            let until = tokio::time::Instant::now() + std::time::Duration::from_millis(every as u64);
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) && tokio::time::Instant::now() < until {
+                tokio::time::sleep_until(until.min(tokio::time::Instant::now() + STOP_POLL)).await;
+            }
         }
         self.idle_end().await;
         let _ = std::fs::remove_file(&pid);
