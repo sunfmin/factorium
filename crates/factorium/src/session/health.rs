@@ -28,7 +28,7 @@ impl App {
     }
 
     /// Looks at one live worker, whose processes hold `load` and are near
-    /// idle if `quiet`: the observation is recorded and decided on in one
+    /// idle if `quiet`, and which has a heavy entry in flight if `heavy`: the observation is recorded and decided on in one
     /// command, and what it decided is carried out. Answers what it found,
     /// if anything.
     pub(crate) async fn worker_health(
@@ -36,6 +36,7 @@ impl App {
         worker: Uuid,
         load: health::Load,
         quiet: bool,
+        heavy: bool,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
         let wk = self.state::<Workers>(worker).await?;
@@ -52,7 +53,7 @@ impl App {
         let Some(sight) = self.see(&session) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now());
         let evidence = evidence.to_string_lossy().into_owned();
-        let seen = Observation { worker, sight, load, quiet, evidence, settings: settings.clone() };
+        let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: settings.clone() };
         match Verdict::of(&self.decide::<Observe>(seen).await?) {
             Verdict::Fine => Ok(None),
             Verdict::Waits { why, hot } => {

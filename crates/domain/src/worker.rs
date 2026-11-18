@@ -57,6 +57,13 @@ pub struct Worker {
     /// that screen's hash, and since when, in ms.
     #[serde(default)]
     pub quiet: Option<(u64, i64)>,
+    /// A heavy entry of its own is in flight.
+    #[serde(default)]
+    pub heavy: bool,
+    /// When its last heavy entry in flight ended, in ms: its silence counts
+    /// from no earlier.
+    #[serde(default)]
+    pub freed_at: Option<i64>,
     /// Comments on its issue since it started waiting, each with when, in
     /// ms: its watch episode carries them.
     #[serde(default)]
@@ -110,6 +117,12 @@ pub enum WorkerEvent {
     },
     /// Its processes or its screen moved again, or its turn closed.
     Stirred,
+    /// A heavy entry of its own went in flight: waiting or running.
+    HeavyHeld,
+    /// Its heavy entries in flight all ended.
+    HeavyFreed {
+        at: i64,
+    },
     /// Its processes held over their share past `hot_for`: what, and where
     /// the evidence of them is.
     WentHot {
@@ -188,6 +201,8 @@ impl Aggregate for Workers {
             WorkerEvent::Stirred => s.quiet = None,
             WorkerEvent::WentOver { at } => s.over_since = Some(at),
             WorkerEvent::CameUnder => s.over_since = None,
+            WorkerEvent::HeavyHeld => s.heavy = true,
+            WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             _ => {}
         }
     }
