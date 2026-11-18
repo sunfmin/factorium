@@ -158,8 +158,12 @@ impl App {
         self.memory.lock().unwrap().running = link.map(|l| (me.to_path_buf(), l));
     }
 
-    /// [`App::runs_as`] this process's own binary.
+    /// [`App::runs_as`] this process's own binary, unless the binary it runs
+    /// as is known already.
     pub(crate) fn runs_as_this(&self) {
+        if self.memory.lock().unwrap().running.is_some() {
+            return;
+        }
         if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
             self.runs_as(&me);
         }

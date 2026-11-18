@@ -46,6 +46,12 @@ fn started(idle: &[Value]) -> bool {
     idle.iter().any(|v| v["idle"] == "web" && v["started"] == true)
 }
 
+#[test]
+fn idle_work_left_without_every_or_limit_runs_once_a_day_within_an_hour() {
+    let idle = factorium_domain::declared::read(Some("[idle]\nsteps = [\"./mutants.sh\"]\n")).unwrap().idle.unwrap();
+    assert_eq!((idle.every, idle.limit), (86400, 3600));
+}
+
 #[tokio::test]
 async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     let w = World::new();
@@ -65,7 +71,10 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "not again within `every`");
     w.advance(2);
     assert!(started(&w.tick().await.idle), "again once `every` has passed");
-    ended(&w).await;
+    // The daemon stops before its next tick: the run ends with it, unrecorded.
+    assert_eq!(w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap()["ticks"], 0);
+    assert_eq!(heavy(&w).await, Vec::<String>::new(), "it left the queue");
+    assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], d["idle"][0]["last"], "the first run is the last");
 }
 
 #[tokio::test]

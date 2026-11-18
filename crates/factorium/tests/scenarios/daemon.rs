@@ -109,3 +109,23 @@ async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
     assert_eq!(w.app.run(&stop).await.unwrap()["ticks"], 1);
 }
+
+/// A daemon whose binary Homebrew has since replaced execs the new one
+/// between ticks; if that cannot run, it goes on as it is.
+#[tokio::test(start_paused = true)]
+async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
+    let w = World::new();
+    w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
+    w.running_as(&w.app, "factorium");
+    // Homebrew links a newer one since, which may not be run (not executable).
+    let newer = w.dir.join("brew/Cellar/factorium/0.1.0/bin");
+    std::fs::create_dir_all(&newer).unwrap();
+    std::fs::write(newer.join("factorium"), "a binary that may not be run").unwrap();
+    std::fs::remove_file(w.dir.join("brew/opt/factorium")).unwrap();
+    std::os::unix::fs::symlink(newer.parent().unwrap(), w.dir.join("brew/opt/factorium")).unwrap();
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let during = stop.clone();
+    let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
+    *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
+    assert_eq!(w.app.run(&stop).await.unwrap(), json!({ "stopped": true, "ticks": 1 }));
+}

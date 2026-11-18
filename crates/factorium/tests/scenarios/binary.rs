@@ -155,8 +155,19 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run(&dir, &["watch", "next"]);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "guarded");
-    let (ok, _) = run_with(&dir, &[("FACTORIUM_WATCH", "1")], &["watch", "next"]);
+    let watch = [("FACTORIUM_WATCH", "1")];
+    let (ok, _) = run_with(&dir, &watch, &["watch", "next"]);
     assert!(ok);
+    // The watch's other commands reach the app: refused here, with no round or worker.
+    for (args, code) in [
+        (&["watch", "report", "--text", "x"][..], "no_round"),
+        (&["watch", "restart", WORKER], "no_worker"),
+        (&["watch", "tell", WORKER, "x"], "no_worker"),
+    ] {
+        let (ok, answer) = run_with(&dir, &watch, args);
+        assert!(!ok, "{args:?}");
+        assert_eq!(answer["error"]["code"], code, "{args:?}: {answer}");
+    }
 }
 
 #[test]
