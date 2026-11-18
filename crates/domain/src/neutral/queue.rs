@@ -1,7 +1,9 @@
 //! The heavy-command queue's start rule: one host-wide line of the commands
 //! that load the machine. The oldest waiting starts when the host has room,
 //! or when nothing runs, so it never starves; one start per reading; and
-//! one that holds others up past the hold bound is ended.
+//! one that holds others up past the hold bound is ended. An entry past its
+//! bound takes the place of the oldest worker's entry waiting ahead of it:
+//! workers' entries keep their order, and a running one is never cut short.
 
 use uuid::Uuid;
 
@@ -13,6 +15,15 @@ pub trait Queued {
     fn what(&self) -> &str;
     fn queued_at(&self) -> i64;
     fn started_at(&self) -> Option<i64>;
+    /// Whether a worker queued it.
+    fn workers(&self) -> bool;
+    /// When what it does passes its bound, ms, if it has one.
+    fn bound_at(&self) -> Option<i64>;
+}
+
+/// Whether `e` is past its bound at `now`.
+fn overdue<E: Queued>(e: &E, now: i64) -> bool {
+    e.bound_at().is_some_and(|b| now > b)
 }
 
 pub fn running<E: Queued>(entries: &[E]) -> impl Iterator<Item = &E> {
@@ -23,21 +34,37 @@ pub fn waiting<E: Queued>(entries: &[E]) -> impl Iterator<Item = &E> {
     entries.iter().filter(|e| e.started_at().is_none())
 }
 
-/// The waiting entry that starts next.
+/// The waiting entry queued first.
 pub fn oldest<E: Queued>(entries: &[E]) -> Option<&E> {
     waiting(entries).min_by_key(|e| (e.queued_at(), e.id()))
 }
 
-/// Whether `id` may start, given whether the host has room, when the
-/// reading was taken, and when the last one started; else why not.
+/// The waiting entry that starts next at `now`: the oldest, but one past its
+/// bound goes ahead of every worker's entry, just before the oldest of them.
+pub fn next<E: Queued>(entries: &[E], now: i64) -> Option<&E> {
+    let first_worker = waiting(entries).filter(|e| e.workers()).map(|e| (e.queued_at(), e.id())).min();
+    waiting(entries).min_by_key(|e| {
+        let own = (e.queued_at(), e.id());
+        let late = overdue(*e, now);
+        let place = match first_worker {
+            Some(w) if late => own.min(w),
+            _ => own,
+        };
+        (place, !late, own)
+    })
+}
+
+/// Whether `id` may start at `now`, given whether the host has room, when
+/// the reading was taken, and when the last one started; else why not.
 pub fn may_start<E: Queued>(
     entries: &[E],
     last_start: i64,
     id: Uuid,
     room: Result<(), String>,
     read_at: i64,
+    now: i64,
 ) -> Result<(), String> {
-    match oldest(entries) {
+    match next(entries, now) {
         Some(e) if e.id() == id => {}
         Some(e) => return Err(format!("waits behind {}", e.what())),
         None => return Err("not waiting".into()),

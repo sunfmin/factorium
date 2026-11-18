@@ -26,6 +26,9 @@ const POLL: Duration = Duration::from_millis(500);
 pub(crate) struct Job<'a> {
     pub what: String,
     pub worker: Option<Uuid>,
+    /// When the line move it is for passes its bound, ms: past then, it
+    /// goes ahead of workers' waiting entries.
+    pub bound_at: Option<i64>,
     pub dir: &'a Path,
     pub steps: &'a [String],
     pub env: &'a [(String, String)],
@@ -117,7 +120,14 @@ impl App {
             self.submit::<EndHeavy>(End { id: e.id }).await?;
         }
         if !q.entries.iter().any(|e| e.id == id) {
-            self.submit::<EnqueueHeavy>(Enqueue { id, what: job.what.clone(), pid, worker: job.worker }).await?;
+            self.submit::<EnqueueHeavy>(Enqueue {
+                id,
+                what: job.what.clone(),
+                pid,
+                worker: job.worker,
+                bound_at: job.bound_at,
+            })
+            .await?;
         }
         let room = admission::room(&self.reading(), &self.settings().await?);
         match self.submit::<StartHeavy>(Begin { id, room, read_at: self.now() }).await {
