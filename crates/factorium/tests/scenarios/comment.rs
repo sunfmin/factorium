@@ -4,16 +4,7 @@
 
 use serde_json::json;
 
-use crate::{World, id, worker};
-
-/// A checkout, a Claude Code kit, and a worker on issue 1.
-async fn working(w: &World) -> serde_json::Value {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    worker(&w.app).await
-}
+use crate::{CLAUDE, World, id, worktree};
 
 #[tokio::test]
 async fn a_comment_with_no_worker_on_the_issue_is_only_recorded() {
@@ -29,7 +20,7 @@ async fn a_comment_with_no_worker_on_the_issue_is_only_recorded() {
 #[tokio::test]
 async fn a_comment_for_a_waiting_worker_goes_to_its_watch_episode_not_its_session() {
     let w = World::new();
-    let wk = working(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let handle = wk["terminal"].as_str().unwrap();
     w.advance(1);
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
@@ -65,7 +56,7 @@ async fn a_comment_for_a_waiting_worker_goes_to_its_watch_episode_not_its_sessio
 #[tokio::test]
 async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
     let w = World::new();
-    let wk = working(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     *w.host.orca.refuse_send.lock().unwrap() = true;
     assert_eq!(w.app.issue_comment("web", 1, "use the v2 API").await.unwrap()["delivery"], "none");
     *w.host.orca.refuse_send.lock().unwrap() = false;
@@ -83,8 +74,8 @@ async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
 #[tokio::test]
 async fn a_comment_factorium_writes_itself_is_typed_at_no_one() {
     let w = World::new();
-    let wk = working(&w).await;
-    let tree = std::path::PathBuf::from(wk["worktree"].as_str().unwrap());
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
     w.commit(&tree, "kept.txt", "x");
     w.app.issue_park("web", 1, "wrong approach").await.unwrap();
     w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
@@ -102,7 +93,7 @@ async fn said(w: &World) -> Vec<serde_json::Value> {
 #[tokio::test]
 async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
     let w = World::new();
-    let wk = working(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let handle = wk["terminal"].as_str().unwrap();
     let before = w.terminal(handle).sent.len();
     w.advance(1);
@@ -119,7 +110,7 @@ async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
 #[tokio::test]
 async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
     let w = World::new();
-    let wk = working(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let handle = wk["terminal"].as_str().unwrap();
     let before = w.terminal(handle).sent.len();
     w.app.watch_tell(id(&wk), "use the v2 API", false).await.unwrap();
@@ -137,7 +128,7 @@ async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
 #[tokio::test]
 async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_once() {
     let w = World::new();
-    let wk = working(&w).await;
+    let wk = w.working(CLAUDE, "t").await;
     let handle = wk["terminal"].as_str().unwrap();
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
     let before = w.terminal(handle).sent.len();

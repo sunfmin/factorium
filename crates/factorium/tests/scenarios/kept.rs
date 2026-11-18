@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{World, worker};
+use crate::{CLAUDE, World, worktree};
 
 /// Hides `web`'s remote, so its proving tip cannot be fetched, until `back`.
 struct Unreachable {
@@ -31,11 +31,7 @@ impl Unreachable {
 /// `web` with issue 1 parked, its worker's worktree holding `own` commits
 /// of its own; answers that worktree.
 async fn parked(w: &World, own: bool) -> PathBuf {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let tree = PathBuf::from(worker(&w.app).await["worktree"].as_str().unwrap());
+    let tree = worktree(&w.working(CLAUDE, "t").await);
     if own {
         w.commit(&tree, "kept.txt", "x");
     }
@@ -75,11 +71,7 @@ async fn a_start_that_failed_after_taking_the_issue_still_resumes_the_kept_workt
 #[tokio::test]
 async fn a_worker_that_ends_with_the_proving_tip_unread_keeps_its_worktree() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let tree = PathBuf::from(worker(&w.app).await["worktree"].as_str().unwrap());
+    let tree = worktree(&w.working(CLAUDE, "t").await);
     let away = Unreachable::web(&w);
     w.app.issue_close("web", 1, "not needed").await.unwrap();
     assert!(tree.exists(), "it holds nothing of its own, but that cannot be read: it stays");

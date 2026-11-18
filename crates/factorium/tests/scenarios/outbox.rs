@@ -5,11 +5,9 @@
 //! through the same cases: idle, busy, behind a dialog, before its harness
 //! is up, and missed.
 
-use factorium_harness::Harness;
 use serde_json::{Value, json};
 
-use crate::harnesses::write_session;
-use crate::{ESCAPE, SHELL, UP, World, id, worker};
+use crate::{CLAUDE, ESCAPE, SHELL, UP, World, id, worker, worktree};
 
 /// The messages a worker's session is passed.
 #[derive(Clone, Copy, Debug)]
@@ -38,7 +36,7 @@ impl Kind {
     async fn prepare(self, w: &World, wk: &Value) {
         match self {
             Kind::Red => {
-                w.commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "RED", "x");
+                w.commit(&worktree(wk), "RED", "x");
                 w.app.worker_done(id(wk)).await.unwrap();
             }
             Kind::Restart => _ = w.app.worker_escalate(id(wk), "stuck").await.unwrap(),
@@ -57,28 +55,17 @@ impl Kind {
     }
 }
 
-/// A checkout, a kit of `kit`, and a worker on issue 1.
-async fn working(w: &World, kit: &str) -> Value {
-    w.checkout("web").await;
-    w.app.kit_set(&[kit.into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    worker(&w.app).await
-}
-
 /// The last message of a worker's outbox.
 async fn last(w: &World, wk: &Value) -> Value {
     let outbox = w.app.outbox_of(Some(id(wk))).await.unwrap();
     outbox["messages"].as_array().unwrap().last().cloned().expect("a message")
 }
 
-const CLAUDE: &str = "claude-code=claude";
-
 #[tokio::test]
 async fn behind_a_running_turn_every_message_queues_and_only_now_stops_the_turn_first() {
     for kind in KINDS {
         let w = World::new();
-        let wk = working(&w, CLAUDE).await;
+        let wk = w.working(CLAUDE, "t").await;
         let handle = wk["terminal"].as_str().unwrap();
         kind.prepare(&w, &wk).await;
         w.set_busy(handle, true, false);
@@ -111,7 +98,7 @@ const AUTO_MODE_DIALOG: [&str; 4] = [
 async fn a_known_dialog_is_dismissed_first_and_every_message_then_starts_a_turn_typed_once_as_its_sender_s() {
     for kind in KINDS {
         let w = World::new();
-        let wk = working(&w, CLAUDE).await;
+        let wk = w.working(CLAUDE, "t").await;
         let handle = wk["terminal"].as_str().unwrap();
         kind.prepare(&w, &wk).await;
         w.open_dialog(handle, &AUTO_MODE_DIALOG);
@@ -132,7 +119,7 @@ async fn a_known_dialog_is_dismissed_first_and_every_message_then_starts_a_turn_
 async fn a_message_an_unknown_dialog_takes_is_missed_and_its_worker_goes_to_the_watch_at_once() {
     for kind in KINDS {
         let w = World::new();
-        let wk = working(&w, CLAUDE).await;
+        let wk = w.working(CLAUDE, "t").await;
         let handle = wk["terminal"].as_str().unwrap();
         kind.prepare(&w, &wk).await;
         w.open_dialog(handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
@@ -160,7 +147,7 @@ async fn a_message_an_unknown_dialog_takes_is_missed_and_its_worker_goes_to_the_
 async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red_sends_its_worker_to_the_watch() {
     for kind in KINDS {
         let w = World::new();
-        let wk = working(&w, CLAUDE).await;
+        let wk = w.working(CLAUDE, "t").await;
         kind.prepare(&w, &wk).await;
         *w.host.orca.refuse_send.lock().unwrap() = true;
         let said = kind.say(&w, &wk, false).await;
@@ -194,17 +181,11 @@ async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red
     }
 }
 
-/// A kimi worker whose terminal opens at its shell's prompt.
-async fn at_shell(w: &World) -> Value {
-    *w.host.orca.opens_at_shell.lock().unwrap() = true;
-    working(w, "kimi=kimi").await
-}
-
 #[tokio::test]
 async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_on_it() {
     for kind in KINDS {
         let w = World::new();
-        let wk = at_shell(&w).await;
+        let wk = w.at_shell().await;
         let handle = wk["terminal"].as_str().unwrap();
         kind.prepare(&w, &wk).await;
         let said = kind.say(&w, &wk, false).await;
@@ -243,19 +224,12 @@ async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_o
     }
 }
 
-/// The watch's session writes its turn: closed.
-fn watch_idle(w: &World) {
-    let home = w.data().watch();
-    let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
-    write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), false, at);
-}
-
 #[tokio::test]
 async fn a_round_the_watch_s_session_missed_is_passed_again_on_the_next_look() {
     let w = World::new();
-    let wk = working(&w, CLAUDE).await;
+    let wk = w.working(CLAUDE, "t").await;
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
-    watch_idle(&w);
+    w.watch_session(false);
     let watch = w.app.outbox_of(None).await.unwrap()["terminal"].as_str().unwrap().to_string();
     w.open_dialog(&watch, &["Try the new thing?", "› Yes", "Enter to confirm"]);
     w.advance(5);

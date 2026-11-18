@@ -4,24 +4,15 @@
 
 use std::sync::atomic::AtomicBool;
 
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::{World, id, worker};
-
-async fn finding(w: &World, key: &str) -> Option<Value> {
-    let d = w.run().doctor().await.unwrap();
-    d["findings"].as_array().unwrap().iter().find(|f| f["key"] == key).cloned()
-}
+use crate::{CLAUDE, World, id, worktree};
 
 #[tokio::test]
 async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    w.commit(std::path::Path::new(wk["worktree"].as_str().unwrap()), "a.txt", "a\n");
+    let wk = w.working(CLAUDE, "t").await;
+    w.commit(&worktree(&wk), "a.txt", "a\n");
     w.app.worker_done(id(&wk)).await.unwrap();
     // Its remote is gone: every landing's fetch fails.
     let remote = w.dir.join("remotes/web.git");
@@ -32,10 +23,10 @@ async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
         w.advance(5);
         let failed = w.app.tick().await.expect_err("the landing cannot fetch");
         assert_eq!(failed.code, "git");
-        let found = finding(&w, "daemon:ticks").await;
+        let found = w.finding("daemon:ticks").await;
         assert_eq!(found.is_some(), n == 3, "tick {n}: {found:?}");
     }
-    let found = finding(&w, "daemon:ticks").await.unwrap();
+    let found = w.finding("daemon:ticks").await.unwrap();
     assert!(found["what"].as_str().unwrap().contains("last 3 ticks failed: git:"), "{found}");
     w.advance(5);
     w.app.tick().await.unwrap_err();
@@ -45,7 +36,7 @@ async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
     std::fs::rename(&away, &remote).unwrap();
     w.advance(5);
     w.tick().await;
-    assert_eq!(finding(&w, "daemon:ticks").await, None, "a tick that works ends the run");
+    assert_eq!(w.finding("daemon:ticks").await, None, "a tick that works ends the run");
 }
 
 #[tokio::test]
@@ -56,14 +47,14 @@ async fn a_program_missing_at_start_is_a_finding() {
     let ran = w.app.run(&AtomicBool::new(true)).await.unwrap();
     assert_eq!(ran["ticks"], 0);
     for program in ["orca", "claude"] {
-        let found = finding(&w, &format!("missing:{program}")).await.expect(program);
+        let found = w.finding(&format!("missing:{program}")).await.expect(program);
         assert!(found["what"].as_str().unwrap().contains("on its PATH"), "{found}");
     }
-    assert_eq!(finding(&w, "missing:git").await, None, "git is found");
+    assert_eq!(w.finding("missing:git").await, None, "git is found");
 
     w.host.missing.lock().unwrap().clear();
     assert_eq!(w.app.daemon_start().await.unwrap()["missing"], json!([]));
-    assert_eq!(finding(&w, "missing:orca").await, None, "a start that finds it clears it");
+    assert_eq!(w.finding("missing:orca").await, None, "a start that finds it clears it");
 }
 
 #[tokio::test]
@@ -107,16 +98,14 @@ async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
     assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     let w = World::new();
     w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
-    let stop = AtomicBool::new(false);
-    let stopping = async {
-        // Within the first tick's wait.
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    };
-    let (ran, ()) = tokio::join!(w.app.run(&stop), stopping);
-    assert_eq!(ran.unwrap()["ticks"], 1);
+    // Stopped during its first tick; its wait after it passes on the paused clock.
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let during = stop.clone();
+    let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
+    *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
+    assert_eq!(w.app.run(&stop).await.unwrap()["ticks"], 1);
 }

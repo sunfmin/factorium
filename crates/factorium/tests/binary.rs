@@ -298,21 +298,26 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     assert!(ended.is_some_and(|s| s.success()), "the dead one's entry held it up");
 }
 
-/// Runs the daemon on `dir` for `ms` past its start, then `stop`s it, as
-/// `stop` must; answers what it printed.
-fn daemon_for(dir: &Dir, ms: u64) -> std::process::Output {
+/// Runs the daemon on `dir` until it starts its tick number `ticks` (each
+/// reads the host's processes, through a `ps` that counts), then `stop`s it,
+/// as `stop` must; answers what it printed.
+fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
+    let calls = dir.0.join("stubs/ps.calls");
+    let ps = format!("#!/bin/sh\necho >> '{}'\nexec /bin/ps \"$@\"\n", calls.display());
+    let _ = bin(dir);
+    std::fs::write(dir.0.join("stubs/ps"), ps).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir.0.join("stubs/ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut daemon = bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
-    let pid = factorium::Data::of(&dir.0.join("data/factorium/factorium.db")).pid();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while !pid.exists() {
+    while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
         if gone.is_some() || std::time::Instant::now() > deadline {
             let _ = daemon.kill();
-            panic!("the daemon did not keep running: {gone:?}");
+            panic!("the daemon did not keep ticking: {gone:?}");
         }
         std::thread::yield_now();
     }
-    std::thread::sleep(std::time::Duration::from_millis(ms));
     let (ok, stopped) = run(dir, &["stop"]);
     if stopped["stopped"] != true {
         let _ = daemon.kill();
@@ -325,8 +330,8 @@ fn daemon_for(dir: &Dir, ms: u64) -> std::process::Output {
 fn run_ticks_quietly_until_stop_ends_it() {
     let dir = Dir::new();
     assert!(run(&dir, &["settings", "tick_every", "1"]).0);
-    // A few ticks with nothing to do.
-    let out = daemon_for(&dir, 2500);
+    // A tick with nothing to do, done once the next one starts.
+    let out = daemon_for(&dir, 2);
     assert_eq!(String::from_utf8_lossy(&out.stdout), "", "a tick that did nothing prints nothing");
 }
 
@@ -340,8 +345,8 @@ fn the_daemon_looks_for_the_kit_s_programs_on_its_path_at_its_start() {
     std::fs::create_dir_all(stubs.join("adir")).unwrap();
     let kit = run(&dir, &["kit", "set", "claude-code=nosuch-program", "codex=notrun", "pi=adir"]);
     assert!(kit.0, "{}", kit.1);
-    // Its pid file is written before it looks.
-    daemon_for(&dir, 500);
+    // It looks before its first tick.
+    daemon_for(&dir, 1);
     let (_, doctor) = run(&dir, &["doctor"]);
     let keys: Vec<&str> = doctor["findings"].as_array().unwrap().iter().filter_map(|f| f["key"].as_str()).collect();
     let mut missing: Vec<&str> = keys.iter().filter_map(|k| k.strip_prefix("missing:")).collect();

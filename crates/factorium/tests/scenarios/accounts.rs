@@ -5,7 +5,7 @@ use factorium_harness::Harness;
 
 use crate::harnesses::write_session;
 use crate::one_harness::quoted_word;
-use crate::{World, worker};
+use crate::{CLAUDE, World, worker};
 use factorium::host::Host;
 
 #[tokio::test]
@@ -134,11 +134,7 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
     std::fs::write(home.join("auth.json"), "{}").unwrap();
     let doctor = w.app.doctor().await.unwrap();
     assert!(doctor["accounts_skipped"].as_array().unwrap().iter().all(|s| s["secret"] != "agent-account-out"));
-    w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    assert_eq!(worker(&w.app).await["account"], "out");
+    assert_eq!(w.working("codex=codex", "t").await["account"], "out");
 }
 
 #[tokio::test]
@@ -157,11 +153,7 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
     std::fs::write(account.join("auth.json"), "{}").unwrap();
     let fields = format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{}"}}}}"#, this_machine());
     w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields);
-    w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working("codex=codex", "t").await;
     assert_eq!(wk["account"], "night");
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     // One home, the login's: nothing sets it back to another.
@@ -222,11 +214,7 @@ async fn a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile() 
     std::fs::write(account.join("auth.json"), "{}").unwrap();
     let fields = format!(r#"{{"fields":{{"HARNESS":"codex","MACHINE":"{}"}}}}"#, this_machine());
     w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields);
-    w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working("codex=codex", "t").await;
     assert_eq!(wk["account"], "night");
     w.set_screen(
         wk["terminal"].as_str().unwrap(),
@@ -235,6 +223,7 @@ async fn a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile() 
     let at = w.app_now();
     let t = w.tick().await;
     assert_eq!(t.seen[0]["ended"], "quota");
+    assert!(crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its terminal is closed");
     assert!(t.started.is_none() && t.held.as_deref().unwrap().contains("every account is used up"), "{t:?}");
     let night = w.app.accounts().await.unwrap()[0].clone();
     assert_eq!((night["left"].as_f64(), night["limited_until"].as_i64()), (Some(0.0), Some(at + 3_600_000)));
@@ -243,6 +232,8 @@ async fn a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile() 
     w.advance(1);
     assert_eq!(w.app.accounts().await.unwrap()[0]["left"], 100.0);
     assert!(w.tick().await.started.is_some(), "rested");
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_ne!(issue["worker"], wk["worker"], "its issue starts again, on a new worker");
 }
 
 #[tokio::test]
@@ -252,11 +243,8 @@ async fn the_watch_starts_on_its_account_s_secret() {
         "agent-account-team".into(),
         r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
     );
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.app.worker_escalate(crate::id(&worker(&w.app).await), "which API version?").await.unwrap();
+    let wk = w.working(CLAUDE, "t").await;
+    w.app.worker_escalate(crate::id(&wk), "which API version?").await.unwrap();
     w.advance(5);
     w.tick().await;
     let t = w.host.orca.terminals.lock().unwrap();

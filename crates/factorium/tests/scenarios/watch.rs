@@ -2,35 +2,23 @@
 //! what it does with its commands.
 
 use factorium::host::Host;
-use factorium_harness::{Harness, RULES};
+use factorium_harness::RULES;
 use serde_json::json;
 
-use crate::harnesses::write_session;
-use crate::{World, id, worker};
+use crate::{CLAUDE, World, id, worker};
 
 /// A checkout, a kit, a worker that escalated, and the watch's session up.
 async fn escalated(w: &World) -> serde_json::Value {
     let wk = escalated_alone(w).await;
-    watch_up(w, false);
+    w.watch_session(false);
     wk
 }
 
 /// A checkout, a kit, a worker that escalated; the watch's terminal opened.
 async fn escalated_alone(w: &World) -> serde_json::Value {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "t").await;
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
     wk
-}
-
-/// The watch's session writes its turn: open, or closed.
-fn watch_up(w: &World, open: bool) {
-    let home = w.data().watch();
-    let at = (factum::Clock::now(w.clock.as_ref()).0 / 1000) as u64;
-    write_session(w, Harness::ClaudeCode, None, &home.to_string_lossy(), open, at);
 }
 
 #[tokio::test]
@@ -39,11 +27,11 @@ async fn no_round_is_typed_before_the_watch_s_session_is_up_and_idle() {
     escalated_alone(&w).await;
     w.advance(5);
     assert_eq!(w.tick().await.watch.unwrap()["round"], json!(null), "its session is not up yet");
-    watch_up(&w, true);
+    w.watch_session(true);
     w.advance(5);
     assert_eq!(w.tick().await.watch.unwrap()["round"], json!(null), "its turn is open");
     assert!(w.terminal(&watch_terminal(&w)).sent.is_empty());
-    watch_up(&w, false);
+    w.watch_session(false);
     w.advance(5);
     assert_eq!(w.tick().await.watch.unwrap()["round"]["n"], 1);
 }
@@ -126,15 +114,13 @@ async fn a_round_past_its_bound_ends_and_the_next_episode_gets_one() {
 #[tokio::test]
 async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "t").await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     w.tick().await;
+    assert!(!crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its tab stays until closed");
     let r = w.app.watch_restart(id(&wk), "go on", false).await.unwrap();
     assert_eq!(r["ended"], true);
+    assert!(crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await);
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["issue"], "web#1");
     assert_ne!(again["worker"], wk["worker"]);
@@ -246,11 +232,7 @@ const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
 #[tokio::test]
 async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_took_it() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "t").await;
     let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
     w.set_busy(handle, true, true);
     let line = |kind: &str, at: &str, body: serde_json::Value| {
@@ -299,7 +281,7 @@ async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
-    watch_up(&w, false);
+    w.watch_session(false);
     w.advance(5);
     assert!(w.tick().await.watch.is_some(), "a timed look");
     let workers = w.app.workers(false).await.unwrap();

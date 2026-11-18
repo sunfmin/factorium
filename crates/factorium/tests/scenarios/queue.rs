@@ -3,12 +3,12 @@
 //! the queue once and goes on rather than waiting on it.
 
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
 
-use crate::{World, id, worker};
+use crate::{CLAUDE, World, id, worker, worktree};
 
 /// Long enough that only a broken rule gets there.
 pub(crate) const STUCK: Duration = Duration::from_secs(20);
@@ -51,17 +51,14 @@ pub(crate) async fn while_busy<T>(w: &World, during: impl Future<Output = T>) ->
 /// A worker of `web` with a commit of `file`, asking to land.
 async fn done(w: &World, file: &str, text: &str) {
     let wk = worker(&w.app).await;
-    w.commit(&PathBuf::from(wk["worktree"].as_str().unwrap()), file, text);
+    w.commit(&worktree(&wk), file, text);
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
 #[tokio::test]
 async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
+    w.working(CLAUDE, "a").await;
     let started = w.dir.join("gate-started");
     let toml = format!("[gate]\nfast = \"touch {} && sleep 30\"\n", started.display());
     done(&w, "factorium.toml", &toml).await;
@@ -93,17 +90,11 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
 #[tokio::test]
 async fn a_cut_waits_its_turn_without_holding_the_tick_and_is_made_next_tick() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
     // #2 keeps working all along: the checkout is never idle.
-    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.tick().await;
+    crate::line::two(&w).await;
     let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
     let one = one.unwrap();
-    w.commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&worktree(&one), "a", "x");
     w.app.worker_done(id(&one)).await.unwrap();
     assert_eq!(w.tick().await.landed.len(), 1);
     assert!(w.app.promote("web").await.unwrap()["promoted"] == "web");
@@ -122,10 +113,7 @@ async fn a_cut_waits_its_turn_without_holding_the_tick_and_is_made_next_tick() {
 #[tokio::test]
 async fn a_queued_gate_no_longer_due_leaves_the_queue() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
+    w.working(CLAUDE, "a").await;
     done(&w, "a", "x").await;
     while_busy(&w, async {
         assert_eq!(w.tick().await.landed, Vec::<serde_json::Value>::new(), "the landing's gate waits its turn");
@@ -144,10 +132,7 @@ async fn a_queued_gate_no_longer_due_leaves_the_queue() {
 #[tokio::test]
 async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
+    w.working(CLAUDE, "a").await;
     done(&w, "a", "x").await;
     while_busy(&w, async {
         for _ in 0..3 {
@@ -200,10 +185,7 @@ async fn beside_what_runs_one_heavy_command_starts_per_reading() {
 #[tokio::test]
 async fn a_landing_whose_gate_runs_long_is_no_stall() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
+    w.working(CLAUDE, "a").await;
     let (started, release) = (w.dir.join("gate-started"), w.dir.join("gate-release"));
     let toml = format!(
         "[gate]\nfast = \"touch {}; while [ ! -e {} ]; do sleep 0.02; done\"\n",
@@ -228,17 +210,11 @@ async fn a_landing_whose_gate_runs_long_is_no_stall() {
 #[tokio::test]
 async fn promote_by_hand_waits_out_a_busy_queue_and_then_promotes() {
     let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
     // #2 keeps working all along: the checkout is never idle, so no tick promotes.
-    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.tick().await;
+    crate::line::two(&w).await;
     let one = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 1).cloned();
     let one = one.unwrap();
-    w.commit(&PathBuf::from(one["worktree"].as_str().unwrap()), "a", "x");
+    w.commit(&worktree(&one), "a", "x");
     w.app.worker_done(id(&one)).await.unwrap();
     let t = w.tick().await;
     assert_eq!(t.landed.len(), 1);

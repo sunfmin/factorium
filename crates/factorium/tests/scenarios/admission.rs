@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use factorium::host::Proc;
 use serde_json::json;
 
-use crate::{GIB, World, id, worker};
+use crate::{CLAUDE, GIB, World, id, worker};
 
 async fn ready(w: &World) {
     w.checkout("web").await;
@@ -69,9 +69,7 @@ async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
 #[tokio::test]
 async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let cores = std::thread::available_parallelism().unwrap().get() as f64;
     let tag = Some(wk["worker"].as_str().unwrap().to_string());
     *w.host.procs.lock().unwrap() =
@@ -91,9 +89,7 @@ async fn a_worker_over_its_share_long_enough_is_hot_with_its_evidence() {
 #[tokio::test]
 async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_within_its_share() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let cores = std::thread::available_parallelism().unwrap().get() as f64;
     let tag = Some(wk["worker"].as_str().unwrap().to_string());
     let busy = Proc { pid: 77, ppid: 1, cpu: 60.0 * cores, rss_kib: 10, command: "cargo build".into(), worker: tag };
@@ -118,9 +114,7 @@ async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_withi
 #[tokio::test]
 async fn a_worker_whose_terminal_is_gone_waits_for_the_watch() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     w.tick().await;
     let gone = worker(&w.app).await;
@@ -128,24 +122,6 @@ async fn a_worker_whose_terminal_is_gone_waits_for_the_watch() {
         (gone["status"].clone(), gone["why"].clone()),
         (json!("waiting"), json!("its session's terminal is gone"))
     );
-}
-
-#[tokio::test]
-async fn a_used_up_account_ends_the_worker_and_its_issue_starts_again() {
-    let w = World::new();
-    ready(&w).await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    w.set_screen(
-        wk["terminal"].as_str().unwrap(),
-        &["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."],
-    );
-    let t = w.tick().await;
-    assert_eq!(t.seen[0]["ended"], "quota");
-    let issue = w.app.issue_show("web", wk["number"].as_u64().unwrap()).await.unwrap();
-    assert!(t.started.is_some(), "the next start takes it again");
-    assert_ne!(issue["worker"], wk["worker"], "on a new worker");
 }
 
 #[tokio::test]
@@ -167,9 +143,7 @@ async fn a_heavy_command_runs_with_its_exit_code_and_leaves_the_queue_empty() {
 #[tokio::test]
 async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_bound_is() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let (cwd, id_) = (wk["worktree"].as_str().unwrap().to_string(), id(&wk));
     let now = (w.app_now() / 1000) as u64;
     crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, true, now);
@@ -183,20 +157,9 @@ async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_
     assert!(silent["why"].as_str().unwrap().starts_with("silent"), "{silent}");
 }
 
-impl World {
-    pub fn app_now(&self) -> i64 {
-        use factum::Clock;
-        self.clock.now().0
-    }
-}
-
 /// A checkout, a kit and one worker at work; answers its terminal.
 async fn one_working(w: &World) -> String {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
-    worker(&w.app).await["terminal"].as_str().unwrap().to_string()
+    w.working(CLAUDE, "a").await["terminal"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
@@ -261,9 +224,7 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
 #[tokio::test]
 async fn silence_counts_from_the_end_of_the_last_turn() {
     let w = World::new();
-    ready(&w).await;
-    w.tick().await;
-    let wk = worker(&w.app).await;
+    let wk = w.working(CLAUDE, "a").await;
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     w.advance(20);
     let closed = (w.app_now() / 1000) as u64;
