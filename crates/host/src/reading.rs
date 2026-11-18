@@ -79,15 +79,19 @@ fn ticks() -> Option<(u64, u64)> {
     Some((total.saturating_sub(idle), total))
 }
 
+#[cfg(target_os = "macos")]
 fn memory_free() -> Option<u64> {
-    if let Ok(info) = std::fs::read_to_string("/proc/meminfo") {
-        let field = |name: &str| -> Option<u64> {
-            info.lines().find(|l| l.starts_with(name))?.split_whitespace().nth(1)?.parse().ok()
-        };
-        let (available, total) = (field("MemAvailable:")?, field("MemTotal:")?);
-        return (total > 0).then(|| available * 100 / total);
-    }
     crate::shell::output("sysctl", &["-n", "kern.memorystatus_level"]).ok()?.trim().parse().ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn memory_free() -> Option<u64> {
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let field = |name: &str| -> Option<u64> {
+        info.lines().find(|l| l.starts_with(name))?.split_whitespace().nth(1)?.parse().ok()
+    };
+    let (available, total) = (field("MemAvailable:")?, field("MemTotal:")?);
+    (total > 0).then(|| available * 100 / total)
 }
 
 #[allow(unsafe_code)]
