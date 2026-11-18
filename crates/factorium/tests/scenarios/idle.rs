@@ -48,7 +48,7 @@ fn started(idle: &[Value]) -> bool {
 
 #[test]
 fn idle_work_left_without_every_or_limit_runs_once_a_day_within_an_hour() {
-    let idle = factorium_domain::declared::read(Some("[idle]\nsteps = [\"./mutants.sh\"]\n")).unwrap().idle.unwrap();
+    let idle = factorium_domain::declared::read(Some("[idle]\nsteps = [\"./soak.sh\"]\n")).unwrap().idle.unwrap();
     assert_eq!((idle.every, idle.limit), (86400, 3600));
 }
 

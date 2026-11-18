@@ -13,7 +13,7 @@
 //! formula = "factorium"   # the Homebrew formula to upgrade once cut
 //!
 //! [idle]                  # run on the base tip only while the host is idle
-//! steps = ["./mutants.sh --all"]
+//! steps = ["./soak.sh"]
 //! every = 86400           # at most once per this many seconds
 //! limit = 14400           # seconds, for all the steps together
 //! ```
