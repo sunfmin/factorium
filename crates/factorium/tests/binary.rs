@@ -105,6 +105,23 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert!(ok);
     assert_eq!(settings["value"], 1800);
     assert_eq!(settings["unit"], "seconds");
+
+    // An issue's life by the owner's hand, each step answering the issue.
+    let issue = |args: &[&str]| {
+        let (ok, answer) = run(&dir, &[&["issue"], args].concat());
+        assert!(ok, "{args:?}: {answer}");
+        answer
+    };
+    issue(&["add", "web", "Then this", "--parked"]);
+    assert_eq!(issue(&["block", "web", "2", "--by", "1"])["blocked_by"], json!([1]));
+    assert_eq!(issue(&["comment", "web", "1", "a note"])["comments"][0]["text"], "a note");
+    assert_eq!(issue(&["park", "web", "1", "later"])["status"], "parked");
+    assert_eq!(issue(&["ready", "web", "1"])["status"], "ready");
+    assert_eq!(issue(&["start-over", "web", "1", "--why", "again"])["discarded"], false, "it had no worker");
+    let closed = issue(&["close", "web", "2", "--reason", "dup"]);
+    assert_eq!((closed["status"].clone(), closed["reason"].clone()), (json!("closed"), json!("dup")));
+    assert_eq!(run(&dir, &["workers"]), (true, json!([])));
+    assert_eq!(run(&dir, &["outbox"]).1["error"]["code"], "no_session", "the watch has no session yet");
 }
 
 /// A worker's id, as its session's environment holds it.
