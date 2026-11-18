@@ -3,8 +3,8 @@
 [gate]
 fast = "./gate.sh"
 fast_limit = 900
-slow = "./gate.sh"
-slow_limit = 900
+slow = "./slow.sh"
+slow_limit = 1800
 
 [cut]
 steps = ["packaging/release.sh cut $FACTORIUM_VERSION"]
