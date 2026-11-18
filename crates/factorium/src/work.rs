@@ -76,11 +76,23 @@ impl App {
         Ok(json!({ "escalated": true, "said": "The watch will answer in this terminal. Stop until it does." }))
     }
 
-    /// Runs a command through the heavy-command queue.
+    /// Runs a command through the heavy-command queue at a gate's
+    /// priority, so a time it measures (a test run, `slimfit check` or
+    /// `ratchet`) is one a gate's run of the same tree agrees with.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
+        self.exclusive(worker, dir, cmd, Priority::Normal).await
+    }
+
+    /// [`App::worker_exclusive`] at background priority: for work whose
+    /// time no gate compares (a mutation run), so a gate beside it gets the
+    /// CPU first.
+    pub async fn worker_exclusive_background(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
+        self.exclusive(worker, dir, cmd, Priority::Background).await
+    }
+
+    async fn exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str, priority: Priority) -> Answer {
         let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
         let steps = [cmd.to_string()];
-        let priority = Priority::Background;
         let job = Job { what: cmd.into(), worker, bound_at: None, dir, steps: &steps, env: &[], limit, priority };
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))

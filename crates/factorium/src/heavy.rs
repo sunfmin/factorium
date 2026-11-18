@@ -36,7 +36,8 @@ pub(crate) struct Job<'a> {
     pub steps: &'a [String],
     pub env: &'a [(String, String)],
     pub limit: Duration,
-    /// Normal for a gate, background for any other (SPEC §1.9).
+    /// Normal for whatever measures time a gate compares (a gate, a
+    /// worker's `worker exclusive`), background for the rest (SPEC §1.9).
     pub priority: Priority,
 }
 
