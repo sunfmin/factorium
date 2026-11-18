@@ -50,6 +50,10 @@ pub struct WaitingSeen {
     pub why: String,
     /// The comments on its issue since it started waiting.
     pub heard: Vec<String>,
+    /// Parked behind what its issue waits for: what of that is not met.
+    /// While any is not, it is no finding: the watch decided already.
+    #[serde(default)]
+    pub parked: Vec<String>,
 }
 
 /// A worker asking to land.
@@ -123,7 +127,7 @@ pub struct Stuck {
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
-    for WaitingSeen { worker: id, issue, why, heard } in &seen.waiting {
+    for WaitingSeen { worker: id, issue, why, heard, .. } in seen.waiting.iter().filter(|w| w.parked.is_empty()) {
         f.push(Found {
             key: format!("worker:{id}"),
             what: format!("worker {id} on {issue} waits: {why}"),

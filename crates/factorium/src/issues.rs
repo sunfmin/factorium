@@ -191,6 +191,10 @@ impl App {
                 self.submit::<UnblockIssueAcross>(BlockAcross { checkout: c, number, by }).await?
             }
         }
+        // Its waiting worker is parked behind it (SPEC §2): back to work once all it waits for is met.
+        if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
+            self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
+        }
         self.issue_show(checkout, number).await
     }
 

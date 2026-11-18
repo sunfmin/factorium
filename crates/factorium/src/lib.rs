@@ -114,6 +114,8 @@ fn model() -> Model {
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()
         .command::<worker::Resume>()
+        .command::<worker::Park>()
+        .command::<worker::Unpark>()
         .command::<worker::Hear>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()

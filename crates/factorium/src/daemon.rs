@@ -7,13 +7,14 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
 use factorium_domain::heavy::{Heavy, queue_id};
-use factorium_domain::issue::{Across, Status as IssueStatus};
+use factorium_domain::issue::{Author, Issue, Status as IssueStatus};
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::{Lines, Move};
 use factorium_domain::line_id;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
+use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
@@ -29,6 +30,8 @@ pub struct Tick {
     /// Idle work that ended, yielded or started.
     pub idle: Vec<Value>,
     pub started: Option<Value>,
+    /// Parked workers sent back to work: what their issues waited for is met.
+    pub resumed: Vec<Value>,
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
@@ -145,6 +148,7 @@ impl App {
         if admission::disk_short(&self.reading(), &settings) {
             self.reclaim();
         }
+        t.resumed = self.resume_parked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = self.swapped().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
@@ -187,30 +191,58 @@ impl App {
                 continue;
             }
             checked.insert(checkout.clone());
-            let issue = self.issue(&checkout, number).await?;
-            let mut open = false;
-            for b in &issue.blocked_by {
-                open |= self.issue(&checkout, *b).await.is_ok_and(|i| i.status != IssueStatus::Closed);
-            }
-            for a in &issue.across {
-                open |= !self.met(a).await?;
-            }
-            if !open {
+            if self.blockers(&self.issue(&checkout, number).await?).await?.iter().all(|(_, met)| met.is_some()) {
                 return Ok(Some((checkout, number)));
             }
         }
         Ok(None)
     }
 
-    /// Whether an issue of another checkout no longer holds up one that
-    /// waits for it: it is closed (or gone), and, for its cut, its landing
-    /// is in a cut. Its landing is recorded before it closes, so a closed
-    /// issue the line does not hold either landed in a cut or never landed.
-    async fn met(&self, a: &Across) -> Answer<bool> {
-        if self.issue(&a.checkout, a.number).await.is_ok_and(|i| i.status != IssueStatus::Closed) {
-            return Ok(false);
+    /// What `issue` waits for, each named, and how it was met (its issue's
+    /// close, such as the landing), or `None` while it is not: met once its
+    /// issue is closed (or gone), and, for its cut, its landing is in a cut.
+    /// Its landing is recorded before it closes, so a closed issue the line
+    /// does not hold either landed in a cut or never landed.
+    pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
+        let mut all = Vec::new();
+        for (name, a) in issue.waits_for() {
+            let met = match self.issue(&a.checkout, a.number).await {
+                Ok(i) if i.status != IssueStatus::Closed => None,
+                _ if a.cut && self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number) => None,
+                Ok(i) => Some(i.reason.unwrap_or_else(|| "closed".into()) + if a.cut { ", in a cut" } else { "" }),
+                Err(_) => Some("gone".into()),
+            };
+            all.push((name, met));
         }
-        Ok(!a.cut || !self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number))
+        Ok(all)
+    }
+
+    /// Each worker the watch parked behind what its issue waits for, sent
+    /// back to work once all of it is met, told what was met and how, and
+    /// to merge the proving tip. Unparked first, so a restart that does not
+    /// reach it leaves it to the watch.
+    async fn resume_parked(&self) -> Answer<Vec<Value>> {
+        let mut resumed = Vec::new();
+        for w in self.rows(tracker::workers(Some(WorkerStatus::Waiting), false)).await? {
+            if !self.state::<Workers>(w.worker).await?.parked {
+                continue;
+            }
+            let met: Option<Vec<String>> = (self.blockers(&self.issue(&w.checkout, w.number).await?).await?)
+                .into_iter()
+                .map(|(name, met)| Some(format!("{name} ({})", met?)))
+                .collect();
+            let Some(met) = met.filter(|m| !m.is_empty()) else { continue };
+            self.submit::<Unpark>(Of { worker: w.worker }).await?;
+            let p = self.checkout(&w.checkout).await?.proving;
+            let text = format!(
+                "What your issue waited for is met: {}. Merge the proving tip into your branch \
+                 (`git fetch origin {p} && git merge origin/{p}`) before you gate again.",
+                met.join(", ")
+            );
+            let did = self.restart(w.worker, Author::Factorium, &text, false).await;
+            resumed.push(did.unwrap_or_else(|r| json!({ "worker": w.worker, "refused": r.to_string() })));
+        }
+        Ok(resumed)
     }
 
     /// Frees disk: the build outputs of the line's worktrees, rebuilt when
@@ -262,7 +294,11 @@ impl App {
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             match self.tick().await {
                 Ok(t) => {
-                    let did = !t.landed.is_empty() || !t.lines.is_empty() || !t.seen.is_empty() || !t.idle.is_empty();
+                    let did = !t.landed.is_empty()
+                        || !t.lines.is_empty()
+                        || !t.seen.is_empty()
+                        || !t.idle.is_empty()
+                        || !t.resumed.is_empty();
                     if t.started.is_some() || did {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }

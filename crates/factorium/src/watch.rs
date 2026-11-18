@@ -135,19 +135,25 @@ impl App {
     /// `text`; a worker whose session is gone ends, keeping its worktree, and
     /// its issue is started again. `now` as for `watch_tell`.
     pub async fn watch_restart(&self, worker: Uuid, text: &str, now: bool) -> Answer {
+        self.restart(worker, Author::Watch, text, now).await
+    }
+
+    /// Sends a waiting worker back to work, told `text`, kept as `by`'s comment.
+    pub(crate) async fn restart(&self, worker: Uuid, by: Author, text: &str, now: bool) -> Answer {
         let wk = self.state::<Workers>(worker).await?;
         let st = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
         if wk.status == Status::Ended {
             return Err(Refusal::new("ended", "this worker has ended"));
         }
+        let from = if by == Author::Watch { Sender::Watch } else { Sender::Factorium };
         // Kept on its issue as it is typed: this line is its delivery.
-        self.note(&st.checkout, st.number, Author::Watch, text).await?;
+        self.note(&st.checkout, st.number, by, text).await?;
         let session = Self::worker_session(worker, &st)?;
         match self.gone(&session) {
             Ok(false) => {}
             Err(why) => return Err(Refusal::new("orca", why)),
             Ok(true) => {
-                self.end_worker(worker, End::because("restarted by the watch: its session was gone", true)).await?;
+                self.end_worker(worker, End::because("restarted: its session was gone", true)).await?;
                 return Ok(
                     json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
                 );
@@ -155,7 +161,7 @@ impl App {
         }
         let line = format!("{text} Then go on, and run `factorium worker done` when the work is committed.");
         // A brief never handed goes first: the word is about its work.
-        let delivery = self.tell(&session, Sender::Watch, &line, now).await.and_then(crate::session::heard)?;
+        let delivery = self.tell(&session, from, &line, now).await.and_then(crate::session::heard)?;
         if let Outcome::Missed { why } = &delivery {
             return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "missed": why }));
         }
