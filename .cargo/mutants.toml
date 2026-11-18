@@ -94,6 +94,10 @@ exclude_re = [
   'replace <impl Aggregate for Workers>::ending -> bool with false',
   'replace live -> Result<\(\), Rejection> with Ok\(\(\)\)',
   'delete match arm \((None, _|_, Status::Ended)\) in live',
+  # The same for an issue: a command on one never opened is refused
+  # `no_issue` by the app's lookup (`issue_show`) either way, and an event
+  # its stream took without `opened` is wiped when that issue opens.
+  'replace opened -> Result<\(\), Rejection> with Ok\(\(\)\)',
   # Equivalent: quoting a word that needs no quotes runs the same.
   'replace \|\| with && in shell_word',
   # Which part of a busy tick is non-empty only decides that it is printed,
