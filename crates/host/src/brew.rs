@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 
 use crate::shell::Programs;
 
+/// Seconds to wait before each try of `brew update` and upgrade: a tap
+/// pushed seconds ago may not show yet. 90s in all.
+const TAP_WAITS: [u64; 7] = [0, 2, 4, 8, 16, 30, 30];
+
 /// Homebrew, reached through the programs the host runs.
 pub struct Brew<'a>(pub &'a dyn Programs);
 
@@ -26,17 +30,21 @@ impl Brew<'_> {
             self.brew(&["upgrade", formula])
         };
         let has = || self.brew(&["list", "--versions", formula]).unwrap_or_default();
-        // `brew update` may see the tap before its new formula; then the
-        // upgrade has nothing to do and succeeds. Once more, then it fails.
-        let said = upgrade()?;
-        if names(&has(), version) {
-            return Ok(said);
+        // `brew update` may see the tap seconds before its new formula; then
+        // the upgrade has nothing to do and succeeds. Wait, backing off, up
+        // to a bound before it fails.
+        let mut waited = 0;
+        for wait in TAP_WAITS {
+            if wait > 0 {
+                self.0.run("sleep", &[&wait.to_string()]);
+                waited += wait;
+            }
+            let said = upgrade()?;
+            if names(&has(), version) {
+                return Ok(said);
+            }
         }
-        let said = upgrade()?;
-        match has() {
-            h if names(&h, version) => Ok(said),
-            h => Err(stale(formula, version, &h)),
-        }
+        Err(stale(formula, version, &has(), waited))
     }
 
     /// Where Homebrew links the program `me` (a path canonical, as
@@ -57,11 +65,11 @@ fn names(listed: &str, version: &str) -> bool {
 }
 
 /// Why a cut's install failed: Homebrew still has another version.
-fn stale(formula: &str, version: &str, listed: &str) -> String {
+fn stale(formula: &str, version: &str, listed: &str, waited: u64) -> String {
     let listed = listed.trim();
     let has = if listed.is_empty() { "nothing".to_string() } else { format!("`{listed}`") };
     format!(
-        "Homebrew has {has} of {formula}, not {}, after brew update and upgrade twice",
+        "Homebrew has {has} of {formula}, not {}, after brew update and upgrade for {waited}s",
         version.strip_prefix('v').unwrap_or(version)
     )
 }

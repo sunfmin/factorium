@@ -174,6 +174,13 @@ async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()), "the next tick swaps the binary");
 }
 
+/// The `sleep`s run since the cut's first `brew update`: its waits for the tap.
+fn brew_waits(w: &World) -> Vec<String> {
+    let ran = w.host.ran.lock().unwrap();
+    let from = ran.iter().position(|r| r.starts_with("brew update")).unwrap_or(ran.len());
+    ran[from..].iter().filter(|r| r.starts_with("sleep ")).cloned().collect()
+}
+
 #[tokio::test]
 async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
     let w = World::new();
@@ -185,8 +192,11 @@ async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
     let why = cut["failed"].as_str().expect("the cut fails");
     assert!(why.contains("web 0.0.9") && why.contains("not 0.1.0"), "{why}");
     assert_eq!(cut["installed"], json!(null));
+    assert!(why.contains("for 90s"), "it names the bound waited: {why}");
     let upgrades = w.host.brewed().iter().filter(|b| *b == "upgrade web").count();
-    assert_eq!(upgrades, 2, "an installed formula is upgraded, twice before it fails");
+    assert_eq!(upgrades, 7, "an installed formula is upgraded, with backoff, before it fails");
+    let slept = brew_waits(&w);
+    assert_eq!(slept, ["sleep 2", "sleep 4", "sleep 8", "sleep 16", "sleep 30", "sleep 30"]);
     let finding = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
     assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("not 0.1.0"), "{finding}");
     assert_eq!(t.restart, None, "the daemon does not restart onto a version it lacks");
@@ -196,12 +206,17 @@ async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
 async fn a_cut_installs_once_brew_update_sees_its_version() {
     let w = World::new();
     w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    // The first `brew update` sees the tap as it was: its upgrade does nothing.
-    w.host.brew.lock().unwrap().behind = 1;
+    // The tap is seconds behind: only the 3rd `brew update` sees the new formula.
+    w.host.brew.lock().unwrap().behind = 2;
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.1.0");
-    assert_eq!(w.host.brewed().iter().filter(|b| b.starts_with("update")).count(), 2);
+    assert_eq!(w.host.brewed().iter().filter(|b| b.starts_with("update")).count(), 3);
+    let slept = brew_waits(&w);
+    assert_eq!(slept, ["sleep 2", "sleep 4"], "it backs off between tries");
+    assert!(t.lines.iter().all(|l| l["failed"].is_null()), "no CutFailed: {:?}", t.lines);
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(!doctor.to_string().contains("cutting v0.1.0 failed"), "no CutFailed: {doctor}");
 }
 
 #[tokio::test]

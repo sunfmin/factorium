@@ -233,7 +233,10 @@ impl App {
         let mut installed = None;
         if let Some(formula) = &cut.formula {
             // The daemon's own formula: it sees the new link once the tick ends.
-            if let Err(e) = self.host.brew().upgrade(formula, &version) {
+            // It waits, up to 90s, for a tap pushed seconds ago: off the runtime's threads.
+            let (host, f, v) = (self.host.clone(), formula.clone(), version.clone());
+            let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
+            if let Err(e) = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}"))) {
                 self.submit::<line::RecordCut>(record(&base, Some(format!("installing {formula} failed: {e}"))))
                     .await?;
                 return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": e })));
