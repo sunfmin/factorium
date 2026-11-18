@@ -16,6 +16,13 @@ pub struct Checkout {
     pub listed: bool,
 }
 
+impl Checkout {
+    /// Origin's base branch as last fetched.
+    pub fn fetched_base(&self) -> String {
+        format!("refs/remotes/origin/{}", self.base)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum CheckoutEvent {

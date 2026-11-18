@@ -29,7 +29,7 @@ impl App {
             let line = self.state::<Lines>(line_id(&c.name)).await?;
             // What the base declares, as last fetched: doctor fetches nothing.
             let git = self.host.git(&c.path);
-            let cuts = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).is_ok_and(|d| d.cut.is_some());
+            let cuts = self.declared(&git, &c.fetched_base()).is_ok_and(|d| d.cut.is_some());
             let stuck = crate::line::stuck_base(&c, &git);
             let idle = self.state::<Idles>(idle_id(&c.name)).await?;
             seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle });

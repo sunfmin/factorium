@@ -26,7 +26,7 @@ use crate::{Answer, App, LineClone, fail};
 
 /// Fast-forwards the checkout's local base to `tip`, never further, where
 /// nothing of it is lost; answers what it did, if it moved or failed.
-pub(crate) fn follow_base(c: &Checkout, git: &Git, tip: &str) -> Option<Value> {
+fn follow_base(c: &Checkout, git: &Git, tip: &str) -> Option<Value> {
     match git.follow(&c.base, tip) {
         Ok(Lag::Behind(n)) => Some(json!({ "base": c.name, "fast_forwarded": n })),
         Ok(_) => None,
@@ -36,7 +36,7 @@ pub(crate) fn follow_base(c: &Checkout, git: &Git, tip: &str) -> Option<Value> {
 
 /// The checkout's local base, where it cannot follow origin's as last fetched.
 pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
-    let (behind, ours, dirty) = match git.lag(&c.base, &format!("refs/remotes/origin/{}", c.base)).ok()? {
+    let (behind, ours, dirty) = match git.lag(&c.base, &c.fetched_base()).ok()? {
         Lag::Diverged { behind, ours } => (behind, ours, false),
         Lag::Dirty { behind } => (behind, 0, true),
         Lag::Even | Lag::Behind(_) => return None,
@@ -83,8 +83,26 @@ pub(crate) type Did = Result<Value, String>;
 const QUEUED: &str = "waits its turn in the heavy-command queue";
 
 impl App {
+    /// The tick's pass over the lines: each checkout's landing, then each
+    /// one's promotion and cut as its line says each is due, then its local
+    /// base following origin's as last fetched, whatever left it behind.
+    /// Answers what landed, and what else moved.
+    pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<(Vec<Value>, Vec<Value>)> {
+        let (mut landed, mut lines) = (Vec::new(), Vec::new());
+        for c in checkouts {
+            landed.extend(self.carry(c, Move::Land, false).await?.ok());
+        }
+        for c in checkouts {
+            for mv in [Move::Promote, Move::Cut] {
+                lines.extend(self.carry(c, mv, false).await?.ok());
+            }
+            lines.extend(follow_base(c, &self.host.git(&c.path), &c.fetched_base()));
+        }
+        Ok((landed, lines))
+    }
+
     /// Carries out `mv` on `c` if its line says it is due now.
-    pub(crate) async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
+    async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
         let workers: Vec<_> = self

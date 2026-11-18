@@ -120,8 +120,7 @@ impl App {
         let mut due = Vec::new();
         for c in checkouts {
             let git = self.host.git(&c.path);
-            let Some(every) = self.declared(&git, &format!("refs/remotes/origin/{}", c.base)).ok().and_then(|d| d.idle)
-            else {
+            let Some(every) = self.declared(&git, &c.fetched_base()).ok().and_then(|d| d.idle) else {
                 continue;
             };
             let state = self.state::<Idles>(idle_id(&c.name)).await?;
