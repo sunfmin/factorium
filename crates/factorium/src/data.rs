@@ -7,22 +7,25 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
 pub struct Data(PathBuf);
 
-/// The clones the line works in, one of each per checkout (SPEC §1.12–14).
+/// The clones the line and idle work run in, one of each per checkout (SPEC §1.12–14, §1.16).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineClone {
     Landing,
     Promotion,
     Cut,
+    /// Where idle work runs, on the base tip.
+    Idle,
 }
 
 impl LineClone {
-    pub const ALL: [LineClone; 3] = [LineClone::Landing, LineClone::Promotion, LineClone::Cut];
+    pub const ALL: [LineClone; 4] = [LineClone::Landing, LineClone::Promotion, LineClone::Cut, LineClone::Idle];
 
     fn name(self) -> &'static str {
         match self {
             LineClone::Landing => "landing",
             LineClone::Promotion => "promotion",
             LineClone::Cut => "cut",
+            LineClone::Idle => "idle",
         }
     }
 }

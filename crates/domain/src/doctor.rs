@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::daemon::Daemon;
 use crate::declared::Kind;
 use crate::heavy::{LineJob, Queue};
+use crate::idle::{Idle, Run};
 use crate::line::{self, Line, Move};
 use crate::settings::{Setting, Settings, Time};
 use crate::watch::Found;
@@ -100,6 +101,9 @@ pub struct LineSeen {
     /// Its local base, where it cannot follow origin's.
     #[serde(default)]
     pub stuck: Option<Stuck>,
+    /// Its idle work's last run.
+    #[serde(default)]
+    pub idle: Idle,
 }
 
 /// A checkout's local base behind origin's that is not fast-forwarded,
@@ -131,7 +135,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     let mut add =
         |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into(), heard: Vec::new() });
-    for LineSeen { checkout, line, stuck, .. } in &seen.lines {
+    for LineSeen { checkout, line, stuck, idle, .. } in &seen.lines {
         if let Some(Stuck { base, path, behind, ours, dirty }) = stuck {
             let why = if *dirty {
                 "it is checked out over changes not committed".to_string()
@@ -150,6 +154,14 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
                 format!("promotion:{checkout}:{tip}"),
                 format!("{checkout}: the slow gate is red on proving tip {tip}: {why}"),
                 "find the landing that broke it; open an issue to fix it, or hold landings with `factorium hold`",
+            );
+        }
+        if let Some(Run { tip, tail, .. }) = idle.red() {
+            add(
+                format!("idle:{checkout}:{tip}"),
+                format!("{checkout}: its idle work is red on base tip {tip}: {tail}"),
+                "find what on the base broke it; open an issue to fix it. The next idle run, once `every` has \
+                 passed, tries again",
             );
         }
         if let Some((version, why)) = &line.cut_failed {

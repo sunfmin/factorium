@@ -13,6 +13,7 @@ mod comment;
 mod daemon;
 mod fixtures;
 mod harnesses;
+mod idle;
 mod kept;
 mod line;
 mod one_harness;

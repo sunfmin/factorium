@@ -11,6 +11,11 @@
 //! [cut]                   # how a version is made from the base branch
 //! steps = ["./release.sh $FACTORIUM_VERSION"]
 //! formula = "factorium"   # the Homebrew formula to upgrade once cut
+//!
+//! [idle]                  # run on the base tip only while the host is idle
+//! steps = ["./mutants.sh --all"]
+//! every = 86400           # at most once per this many seconds
+//! limit = 14400           # seconds, for all the steps together
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +28,7 @@ pub struct Declared {
     #[serde(default)]
     pub gate: Gate,
     pub cut: Option<Cut>,
+    pub idle: Option<Idle>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +71,24 @@ pub struct Cut {
     pub formula: Option<String>,
     #[serde(default = "slow_limit")]
     pub limit: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Idle {
+    /// Shell lines run in order on the base tip while the host is idle.
+    /// Any red one makes the run red.
+    pub steps: Vec<String>,
+    /// At most one run per this many seconds, from the last one's start.
+    #[serde(default = "every")]
+    pub every: u64,
+    /// Seconds all the steps may take together; past it the run is red.
+    #[serde(default = "slow_limit")]
+    pub limit: u64,
+}
+
+fn every() -> u64 {
+    86400
 }
 
 /// Reads a `factorium.toml`; a repo without one declares the defaults.
