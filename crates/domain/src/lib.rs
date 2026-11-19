@@ -21,6 +21,7 @@ pub mod line;
 pub mod neutral;
 pub mod outbox;
 pub mod settings;
+pub mod task;
 pub mod tracker;
 pub mod watch;
 pub mod worker;

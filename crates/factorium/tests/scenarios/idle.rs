@@ -196,3 +196,91 @@ async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
     assert_eq!(refused.code, "stale", "{refused}");
     assert_eq!(heavy(&w).await, ["running"]);
 }
+
+/// What slimfit's `next --all` answers with tasks of each `(kind, file)`.
+fn next(tasks: &[(&str, &str)]) -> String {
+    let task = |(kind, file): &(&str, &str)| {
+        let summary = format!("{file}: 316 lines, changed in 28 commits in 90 days");
+        json!({ "kind": kind, "files": [file], "summary": summary, "steps": "Deepen it.", "accept": "slimfit check" })
+    };
+    let tasks: Vec<Value> = tasks.iter().map(task).collect();
+    serde_json::to_string_pretty(&json!({ "next": "do the task", "tasks": tasks })).unwrap()
+}
+
+/// A checkout `web` whose idle work's tasks line reads slimfit 0.1.16, then
+/// what the file it answers holds, at most once a minute. No kit: no worker
+/// takes what is filed, so the host stays idle.
+async fn finds_tasks(w: &World) -> PathBuf {
+    let web = w.checkout("web").await;
+    let answer = w.dir.join("next.json");
+    let line = format!("echo slimfit 0.1.16 && cat '{}'", answer.display());
+    let toml = format!("[idle]\ntasks = {line:?}\nevery = 60\nlimit = 60\n");
+    let clone = w.dir.join("edit");
+    let remote = w.dir.join("remotes/web.git");
+    w.git(&w.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    w.commit(&clone, "factorium.toml", &toml);
+    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    w.git(&web, &["fetch", "-q", "origin"]).unwrap();
+    answer
+}
+
+/// The next idle run, a minute on: the issues it filed.
+async fn files(w: &World) -> Value {
+    w.advance(2);
+    let run = ended(w).await;
+    assert_eq!(run["green"], true, "{run}");
+    run["filed"].clone()
+}
+
+#[tokio::test]
+async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")])).unwrap();
+    assert_eq!(files(&w).await, json!([1, 2]), "one of each kind");
+    let one = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(one["title"], "slimfit deepen: a.rs: 316 lines, changed in 28 commits in 90 days");
+    assert_eq!(one["task"], json!({ "kind": "deepen", "files": ["a.rs"] }));
+    let body = one["body"].as_str().unwrap();
+    let tip = w.remote_tip("web", "main");
+    for carried in ["slimfit 0.1.16", tip.as_str(), "\"steps\": \"Deepen it.\"", "\"accept\": \"slimfit check\""] {
+        assert!(body.contains(carried), "{carried} in {body}");
+    }
+    assert_eq!(w.app.issue_show("web", 2).await.unwrap()["task"]["kind"], "redundant-test");
+    assert_eq!(files(&w).await, json!([]), "none while one of its kind is open");
+
+    w.app.issue_close("web", 1, "deepened").await.unwrap();
+    assert_eq!(files(&w).await, json!([3]), "the next of its kind, not the one just closed");
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["task"]["files"], json!(["b.rs"]));
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.issue_close("web", 3, "deepened").await.unwrap();
+    assert_eq!(files(&w).await, json!([]), "a task closed this week is not filed again");
+    w.advance(7 * 24 * 60);
+    assert_eq!(files(&w).await, json!([4]), "a week on, it is");
+
+    std::fs::write(&answer, "no tasks").unwrap();
+    w.advance(2);
+    let run = ended(&w).await;
+    assert_eq!(run["green"], false, "{run}");
+    assert!(run["tail"].as_str().unwrap().contains("printed no answer"), "{run}");
+}
+
+#[tokio::test]
+async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    // No room on the host, ever: it is never idle.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(1);
+    let run = ended(&w).await;
+    assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "never read: overdue at once");
+    w.app.issue_close("web", 1, "deepened").await.unwrap();
+    std::fs::write(&answer, next(&[("deepen", "b.rs")])).unwrap();
+    w.advance(2);
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "past `every`, but the host is not idle");
+    w.advance(10);
+    let run = ended(&w).await;
+    assert_eq!(run["filed"], json!([2]), "past `every` and `tasks_bound`: {run}");
+}

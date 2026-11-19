@@ -1,0 +1,32 @@
+{
+  "tree": "19cdf41cd75ff1df00f2625b69522230013f3b3f+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/task.rs:40:40: replace != with == in to_file",
+        "why": "an open issue of a kind holds that kind back; a closed one does not",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/task.rs:43:102: replace < with > in to_file",
+        "why": "only a task closed within the week is held back",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/idle.rs:96:74: delete ! in App::idle_check",
+        "why": "an overdue run yields to nothing on a busy host",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/idle.rs:164:48: replace && with || in App::idle_start",
+        "why": "only declared tasks go overdue; plain steps still wait for an idle host",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/idle.rs:165:33: replace && with || in App::idle_start",
+        "why": "an idle host still runs idle work only once per every",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
