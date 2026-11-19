@@ -133,6 +133,11 @@ async fn closing_an_issue_with_no_worktree_left_says_nothing_of_one() {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     let closed = w.app.issue_close("web", 1, "dropped").await.unwrap();
     assert_eq!((closed["abandoned"].clone(), closed["comments"].clone()), (json!(null), json!([])));
+
+    // An issue of a checkout off the list closes all the same.
+    w.app.issue_add("web", "u", "", true, &[]).await.unwrap();
+    w.app.checkout_remove("web").await.unwrap();
+    assert_eq!(w.app.issue_close("web", 2, "dropped").await.unwrap()["status"], "closed");
 }
 
 #[tokio::test]
