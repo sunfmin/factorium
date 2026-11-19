@@ -51,6 +51,12 @@
       "test": "factorium::scenarios::line::promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own",
       "hash": "df17f8e6406a14ed",
       "reason": "It checks promote and cut asked by hand (nothing to promote before a landing, the tip promoted, v0.1.0 cut, nothing new to cut, the tag on the step's own commit) and the landings' author on a fresh host and with the host's [user]; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing, promotion and cut pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_of_the_daemons_own_formula_asks_for_a_restart",
+      "hash": "e7c92dfd1a2435c4",
+      "reason": "It checks a cut of the daemon's own formula asks for a restart with the daemon's binary, and another formula's cut does not; the other checks the line's work dirs are clones. Folding it in would set which formula the daemon runs as under the work-dirs scenario, and its second case needs a daemon of another formula. They share the cut pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
