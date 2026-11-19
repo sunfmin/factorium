@@ -41,7 +41,7 @@ pub struct Tick {
 }
 
 /// How soon a stop between ticks is seen, ms on the app's clock.
-const STOP_POLL: i64 = 100;
+const STOP_POLL: u64 = 100;
 
 impl App {
     async fn listed(&self) -> Answer<Vec<Checkout>> {
@@ -300,7 +300,7 @@ impl App {
             // On the app's clock, in slices, so a stop between ticks ends the wait.
             let until = self.now() + every;
             while !stop.load(std::sync::atomic::Ordering::Relaxed) && self.now() < until {
-                self.clock.sleep((until - self.now()).min(STOP_POLL) as u64).await;
+                self.clock.sleep(STOP_POLL).await;
             }
         }
         self.idle_end().await;
