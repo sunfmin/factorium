@@ -228,6 +228,18 @@ impl Git {
         Ok(log.lines().map(str::to_string).collect())
     }
 
+    /// The commits of `head` not in `base` along its first parents (its
+    /// landings, on a line), newest first, one line each.
+    pub fn landings(&self, base: &str, head: &str) -> Result<Vec<String>, String> {
+        let log = self.run(&["log", "--first-parent", "--oneline", "--no-decorate", &format!("{base}..{head}")])?;
+        Ok(log.lines().map(str::to_string).collect())
+    }
+
+    /// The URL of origin.
+    pub fn origin(&self) -> Result<String, String> {
+        self.run(&["remote", "get-url", "origin"])
+    }
+
     /// The files with changes not committed: changed since `HEAD`, staged or
     /// not, then those git does not track (and does not ignore).
     pub fn changes(&self) -> Result<Vec<String>, String> {

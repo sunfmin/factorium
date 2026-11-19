@@ -103,6 +103,11 @@ watch's look and the operator's view.
    `discard <worktree>`, which removes it the same way.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
+8. A checkout whose proving tip pins another checkout by git rev in its
+   `Cargo.toml` gets one issue, on the first tick that finds the pin behind
+   that checkout's base tip as last fetched: "Bump <dep> to its base tip
+   (<sha>)", listing the landings since the pin. No second while one is
+   open (factorium#127).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
