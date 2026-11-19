@@ -18,6 +18,15 @@ pub struct Failing {
     pub error: String,
 }
 
+/// A new binary whose ticks all failed, and the kept one the daemon went
+/// back to: their versions, and the last error.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RolledBack {
+    pub from: String,
+    pub to: String,
+    pub error: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Daemon {
     /// When it last started.
@@ -27,6 +36,9 @@ pub struct Daemon {
     /// The programs it needs and did not find on that PATH.
     pub missing: Vec<String>,
     pub failing: Option<Failing>,
+    /// Its last rollback, until a binary Homebrew links ticks well.
+    #[serde(default)]
+    pub rolled_back: Option<RolledBack>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -35,6 +47,8 @@ pub enum DaemonEvent {
     DaemonStarted { at: i64, path: String, missing: Vec<String> },
     TickFailed { at: i64, error: String },
     TickDone,
+    RolledBack { at: i64, rolled_back: RolledBack },
+    RollbackOver,
 }
 
 pub struct Daemons;
@@ -55,6 +69,8 @@ impl Aggregate for Daemons {
                 f.error = error;
             }
             DaemonEvent::TickDone => s.failing = None,
+            DaemonEvent::RolledBack { rolled_back, .. } => s.rolled_back = Some(rolled_back),
+            DaemonEvent::RollbackOver => s.rolled_back = None,
         }
     }
 }
@@ -94,3 +110,18 @@ command!(
         })
     }
 );
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Rollback {
+    /// The rollback the kept binary ticked well after; `None`: a binary
+    /// Homebrew links ticked well, and the last rollback is over.
+    pub rolled_back: Option<RolledBack>,
+}
+
+command!(NoteRollback, "daemon.rollback", Daemons, Rollback, |_p| daemon_id(), |s, p, now| {
+    Ok::<_, factum_core::Rejection>(match (&p.rolled_back, &s.rolled_back) {
+        (Some(r), _) => vec![DaemonEvent::RolledBack { at: now.0, rolled_back: r.clone() }],
+        (None, Some(_)) => vec![DaemonEvent::RollbackOver],
+        (None, None) => Vec::new(),
+    })
+});

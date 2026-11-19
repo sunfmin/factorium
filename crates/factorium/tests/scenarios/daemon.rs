@@ -167,3 +167,98 @@ async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
     assert_eq!(w.app.run(&stop).await.unwrap(), json!({ "stopped": true, "ticks": 1 }));
 }
+
+/// Homebrew links `version` of the formula `factorium` (the `running_as`
+/// one): answers its binary, canonical.
+fn link(w: &World, version: &str) -> std::path::PathBuf {
+    let bin = w.dir.join("brew/Cellar/factorium").join(version).join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("factorium"), format!("binary {version}")).unwrap();
+    let opt = w.dir.join("brew/opt/factorium");
+    std::fs::remove_file(&opt).unwrap();
+    std::os::unix::fs::symlink(bin.parent().unwrap(), &opt).unwrap();
+    bin.join("factorium").canonicalize().unwrap()
+}
+
+/// The binary kept to go back to: its version, and what it holds.
+fn kept(w: &World) -> Vec<(String, String)> {
+    let Ok(versions) = std::fs::read_dir(w.data().binary()) else { return Vec::new() };
+    let binary = |v: &std::path::Path| std::fs::read_to_string(v.join("bin/factorium")).unwrap();
+    versions.flatten().map(|v| (v.file_name().to_string_lossy().into_owned(), binary(&v.path()))).collect()
+}
+
+/// The new binary's store cannot read the database (0.1.42 on 2026-11-20):
+/// the events are not where it looks.
+fn unreadable(w: &World, unreadable: bool) {
+    let (from, to) = if unreadable { ("events", "events_away") } else { ("events_away", "events") };
+    w.migrate(&format!("ALTER TABLE {from} RENAME TO {to}"));
+}
+
+#[tokio::test]
+async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
+    let w = World::new();
+    let link0 = w.running_as(&w.app, "factorium");
+    assert!(kept(&w).is_empty(), "nothing is kept before a tick goes well");
+    assert_eq!(w.tick().await.restart, None);
+    assert_eq!(kept(&w), [("0.0.9".into(), "a binary".into())], "the first good tick keeps it");
+    let new = link(&w, "0.1.0");
+    assert_eq!(w.tick().await.restart.as_deref(), Some(&*link0.to_string_lossy()));
+
+    // The swapped-in binary, as the same pid: it cannot read the database.
+    let swapped = w.run();
+    swapped.runs_as(&new);
+    unreadable(&w, true);
+    for n in 1..=3 {
+        w.advance(5);
+        swapped.tick().await.expect_err("its store cannot read the database");
+        assert_eq!(swapped.fallback().is_some(), n == 3, "tick {n}");
+    }
+    let back = swapped.fallback().unwrap();
+    assert!(back.starts_with(w.data().binary().canonicalize().unwrap()), "{}", back.display());
+    assert_eq!(kept(&w), [("0.0.9".into(), "a binary".into())], "a binary that never ticked well is not kept");
+
+    // The kept binary, exec'd as the same pid, reads it.
+    unreadable(&w, false);
+    let old = w.run();
+    old.runs_as(&back);
+    w.advance(5);
+    assert_eq!(old.tick().await.unwrap().restart, None, "not to 0.1.0 again while the link names it");
+    let found = w.finding("daemon:rollback").await.expect("the rollback is a finding");
+    let what = found["what"].as_str().unwrap();
+    assert!(what.contains("from factorium 0.1.0 to 0.0.9") && what.contains("events"), "{what}");
+    w.advance(5);
+    assert_eq!(old.tick().await.unwrap().restart, None);
+    assert!(w.finding("daemon:rollback").await.is_some(), "the kept binary does not end it");
+    let episodes = w.app.watch_next().await.unwrap()["episodes"].clone();
+    assert!(episodes.get("daemon:rollback").is_some(), "the next look's episode: {episodes}");
+
+    // A newer one linked: the kept binary swaps to it, whose good first tick ends the rollback.
+    let newer = link(&w, "0.1.1");
+    w.advance(5);
+    assert_eq!(old.tick().await.unwrap().restart.as_deref(), Some(&*link0.to_string_lossy()));
+    let swapped = w.run();
+    swapped.runs_as(&newer);
+    w.advance(5);
+    swapped.tick().await.unwrap();
+    assert_eq!(w.finding("daemon:rollback").await, None);
+    assert_eq!(kept(&w), [("0.1.1".into(), "binary 0.1.1".into())]);
+}
+
+#[tokio::test]
+async fn a_swap_whose_first_tick_is_good_keeps_the_new_binary() {
+    let w = World::new();
+    w.running_as(&w.app, "factorium");
+    w.tick().await;
+    let new = link(&w, "0.1.0");
+    let swapped = w.run();
+    swapped.runs_as(&new);
+    swapped.tick().await.unwrap();
+    assert_eq!(kept(&w), [("0.1.0".into(), "binary 0.1.0".into())], "the one to go back to, alone");
+    // Its ticks failing later go back to nothing: it is the kept one's version.
+    unreadable(&w, true);
+    for _ in 1..=4 {
+        w.advance(5);
+        swapped.tick().await.unwrap_err();
+    }
+    assert_eq!(swapped.fallback(), None);
+}

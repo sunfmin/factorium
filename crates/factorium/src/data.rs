@@ -96,6 +96,16 @@ impl Data {
         self.0.join("daemon.pid")
     }
 
+    /// The binary kept to roll back to, as `<version>/bin/<name>` in it.
+    pub fn binary(&self) -> PathBuf {
+        self.0.join("binary")
+    }
+
+    /// What a rollback hands the kept binary it execs.
+    pub fn rollback(&self) -> PathBuf {
+        self.0.join("rollback.json")
+    }
+
     /// What the daemon prints, as the service keeps it.
     pub fn log(&self) -> PathBuf {
         self.0.join("daemon.log")

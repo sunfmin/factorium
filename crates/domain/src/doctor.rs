@@ -218,6 +218,17 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "find what the error names (a program, a repo, the database) and fix it; daemon.log has every tick",
         );
     }
+    if let Some(r) = &seen.daemon.rolled_back {
+        add(
+            "daemon:rollback".into(),
+            format!("the daemon went back from factorium {} to {}: its ticks failed: {}", r.from, r.to, r.error),
+            &format!(
+                "{} cannot run here: fix what the error names and cut a newer version; the daemon swaps to that \
+                 once Homebrew links it, never to {} again",
+                r.from, r.from
+            ),
+        );
+    }
     for DeadLetters { projection: p, count: n } in &seen.dead_letters {
         add(format!("dead:{p}"), format!("projection {p} has {n} dead letters"), "a code fix, then retry them");
     }
