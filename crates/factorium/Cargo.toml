@@ -33,8 +33,6 @@ toml = "0.8"
 # The scenarios raise their own open-files limit (`open_files_enough`).
 libc = "0.2"
 rusqlite = { version = "0.42", features = ["bundled"] }
-# A paused clock: a scenario waits on the daemon's ticks in no real time.
-tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

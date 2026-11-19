@@ -1,0 +1,17 @@
+{
+  "tree": "03e26f738352f3723a73ff0edaab5bded4a414a3+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/clock.rs:28:9: replace <impl Clock for SystemClock>::now -> i64 with 0",
+        "why": "survived the first run: the binary's clock was unchecked; a binary test now asserts a comment's time against the system's",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/clock.rs:28:9: replace <impl Clock for SystemClock>::now -> i64 with 1",
+        "why": "as the first",
+        "outcome": "killed"
+      }
+    ]
+  }
+}

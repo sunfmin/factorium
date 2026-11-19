@@ -107,11 +107,11 @@ async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
     assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     let w = World::new();
     w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
-    // Stopped during its first tick; its wait after it passes on the paused clock.
+    // Stopped during its first tick: it waits for no next one.
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let during = stop.clone();
     let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -119,9 +119,39 @@ async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     assert_eq!(w.app.run(&stop).await.unwrap()["ticks"], 1);
 }
 
+/// The daemon waits between ticks on the app's clock: the next tick comes
+/// when the clock is moved past it, in no real time.
+#[tokio::test]
+async fn the_daemon_waits_between_ticks_on_the_apps_clock() {
+    use factorium::host::Clock;
+    let w = World::new();
+    w.app.settings_set(Some("tick_every"), Some(600)).await.unwrap();
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    // Stopped during the tick that comes once the clock passed its wait.
+    let (during, clock) = (stop.clone(), w.clock.clone());
+    let next = w.app_now() + 600_000;
+    let stopping = move || {
+        if clock.now() >= next {
+            during.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    };
+    *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
+    let moves = async {
+        // Its first tick done, it waits, asleep on the clock.
+        while w.clock.asleep() != 1 {
+            tokio::task::yield_now().await;
+        }
+        w.advance(10);
+    };
+    let (ran, ()) = tokio::time::timeout(crate::queue::STUCK, async { tokio::join!(w.app.run(&stop), moves) })
+        .await
+        .expect("the clock moved, it ticks");
+    assert_eq!(ran.unwrap()["ticks"], 2);
+}
+
 /// A daemon whose binary Homebrew has since replaced execs the new one
 /// between ticks; if that cannot run, it goes on as it is.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
     let w = World::new();
     w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
