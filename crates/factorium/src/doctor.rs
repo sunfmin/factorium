@@ -65,7 +65,8 @@ impl App {
         if let Some(last) = w.reports.last() {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
-        let reading = self.host.reading();
+        // Admission's reading: what the heavy queue granted left out, as the tick reads it.
+        let reading = self.load().await?.admission();
         let holds: Vec<_> =
             seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
         let skipped: Vec<Value> =
