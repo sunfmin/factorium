@@ -87,6 +87,12 @@
       "test": "factorium::scenarios::path::readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept",
       "hash": "5ec182d948d22203",
       "reason": "It checks an issue readied after waiting for a human resumes in the worktree and branch it kept, with its uncommitted work and a brief that says so, and then lands; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::parked::a_worker_parked_behind_issues_of_its_checkout_goes_back_to_work_once_they_land",
+      "hash": "138ff1ef0ba872b0",
+      "reason": "It checks a worker parked behind issues of its checkout waits for each, is told what landed and to merge proving once all land, and runs no watch round; the other checks a worker hung in an open turn past the silent bound goes to the watch and lands once restarted. Parked and hung are different ways to wait, with different resumes. They share the worker and landing lines, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
