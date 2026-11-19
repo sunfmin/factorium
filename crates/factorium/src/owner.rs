@@ -137,12 +137,8 @@ impl App {
     }
 
     /// `factorium unqueue`: takes entry `id` off the heavy queue, waiting or
-    /// running. A running one is ended here: every process of the session
-    /// its step runs in, even one that left its process group or parent,
-    /// TERM then KILL after a grace (`ended`); its waiter answers
-    /// `unqueued`. One whose session is not noted yet (it just started, or
-    /// is idle work) its waiter ends as it sees the entry gone. Its owner,
-    /// if it still asks, queues again behind the rest.
+    /// running. A running one's session is ended here, TERM then KILL
+    /// (`ended`); one not yet noted, its waiter ends on seeing it gone.
     pub async fn unqueue(&self, id: Uuid) -> Answer {
         let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {

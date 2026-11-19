@@ -139,6 +139,11 @@ impl Queue {
         queue::may_start(&self.entries, starts, id, room, read_at, now)
     }
 
+    /// Whether `id` is queued, waiting or running.
+    pub fn holds(&self, id: Uuid) -> bool {
+        self.entries.iter().any(|e| e.id == id)
+    }
+
     /// Whether the running `id` holds others up past `bound` and must end.
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
         queue::overheld(&self.entries, id, now, bound)
