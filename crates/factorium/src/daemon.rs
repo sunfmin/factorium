@@ -86,8 +86,8 @@ impl App {
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
         for w in self.live_workers().await? {
-            let share = load.worker(w.worker, self.now(), hold);
-            if let Some(seen) = self.worker_health(w.worker, share.load, share.quiet, share.heavy, &settings).await? {
+            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
+            {
                 t.seen.push(seen);
             }
         }

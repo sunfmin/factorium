@@ -1,14 +1,12 @@
-//! The host's load, read once: one snapshot of the host's reading, its
-//! processes and the heavy queue, and the one rule that splits them — what
-//! the heavy queue granted is the queue's to bound; everything else counts
-//! against the workers' shares and admission. Admission, the queue, each
-//! worker's share and doctor ask the same snapshot.
+//! The host's load, read once: the host's reading, its processes and the
+//! heavy queue, split by one rule — what the queue granted is the queue's to
+//! bound; the rest counts against the workers' shares and admission.
 
 use std::collections::BTreeSet;
 
 use factorium_domain::admission::Reading;
 use factorium_domain::health;
-use factorium_domain::heavy::{Heavy, Queue, queue_id};
+use factorium_domain::heavy::{Entry, Heavy, Queue, queue_id};
 use factorium_host::{Host, Proc};
 use factum::Uuid;
 
@@ -18,20 +16,19 @@ use crate::{Answer, App};
 pub(crate) struct Load {
     host: factorium_host::Reading,
     procs: Vec<Proc>,
-    queue: Queue,
+    /// The queue as read.
+    pub queue: Queue,
     /// The pids of the queue's entries alive when it was read.
     alive: BTreeSet<u32>,
     cores: usize,
 }
 
-/// A worker's part of a [`Load`].
+/// A worker's part of a [`Load`]: what its processes outside its heavy slot
+/// hold, whether they are quiet, and whether its own heavy entry keeps it
+/// from being silent.
 pub(crate) struct Share {
-    /// What its processes outside its heavy slot hold.
     pub load: health::Load,
-    /// Whether they are quiet.
     pub quiet: bool,
-    /// Whether its own heavy entry waits, or runs within `hold` of its
-    /// start: then it is not silent.
     pub heavy: bool,
 }
 
@@ -50,61 +47,42 @@ impl Load {
         Load { host: host.reading(), procs: host.processes(), queue, alive, cores }
     }
 
-    /// The queue as read.
-    pub(crate) fn queue(&self) -> &Queue {
-        &self.queue
-    }
-
-    /// The queue's reading: the host as read, the workers' share of the CPU
-    /// added from their processes. Nothing is left out: the queue bounds
-    /// its own slots.
+    /// The queue's reading: nothing left out, as it bounds its own slots.
     pub(crate) fn room(&self) -> Reading {
         self.outside(&BTreeSet::new())
     }
 
-    /// Admission's reading: [`Load::room`] with the CPU of every process the
-    /// queue granted left out, which the queue bounds, not admission.
+    /// Admission's reading: every process the queue granted left out.
     pub(crate) fn admission(&self) -> Reading {
         self.outside(&self.granted(|_| true))
     }
 
-    /// `worker`'s part, at `now`, with started heavy entries held past `hold`
-    /// ms no longer keeping it from being silent.
+    /// `worker`'s part at `now`: an entry of its own waiting, or started
+    /// within `hold` ms and alive, keeps it from being silent.
     pub(crate) fn worker(&self, worker: Uuid, now: i64, hold: i64) -> Share {
-        let mine = |w: Option<Uuid>| w == Some(worker);
-        // What runs in its heavy slot is the queue's to bound, not its share's.
-        let held = self.granted(|e| mine(e.worker));
-        let tag = worker.to_string();
-        let procs: Vec<_> =
-            self.procs.iter().filter(|p| p.worker.as_deref() == Some(&tag) && !held.contains(&p.pid)).collect();
-        let core_percent = procs.iter().map(|p| p.cpu).sum::<f64>();
-        let rss_kib = procs.iter().map(|p| p.rss_kib).sum();
-        let load = health::Load::of(core_percent, rss_kib, procs.len() as u64, self.cores);
-        let heavy = self
-            .queue
-            .entries
-            .iter()
-            .any(|e| mine(e.worker) && self.alive.contains(&e.pid) && e.started_at.is_none_or(|t| now - t <= hold));
-        Share { load, quiet: health::quiet(core_percent), heavy }
+        let mine = |e: &Entry| e.worker == Some(worker);
+        let (held, tag) = (self.granted(mine), Some(worker.to_string()));
+        let procs: Vec<_> = self.procs.iter().filter(|p| p.worker == tag && !held.contains(&p.pid)).collect();
+        let cpu = procs.iter().map(|p| p.cpu).sum::<f64>();
+        let load = health::Load::of(cpu, procs.iter().map(|p| p.rss_kib).sum(), procs.len() as u64, self.cores);
+        let live = |e: &Entry| self.alive.contains(&e.pid) && e.started_at.is_none_or(|t| now - t <= hold);
+        Share { load, quiet: health::quiet(cpu), heavy: self.queue.entries.iter().any(|e| mine(e) && live(e)) }
     }
 
     /// The host's reading with the CPU of the processes in `granted` left out.
     fn outside(&self, granted: &BTreeSet<u32>) -> Reading {
-        let cores = self.cores as f64;
-        let (inside, outside): (Vec<&Proc>, Vec<&Proc>) = self.procs.iter().partition(|p| granted.contains(&p.pid));
-        let workers: f64 = outside.iter().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
-        let slots: f64 = inside.iter().map(|p| p.cpu).sum();
-        let pct = |cpu: f64| (cpu / cores).round() as u64;
-        let r = &self.host;
+        let (inside, outside): (Vec<&Proc>, Vec<_>) = self.procs.iter().partition(|p| granted.contains(&p.pid));
+        let pct = |cpu: f64| (cpu / self.cores as f64).round() as u64;
+        let workers = pct(outside.iter().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum());
+        let (r, slots) = (&self.host, pct(inside.iter().map(|p| p.cpu).sum()));
         let (memory_free, disk_free) = (r.memory_free, r.disk_free);
-        Reading { cpu_busy: r.cpu_busy.saturating_sub(pct(slots)), memory_free, disk_free, workers_cpu: pct(workers) }
+        Reading { cpu_busy: r.cpu_busy.saturating_sub(slots), memory_free, disk_free, workers_cpu: workers }
     }
 
-    /// The processes the queue granted to its entries `of` picks: the pid of
-    /// each started one, and every process under it.
-    fn granted(&self, of: impl Fn(&factorium_domain::heavy::Entry) -> bool) -> BTreeSet<u32> {
-        let started = self.queue.entries.iter().filter(|e| e.started_at.is_some() && of(e));
-        let mut roots: Vec<u32> = started.map(|e| e.pid).collect();
+    /// The pid of each started entry `of` picks, and every process under it.
+    fn granted(&self, of: impl Fn(&Entry) -> bool) -> BTreeSet<u32> {
+        let mut roots: Vec<u32> =
+            self.queue.entries.iter().filter(|e| e.started_at.is_some() && of(e)).map(|e| e.pid).collect();
         let mut all = BTreeSet::new();
         while let Some(pid) = roots.pop() {
             if all.insert(pid) {

@@ -25,6 +25,7 @@ use factorium_host::Priority;
 use factum::{Uuid, Value};
 use serde_json::json;
 
+use crate::load::Load;
 use crate::{Answer, App, LineClone, fail};
 
 /// The idle work running now, of one checkout: the host runs one at a time.
@@ -150,14 +151,14 @@ impl App {
     pub(crate) async fn idle_start(
         &self,
         checkouts: &[Checkout],
-        load: &crate::load::Load,
+        load: &Load,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
         if self.memory.lock().unwrap().idle.is_some() {
             return Ok(None);
         }
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
-        let idle = host_idle(&workers, load.queue(), admission::room(&load.room(), settings)).is_ok();
+        let idle = host_idle(&workers, &load.queue, admission::room(&load.room(), settings)).is_ok();
         // Due by what the base declared as last fetched: no fetch while none is due.
         let mut due = Vec::new();
         for c in checkouts {
