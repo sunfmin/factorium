@@ -6,14 +6,13 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 
-use crate::{CLAUDE, World, id, worktree};
+use crate::fixture::{CLAUDE, World};
 
 #[tokio::test]
 async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
-    w.commit(&worktree(&wk), "a.txt", "a\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a.txt", "a\n").await;
     // Its remote is gone: every landing's fetch fails.
     let remote = w.dir.join("remotes/web.git");
     let away = w.dir.join("remotes/away.git");
@@ -143,7 +142,7 @@ async fn the_daemon_waits_between_ticks_on_the_apps_clock() {
         }
         w.advance(10);
     };
-    let (ran, ()) = tokio::time::timeout(crate::queue::STUCK, async { tokio::join!(w.app.run(&stop), moves) })
+    let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop), moves) })
         .await
         .expect("the clock moved, it ticks");
     assert_eq!(ran.unwrap()["ticks"], 2);

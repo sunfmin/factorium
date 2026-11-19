@@ -9,33 +9,13 @@ use std::path::PathBuf;
 
 use factorium_harness::{Harness, RULES};
 
-use crate::{World, worker};
+use crate::fixture::{World, worker, write_session};
 use factorium::host::Host;
-
-/// Writes the session files a harness's stand-in describes for `cwd`, in
-/// the home of its sessions on `account`.
-pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, open: bool, at: u64) {
-    // The brief its session was handed: the watch's, in its home; a worker's,
-    // named as its worktree.
-    let path = std::path::Path::new(cwd);
-    let brief = if path == w.data().watch() {
-        w.data().watch_brief()
-    } else {
-        w.data().brief(&path.file_name().unwrap().to_string_lossy())
-    };
-    write_session_in(w, h, account, cwd, &brief.to_string_lossy(), open, at);
-}
-
-/// The stand-in session of `h` run in `dir` and handed `brief`.
-pub fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str, brief: &str, open: bool, at: u64) {
-    let kept = w.data().kept(h.key());
-    h.write_session(&h.home(&w.host.home(), account, &kept), dir, brief, open, at).unwrap();
-}
 
 #[tokio::test]
 async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_session_files() {
     assert!(Harness::all().len() >= 6, "every harness is listed");
-    crate::each(Harness::all(), |h| async move {
+    crate::fixture::each(Harness::all(), |h| async move {
         let (key, command) = (h.key(), format!("run-{}", h.key()));
         let w = World::new();
         w.checkout("web").await;
@@ -134,7 +114,7 @@ async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, 
 
 #[tokio::test]
 async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_session_starts() {
-    crate::each(Harness::all(), |&h| async move {
+    crate::fixture::each(Harness::all(), |&h| async move {
         let key = h.key();
         let w = World::new();
         let repo = w.repo("web");
@@ -269,7 +249,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
 /// kit names a model, so every part a start may hold is written.
 #[tokio::test]
 async fn each_harness_starts_as_it_is_written() {
-    let sections = crate::each(Harness::all(), |&h| async move {
+    let sections = crate::fixture::each(Harness::all(), |&h| async move {
         let mut written = String::new();
         let key = h.key();
         let w = World::new();

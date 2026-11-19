@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::{World, refused};
+use crate::fixture::{World, findings, refused};
 
 fn numbers(list: &Value) -> Vec<(String, u64)> {
     list.as_array()
@@ -184,43 +184,12 @@ async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
     w.app.issue_add("web", "two", "", false, &[]).await.unwrap();
     w.app.issue_wait_for_human("web", 2, "needs a decision").await.unwrap();
     w.app.issue_add("web", "three", "", false, &[]).await.unwrap();
-    let sql = |text: &str| {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-        let mut child = Command::new("sqlite3")
-            .arg(&w.db)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
-        let ran = child.wait_with_output().unwrap();
-        assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
-        String::from_utf8(ran.stdout).unwrap()
-    };
-    // Rewritten as the code before #95 wrote it.
-    let old = r#"
-        UPDATE events SET kind = 'IssueParked' WHERE kind = 'IssueWaitingForHuman';
-        UPDATE events SET data = json_remove(json_set(data, '$.parked', json(CASE WHEN
-            json_extract(data, '$.waiting_for_human') THEN 'true' ELSE 'false' END)), '$.waiting_for_human')
-            WHERE kind = 'IssueOpened';
-        UPDATE events SET meta = json_set(meta, '$.command', 'issue.park')
-            WHERE json_extract(meta, '$.command') = 'issue.wait_for_human';
-        UPDATE "rows:tracker:issues" SET row = json_set(row, '$.status', 'parked')
-            WHERE json_extract(row, '$.status') = 'waiting_for_human';
-        UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');
-        UPDATE answers SET answer = replace(replace(answer, '"IssueWaitingForHuman"', '"IssueParked"'),
-            '"waiting_for_human":', '"parked":');"#;
-    sql(old);
-    let count = "SELECT (SELECT count(*) FROM events WHERE kind = 'IssueParked' OR data LIKE '%\"parked\":%' \
-                 OR meta LIKE '%issue.park\"%') + (SELECT count(*) FROM \"rows:tracker:issues\" WHERE status = \
-                 'parked') + (SELECT count(*) FROM answers WHERE answer LIKE '%parked%');";
-    assert_ne!(sql(count).trim(), "0", "the old names are in");
+    w.issues_as_code_before_95_wrote_them();
+    assert_ne!(w.names_before_95(), 0, "the old names are in");
     let migration = include_str!("../../../../packaging/migrate-wait-for-human.sql");
-    sql(migration);
-    sql(migration);
-    assert_eq!(sql(count).trim(), "0", "no old name is left");
+    w.migrate(migration);
+    w.migrate(migration);
+    assert_eq!(w.names_before_95(), 0, "no old name is left");
     let app = w.run();
     for (n, status, reason) in [
         (1, "waiting_for_human", json!(null)),
@@ -242,15 +211,8 @@ async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
 async fn an_event_the_tracker_cannot_read_is_a_dead_letter_doctor_names() {
     let w = World::new();
     w.kit().await;
-    let db = rusqlite::Connection::open(&w.db).unwrap();
-    let (event, stream) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
-    db.execute(
-        "INSERT INTO events (id, stream, version, kind, type_version, data, meta) \
-         SELECT ?1, ?2, 1, 'CheckoutAdded', 1, '{}', meta FROM events LIMIT 1",
-        [event.to_string(), format!("checkout/{stream}")],
-    )
-    .unwrap();
+    w.a_dead_letter_for_the_tracker();
     let found = w.app.doctor().await.unwrap();
-    let dead = found["findings"].as_array().unwrap().iter().find(|f| f["key"] == "dead:tracker");
+    let dead = findings(&found).iter().find(|f| f["key"] == "dead:tracker");
     assert_eq!(dead.expect("named")["what"], "projection tracker has 1 dead letters", "{found}");
 }

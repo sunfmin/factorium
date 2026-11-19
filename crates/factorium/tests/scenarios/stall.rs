@@ -10,39 +10,20 @@ use factorium::host::Proc;
 use factum::Uuid;
 use serde_json::Value;
 
-use crate::line::land;
-use crate::queue::{STUCK, heavy, poll, running_on, until_file, while_busy};
-use crate::{CLAUDE, UP, World, id, worker, worktree};
+use crate::fixture::{CLAUDE, STUCK, UP, World, id, until_file, worker};
 
 /// Stages an entry at the head of the heavy queue whose owner no longer asks
 /// for it: a CLI run's command queued behind a running one, then given up
 /// while its process lives on. Answers its id.
 async fn forgotten_entry(w: &World) -> Uuid {
-    while_busy(w, async {
+    w.while_busy(async {
         let cli = w.run();
         let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo forgotten"));
-        let queued = async {
-            while !heavy(w).await.contains(&"echo forgotten".to_string()) {
-                tokio::task::yield_now().await;
-            }
-        };
+        let queued = w.until_queued("echo forgotten");
         tokio::select! { _ = &mut asks => panic!("it ran beside the busy command"), _ = queued => {} }
     })
     .await;
-    let d = w.run().doctor().await.unwrap();
-    let entry = d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo forgotten").cloned();
-    entry.expect("it stays queued")["id"].as_str().unwrap().parse().unwrap()
-}
-
-/// A checkout, a kit and issues `titles`, each started by a tick; the
-/// workers keep working all along: none is silent.
-async fn working(w: &World, titles: &[&str]) {
-    w.working(CLAUDE, titles[0]).await;
-    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
-    for t in &titles[1..] {
-        w.app.issue_add("web", t, "", false, &[]).await.unwrap();
-        w.tick().await;
-    }
+    w.queued_entry("echo forgotten").await["id"].as_str().unwrap().parse().unwrap()
 }
 
 #[tokio::test]
@@ -74,19 +55,13 @@ async fn a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_a
     let w = World::new();
     // No room: nothing starts beside what runs.
     w.host.reading.lock().unwrap().cpu_busy = 99;
-    running_on(&w).await;
+    w.running_on().await;
     let cli = w.run();
     let waiting = {
         let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo behind"));
-        let queued = async {
-            while !heavy(&w).await.contains(&"echo behind".to_string()) {
-                tokio::task::yield_now().await;
-            }
-        };
+        let queued = w.until_queued("echo behind");
         tokio::select! { _ = &mut asks => panic!("it ran beside the running one"), _ = queued => {} }
-        let d = w.run().doctor().await.unwrap();
-        let e = d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo behind").cloned().unwrap();
-        e["id"].as_str().unwrap().to_string()
+        w.queued_entry("echo behind").await["id"].as_str().unwrap().to_string()
     };
     let key = format!("queue:{waiting}");
     // The hold bound (30 min) and the stall bound (10 min) after it queued.
@@ -100,11 +75,11 @@ async fn a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_a
 #[tokio::test]
 async fn a_landing_no_gate_runs_for_past_the_stall_bound_is_a_finding_and_lands_once_the_queue_moves() {
     let w = World::new();
-    working(&w, &["a"]).await;
+    w.working(CLAUDE, "a").await;
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
     let stale = forgotten_entry(&w).await;
     let wk = worker(&w.app).await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a", "x").await;
     assert!(w.tick().await.landed.is_empty(), "its gate waits behind the forgotten entry");
     let key = format!("landing:{}", id(&wk));
     w.advance(9);
@@ -130,8 +105,8 @@ async fn a_landing_no_gate_runs_for_past_the_stall_bound_is_a_finding_and_lands_
 async fn a_landing_unpromoted_past_the_promotion_bound_is_a_finding_and_is_promoted_once_the_queue_moves() {
     let w = World::new();
     // #2 keeps working: the checkout is never idle, so only the bound promotes.
-    working(&w, &["a", "b"]).await;
-    let landed = land(&w, 1, "a").await;
+    w.two_at_work().await;
+    let landed = w.lands("web", 1, "a").await.commit;
     let stale = forgotten_entry(&w).await;
     w.advance(60);
     w.tick().await;
@@ -152,8 +127,8 @@ async fn a_landing_unpromoted_past_the_promotion_bound_is_a_finding_and_is_promo
 #[tokio::test]
 async fn a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_queue_moves() {
     let w = World::new();
-    working(&w, &["a", "b"]).await;
-    land(&w, 1, "a").await;
+    w.two_at_work().await;
+    w.lands("web", 1, "a").await;
     assert_eq!(w.app.promote("web").await.unwrap()["promoted"], "web");
     let stale = forgotten_entry(&w).await;
     w.advance(24 * 60);
@@ -171,14 +146,6 @@ async fn a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_q
     assert_eq!(w.finding("uncut:web").await, None);
 }
 
-/// The worker of issue `number` of `web`, its commit of `file` (`text`),
-/// asking to land.
-async fn done(w: &World, number: u64, file: &str, text: &str) {
-    let wk = worker_of(w, number).await;
-    w.commit(&worktree(&wk), file, text);
-    w.app.worker_done(id(&wk)).await.unwrap();
-}
-
 /// Doctor knows each line move by the name its heavy command is queued by:
 /// a move whose command runs long is no stall, and a landing waiting beside
 /// it, with no fast gate running for it, is one. #1 lands `declared`, whose
@@ -186,11 +153,11 @@ async fn done(w: &World, number: u64, file: &str, text: &str) {
 /// the move (a cut once promoted by hand); and `key` is the move's stall.
 async fn runs_long_beside_a_landing(w: &World, declared: &str, minutes: i64, key: &str) -> Vec<Value> {
     // #2 keeps working: the checkout is never idle, so only the bound moves it.
-    working(w, &["a", "b"]).await;
+    w.two_at_work().await;
     let dir = w.dir.join("long");
     let long = w.holds(&dir);
     let (started, release) = (dir.join("started"), dir.join("release"));
-    done(w, 1, "factorium.toml", &declared.replace("{long}", &long)).await;
+    w.done(&w.worker_on("web", 1).await, "factorium.toml", &declared.replace("{long}", &long)).await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
     if key == "uncut:web" {
         assert_eq!(w.app.promote("web").await.unwrap()["promoted"], "web");
@@ -198,9 +165,9 @@ async fn runs_long_beside_a_landing(w: &World, declared: &str, minutes: i64, key
     w.advance(minutes);
     let looks = async {
         until_file(&started).await;
-        done(w, 2, "b", "x").await;
+        w.done(&w.worker_on("web", 2).await, "b", "x").await;
         w.advance(11);
-        let landing = w.finding(&format!("landing:{}", id(&worker_of(w, 2).await))).await;
+        let landing = w.finding(&format!("landing:{}", id(&w.worker_on("web", 2).await))).await;
         let stalled = w.finding(key).await;
         std::fs::write(&release, "").unwrap();
         (landing, stalled)
@@ -228,18 +195,12 @@ async fn a_cut_that_runs_long_is_no_stall_and_a_landing_beside_it_is_one() {
     assert!(lines.iter().any(|l| l["cut"] == "web"), "{lines:?}");
 }
 
-/// The worker of issue `number`.
-async fn worker_of(w: &World, number: u64) -> Value {
-    let all = w.app.workers(false).await.unwrap();
-    all.as_array().unwrap().iter().find(|x| x["number"] == number).cloned().unwrap()
-}
-
 #[tokio::test]
 async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_and_lands_once_restarted() {
     let w = World::new();
     let wk = w.working(CLAUDE, "a").await;
     let (cwd, me, terminal) = (wk["worktree"].as_str().unwrap(), id(&wk), wk["terminal"].as_str().unwrap());
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, cwd, true, 1_800_000_000);
+    w.claude_session(cwd, true, 1_800_000_000);
     let cpu = |percent: f64| {
         let p = Proc { pid: 7, ppid: 1, cpu: percent, rss_kib: 1 << 20, command: "cargo test".into(), worker: None };
         *w.host.procs.lock().unwrap() = vec![Proc { worker: Some(me.to_string()), ..p }];
@@ -281,8 +242,7 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
         .unwrap();
     assert_eq!(status().await, "working");
     assert_eq!(w.finding(&format!("worker:{me}")).await, None);
-    w.commit(&PathBuf::from(cwd), "a", "x");
-    w.app.worker_done(me).await.unwrap();
+    w.done(&wk, "a", "x").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "the line moves");
 }
 
@@ -290,9 +250,9 @@ async fn a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_a
 async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entries_and_one_just_due_keeps_its_place() {
     let w = World::new();
     // #2 keeps working: the checkout is never idle, so only the bound promotes.
-    working(&w, &["a", "b"]).await;
-    let two = id(&worker_of(&w, 2).await);
-    let landed = land(&w, 1, "a").await;
+    w.two_at_work().await;
+    let two = id(&w.worker_on("web", 2).await);
+    let landed = w.lands("web", 1, "a").await.commit;
     // It falls due however busy at the promotion bound less the hold bound: 30 min.
     w.advance(29);
     // No room beside what runs: one heavy command at a time.
@@ -309,7 +269,7 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
         let other = w2.worker_exclusive(Some(two), &dirs[2], &holds[2]);
         let (mut one, mut other) = (std::pin::pin!(one), std::pin::pin!(other));
         let queued = async {
-            while heavy(&w).await.len() < 3 || w.clock.asleep() != 3 {
+            while w.queued().await.len() < 3 || w.clock.asleep() != 3 {
                 tokio::task::yield_now().await;
             }
         };
@@ -320,14 +280,14 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
         }
         // What runs ends while the clock stands: nothing asks until it moves.
         std::fs::write(dirs[0].join("release"), "").unwrap();
-        while heavy(&w).await.len() > 2 || w.clock.asleep() != 2 {
+        while w.queued().await.len() > 2 || w.clock.asleep() != 2 {
             tokio::task::yield_now().await;
         }
         w.advance(1);
         // Just due, the slow gate keeps its FIFO place: it queues behind the
         // workers' entries, which ask (at the same time) once the tick did.
         assert!(w.tick().await.lines.is_empty(), "just due, a worker's entry starts ahead of it");
-        assert!(heavy(&w).await.contains(&"slow gate of web".to_string()));
+        assert!(w.queued().await.contains(&"slow gate of web".to_string()));
         let script = async {
             let first = loop {
                 if let Some(d) = dirs[1..].iter().find(|d| started(d)) {
@@ -340,7 +300,7 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
             // Past when it fell due, it goes ahead of the worker's entry still waiting.
             w.advance(1);
             std::fs::write(first.join("release"), "").unwrap();
-            while heavy(&w).await.len() > 2 {
+            while w.queued().await.len() > 2 {
                 tokio::task::yield_now().await;
             }
             let t = w.tick().await;
@@ -350,7 +310,7 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
                 t.lines
             );
             std::fs::write(second.join("release"), "").unwrap();
-            poll(&w, 1).await;
+            w.poll(1).await;
         };
         let (one, other, ()) = tokio::join!(one, other, script);
         assert_eq!(one.unwrap()["ok"], true);

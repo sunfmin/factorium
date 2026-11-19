@@ -7,26 +7,15 @@ use serde_json::json;
 use factorium::Answer;
 use factorium_domain::issue::Blocker;
 
-use crate::{World, id, refused, worktree};
+use crate::fixture::{World, refused};
 
 fn by(s: &str) -> Blocker {
     s.parse().unwrap()
 }
 
 /// The issue the tick started, if any.
-fn started(t: &crate::Tick) -> Option<String> {
+fn started(t: &factorium::Tick) -> Option<String> {
     t.started.as_ref().map(|s| s["issue"].as_str().unwrap().to_string())
-}
-
-/// The live worker on issue `number` of `web`.
-async fn on(w: &World, number: u64) -> serde_json::Value {
-    let all = w.app.workers(false).await.unwrap();
-    all.as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["checkout"] == "web" && r["number"] == number)
-        .cloned()
-        .unwrap_or_else(|| panic!("{all}"))
 }
 
 /// Checkouts `web` and `factorium`, and a kit; answers factorium's path.
@@ -48,11 +37,7 @@ async fn an_issue_blocked_by_another_checkouts_starts_once_that_one_lands() {
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
     assert_eq!(started(&w.tick().await), None, "factorium#2 waits while web#1 is open");
 
-    let wk = on(&w, 1).await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
-    assert!(!t.landed.is_empty(), "{t:?}");
+    let t = w.lands("web", 1, "a").await.tick;
     assert_eq!(started(&t).as_deref(), Some("factorium#1"), "web#1 landed: no one readies it");
 }
 
@@ -69,17 +54,13 @@ async fn an_issue_blocked_by_a_cut_starts_only_once_a_cut_holds_the_landing() {
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#2"));
 
     // web#1 lands; web#2 keeps web busy, so nothing is promoted or cut.
-    let wk = on(&w, 1).await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
-    assert!(!t.landed.is_empty(), "{t:?}");
+    let t = w.lands("web", 1, "a").await.tick;
     assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed");
     assert_eq!(started(&t), None, "landed is not cut");
     // What older code kept of each stream is not read: the issue and the
     // line fold their events again (their code() names this code).
-    stale(&w);
+    w.snapshots_older_code_left();
     assert_eq!(w.run().issue_show("factorium", 1).await.unwrap()["blocked_across"], json!(["web#1@cut"]));
     w.run().promote("web").await.unwrap();
     assert_eq!(started(&w.tick().await), None, "promoted is not cut");
@@ -121,12 +102,4 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     // The same block given twice is kept once.
     let twice = w.app.issue_add("factorium", "twice", "", false, &[by("web#1"), by("web#1")]).await.unwrap();
     assert_eq!(twice["blocked_across"], json!(["web#1"]));
-}
-
-/// Keeps for every stream a snapshot that older code wrote, of no use to this code.
-fn stale(w: &World) {
-    let sql = "INSERT OR REPLACE INTO snapshots (stream, version, code, state) \
-               SELECT stream, MAX(version), 'older', 'null' FROM events GROUP BY stream;";
-    let ran = std::process::Command::new("sqlite3").arg(&w.db).arg(sql).output().unwrap();
-    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
 }
