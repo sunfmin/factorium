@@ -262,3 +262,39 @@ async fn a_swap_whose_first_tick_is_good_keeps_the_new_binary() {
     }
     assert_eq!(swapped.fallback(), None);
 }
+
+/// The daemon's run execs the kept binary once its ticks all failed: here
+/// the kept one cannot run (not executable), so it goes on as it is.
+#[tokio::test]
+async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
+    let w = World::new();
+    w.running_as(&w.app, "factorium");
+    w.tick().await;
+    let new = link(&w, "0.1.0");
+    let swapped = w.run();
+    swapped.runs_as(&new);
+    unreadable(&w, true);
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let moves = async {
+        // Each wait between ticks, until one tick went back and the exec was tried.
+        loop {
+            while w.clock.asleep() != 1 {
+                tokio::task::yield_now().await;
+            }
+            if swapped.fallback().is_some() {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            w.advance(60);
+            if swapped.fallback().is_some() {
+                break;
+            }
+            while w.clock.asleep() == 1 {
+                tokio::task::yield_now().await;
+            }
+        }
+    };
+    let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(swapped.run(&stop), moves) })
+        .await
+        .expect("it ticks as the clock moves");
+    assert_eq!(ran.unwrap()["ticks"], 3, "the third failed tick went back");
+}

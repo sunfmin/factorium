@@ -79,19 +79,12 @@ impl crate::App {
             m.failed
         };
         let Some(error) = error else {
-            if let Err(e) = self.keep(&me) {
-                eprintln!("keep {}: {e}", me.display());
-            }
-            // The kept binary ends no rollback: only records the one that brought it here.
-            let kept = self.is_kept(&me);
-            let rolled_back = kept.then(|| self.handoff().map(|h| h.rolled_back)).flatten();
+            let _ = self.keep(&me).inspect_err(|e| eprintln!("keep {}: {e}", me.display()));
+            // The kept binary runs only as a rollback execs it, handed the rollback to record.
+            let rolled_back = self.is_kept(&me).then(|| self.handoff().map(|h| h.rolled_back)).flatten();
             let back = rolled_back.is_some();
-            if kept && !back {
-                return;
-            }
-            if let Err(e) = self.submit::<NoteRollback>(Rollback { rolled_back }).await {
-                eprintln!("rollback: {e}");
-            } else if back {
+            let recorded = self.submit::<NoteRollback>(Rollback { rolled_back }).await;
+            if recorded.inspect_err(|e| eprintln!("rollback: {e}")).is_ok() && back {
                 let _ = std::fs::remove_file(self.data().rollback());
             }
             return;
@@ -103,9 +96,8 @@ impl crate::App {
         let rolled_back = RolledBack { from: version_of(&me), to: version_of(&kept), error: error.into() };
         let handoff = Handoff { rolled_back, refused: me, link };
         let wrote = std::fs::write(self.data().rollback(), serde_json::to_vec(&handoff).unwrap_or_default());
-        match wrote {
-            Ok(()) => self.memory.lock().unwrap().fallback = Some(kept),
-            Err(e) => eprintln!("rollback: {e}"),
+        if wrote.inspect_err(|e| eprintln!("rollback: {e}")).is_ok() {
+            self.memory.lock().unwrap().fallback = Some(kept);
         }
     }
 
