@@ -5,9 +5,9 @@
       "test_lines": 7878,
       "tests": 240,
       "failures": 0,
-      "test_seconds": 167.812,
+      "test_seconds": 186.755,
       "covered_lines": 5366,
-      "uncovered_lines": 108
+      "uncovered_lines": 109
     }
   },
   "loosened": [

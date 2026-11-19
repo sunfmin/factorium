@@ -283,37 +283,29 @@ depend on nothing else of factorium.
   slimfit's coverage-plus-review task, which finds a scenario that only
   repeats another, or shares its setup, to delete or merge. Both rules are
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md); slimfit#31), not restated here.
-- **Bounds.** The tests spend 310 seconds of CPU or less once built: the
-  user+sys time of the `slimfit check` tree (the one test run, below),
-  which `gate.sh` reads from the shell's `times`. No test sleeps; time moves when a scenario moves it.
+- **Bounds.** No test sleeps; time moves when a scenario moves it.
+  slimfit holds test time, not `gate.sh`: its `test_seconds` is the CPU
+  time (user+sys) the tests' own processes spent, build excluded, and the
+  gate fails when it rises past the baseline's tolerance (`slimfit check
+  --help`; `slimfit help host-load`, [src/help/host-load.md](https://github.com/sunfmin/slimfit/blob/main/src/help/host-load.md)).
   CPU time, not wall time, because the bound must fail when the tests got
-  slower and pass the same code on the same host however busy it is.
-  Wall time does not: the suite took 24s idle and 75-193s at load 55-73 on
-  18 cores (factorium#103). CPU time held: 200s at load ~90 and 194s with
-  18 busy loops added (load ~110-134), against 195s and 158s of wall time.
-  Re-running when over a wall bound only helps while the load passes, and
-  scaling by the load average guesses at how much of the host the tests
-  got; CPU time is what they used. factorium#98 halved the suite: 26.5s to
-  13.0s of wall time and 210s to 138s of CPU (medians of 3, interleaved,
-  load 6-21). Nearly all of its CPU is git's processes, about 50 a
-  scenario, so a scenario's cost is the git it runs: git is run as its
-  binary, not macOS's `/usr/bin/git` shim, which more than doubled each
-  call; the scenarios' homes turn off git's auto maintenance; a world's
-  repos are copied in-process; a scenario of several worlds runs them at
-  once (`each`, `at_once!`), so it takes its slowest world's time, not
-  their sum; and the binary's tests run in the scenarios' binary, beside
-  them rather than after. The bound was about 1.5 times that 138s, so the
-  gain holds and a test that adds a minute of CPU fails it: 200s of plain
-  `cargo test`. factorium#121 moved the run under slimfit; the same tree
-  spent 148-152s plain and 231-233s instrumented (two rounds each,
-  interleaved, load 30-50 on 18 cores), so the bound became 310s, the
-  same margin over the instrumented run. slimfit corrects `test_seconds`
-  for the load now (slimfit#13), yet the same tree still measured
-  206-217s at load 25-50; the CPU bound stays the time guard.
+  slower and pass the same code on the same host
+  however busy it is: the suite took 24s idle and 75-193s at load 55-73
+  on 18 cores, while its CPU time held (factorium#103). Until
+  factorium#123 `gate.sh` held a CPU bound of its own around the run;
+  slimfit#43 made that the same fact twice, so it went. Nearly all of the
+  tests' CPU is git's processes, about 50 a scenario, so a scenario's cost
+  is the git it runs: git is run as its binary, not macOS's `/usr/bin/git`
+  shim, which more than doubled each call; the scenarios' homes turn off
+  git's auto maintenance; a world's repos are copied in-process; a
+  scenario of several worlds runs them at once (`each`, `at_once!`), so it
+  takes its slowest world's time, not their sum; and the binary's tests
+  run in the scenarios' binary, beside them rather than after
+  (factorium#98 halved the suite this way).
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
   `./checks.sh` (the line budgets of §5, fmt, clippy) then `slimfit check`
-  against the committed `.slimfit/`, in place of a plain `cargo test`, with
-  the CPU bound above held around it; the slow gate (`./slow.sh`) is
+  against the committed `.slimfit/`, in place of a plain `cargo test`, holding
+  the tests' time as above; the slow gate (`./slow.sh`) is
   `./gate.sh` again, on the proving tip a promotion moves. What
   `slimfit check` holds, a change's record of its mutants among it, is
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
