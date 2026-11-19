@@ -260,3 +260,23 @@ async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     assert_eq!(run["green"], false, "{run}");
     assert!(run["tail"].as_str().unwrap().contains("printed no answer"), "{run}");
 }
+
+#[tokio::test]
+async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    // No room on the host, ever: it is never idle.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(1);
+    let run = ended(&w).await;
+    assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "never read: overdue at once");
+    w.app.issue_close("web", 1, "deepened").await.unwrap();
+    std::fs::write(&answer, next(&[("deepen", "b.rs")])).unwrap();
+    w.advance(2);
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "past `every`, but the host is not idle");
+    w.advance(10);
+    let run = ended(&w).await;
+    assert_eq!(run["filed"], json!([2]), "past `every` and `tasks_bound`: {run}");
+}

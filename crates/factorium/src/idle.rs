@@ -5,6 +5,8 @@
 //! finds the host no longer idle — a worker at work, anything else queued —
 //! ends it, unrecorded, so the next idle window runs it again. The tasks
 //! a run's `tasks` line prints are filed as issues before it is recorded.
+//! Tasks overdue by `tasks_bound` run without an idle host, and only them:
+//! such a run yields to nothing.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +17,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::{End, EndHeavy, Heavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
 use factorium_domain::issue::Open;
-use factorium_domain::settings::Settings;
+use factorium_domain::settings::{Settings, Time};
 use factorium_domain::task::{self, ToFile};
 use factorium_domain::tracker;
 use factorium_host::Priority;
@@ -33,6 +35,8 @@ pub(crate) struct Running {
     at: i64,
     /// Where its `tasks` line prints, if it has one.
     tasks: Option<std::path::PathBuf>,
+    /// Overdue: it runs whether the host is idle or not.
+    overdue: bool,
     stop: Arc<AtomicBool>,
     run: std::thread::JoinHandle<Ended>,
 }
@@ -81,19 +85,20 @@ fn steps(
 }
 
 impl App {
-    /// The running idle work, if any: recorded once it ended; ended if the
-    /// host is no longer idle or its queue entry was taken off.
+    /// The running idle work, if any: recorded once it ended; ended if its
+    /// queue entry was taken off, or, unless overdue, the host is no longer idle.
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
         let Some(r) = self.memory.lock().unwrap().idle.take() else { return Ok(None) };
         let q = self.state::<Heavy>(queue_id()).await?;
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
-        let others = q.entries.iter().any(|e| e.id != r.id) || !q.entries.iter().any(|e| e.id == r.id);
-        let busy = others || host_idle(&workers, &Default::default(), Ok(())).is_err();
+        let others =
+            q.entries.iter().any(|e| e.id != r.id) || host_idle(&workers, &Default::default(), Ok(())).is_err();
+        let busy = !q.entries.iter().any(|e| e.id == r.id) || (others && !r.overdue);
         if !r.run.is_finished() && !busy {
             self.memory.lock().unwrap().idle = Some(r);
             return Ok(None);
         }
-        let Running { checkout, tip, id, at, tasks, stop, run } = r;
+        let Running { checkout, tip, id, at, tasks, stop, run, .. } = r;
         stop.store(busy, Ordering::Relaxed);
         let ended = tokio::task::spawn_blocking(move || run.join()).await.ok().and_then(Result::ok).unwrap_or(Ended {
             green: false,
@@ -138,34 +143,37 @@ impl App {
         Ok(Ok(numbers))
     }
 
-    /// Starts the idle work due longest of `checkouts`, if the host is idle
-    /// and none runs.
+    /// Starts the idle work due longest of `checkouts`, if none runs: due
+    /// `every` after the last run while the host is idle, or its tasks alone
+    /// once overdue by `tasks_bound`, idle or not.
     pub(crate) async fn idle_start(&self, checkouts: &[Checkout], settings: &Settings) -> Answer<Option<Value>> {
         if self.memory.lock().unwrap().idle.is_some() {
             return Ok(None);
         }
         let q = self.state::<Heavy>(queue_id()).await?;
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
-        if host_idle(&workers, &q, admission::room(&self.reading(), settings)).is_err() {
-            return Ok(None);
-        }
+        let idle = host_idle(&workers, &q, admission::room(&self.reading(), settings)).is_ok();
         // Due by what the base declared as last fetched: no fetch while none is due.
         let mut due = Vec::new();
         for c in checkouts {
             let git = self.host.git(&c.path);
-            let Some(every) = self.declared(&git, &c.fetched_base()).ok().and_then(|d| d.idle) else {
+            let Some(work) = self.declared(&git, &c.fetched_base()).ok().and_then(|d| d.idle) else {
                 continue;
             };
-            let state = self.state::<Idles>(idle_id(&c.name)).await?;
-            if state.due(every.every as i64 * 1000, self.now()) {
-                due.push((state.last.map_or(i64::MIN, |r| r.at), c));
+            let (state, every) = (self.state::<Idles>(idle_id(&c.name)).await?, work.every as i64 * 1000);
+            let overdue = work.tasks.is_some() && state.due(every + settings.ms(Time::TasksBound), self.now());
+            if overdue || (idle && state.due(every, self.now())) {
+                due.push((state.last.map_or(i64::MIN, |r| r.at), c, overdue && !idle));
             }
         }
-        let Some((_, c)) = due.into_iter().min_by_key(|(at, _)| *at) else { return Ok(None) };
+        let Some((_, c, overdue)) = due.into_iter().min_by_key(|(at, ..)| *at) else { return Ok(None) };
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.base).map_err(fail("git"))?;
         let Some(mut work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
         let here = git.fresh(&self.data().clone_of(LineClone::Idle, &c.name), &tip).map_err(fail("git"))?;
+        if overdue {
+            work.steps.clear();
+        }
         let tasks = work.tasks.as_ref().map(|line| {
             let out = here.dir.with_extension("tasks");
             let _ = std::fs::remove_file(&out);
@@ -181,7 +189,8 @@ impl App {
             (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit), self.clock.clone());
         let run = std::thread::spawn(move || steps(dir, work.steps, limit, clock, flag));
         let (checkout, at) = (c.name.clone(), self.now());
-        self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), id, at, tasks, stop, run });
+        self.memory.lock().unwrap().idle =
+            Some(Running { checkout, tip: tip.clone(), id, at, tasks, overdue, stop, run });
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))
     }
 
