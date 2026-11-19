@@ -96,11 +96,14 @@ watch's look and the operator's view.
    uncommitted changes are committed, its branch is kept as
    `<branch>-abandoned`, named in a comment written before the close (a
    closed issue takes none), and the worktree goes with its Orca
-   terminals. A worker's
-   worktree (on a branch `factorium/<checkout>-<n>-<attempt>`) that no open
-   issue's attempt owns — its issue closed or unknown, or its attempt older
-   than the issue's last that started — is a doctor finding, fixed by
-   `discard <worktree>`, which removes it the same way.
+   terminals. An open issue owns one worktree: the one its last started
+   attempt works in, which is attempt 1's, on attempt 1's branch, when a
+   later attempt resumed it (step 3); the attempt a branch names does not
+   decide it. A worker's worktree (on a branch
+   `factorium/<checkout>-<n>-<attempt>`) that no open issue owns — its
+   issue closed or unknown, or not its last started attempt's — is a
+   doctor finding, fixed by `discard <worktree>`, which removes it the
+   same way.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
 8. A checkout whose proving tip pins another checkout by git rev in its

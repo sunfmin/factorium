@@ -105,8 +105,9 @@ impl App {
 
     /// The worktrees of workers that no open issue's attempt owns (SPEC
     /// §2.6): on a worker's branch, `factorium/<checkout>-<n>-<attempt>`,
-    /// of an issue that is closed or this database does not hold, or of an
-    /// attempt older than its issue's last that started.
+    /// of an issue that is closed or this database does not hold, or not
+    /// the worktree its last started attempt works in (one a later attempt
+    /// resumed stays that attempt's, though its branch names an older one).
     pub(crate) async fn orphaned(&self) -> Answer<Vec<Orphaned>> {
         let mut found = Vec::new();
         for c in self.rows(tracker::listed()).await? {
@@ -122,11 +123,17 @@ impl App {
                 } else if issue.status == Status::Closed {
                     format!("{name} is closed")
                 } else {
-                    let last = self.last_started(&issue).await?.map_or(0, |st| st.attempt);
-                    if attempt >= last {
+                    // Its last started attempt's own worktree is owned, whatever
+                    // attempt its branch names (a later attempt resumes a kept
+                    // one); so is a newer attempt's, still starting.
+                    let Some(last) = self.last_started(&issue).await? else { continue };
+                    if branch.as_deref() == Some(last.branch.as_str()) || attempt > last.attempt {
                         continue;
                     }
-                    format!("attempt {attempt} is older than {name}'s last, {last}")
+                    format!(
+                        "attempt {attempt} is older than {name}'s last, {}, which works in {}",
+                        last.attempt, last.worktree
+                    )
                 };
                 let (checkout, path, branch) = (c.name.clone(), path.display().to_string(), branch.unwrap_or_default());
                 found.push(Orphaned { checkout, number, attempt, path, branch, why });
