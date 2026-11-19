@@ -409,3 +409,30 @@ async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_
     assert_eq!(w.remote_tip("web", "main"), landed, "the slow gate is green on proving");
     assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "v0.0.9", "the promotion clone has origin's tags");
 }
+
+#[tokio::test]
+async fn a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now() {
+    let w = World::new();
+    let web = w.checkout("web").await;
+    w.kit().await;
+    let at = |repo: &std::path::Path, rev: &str| w.git(repo, &["rev-parse", rev]).ok();
+    // A branch the checkout's origin has: #1's promotion makes the clone with it.
+    w.git(&web, &["update-ref", "refs/remotes/origin/gone", "HEAD"]).unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.lands("web", 1, "a").await;
+    let promotion = w.data().clone_of(LineClone::Promotion, "web");
+    assert!(promotion.join(".git").is_dir(), "the promotion clone is made");
+    let made = at(&promotion, "origin/HEAD").unwrap();
+    assert!(at(&promotion, "refs/remotes/origin/gone").is_some(), "the clone has the checkout's branches");
+    // #1's promotion moved the base in the checkout; the branch goes there.
+    let base = at(&web, "origin/HEAD").unwrap();
+    assert_ne!(base, made, "the base moved after the clone was made");
+    w.git(&web, &["update-ref", "-d", "refs/remotes/origin/gone"]).unwrap();
+    // #2's promotion reuses the clone.
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.lands("web", 2, "b").await;
+    assert_eq!(at(&promotion, "origin/HEAD"), Some(base), "the reused clone's base is the checkout's new one");
+    assert_eq!(at(&promotion, "refs/remotes/origin/gone"), None, "a branch the checkout lost is pruned");
+}
