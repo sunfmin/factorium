@@ -23,7 +23,7 @@ use factorium_host::Priority;
 use factum::Value;
 use serde_json::json;
 
-use crate::heavy::{Besides, Job, Turn};
+use crate::heavy::{Job, Turn};
 use crate::{Answer, App, LineClone, fail};
 
 /// The idle work running now, of one checkout: the host runs one at a time.
@@ -42,22 +42,15 @@ impl App {
     /// The running idle work, if any: recorded once it ended; unrecorded if
     /// it was unqueued, or gave way as the host is no longer idle.
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
-        if self.memory.lock().unwrap().idle.is_none() {
-            return Ok(None);
-        }
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let ended = self.beside(busy).await?;
-        if matches!(ended, Some(Besides::Runs)) {
-            return Ok(None);
-        }
+        let Some(ended) = self.beside(busy, false).await? else { return Ok(None) };
         let Some(Running { checkout, tip, at, steps, limit, tasks }) = self.memory.lock().unwrap().idle.take() else {
             return Ok(None);
         };
         let rans = match ended {
-            Some(Besides::Ran(rans)) => rans,
-            Some(Besides::Unqueued) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "unqueued": true }))),
-            _ => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": "the host is no longer idle" }))),
+            Ok(rans) => rans,
+            Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),
         };
         let took_ms = rans.iter().map(|r| r.took_ms).sum();
         let (mut green, mut tail) = match rans.last() {
@@ -102,7 +95,7 @@ impl App {
     /// `every` after the last run while the host is idle, or its tasks alone
     /// once overdue by `tasks_bound`, idle or not.
     pub(crate) async fn idle_start(&self, checkouts: &[Checkout], settings: &Settings) -> Answer<Option<Value>> {
-        if self.memory.lock().unwrap().idle.is_some() {
+        if self.memory.lock().unwrap().beside.is_some() {
             return Ok(None);
         }
         let q = self.state::<Heavy>(queue_id()).await?;
@@ -133,16 +126,9 @@ impl App {
             work.steps.push(format!("( {line} ) > '{}'", out.display()));
             out
         });
-        let job = Job {
-            what: idle::job(&c.name),
-            worker: None,
-            bound_at: None,
-            dir: &here.dir,
-            steps: &work.steps,
-            env: &[],
-            limit: Duration::from_secs(work.limit),
-            priority: Priority::Background,
-        };
+        let (what, dir, steps, limit) = (idle::job(&c.name), &here.dir, &work.steps, Duration::from_secs(work.limit));
+        let job =
+            Job { what, worker: None, bound_at: None, dir, steps, env: &[], limit, priority: Priority::Background };
         let at = self.now();
         if self.heavy(job, Turn::Beside { yields: !overdue }).await?.is_none() {
             return Ok(None);
@@ -150,12 +136,5 @@ impl App {
         let (checkout, steps, limit) = (c.name.clone(), work.steps, work.limit);
         self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))
-    }
-
-    /// Ends the running idle work, unrecorded: the daemon is about to stop
-    /// or be replaced, and what it started must not outlive it.
-    pub(crate) async fn idle_end(&self) {
-        self.memory.lock().unwrap().idle = None;
-        self.beside_end().await;
     }
 }

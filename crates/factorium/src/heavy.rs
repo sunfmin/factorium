@@ -6,15 +6,15 @@
 
 use std::collections::BTreeSet;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
-    queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy,
+    older, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Proc, Ran, run};
@@ -53,72 +53,22 @@ pub(crate) enum Turn {
     /// [`App::asking_once`] does not ask again: the daemon, whose tick never
     /// waits.
     Once(String),
-    /// Asks once and, let start, runs beside the daemon's ticks, which
-    /// [`App::beside`] ends it on: the daemon's idle work. Refused, it
-    /// leaves the queue at once, holding nothing up. One that `yields` gives
-    /// way to anything else queued.
+    /// Asks once and, let start, runs beside the daemon's ticks ([`App::beside`]):
+    /// idle work. Refused, it leaves the queue. One that `yields` gives way.
     Beside { yields: bool },
 }
 
-/// The steps of a [`Job`], owned to run on a thread of their own.
-struct Steps {
-    dir: PathBuf,
-    steps: Vec<String>,
-    env: Vec<(String, String)>,
-    limit: Duration,
-    priority: Priority,
-}
-
-impl Steps {
-    fn of(job: &Job<'_>) -> Steps {
-        let (dir, steps, env) = (job.dir.to_path_buf(), job.steps.to_vec(), job.env.to_vec());
-        Steps { dir, steps, env, limit: job.limit, priority: job.priority }
-    }
-
-    /// Runs them one after another until one fails, telling `started` the
-    /// session each runs in, and ending the one running once `stop` says so.
-    fn run(self, started: &dyn Fn(u32), stop: &dyn Fn() -> bool) -> Vec<Ran> {
-        let mut rans = Vec::new();
-        for step in &self.steps {
-            let ran = run(&self.dir, step, &self.env, self.limit, self.priority, started, stop);
-            let ok = ran.ok;
-            rans.push(ran);
-            if !ok {
-                break;
-            }
-        }
-        rans
-    }
-}
-
-/// The job running beside the daemon's ticks ([`Turn::Beside`]): the host
-/// runs one at a time.
-pub(crate) struct Beside {
-    /// Its queue entry.
+/// A job's steps running on a thread of their own, as entry `id`: beside
+/// the ticks, within `deadline` on the app's clock; ended once it must, `why`.
+pub(crate) struct Running {
     id: Uuid,
     yields: bool,
-    /// When its limit passes, on the app's clock, ms.
-    deadline: i64,
-    /// Set, its running step ends, and so its run.
+    deadline: Option<i64>,
+    hold_ms: i64,
+    why: Option<Ends>,
     stop: Arc<AtomicBool>,
-    sessions: Sessions,
-    run: std::thread::JoinHandle<Vec<Ran>>,
-}
-
-/// The sessions a job's steps run in, as each starts.
-type Sessions = tokio::sync::mpsc::UnboundedReceiver<u32>;
-
-/// How the job beside the ticks went, as a tick found it.
-pub(crate) enum Besides {
-    /// It runs on.
-    Runs,
-    /// Its steps ran, up to the first that failed: past its limit, that one
-    /// `timed_out`; held others up past the hold bound, its tail says so.
-    Ran(Vec<Ran>),
-    /// It gave way to what else the queue holds, or its caller's `busy`.
-    GaveWay,
-    /// It was unqueued, which ended it.
-    Unqueued,
+    sessions: tokio::sync::mpsc::UnboundedReceiver<u32>,
+    run: tokio::task::JoinHandle<Vec<Ran>>,
 }
 
 impl App {
@@ -152,7 +102,7 @@ impl App {
     /// tick's [`App::beside`] answers how it ran.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
         let id = match &turn {
-            Turn::Beside { yields } => return self.start_beside(&job, *yields).await,
+            Turn::Beside { .. } => Uuid::now_v7(),
             // A waiter that execs the installed binary keeps its place.
             Turn::Wait => std::env::var(PLACE).ok().and_then(|p| p.parse().ok()).unwrap_or_else(Uuid::now_v7),
             Turn::Once(key) => {
@@ -177,11 +127,21 @@ impl App {
             match (took, &turn) {
                 (true, _) => break,
                 (false, Turn::Wait) => self.clock.sleep(POLL).await,
-                (false, Turn::Once(_) | Turn::Beside { .. }) => {
+                (false, Turn::Once(_)) => {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
                 }
+                (false, Turn::Beside { .. }) => return self.submit::<EndHeavy>(End { id }).await.map(|()| None),
             }
+        }
+        if let Turn::Beside { yields } = turn {
+            let mut r = self.run_steps(id, &job, Some(yields)).await?;
+            // Its first session noted before this answers: an unqueue from then on ends it.
+            if let Some(session) = r.sessions.recv().await {
+                self.submit::<NoteRun>(Runs { id, session }).await?;
+            }
+            self.memory.lock().unwrap().beside = Some(r);
+            return Ok(Some(Vec::new()));
         }
         let ran = self.run_held(id, &job).await;
         self.memory.lock().unwrap().queued.remove(&id);
@@ -231,82 +191,25 @@ impl App {
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
     }
 
-    /// [`Turn::Beside`]: queues `job` and asks once to start it. Started, its
-    /// steps run on a thread of their own, the first one's session noted
-    /// before this answers, so an unqueue from then on ends it; refused, it
-    /// leaves the queue again (`stale`: a newer binary's rules replaced this
-    /// one's, which the daemon execs after this tick).
-    async fn start_beside(&self, job: &Job<'_>, yields: bool) -> Answer<Option<Vec<Ran>>> {
-        let id = Uuid::now_v7();
-        let took = self.take_turn(id, job).await;
-        if !matches!(took, Ok(true)) {
-            self.submit::<EndHeavy>(End { id }).await?;
-            return took.map(|_| None);
+    /// The job beside the ticks, once it ended, off the queue: how its steps
+    /// ran, or why it was ended before. `None`: it runs on, or none runs.
+    /// `end`: the daemon stops or is replaced, and it must not outlive it.
+    pub(crate) async fn beside(&self, busy: bool, end: bool) -> Answer<Option<Result<Vec<Ran>, Ends>>> {
+        let Some(mut r) = self.memory.lock().unwrap().beside.take() else { return Ok(None) };
+        let looked = self.look_at(&mut r, busy || end).await;
+        r.stop.fetch_or(end, Ordering::Relaxed);
+        if !end && (looked.is_err() || (r.why.is_none() && !r.run.is_finished())) {
+            self.memory.lock().unwrap().beside = Some(r);
+            return looked.map(|()| None);
         }
-        let stop = Arc::new(AtomicBool::new(false));
-        let (session, mut sessions) = tokio::sync::mpsc::unbounded_channel();
-        let deadline = self.now().saturating_add(job.limit.as_millis().try_into().unwrap_or(i64::MAX));
-        let (steps, ended, clock) = (Steps { limit: Duration::MAX, ..Steps::of(job) }, stop.clone(), self.clock.clone());
-        let run = std::thread::spawn(move || {
-            let started = |s: u32| session.send(s).unwrap_or(());
-            steps.run(&started, &|| ended.load(Ordering::Relaxed) || clock.now() >= deadline)
-        });
-        if let Some(session) = sessions.recv().await {
-            self.submit::<NoteRun>(Runs { id, session }).await?;
-        }
-        self.memory.lock().unwrap().beside = Some(Beside { id, yields, deadline, stop, sessions, run });
-        Ok(Some(Vec::new()))
-    }
-
-    /// The job beside the ticks, as this tick finds it, its sessions noted:
-    /// ended, and off the queue, once it ran, was unqueued, held others up
-    /// past the hold bound, or — one that yields — anything else is queued
-    /// or its caller is `busy`. `None`: none runs.
-    pub(crate) async fn beside(&self, busy: bool) -> Answer<Option<Besides>> {
-        let Some(mut b) = self.memory.lock().unwrap().beside.take() else { return Ok(None) };
-        while let Ok(session) = b.sessions.try_recv() {
-            self.submit::<NoteRun>(Runs { id: b.id, session }).await?;
-        }
-        let q = self.state::<Heavy>(queue_id()).await?;
-        let bound = self.settings().await?.ms(Time::HoldBound);
-        let (held, overheld) = (q.holds(b.id), q.overheld(b.id, self.now(), bound));
-        let gives_way = b.yields && (busy || q.entries.iter().any(|e| e.id != b.id));
-        if !b.run.is_finished() && held && !overheld && !gives_way {
-            self.memory.lock().unwrap().beside = Some(b);
-            return Ok(Some(Besides::Runs));
-        }
-        let deadline = b.deadline;
-        let mut rans = self.end_beside(b).await;
-        if !held {
-            return Ok(Some(Besides::Unqueued));
-        }
-        let Some(last) = rans.last_mut().filter(|r| !r.ok) else { return Ok(Some(Besides::Ran(rans))) };
-        if gives_way {
-            return Ok(Some(Besides::GaveWay));
-        }
-        if overheld {
-            held_past(last, bound);
-        } else if self.now() >= deadline {
-            last.timed_out = true;
-        }
-        Ok(Some(Besides::Ran(rans)))
-    }
-
-    /// Ends the job beside the ticks, if one runs: the daemon is about to
-    /// stop or be replaced, and what it started must not outlive it.
-    pub(crate) async fn beside_end(&self) {
-        let Some(b) = self.memory.lock().unwrap().beside.take() else { return };
-        self.end_beside(b).await;
-    }
-
-    /// Ends `b`'s run, if it runs, and takes it off the queue: how its steps ran.
-    async fn end_beside(&self, b: Beside) -> Vec<Ran> {
-        b.stop.store(true, Ordering::Relaxed);
-        let joined = tokio::task::spawn_blocking(move || b.run.join()).await;
-        let _ = self.submit::<EndHeavy>(End { id: b.id }).await;
-        joined.ok().and_then(Result::ok).unwrap_or_else(|| {
-            vec![Ran { ok: false, code: None, tail: "its run panicked".into(), took_ms: 0, timed_out: false }]
-        })
+        let (id, why, rans) = (r.id, r.why, self.ran(r).await);
+        self.submit::<EndHeavy>(End { id }).await?;
+        let rans = rans?;
+        Ok(Some(match why {
+            Some(w @ Ends::Unqueued) => Err(w),
+            Some(w @ Ends::GaveWay) if rans.iter().any(|r| !r.ok) => Err(w),
+            _ => Ok(rans),
+        }))
     }
 
     /// Records that the rules this app asks under are the newest, if they are.
@@ -346,37 +249,71 @@ impl App {
     /// Taken off the queue (an unqueue, which ends that session), it ends
     /// too, refused as `unqueued`; ended still queued, it was held.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
-        let bound = self.settings().await?.ms(Time::HoldBound);
-        let ended = Arc::new(AtomicBool::new(false));
-        let (steps, stop) = (Steps::of(job), ended.clone());
-        let (session, mut runs_in) = tokio::sync::mpsc::unbounded_channel();
-        let (started, stop) = (move |s: u32| session.send(s).unwrap_or(()), move || stop.load(Ordering::Relaxed));
-        let mut run = tokio::task::spawn_blocking(move || steps.run(&started, &stop));
-        let mut rans = loop {
+        let mut r = self.run_steps(id, job, None).await?;
+        loop {
             tokio::select! {
-                rans = &mut run => break rans.map_err(|e| Refusal::new("internal", e.to_string()))?,
-                Some(session) = runs_in.recv() => self.submit::<NoteRun>(Runs { id, session }).await?,
-                _ = self.clock.sleep(POLL) => {
-                    let q = self.state::<Heavy>(queue_id()).await?;
-                    ended.fetch_or(!q.holds(id) || q.overheld(id, self.now(), bound), Ordering::Relaxed);
-                }
+                session = r.sessions.recv() => match session {
+                    Some(session) => self.submit::<NoteRun>(Runs { id, session }).await?,
+                    None => break,
+                },
+                _ = self.clock.sleep(POLL) => self.look_at(&mut r, false).await?,
             }
-        };
+        }
+        let rans = self.ran(r).await?;
         if !self.state::<Heavy>(queue_id()).await?.holds(id) {
             let why = format!("`{}` was unqueued: it and every process it started were ended", job.what);
             let tail = rans.last().map_or("", |r| r.tail.as_str());
             return Err(Refusal::new("unqueued", format!("{why}\n{tail}")));
         }
-        if let Some(last) = rans.last_mut().filter(|_| ended.load(Ordering::Relaxed)) {
-            held_past(last, bound);
+        Ok(rans)
+    }
+
+    /// Starts `job`'s steps as the started entry `id`, one after another
+    /// until one fails, each within the job's limit or, beside the ticks
+    /// (whether it `yields`), all of them within it on the app's clock.
+    async fn run_steps(&self, id: Uuid, job: &Job<'_>, beside: Option<bool>) -> Answer<Running> {
+        let (hold_ms, yields) = (self.settings().await?.ms(Time::HoldBound), beside == Some(true));
+        let deadline = beside.map(|_| self.now().saturating_add(job.limit.as_millis() as i64));
+        let (stop, (session, sessions)) = (Arc::new(AtomicBool::new(false)), tokio::sync::mpsc::unbounded_channel());
+        let (dir, steps, env, priority) = (job.dir.to_path_buf(), job.steps.to_vec(), job.env.to_vec(), job.priority);
+        let (ended, clock, limit) = (stop.clone(), self.clock.clone(), deadline.map_or(job.limit, |_| Duration::MAX));
+        let run = tokio::task::spawn_blocking(move || {
+            let stop = || ended.load(Ordering::Relaxed) || deadline.is_some_and(|d| clock.now() >= d);
+            let (started, mut rans) = (|s| session.send(s).unwrap_or(()), Vec::<Ran>::new());
+            while rans.len() < steps.len() && rans.last().is_none_or(|r| r.ok) {
+                rans.push(run(&dir, &steps[rans.len()], &env, limit, priority, &started, &stop));
+            }
+            rans
+        });
+        Ok(Running { id, yields, deadline, hold_ms, why: None, stop, sessions, run })
+    }
+
+    /// Notes the sessions `r`'s steps started in, and ends the one running
+    /// once `r` must end: unqueued, held past the hold bound, or giving way.
+    async fn look_at(&self, r: &mut Running, busy: bool) -> Answer<()> {
+        while let Ok(session) = r.sessions.try_recv() {
+            self.submit::<NoteRun>(Runs { id: r.id, session }).await?;
+        }
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
+        r.why = r.why.or(ends);
+        r.stop.store(r.why.is_some(), Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// How `r`'s steps ran, once they ended: ended held, the last one's tail
+    /// says so; past its deadline, it `timed_out`.
+    async fn ran(&self, r: Running) -> Answer<Vec<Ran>> {
+        let mut rans = r.run.await.map_err(|e| Refusal::new("internal", e.to_string()))?;
+        if let Some(last) = rans.last_mut().filter(|l| !l.ok) {
+            if r.why == Some(Ends::Held) {
+                last.tail = format!("{}\nended: {} of {}s", last.tail, Ends::Held, r.hold_ms / 1000);
+            } else if r.deadline.is_some_and(|d| self.now() >= d) {
+                last.timed_out = true;
+            }
         }
         Ok(rans)
     }
-}
-
-/// Says in `ran`'s tail that it was ended for holding others up past `bound`, ms.
-fn held_past(ran: &mut Ran, bound: i64) {
-    ran.tail = format!("{}\nended: it held others up past the hold bound of {}s", ran.tail, bound / 1000);
 }
 
 /// The processes the heavy queue granted: the pid of each started entry of

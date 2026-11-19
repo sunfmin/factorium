@@ -148,6 +148,38 @@ impl Queue {
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
         queue::overheld(&self.entries, id, now, bound)
     }
+
+    /// Why the running `id` must end at `now`, if it must: unqueued, held
+    /// past `bound`, or one that `yields` with anything else queued.
+    pub fn ends(&self, id: Uuid, now: i64, bound: i64, yields: bool) -> Option<Ends> {
+        if !self.holds(id) {
+            Some(Ends::Unqueued)
+        } else if self.overheld(id, now, bound) {
+            Some(Ends::Held)
+        } else {
+            (yields && self.entries.iter().any(|e| e.id != id)).then_some(Ends::GaveWay)
+        }
+    }
+}
+
+/// Why a running entry is ended before its steps are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ends {
+    Unqueued,
+    /// It held others up past the hold bound.
+    Held,
+    /// It yields, and something else came first.
+    GaveWay,
+}
+
+impl std::fmt::Display for Ends {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Ends::Unqueued => "unqueued",
+            Ends::Held => "it held others up past the hold bound",
+            Ends::GaveWay => "it gave way: the host is no longer idle",
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
