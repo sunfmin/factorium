@@ -107,6 +107,30 @@ async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
     assert_eq!(next["episodes"][format!("worker:{}", id(&wk))]["heard"], json!([]), "not heard twice: {next}");
 }
 
+/// A worker's record (a measurement) is its comment, and only that: the
+/// worker goes on working, no one is typed at, and the watch has nothing.
+#[tokio::test]
+async fn a_worker_s_own_comment_is_kept_and_changes_nothing_else() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let handle = wk["terminal"].as_str().unwrap();
+    let before = w.terminal(handle).sent.len();
+    w.advance(1);
+    let said_back = w.app.worker_comment(id(&wk), "before 12.3s, after 4.1s").await.unwrap();
+    assert_eq!(said_back["commented"], true);
+    let by = format!("worker {}", id(&wk));
+    let at = 1_800_000_000_000_i64 + 60_000;
+    assert_eq!(said(&w).await, [json!({ "text": "before 12.3s, after 4.1s", "by": by, "at": at })]);
+    assert_eq!(crate::worker(&w.app).await["status"], "working");
+    assert!(w.app.worker_comment(id(&wk), "  ").await.is_err(), "an empty record is refused");
+    w.advance(5);
+    let t = w.tick().await;
+    assert_eq!(w.terminal(handle).sent.len(), before, "not typed back at it");
+    assert_eq!(t.watch.and_then(|l| l.get("round").cloned()).unwrap_or(json!(null)), json!(null), "no round");
+    assert_eq!(w.app.watch_next().await.unwrap()["episodes"], json!({}), "no episode");
+    assert_eq!(crate::worker(&w.app).await["status"], "working");
+}
+
 #[tokio::test]
 async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
     let w = World::new();

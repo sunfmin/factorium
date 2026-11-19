@@ -15,10 +15,15 @@ Your brief (the file you were handed) says what the issue is.
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told
   why in this terminal: fix it and run `factorium worker done` again.
+- To keep a record on your issue (measurements, what you found, anything
+  the owner asked you to put in a comment), run
+  `factorium worker comment --text "…"` (or pipe it on stdin). It changes
+  nothing else and calls no one; go on working.
 - If you cannot go on without a decision or something you lack, run
   `factorium worker escalate "what you need"` and stop. The watch answers.
   What you escalate and what the watch tells you are kept as comments on
-  your issue, which the next worker's brief carries.
+  your issue, which the next worker's brief carries. Escalate only for a
+  decision or something you lack, not to record something: comment for that.
 - A comment the owner adds to your issue reaches you at once, typed in
   this terminal as `factorium (a comment on your issue): …` (or in your
   brief, if it came before you were handed it). Take it into your work.
