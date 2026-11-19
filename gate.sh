@@ -5,11 +5,8 @@ cd "$(dirname "$0")"
 
 ./checks.sh
 
-# The tests run once, instrumented, under slimfit (SPEC.md §6): no failure,
-# no more uncovered lines or slower tests than .slimfit/baseline.json allows,
-# and no source line the change adds outside a ratcheted mutants record
-# (.slimfit/mutants/). So a landing without its coverage or its mutants
-# record is stopped here, before it reaches proving (factorium#121).
+# The tests run once, instrumented, under slimfit (SPEC.md §6). What
+# `slimfit check` holds is slimfit's: `slimfit help mutants-scope`.
 #
 # They spend 310 seconds of CPU or less once built (SPEC.md §6): user+sys
 # of slimfit's tree, read from the shell's `times` before and after. CPU
