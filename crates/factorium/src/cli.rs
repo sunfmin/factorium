@@ -239,6 +239,14 @@ pub enum WorkerCmd {
     /// Hands you to the watch with what you need, kept as a comment on your
     /// issue. Then stop.
     Escalate { why: String },
+    /// Adds a comment to your issue, as yours: for records (measurements,
+    /// what you found). It changes nothing else and calls no one; to ask
+    /// for a decision, escalate.
+    Comment {
+        /// The comment; without it, it is read from stdin.
+        #[arg(long)]
+        text: Option<String>,
+    },
     /// Runs a heavy command once the machine has room, after those queued
     /// before it, at a gate's priority. Exits with its exit code.
     Exclusive {
@@ -342,6 +350,13 @@ impl Top {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
                 WorkerCmd::Done => app.worker_done(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
+                WorkerCmd::Comment { text } => {
+                    let text = match text {
+                        Some(t) => t,
+                        None => body_text(None, Some(PathBuf::from("-")))?.unwrap_or_default(),
+                    };
+                    app.worker_comment(worker_id()?, &text).await
+                }
                 WorkerCmd::Exclusive { background, command } => {
                     let dir = std::env::current_dir().map_err(|e| Refusal::new("io", e.to_string()))?;
                     let line = command.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ");
