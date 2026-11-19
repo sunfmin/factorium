@@ -33,10 +33,8 @@ pub struct ToFile {
 pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<ToFile>, String> {
     let at = said.find("\n{").map_or(0, |i| i + 1);
     let (by, json) = said.split_at(at);
-    let answer: Value = serde_json::from_str(json).map_err(|e| format!("the tasks line printed no answer: {e}"))?;
-    let Some(tasks) = answer["tasks"].as_array() else {
-        return Err("the tasks line's answer lists no `tasks`".into());
-    };
+    let answer = serde_json::from_str::<Value>(json).unwrap_or_default();
+    let tasks = answer["tasks"].as_array().ok_or("the tasks line printed no answer listing `tasks`")?;
     let by = by.trim();
     let open = |kind: &str| {
         issues.iter().any(|i| i.status != Status::Closed && i.task.as_ref().is_some_and(|t| t.kind == kind))
