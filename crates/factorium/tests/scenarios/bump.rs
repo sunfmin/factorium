@@ -34,6 +34,12 @@ async fn a_pin_behind_its_checkouts_base_gets_one_bump_issue() {
     // Cargo's URL of lib's remote, written otherwise than git's: a scheme, a user, no `.git`, a `/`.
     let remote = w.git(&lib, &["remote", "get-url", "origin"]).unwrap();
     let url = format!("ssh://me@{}/", remote.strip_suffix(".git").unwrap());
+    // lib pins only a repo no checkout is: app, another checkout, is not it.
+    w.commit(&lib, "Cargo.toml", "[dependencies]\nx = { git = \"https://example.com/x\", rev = \"0123abc\" }\n");
+    for branch in ["main", "proving"] {
+        w.git(&lib, &["push", "-q", "origin", &format!("HEAD:refs/heads/{branch}")]).unwrap();
+        w.git(&lib, &["fetch", "-q", "origin", branch]).unwrap();
+    }
     let first = w.remote_tip("lib", "main");
 
     pin(&w, &app, &url, &first);

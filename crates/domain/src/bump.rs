@@ -26,9 +26,7 @@ pub fn pins(cargo_toml: &str) -> Vec<Pin> {
         t.values().for_each(|v| walk(v, into));
     }
     let mut all = Vec::new();
-    if let Ok(v) = cargo_toml.parse::<toml::Value>() {
-        walk(&v, &mut all);
-    }
+    walk(&cargo_toml.parse().unwrap_or(toml::Value::Boolean(false)), &mut all);
     all
 }
 
