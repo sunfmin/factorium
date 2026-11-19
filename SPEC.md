@@ -96,11 +96,14 @@ watch's look and the operator's view.
    uncommitted changes are committed, its branch is kept as
    `<branch>-abandoned`, named in a comment written before the close (a
    closed issue takes none), and the worktree goes with its Orca
-   terminals. A worker's
-   worktree (on a branch `factorium/<checkout>-<n>-<attempt>`) that no open
-   issue's attempt owns — its issue closed or unknown, or its attempt older
-   than the issue's last that started — is a doctor finding, fixed by
-   `discard <worktree>`, which removes it the same way.
+   terminals. An open issue owns one worktree: the one its last started
+   attempt works in, which is attempt 1's, on attempt 1's branch, when a
+   later attempt resumed it (step 3); the attempt a branch names does not
+   decide it. A worker's worktree (on a branch
+   `factorium/<checkout>-<n>-<attempt>`) that no open issue owns — its
+   issue closed or unknown, or not its last started attempt's — is a
+   doctor finding, fixed by `discard <worktree>`, which removes it the
+   same way.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
 8. A checkout whose proving tip pins another checkout by git rev in its
@@ -276,69 +279,40 @@ depend on nothing else of factorium.
   owner command, the CLI and the daemon sharing the database.
 - **Real harnesses.** Opt-in smoke tests per harness, run by hand.
 - **Every scenario is held to account**, by two mechanisms and no
-  whole-workspace mutation run (factorium#114). A change's own lines are
-  mutated by `slimfit check --mutants`: break the rule a scenario guards
-  and it must fail. A scenario that only repeats another, or shares its
-  setup, is found by slimfit's coverage-plus-review task and deleted or
-  merged into the other; the rule is slimfit's (slimfit#31), not
-  restated here.
-- **Bounds.** The tests spend 310 seconds of CPU or less once built: the
-  user+sys time of the `slimfit check` tree (the one test run, below),
-  which `gate.sh` reads from the shell's `times`. No test sleeps; time moves when a scenario moves it.
+  whole-workspace mutation run (factorium#114): a change's mutants, and
+  slimfit's coverage-plus-review task, which finds a scenario that only
+  repeats another, or shares its setup, to delete or merge. Both rules are
+  slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md); slimfit#31), not restated here.
+- **Bounds.** No test sleeps; time moves when a scenario moves it.
+  slimfit holds test time, not `gate.sh`: its `test_seconds` is the CPU
+  time (user+sys) the tests' own processes spent, build excluded, and the
+  gate fails when it rises past the baseline's tolerance (`slimfit check
+  --help`; `slimfit help host-load`, [src/help/host-load.md](https://github.com/sunfmin/slimfit/blob/main/src/help/host-load.md)).
   CPU time, not wall time, because the bound must fail when the tests got
-  slower and pass the same code on the same host however busy it is.
-  Wall time does not: the suite took 24s idle and 75-193s at load 55-73 on
-  18 cores (factorium#103). CPU time held: 200s at load ~90 and 194s with
-  18 busy loops added (load ~110-134), against 195s and 158s of wall time.
-  Re-running when over a wall bound only helps while the load passes, and
-  scaling by the load average guesses at how much of the host the tests
-  got; CPU time is what they used. factorium#98 halved the suite: 26.5s to
-  13.0s of wall time and 210s to 138s of CPU (medians of 3, interleaved,
-  load 6-21). Nearly all of its CPU is git's processes, about 50 a
-  scenario, so a scenario's cost is the git it runs: git is run as its
-  binary, not macOS's `/usr/bin/git` shim, which more than doubled each
-  call; the scenarios' homes turn off git's auto maintenance; a world's
-  repos are copied in-process; a scenario of several worlds runs them at
-  once (`each`, `at_once!`), so it takes its slowest world's time, not
-  their sum; and the binary's tests run in the scenarios' binary, beside
-  them rather than after. The bound was about 1.5 times that 138s, so the
-  gain holds and a test that adds a minute of CPU fails it: 200s of plain
-  `cargo test`. factorium#121 moved the run under slimfit; the same tree
-  spent 148-152s plain and 231-233s instrumented (two rounds each,
-  interleaved, load 30-50 on 18 cores), so the bound became 310s, the
-  same margin over the instrumented run. slimfit corrects `test_seconds`
-  for the load now (slimfit#13), yet the same tree still measured
-  206-217s at load 25-50; the CPU bound stays the time guard.
+  slower and pass the same code on the same host
+  however busy it is: the suite took 24s idle and 75-193s at load 55-73
+  on 18 cores, while its CPU time held (factorium#103). Until
+  factorium#123 `gate.sh` held a CPU bound of its own around the run;
+  slimfit#43 made that the same fact twice, so it went. Nearly all of the
+  tests' CPU is git's processes, about 50 a scenario, so a scenario's cost
+  is the git it runs: git is run as its binary, not macOS's `/usr/bin/git`
+  shim, which more than doubled each call; the scenarios' homes turn off
+  git's auto maintenance; a world's repos are copied in-process; a
+  scenario of several worlds runs them at once (`each`, `at_once!`), so it
+  takes its slowest world's time, not their sum; and the binary's tests
+  run in the scenarios' binary, beside them rather than after
+  (factorium#98 halved the suite this way).
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
   `./checks.sh` (the line budgets of §5, fmt, clippy) then `slimfit check`
-  against the committed `.slimfit/baseline.json` and `.slimfit/mutants/`:
-  no failing test, no more uncovered lines than the baseline (code may
-  grow, untested code may not), the tests' summed durations within the
-  baseline's tolerance, and no source line the change adds since
-  `origin/HEAD` outside a ratcheted mutants record. The suite runs once
-  there, instrumented, in place of a plain `cargo test`; the CPU bound
-  above is held around it. So a landing without its coverage or its
-  mutants record is stopped at its own gate, before it reaches proving:
-  until factorium#121 only `./slow.sh` ran slimfit, on the proving tip
-  after the landing, and #118 reached proving with 5 uncovered lines and
-  22 unmeasured. Its cost, measured on the same tree: the gate took 25-26s
-  against 14-16s with the plain run, 231-233s of CPU against 148-152s
-  (load 30-50 on 18 cores); with this tree's measurement cached (an
-  unchanged tree) `slimfit check` takes 1s. Cold, `gate.sh` first builds
-  the instrumented tests' dependencies outside the timed run (21s), as it
-  did the plain ones; slimfit rebuilds the workspace's own crates in every
-  run, which the bound counts. Run on the tree #118 landed with (its new
-  lines untested, no record), `./gate.sh` fails with `uncovered_lines`
-  and `unmeasured_mutants` in 26s. The slow gate (`./slow.sh`) is
-  `./gate.sh` again, on the proving tip a promotion moves.
-  The worker that changes source measures the change's mutants, at
-  background priority (`factorium worker exclusive --background --
-  slimfit check --mutants`), then runs `slimfit ratchet` and commits
-  `.slimfit/mutants/` with the change; the gate's failure says so. A
-  change that gains (fewer uncovered lines, faster tests) commits the
-  moved baseline with the code, in the same commit; a bound is raised
-  only by `slimfit ratchet --loosen`, with its reason kept in the
-  baseline. `slimfit next` names the next thing to test or make smaller.
+  against the committed `.slimfit/`, in place of a plain `cargo test`, holding
+  the tests' time as above; the slow gate (`./slow.sh`) is
+  `./gate.sh` again, on the proving tip a promotion moves. What
+  `slimfit check` holds, a change's record of its mutants among it, is
+  slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
+  its own gate, before it reaches proving. The worker follows
+  `slimfit next`; what is factorium's is the priority: a mutants run goes
+  through `factorium worker exclusive --background`, a run whose baseline
+  it ratchets through `factorium worker exclusive` (§1, row 9).
 
 ## 7. From afkconvoy
 

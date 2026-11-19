@@ -194,6 +194,21 @@ async fn doctor_leaves_an_open_issue_s_worktrees_and_discard_refuses_them() {
 }
 
 #[tokio::test]
+async fn a_kept_worktree_a_later_attempt_resumed_is_that_attempt_s_and_not_orphaned() {
+    let w = World::new();
+    let tree = waiting_for_human(&w, true).await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+    assert_eq!(again["worktree"], json!(tree), "attempt 2 goes on in attempt 1's worktree, on its branch");
+    let d = w.app.doctor().await.unwrap();
+    assert!(keyed(&d, "worktree:").is_empty(), "{d}");
+    let refused = w.app.discard_orphaned(&tree).await.unwrap_err();
+    assert_eq!(refused.code, "not_orphaned");
+    assert!(tree.exists());
+}
+
+#[tokio::test]
 async fn starting_over_with_the_proving_tip_unread_discards_the_worktree_and_keeps_its_branch() {
     let w = World::new();
     let tree = waiting_for_human(&w, false).await;
