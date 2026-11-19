@@ -75,6 +75,12 @@
       "test": "factorium::scenarios::line::an_idle_cut_waits_until_everything_landed_is_promoted",
       "hash": "7789176cddce03f8",
       "reason": "It checks an idle checkout's cut waits while a landing is unpromoted (a red slow gate) and is cut once its own bound passes; the other checks a busy checkout cuts once the oldest promotion waited the cut bound less the hold bound. Idle and busy are opposite setups, and the bounds differ. They share the line's pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
+      "hash": "658e9b49ecb26331",
+      "reason": "It checks gates that run git describe see a tag origin got after the line's clones were made; the other checks promote and cut by hand and commit identity. Folding it in would put its describe gates and origin's v0.0.9 tag under the other's cuts, whose versions (v0.1.0, v0.1.1) it asserts: the setups conflict. They share the landing and promotion pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
