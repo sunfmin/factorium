@@ -1,4 +1,4 @@
-//! A worker's own commands: `factorium worker gate|done|escalate|exclusive`.
+//! A worker's own commands: `factorium worker gate|done|escalate|comment|exclusive`.
 //! The worker is named by `FACTORIUM_WORKER`, which its session was
 //! started with.
 
@@ -74,6 +74,18 @@ impl App {
         // Kept on its issue; typed back at no one.
         self.note(&st.checkout, st.number, Author::Worker(worker), why).await?;
         Ok(json!({ "escalated": true, "said": "The watch will answer in this terminal. Stop until it does." }))
+    }
+
+    /// Keeps a record on the worker's issue, as the worker's comment. It
+    /// leaves the worker as it is and calls no one: the watch is for
+    /// decisions ([`App::worker_escalate`]).
+    pub async fn worker_comment(&self, worker: Uuid, text: &str) -> Answer {
+        if text.trim().is_empty() {
+            return Err(Refusal::new("no_text", "say what to keep"));
+        }
+        let (_, st) = self.started(worker).await?;
+        self.note(&st.checkout, st.number, Author::Worker(worker), text).await?;
+        Ok(json!({ "commented": true, "checkout": st.checkout, "number": st.number }))
     }
 
     /// Runs a command through the heavy-command queue at a gate's

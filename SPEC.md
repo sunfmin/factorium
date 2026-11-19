@@ -69,7 +69,10 @@ watch's look and the operator's view.
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
-   likes, then `factorium worker done`.
+   likes, then `factorium worker done`. What it wants kept (a measurement)
+   it records with `factorium worker comment`, a comment on its issue by
+   it that changes nothing else and goes to no one: not the watch, which
+   is for decisions (`worker escalate`).
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. A red that does not reach the session's prompt
    (no turn starts and none runs) goes to the watch at once.
