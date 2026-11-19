@@ -57,6 +57,12 @@
       "test": "factorium::scenarios::line::a_cut_of_the_daemons_own_formula_asks_for_a_restart",
       "hash": "e7c92dfd1a2435c4",
       "reason": "It checks a cut of the daemon's own formula asks for a restart with the daemon's binary, and another formula's cut does not; the other checks the line's work dirs are clones. Folding it in would set which formula the daemon runs as under the work-dirs scenario, and its second case needs a daemon of another formula. They share the cut pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::base::a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding",
+      "hash": "53644624a5d3ebf4",
+      "reason": "It checks a local base with its own commits or uncommitted changes is left, is a finding saying which, and catches up once undone; the other checks a cut retries brew update with back-off until the tap shows the version. They share the landing and promotion pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
