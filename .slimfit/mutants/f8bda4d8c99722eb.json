@@ -1,0 +1,32 @@
+{
+  "tree": "175d42e62afc45d959c3a3c3592ee3add77431e6+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/heavy.rs:155:12: delete ! in Queue::ends",
+        "why": "an unqueued run must be seen as unqueued, else it keeps running",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:160:57: replace != with == in Queue::ends",
+        "why": "idle work gives way to others queued, not to itself",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:210:40: replace match guard rans.iter().any(|r| !r.ok) with false in App::beside",
+        "why": "a run that gave way must not be recorded as a run",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:283:44: replace && with || in App::run_steps",
+        "why": "steps stop at the first that fails",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:311:61: replace >= with < in App::ran",
+        "why": "past its deadline a run's last step timed out",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
