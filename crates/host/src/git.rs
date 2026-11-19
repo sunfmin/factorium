@@ -185,6 +185,18 @@ impl Git {
         self.run(&["worktree", "remove", "--force", &path.to_string_lossy()]).map(|_| ())
     }
 
+    /// The worktrees git holds of this repo, other than its own, each with
+    /// its branch (`None`: detached).
+    pub fn worktrees(&self) -> Result<Vec<(PathBuf, Option<String>)>, String> {
+        let listed = self.run(&["worktree", "list", "--porcelain"])?;
+        let tree = |entry: &str| {
+            let path = entry.lines().find_map(|l| l.strip_prefix("worktree "))?;
+            let branch = entry.lines().find_map(|l| l.strip_prefix("branch refs/heads/"));
+            Some((PathBuf::from(path), branch.map(str::to_string)))
+        };
+        Ok(listed.split("\n\n").skip(1).filter_map(tree).collect())
+    }
+
     /// Forgets a worker's worktree at `path` and its `branch`, whatever of
     /// them is left.
     pub fn forget(&self, path: &Path, branch: &str) {

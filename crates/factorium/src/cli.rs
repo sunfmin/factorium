@@ -59,6 +59,12 @@ pub enum Top {
     /// Answers the findings, each with its fix; the reading; and what the
     /// watch's reports leave to the owner.
     Doctor,
+    /// Removes a worker's worktree that no open issue's attempt owns, as
+    /// doctor names it, with its terminals: what it holds that is nowhere
+    /// else (commits, and changes, committed first) is kept on
+    /// `<branch>-abandoned`, named in a comment on its issue. Refused for
+    /// any other path.
+    Discard { worktree: PathBuf },
     /// Promotes a checkout's proving branch to its base now: slow gate, then
     /// a fast-forward.
     Promote { checkout: String },
@@ -333,6 +339,7 @@ impl Top {
             Top::Workers { all } => app.workers(all).await,
             Top::Outbox { worker } => app.outbox_of(worker).await,
             Top::Doctor => app.doctor().await,
+            Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
