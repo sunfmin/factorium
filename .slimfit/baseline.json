@@ -69,6 +69,12 @@
       "test": "factorium::scenarios::line::a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip",
       "hash": "8370c566c8986ec8",
       "reason": "It checks a red slow gate holds origin's base, is a finding, is not gated again on the same tip (only by hand), and a new green tip is promoted; the other checks a local base left behind fast-forwards on the next tick. A red gate never promotes, so the setups conflict. They share the landing and promotion pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::an_idle_cut_waits_until_everything_landed_is_promoted",
+      "hash": "7789176cddce03f8",
+      "reason": "It checks an idle checkout's cut waits while a landing is unpromoted (a red slow gate) and is cut once its own bound passes; the other checks a busy checkout cuts once the oldest promotion waited the cut bound less the hold bound. Idle and busy are opposite setups, and the bounds differ. They share the line's pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
