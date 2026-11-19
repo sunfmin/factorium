@@ -105,7 +105,7 @@ impl crate::App {
     fn keep(&self, me: &Path) -> std::io::Result<()> {
         let dir = self.data().binary();
         let to = dir.join(version_of(me)).join("bin").join(me.file_name().unwrap_or_default());
-        if self.is_kept(me) || to.exists() {
+        if to.exists() {
             return Ok(());
         }
         let _ = std::fs::remove_dir_all(&dir);
