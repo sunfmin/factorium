@@ -125,13 +125,10 @@ pub fn run(
 #[allow(unsafe_code)]
 fn in_own_session(cmd: &mut Command) {
     // SAFETY: setsid is async-signal-safe and touches no memory of the
-    // parent: it may run between fork and exec.
-    unsafe {
-        cmd.pre_exec(|| match libc::setsid() {
-            -1 => Err(std::io::Error::last_os_error()),
-            _ => Ok(()),
-        });
-    }
+    // parent: it may run between fork and exec. One line: the child's
+    // coverage is lost at exec, so a line of its own would read uncovered.
+    let start = || if unsafe { libc::setsid() } == -1 { Err(std::io::Error::last_os_error()) } else { Ok(()) };
+    unsafe { cmd.pre_exec(start) };
 }
 
 fn failed(why: String) -> Ran {
