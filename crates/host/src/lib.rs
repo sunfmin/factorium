@@ -10,6 +10,7 @@ pub mod clock;
 pub mod git;
 pub mod orca;
 pub mod procs;
+pub mod proof;
 pub mod reading;
 pub mod shell;
 

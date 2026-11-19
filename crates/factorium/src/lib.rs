@@ -167,8 +167,6 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
-    /// Each binary (canonical) proven on a copy of the database: opens it, or why not.
-    proven: std::collections::BTreeMap<PathBuf, Result<(), String>>,
     /// The idle work running beside the ticks, and its heavy job's run.
     idle: Option<idle::Running>,
     beside: Option<heavy::Running>,
@@ -193,6 +191,7 @@ pub struct App {
     db: PathBuf,
     by: By,
     memory: std::sync::Mutex<Memory>,
+    proofs: Arc<factorium_host::proof::Proofs>,
     /// The heavy queue's rules it asks under: [`factorium_domain::heavy::RULES`], unless a
     /// scenario stands in for another version.
     rules: String,
@@ -218,6 +217,7 @@ impl App {
             db,
             by: By::Principal(by.into()),
             memory: Default::default(),
+            proofs: Default::default(),
             rules: factorium_domain::heavy::RULES.into(),
         })
     }
