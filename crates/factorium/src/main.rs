@@ -16,13 +16,12 @@ use clap::{CommandFactory, FromArgMatches};
 use cli::{Cli, Top, WorkerCmd};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, Refusal, default_db};
-use factum::SystemClock;
 use serde_json::json;
 
 async fn run(cli: Cli, caller: Caller) -> Answer {
     let db = cli.db.unwrap_or_else(|| default_db(|name| std::env::var_os(name)));
     let data = factorium::Data::of(&db).root().to_path_buf();
-    let app = App::open(&db, Arc::new(SystemClock), caller.by(), Arc::new(Machine::new(data)))?;
+    let app = App::open(&db, caller.by(), Arc::new(Machine::new(data)))?;
     match cli.command {
         Top::Run => app.run(&*stopped_by_signals()?).await,
         command => command.answer(&app, &caller).await,

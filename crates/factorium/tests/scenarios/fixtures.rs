@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::World;
+use crate::fixture::World;
 
 #[test]
 fn a_held_fixture_whose_world_is_dropped_unreleased_ends_within_two_seconds() {
@@ -12,7 +12,7 @@ fn a_held_fixture_whose_world_is_dropped_unreleased_ends_within_two_seconds() {
     let dir = w.dir.join("held");
     let mut child = std::process::Command::new("sh").args(["-c", &w.holds(&dir)]).spawn().unwrap();
     while !dir.join("started").exists() {
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::yield_now();
     }
     drop(w);
     let dropped = Instant::now();
@@ -24,7 +24,7 @@ fn a_held_fixture_whose_world_is_dropped_unreleased_ends_within_two_seconds() {
             child.kill().unwrap();
             panic!("the fixture outlived its world");
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::yield_now();
     };
     assert_eq!(status.code(), Some(1), "it ends unreleased");
 }
@@ -34,14 +34,18 @@ fn no_scenario_starts_a_loop_but_the_one_world_holds_gives() {
     // Split so this file's own text is no match.
     let shell_loop = concat!("; d", "o ");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scenarios");
-    let mut found = Vec::new();
-    for entry in std::fs::read_dir(&root).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "rs") {
-            let text = std::fs::read_to_string(&path).unwrap();
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            found.extend(std::iter::repeat_n(name, text.matches(shell_loop).count()));
+    let (mut found, mut dirs) = (Vec::new(), vec![root.clone()]);
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let name = path.strip_prefix(&root).unwrap().to_string_lossy().into_owned();
+                found.extend(std::iter::repeat_n(name, text.matches(shell_loop).count()));
+            }
         }
     }
-    assert_eq!(found, ["main.rs"], "a shell loop outside World::holds");
+    assert_eq!(found, ["fixture/world.rs"], "a shell loop outside World::holds");
 }

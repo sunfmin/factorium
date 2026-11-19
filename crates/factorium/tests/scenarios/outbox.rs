@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use crate::{CLAUDE, ESCAPE, SHELL, UP, World, id, worker, worktree};
+use crate::fixture::{CLAUDE, ESCAPE, SHELL, UP, World, findings, id, worker};
 
 /// The messages a worker's session is passed.
 #[derive(Clone, Copy, Debug)]
@@ -35,10 +35,7 @@ impl Kind {
     /// restart, a worker that waits.
     async fn prepare(self, w: &World, wk: &Value) {
         match self {
-            Kind::Red => {
-                w.commit(&worktree(wk), "RED", "x");
-                w.app.worker_done(id(wk)).await.unwrap();
-            }
+            Kind::Red => w.done(wk, "RED", "x").await,
             Kind::Restart => _ = w.app.worker_escalate(id(wk), "stuck").await.unwrap(),
             _ => {}
         }
@@ -111,7 +108,7 @@ async fn a_known_dialog_is_dismissed_first_and_every_message_then_starts_a_turn_
         let m = last(&w, &wk).await;
         assert_eq!((&m["text"], &m["outcome"]["outcome"]), (&json!(sent[1]), &json!("submitted")), "{kind:?}");
         assert_eq!(worker(&w.app).await["status"], "working", "{kind:?}");
-        assert!(w.app.doctor().await.unwrap()["findings"].as_array().unwrap().is_empty(), "{kind:?}");
+        assert!(findings(&w.app.doctor().await.unwrap()).is_empty(), "{kind:?}");
     }
 }
 
@@ -155,7 +152,7 @@ async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red
         assert_eq!(m["outcome"]["outcome"], "not_typed", "{kind:?}");
         assert!(m["outcome"]["why"].as_str().unwrap().contains("terminal_send_failed"), "{kind:?}: {m}");
         match kind {
-            Kind::Tell | Kind::Restart => crate::refused(said, "orca"),
+            Kind::Tell | Kind::Restart => crate::fixture::refused(said, "orca"),
             Kind::Comment => {
                 let said = said.unwrap();
                 assert_eq!(said["delivery"], "none");
@@ -197,7 +194,7 @@ async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_o
                 assert_eq!(said.unwrap()["delivery"], "brief");
                 assert!(brief.ends_with("\n## Comments since\n\n- use v2\n"), "{brief}");
             }
-            Kind::Tell | Kind::Restart => crate::refused(said, "not_up"),
+            Kind::Tell | Kind::Restart => crate::fixture::refused(said, "not_up"),
             Kind::Red => {
                 let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
                 assert!(why.contains("did not reach it") && why.contains("not up"), "{why}");

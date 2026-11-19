@@ -28,7 +28,7 @@ use factorium_domain::settings::{HostSettings, Settings, settings_id};
 use factorium_domain::tracker::{Rows, TRACKER};
 use factorium_domain::{checkout::Checkouts, checkout_id};
 use factorium_host::{Git, Host};
-use factum::{Aggregate, By, Clock, Command, Engine, Model, StreamId, Submission, Uuid, Value};
+use factum::{Aggregate, By, Command, Engine, Model, StreamId, Submission, Uuid, Value};
 use factum_sqlite::SqliteStore;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -168,10 +168,19 @@ struct Memory {
     idle: Option<idle::Running>,
 }
 
+/// The host's clock, as the engine reads it.
+struct HostClock(Arc<dyn Host>);
+
+impl factum::Clock for HostClock {
+    fn now(&self) -> factum::Instant {
+        factum::Instant(self.0.clock().now())
+    }
+}
+
 pub struct App {
     engine: Engine<SqliteStore>,
-    /// The engine's clock, for what runs beside it: idle work's limit.
-    clock: Arc<dyn Clock>,
+    /// The host's clock, the app's one: events, waits, idle work's limit, commits.
+    clock: Arc<dyn factorium_host::Clock>,
     host: Arc<dyn Host>,
     /// The database it was opened on. Its directory holds the rest: briefs,
     /// worktrees of the lines, the watch's home, evidence.
@@ -186,7 +195,7 @@ pub struct App {
 impl App {
     /// Opens the database at `db`, making it if it is not there. `by` names
     /// who runs the commands, as the events record it.
-    pub fn open(db: &Path, clock: Arc<dyn Clock>, by: &str, host: Arc<dyn Host>) -> Answer<App> {
+    pub fn open(db: &Path, by: &str, host: Arc<dyn Host>) -> Answer<App> {
         // Absolute: sessions are told it, and they run in other directories.
         let db = std::path::absolute(db)
             .map_err(|e| Refusal::new("no_database", format!("cannot place {}: {e}", db.display())))?;
@@ -195,10 +204,10 @@ impl App {
             .map_err(|e| Refusal::new("no_database", format!("cannot make {}: {e}", data.display())))?;
         let store = SqliteStore::open(&db)
             .map_err(|e| Refusal::new("no_database", format!("cannot open {}: {e}", db.display())))?;
-        let engine = Engine::new(Arc::new(store), Arc::new(model()), clock.clone(), by);
+        let engine = Engine::new(Arc::new(store), Arc::new(model()), Arc::new(HostClock(host.clone())), by);
         Ok(App {
             engine,
-            clock,
+            clock: host.clock(),
             host,
             db,
             by: By::Principal(by.into()),

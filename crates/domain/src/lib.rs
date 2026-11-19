@@ -6,6 +6,7 @@
 //! Nothing here reads a clock or touches the host.
 
 pub mod admission;
+pub mod bump;
 pub mod checkout;
 pub mod daemon;
 pub mod declared;
@@ -20,6 +21,7 @@ pub mod line;
 pub mod neutral;
 pub mod outbox;
 pub mod settings;
+pub mod task;
 pub mod tracker;
 pub mod watch;
 pub mod worker;

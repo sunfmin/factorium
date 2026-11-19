@@ -1,0 +1,32 @@
+{
+  "tree": "31504f765cea809082e9aca602185c431acd5490+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon.rs:190:43: delete ! in App::bumps",
+        "why": "a pin off the base (diverged) is not behind it: no issue",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:182:70: delete ! in App::bumps",
+        "why": "no second bump issue while one is open",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/bump.rs:37:5: replace same_repo -> bool with true",
+        "why": "only a pin of another checkout's repo is bumped",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git.rs:209:9: replace Git::landings -> Result<Vec<String>, String> with Ok(vec![\"xyzzy\".into()])",
+        "why": "pinned at the tip: no issue",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:190:40: replace || with && in App::bumps",
+        "why": "either no landings or not an ancestor skips the pin",
+        "outcome": "killed"
+      }
+    ]
+  }
+}

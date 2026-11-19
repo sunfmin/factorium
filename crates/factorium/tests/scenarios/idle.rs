@@ -7,8 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::World;
-use crate::queue::{STUCK, heavy, until_file, while_busy};
+use crate::fixture::{STUCK, World, nice_is, own_nice, until_file};
 
 /// A checkout `web` whose base declares `[idle]` with `steps`, `every`
 /// seconds apart and within `limit`, as last fetched; and a kit.
@@ -20,11 +19,7 @@ async fn declares(w: &World, steps: &[String], every: u64, limit: u64) -> PathBu
         "[gate]\nfast = \"true\"\n\n[idle]\nsteps = [{}]\nevery = {every}\nlimit = {limit}\n",
         steps.join(", ")
     );
-    let clone = w.dir.join("edit");
-    let remote = w.dir.join("remotes/web.git");
-    w.git(&w.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.commit(&clone, "factorium.toml", &toml);
-    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    w.push_by_hand("web", "main", "factorium.toml", &toml);
     w.git(&web, &["fetch", "-q", "origin"]).unwrap();
     web
 }
@@ -58,14 +53,14 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     declares(&w, &["echo all mutants caught".into()], 3600, 60).await;
     let t = w.tick().await;
     assert!(started(&t.idle), "{:?}", t.idle);
-    assert_eq!(heavy(&w).await, ["idle work of web"], "it holds a heavy slot");
+    assert_eq!(w.queued().await, ["idle work of web"], "it holds a heavy slot");
     let run = ended(&w).await;
     assert_eq!(run["green"], true, "{run}");
     assert_eq!(run["tip"], w.remote_tip("web", "main"), "on the base's tip");
     let d = w.app.doctor().await.unwrap();
     let last = &d["idle"][0]["last"];
     assert_eq!((last["green"].clone(), last["tail"].clone()), (json!(true), json!("all mutants caught")), "{d}");
-    assert_eq!(heavy(&w).await, Vec::<String>::new());
+    assert_eq!(w.queued().await, Vec::<String>::new());
 
     w.advance(59);
     assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "not again within `every`");
@@ -73,7 +68,7 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     assert!(started(&w.tick().await.idle), "again once `every` has passed");
     // The daemon stops before its next tick: the run ends with it, unrecorded.
     assert_eq!(w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap()["ticks"], 0);
-    assert_eq!(heavy(&w).await, Vec::<String>::new(), "it left the queue");
+    assert_eq!(w.queued().await, Vec::<String>::new(), "it left the queue");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], d["idle"][0]["last"], "the first run is the last");
 }
 
@@ -90,12 +85,12 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
 
     let w = World::new();
     declares(&w, &["true".into()], 3600, 60).await;
-    while_busy(&w, async {
+    w.while_busy(async {
         // Room on the host and a new reading, but the queue holds a worker's heavy command.
         w.host.reading.lock().unwrap().cpu_busy = 10;
         w.advance(1);
         assert_eq!(w.tick().await.idle, Vec::<Value>::new());
-        assert!(!heavy(&w).await.contains(&"idle work of web".to_string()));
+        assert!(!w.queued().await.contains(&"idle work of web".to_string()));
     })
     .await;
     assert!(started(&w.tick().await.idle), "once the queue is empty");
@@ -114,10 +109,12 @@ async fn idle_work_yields_to_a_heavy_command_queued_beside_it_and_runs_next_idle
     let cli = w.run();
     let wants = cli.worker_exclusive(None, &w.dir, "echo after");
     let ticks = async {
-        while !heavy(&w).await.contains(&"echo after".to_string()) {
-            tokio::task::yield_now().await;
-        }
-        w.tick().await
+        w.until_queued("echo after").await;
+        let t = w.tick().await;
+        // The idle work yielded: the worker's command asks again.
+        w.gone("idle work of web").await;
+        w.poll(1).await;
+        t
     };
     let (ran, t) = tokio::time::timeout(STUCK, async { tokio::join!(wants, ticks) }).await.expect("it yields");
     assert_eq!(ran.unwrap()["ok"], true, "the worker's command runs");
@@ -169,7 +166,7 @@ async fn idle_work_past_its_limit_ends_red_with_its_tail() {
 #[tokio::test]
 async fn idle_work_runs_below_factoriums_priority() {
     let w = World::new();
-    declares(&w, &[crate::priority::nice_is("-gt", crate::priority::own_nice())], 3600, 60).await;
+    declares(&w, &[nice_is("-gt", own_nice())], 3600, 60).await;
     w.tick().await;
     let run = ended(&w).await;
     assert_eq!(run["green"], true, "{run}");
@@ -185,10 +182,98 @@ async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
     let idle = || w.app.start_once(factum::Uuid::now_v7(), "idle work of web".into(), &s);
     assert!(w.app.start_once(factum::Uuid::now_v7(), "running".into(), &s).await.unwrap());
     assert!(!idle().await.unwrap(), "it waits behind what runs");
-    assert_eq!(heavy(&w).await, ["running"]);
+    assert_eq!(w.queued().await, ["running"]);
     // A newer binary's daemon starts: its rules replace this one's.
     w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
     let refused = idle().await.expect_err("refused under replaced rules");
     assert_eq!(refused.code, "stale", "{refused}");
-    assert_eq!(heavy(&w).await, ["running"]);
+    assert_eq!(w.queued().await, ["running"]);
+}
+
+/// What slimfit's `next --all` answers with tasks of each `(kind, file)`.
+fn next(tasks: &[(&str, &str)]) -> String {
+    let task = |(kind, file): &(&str, &str)| {
+        let summary = format!("{file}: 316 lines, changed in 28 commits in 90 days");
+        json!({ "kind": kind, "files": [file], "summary": summary, "steps": "Deepen it.", "accept": "slimfit check" })
+    };
+    let tasks: Vec<Value> = tasks.iter().map(task).collect();
+    serde_json::to_string_pretty(&json!({ "next": "do the task", "tasks": tasks })).unwrap()
+}
+
+/// A checkout `web` whose idle work's tasks line reads slimfit 0.1.16, then
+/// what the file it answers holds, at most once a minute. No kit: no worker
+/// takes what is filed, so the host stays idle.
+async fn finds_tasks(w: &World) -> PathBuf {
+    let web = w.checkout("web").await;
+    let answer = w.dir.join("next.json");
+    let line = format!("echo slimfit 0.1.16 && cat '{}'", answer.display());
+    let toml = format!("[idle]\ntasks = {line:?}\nevery = 60\nlimit = 60\n");
+    let clone = w.dir.join("edit");
+    let remote = w.dir.join("remotes/web.git");
+    w.git(&w.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    w.commit(&clone, "factorium.toml", &toml);
+    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    w.git(&web, &["fetch", "-q", "origin"]).unwrap();
+    answer
+}
+
+/// The next idle run, a minute on: the issues it filed.
+async fn files(w: &World) -> Value {
+    w.advance(2);
+    let run = ended(w).await;
+    assert_eq!(run["green"], true, "{run}");
+    run["filed"].clone()
+}
+
+#[tokio::test]
+async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")])).unwrap();
+    assert_eq!(files(&w).await, json!([1, 2]), "one of each kind");
+    let one = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(one["title"], "slimfit deepen: a.rs: 316 lines, changed in 28 commits in 90 days");
+    assert_eq!(one["task"], json!({ "kind": "deepen", "files": ["a.rs"] }));
+    let body = one["body"].as_str().unwrap();
+    let tip = w.remote_tip("web", "main");
+    for carried in ["slimfit 0.1.16", tip.as_str(), "\"steps\": \"Deepen it.\"", "\"accept\": \"slimfit check\""] {
+        assert!(body.contains(carried), "{carried} in {body}");
+    }
+    assert_eq!(w.app.issue_show("web", 2).await.unwrap()["task"]["kind"], "redundant-test");
+    assert_eq!(files(&w).await, json!([]), "none while one of its kind is open");
+
+    w.app.issue_close("web", 1, "deepened").await.unwrap();
+    assert_eq!(files(&w).await, json!([3]), "the next of its kind, not the one just closed");
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["task"]["files"], json!(["b.rs"]));
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.issue_close("web", 3, "deepened").await.unwrap();
+    assert_eq!(files(&w).await, json!([]), "a task closed this week is not filed again");
+    w.advance(7 * 24 * 60);
+    assert_eq!(files(&w).await, json!([4]), "a week on, it is");
+
+    std::fs::write(&answer, "no tasks").unwrap();
+    w.advance(2);
+    let run = ended(&w).await;
+    assert_eq!(run["green"], false, "{run}");
+    assert!(run["tail"].as_str().unwrap().contains("printed no answer"), "{run}");
+}
+
+#[tokio::test]
+async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    // No room on the host, ever: it is never idle.
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(1);
+    let run = ended(&w).await;
+    assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "never read: overdue at once");
+    w.app.issue_close("web", 1, "deepened").await.unwrap();
+    std::fs::write(&answer, next(&[("deepen", "b.rs")])).unwrap();
+    w.advance(2);
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "past `every`, but the host is not idle");
+    w.advance(10);
+    let run = ended(&w).await;
+    assert_eq!(run["filed"], json!([2]), "past `every` and `tasks_bound`: {run}");
 }

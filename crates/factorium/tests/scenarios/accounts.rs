@@ -3,9 +3,7 @@
 
 use factorium_harness::Harness;
 
-use crate::harnesses::write_session;
-use crate::one_harness::quoted_word;
-use crate::{CLAUDE, World, worker};
+use crate::fixture::{CLAUDE, World, findings, quoted_word, worker, write_session};
 use factorium::host::Host;
 
 #[tokio::test]
@@ -127,7 +125,7 @@ async fn doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_
     assert!(out.contains(&format!("CODEX_HOME='{}' codex", home.display())), "a login line for a person: {out}");
     assert!(why("agent-account-odd").contains("MACHINE"), "{doctor}");
     assert!(!doctor.to_string().contains("sk-ant-very-secret"));
-    assert_eq!(doctor["findings"], serde_json::json!([]), "an account here or not is no finding for the watch");
+    assert!(findings(&doctor).is_empty(), "an account here or not is no finding for the watch: {doctor}");
     let accounts = w.app.accounts().await.unwrap();
     let names: Vec<&str> = accounts.as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["team"]);
@@ -172,7 +170,7 @@ async fn a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_t
     assert_eq!(worker(&w.app).await["status"], "working", "its open turn, in the login's home, is read");
 
     // The watch on the same account: its turn is read there too.
-    w.app.worker_escalate(crate::id(&wk), "which API version?").await.unwrap();
+    w.app.worker_escalate(crate::fixture::id(&wk), "which API version?").await.unwrap();
     w.advance(5);
     assert_eq!(w.tick().await.watch.unwrap()["round"], serde_json::json!(null), "its session is not up yet");
     let home = w.data().watch();
@@ -226,7 +224,7 @@ async fn a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile() 
     let at = w.app_now();
     let t = w.tick().await;
     assert_eq!(t.seen[0]["ended"], "quota");
-    assert!(crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its terminal is closed");
+    assert!(crate::fixture::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its terminal is closed");
     assert!(t.started.is_none() && t.held.as_deref().unwrap().contains("every account is used up"), "{t:?}");
     let night = w.app.accounts().await.unwrap()[0].clone();
     assert_eq!((night["left"].as_f64(), night["limited_until"].as_i64()), (Some(0.0), Some(at + 3_600_000)));
@@ -247,7 +245,7 @@ async fn the_watch_starts_on_its_account_s_secret() {
         r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
     );
     let wk = w.working(CLAUDE, "t").await;
-    w.app.worker_escalate(crate::id(&wk), "which API version?").await.unwrap();
+    w.app.worker_escalate(crate::fixture::id(&wk), "which API version?").await.unwrap();
     w.advance(5);
     w.tick().await;
     let t = w.host.orca.terminals.lock().unwrap();

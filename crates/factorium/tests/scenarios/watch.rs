@@ -5,7 +5,7 @@ use factorium::host::Host;
 use factorium_harness::RULES;
 use serde_json::json;
 
-use crate::{CLAUDE, World, id, worker};
+use crate::fixture::{CLAUDE, World, id, worker};
 
 /// A checkout, a kit, a worker that escalated, and the watch's session up.
 async fn escalated(w: &World) -> serde_json::Value {
@@ -80,11 +80,11 @@ async fn an_escalation_becomes_an_episode_and_one_round_sent_to_the_watch() {
 #[tokio::test]
 async fn a_report_ends_only_a_running_round_and_its_owner_part_reaches_doctor_once() {
     let w = World::new();
-    crate::refused(w.app.watch_report("nothing", None).await, "no_round");
+    crate::fixture::refused(w.app.watch_report("nothing", None).await, "no_round");
     escalated(&w).await;
     w.advance(5);
     w.tick().await;
-    crate::refused(w.app.watch_report(" ", None).await, "no_text");
+    crate::fixture::refused(w.app.watch_report(" ", None).await, "no_text");
     w.app.watch_report("The account ran out.", Some("buy more Codex credit")).await.unwrap();
     assert_eq!(w.app.doctor().await.unwrap()["human"], json!(["buy more Codex credit"]));
     assert_eq!(w.app.doctor().await.unwrap()["human"], json!([]), "seen once");
@@ -98,8 +98,7 @@ async fn a_round_past_its_bound_ends_and_the_next_episode_gets_one() {
     w.tick().await;
     w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
-    let second =
-        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned().unwrap();
+    let second = w.worker_on("web", 2).await;
     w.app.worker_escalate(id(&second), "stuck too").await.unwrap();
     w.advance(5);
     w.tick().await;
@@ -117,10 +116,10 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     let wk = w.working(CLAUDE, "t").await;
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     w.tick().await;
-    assert!(!crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its tab stays until closed");
+    assert!(!crate::fixture::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its tab stays until closed");
     let r = w.app.watch_restart(id(&wk), "go on", false).await.unwrap();
     assert_eq!(r["ended"], true);
-    assert!(crate::closed(&w.app, wk["terminal"].as_str().unwrap()).await);
+    assert!(crate::fixture::closed(&w.app, wk["terminal"].as_str().unwrap()).await);
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["issue"], "web#1");
     assert_ne!(again["worker"], wk["worker"]);
@@ -154,7 +153,7 @@ async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_secon
     w.advance(5);
     w.tick().await;
     *w.host.orca.down.lock().unwrap() = Some("orca: the runtime is not running".into());
-    crate::refused(w.app.watch_restart(id(&wk), "go on", false).await, "orca");
+    crate::fixture::refused(w.app.watch_restart(id(&wk), "go on", false).await, "orca");
     w.advance(5);
     w.tick().await;
     *w.host.orca.down.lock().unwrap() = None;
@@ -265,7 +264,7 @@ async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_too
     let file = w.host.home().join(".claude/projects/web/session.jsonl");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     // Written now by the world's clock, as the session would be.
-    let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
     let write = |file: &std::path::Path, text: &str| {
         std::fs::write(file, text).unwrap();
         std::fs::File::options().write(true).open(file).unwrap().set_modified(now).unwrap();
@@ -301,8 +300,7 @@ async fn a_tell_its_session_takes_just_after_orca_s_window_is_submitted_and_one_
         w.set_busy(handle, false, true);
         let file = w.host.home().join(".claude/projects/web/session.jsonl");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        let now =
-            std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
         let took = json!({
             "type": "user", "timestamp": NEXT_CENTURY, "cwd": cwd, "isSidechain": false,
             "message": { "role": "user", "content": "factorium (the watch): look at the FIFO" },
@@ -339,16 +337,15 @@ async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     w.watch_session(false);
     w.advance(5);
     assert!(w.tick().await.watch.is_some(), "a timed look");
-    let workers = w.app.workers(false).await.unwrap();
-    let workers = workers.as_array().unwrap();
+    let workers = w.workers().await;
     assert_eq!(workers.len(), 2);
 
     // Right after the look, well inside look_every, both escalate.
     w.advance(1);
-    for wk in workers {
+    for wk in &workers {
         w.app.worker_escalate(id(wk), &format!("stuck on {}", wk["number"])).await.unwrap();
     }
-    let now = factum::Clock::now(w.clock.as_ref()).0;
+    let now = w.app_now();
     let looked = w.tick().await.watch.expect("the escalations make the look due");
     assert_eq!(looked["episodes"], 2, "{looked}");
     let next = w.app.watch_next().await.unwrap();
@@ -362,8 +359,7 @@ async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     w.app.issue_add("web", "v", "", false, &[]).await.unwrap();
     w.advance(1);
     w.tick().await;
-    let third =
-        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 3).cloned().unwrap();
+    let third = w.worker_on("web", 3).await;
     w.advance(1);
     w.app.worker_escalate(id(&third), "stuck on 3").await.unwrap();
     let looked = w.tick().await.watch.expect("the third escalation makes the look due");
@@ -384,12 +380,7 @@ async fn a_watch_briefed_with_older_rules_gets_the_running_binary_s_before_its_n
     let first = watch_terminal(&w);
     assert_eq!(w.terminal(&first).sent.len(), 1, "round 1");
     // As an older binary briefed it: no rules recorded (or other ones).
-    let db = rusqlite::Connection::open(&w.db).unwrap();
-    db.execute_batch(
-        "UPDATE events SET data = json_remove(data, '$.rules', '$.data.rules') WHERE kind = 'WatchStarted'; \
-         DELETE FROM snapshots;",
-    )
-    .unwrap();
+    w.watch_started_as_an_older_binary_wrote_it();
     std::fs::write(w.data().watch_brief(), "the old rules").unwrap();
 
     // Mid-round, the session stays.
@@ -402,14 +393,13 @@ async fn a_watch_briefed_with_older_rules_gets_the_running_binary_s_before_its_n
     w.app.watch_report("Answered.", None).await.unwrap();
     w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
-    let second =
-        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned().unwrap();
+    let second = w.worker_on("web", 2).await;
     w.advance(1);
     w.app.worker_escalate(id(&second), "stuck too").await.unwrap();
     w.tick().await;
     let now = live_watch(&w);
     assert_ne!(now, first, "a fresh session, between rounds");
-    assert!(crate::closed(&w.app, &first).await, "the old one is closed");
+    assert!(crate::fixture::closed(&w.app, &first).await, "the old one is closed");
     let brief = std::fs::read_to_string(w.data().watch_brief()).unwrap();
     assert_eq!(brief, std::fs::read_to_string(w.data().watch().join(RULES)).unwrap());
     assert!(brief.contains(&format!("The database is {}.", w.db.to_string_lossy())), "this binary's rules: {brief}");

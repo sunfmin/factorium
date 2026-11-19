@@ -24,6 +24,7 @@ pub enum Time {
     StallBound,
     PromotionBound,
     CutBound,
+    TasksBound,
     LookEvery,
     RoundBound,
     HeldFor,
@@ -69,7 +70,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 19] = [
+const ALL: [Setting; 20] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -84,6 +85,7 @@ const ALL: [Setting; 19] = [
     S::Time(T::StallBound),
     S::Time(T::PromotionBound),
     S::Time(T::CutBound),
+    S::Time(T::TasksBound),
     S::Time(T::LookEvery),
     S::Time(T::RoundBound),
     S::Time(T::HeldFor),
@@ -121,6 +123,7 @@ impl Setting {
             S::Time(T::StallBound) => ("stall_bound", 600, Seconds, "a heavy queue that starts nothing, or a landing no gate runs for, this long goes to the watch"),
             S::Time(T::PromotionBound) => ("promotion_bound", 3600, Seconds, "the oldest unpromoted landing waits at most this long"),
             S::Time(T::CutBound) => ("cut_bound", 86400, Seconds, "the oldest uncut promotion waits at most this long"),
+            S::Time(T::TasksBound) => ("tasks_bound", 86400, Seconds, "idle work's tasks run this long past `every` without an idle host run anyway, at background priority"),
             S::Time(T::LookEvery) => ("look_every", 300, Seconds, "the watch's look runs this often"),
             S::Time(T::RoundBound) => ("round_bound", 3600, Seconds, "a watch round lasts at most this long"),
             S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),

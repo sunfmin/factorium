@@ -5,35 +5,17 @@
 
 use serde_json::json;
 
-use crate::{World, id, worker, worktree};
-
-/// This process's nice value: what a command run at its priority has.
-pub(crate) fn own_nice() -> i32 {
-    let out = std::process::Command::new("ps").args(["-o", "ni=", "-p", &std::process::id().to_string()]).output();
-    String::from_utf8(out.unwrap().stdout).unwrap().trim().parse().unwrap()
-}
-
-/// A shell test that a command's process, and one it starts, has a nice
-/// value `op` (`-eq`, `-gt`) `n`.
-pub(crate) fn nice_is(op: &str, n: i32) -> String {
-    format!("test $(sh -c 'ps -o ni= -p $$') {op} {n}")
-}
+use crate::fixture::{World, id, nice_is, own_nice, worker, worktree};
 
 #[tokio::test]
 async fn gates_run_at_factoriums_priority_and_a_cut_below_it() {
     let w = World::new();
-    let web = w.checkout("web").await;
+    w.checkout("web").await;
     w.kit().await;
     let n = own_nice();
     let (gate, below) = (nice_is("-eq", n), nice_is("-gt", n));
     let toml = format!("[gate]\nfast = {gate:?}\nslow = {gate:?}\n\n[cut]\nsteps = [{below:?}]\nformula = \"web\"\n");
-    let clone = w.dir.join("edit");
-    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
-    w.git(&clone, &["fetch", "-q"]).unwrap();
-    w.git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
-    w.commit(&clone, "factorium.toml", &toml);
-    w.git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
+    w.push_by_hand("web", "proving", "factorium.toml", &toml);
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;

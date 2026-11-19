@@ -3,8 +3,8 @@
 
 use factorium_harness::Harness;
 
-use crate::harnesses::{write_session, write_session_in};
-use crate::{CLAUDE, SHELL, UP, World, id, refused, worker};
+use crate::fixture::{CLAUDE, SHELL, UP, World, id, quoted_word, refused, worker};
+use crate::fixture::{write_session, write_session_in};
 use factorium::host::Host;
 
 #[tokio::test]
@@ -33,19 +33,6 @@ async fn a_codex_worker_is_told_the_repos_rules_and_runs_on_the_host_s_model_set
         for other in ["gpt-host\" --model", "model_provider", "screen_reader", "/elsewhere"] {
             assert!(!line.contains(other), "{kit}: no {other} of the host's: {line}");
         }
-    }
-}
-
-/// The shell word that opens at `at` in `line`, unquoted: `'…'` with `'\''` inside.
-pub fn quoted_word(line: &str, at: usize) -> String {
-    let (mut word, mut rest) = (String::new(), &line[at + 1..]);
-    loop {
-        let end = rest.find('\'').unwrap();
-        word.push_str(&rest[..end]);
-        rest = &rest[end + 1..];
-        let Some(more) = rest.strip_prefix("\\''") else { return word };
-        word.push('\'');
-        rest = more;
     }
 }
 
@@ -476,7 +463,7 @@ async fn of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks() {
 async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
     // Year's end at 23:59, a leap day, the day after, a month's first: each
     // end at :47.
-    crate::each([1_830_297_587_u64, 1_835_440_487, 1_835_481_647, 1_840_789_247], |end| async move {
+    crate::fixture::each([1_830_297_587_u64, 1_835_440_487, 1_835_481_647, 1_840_789_247], |end| async move {
         let w = World::new();
         w.checkout("web").await;
         w.kit().await;
@@ -498,7 +485,7 @@ async fn a_turn_s_end_is_read_to_the_second_on_any_day() {
 
 #[tokio::test]
 async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer() {
-    crate::each([Harness::ClaudeCode, Harness::Codex], |h| async move {
+    crate::fixture::each([Harness::ClaudeCode, Harness::Codex], |h| async move {
         // Open in the role's directory 45 min, handed `brief`: whether it
         // keeps the worker from silence.
         let working = async |brief: &str| {
@@ -540,7 +527,7 @@ async fn a_dialog_is_dismissed_only_where_its_own_harness_opened_it() {
         w.set_screen(handle, screen);
         w.app.watch_tell(id(&wk), "hello", false).await.unwrap();
         let sent = w.terminal(handle).sent;
-        assert!(!sent.contains(&crate::ESCAPE.to_string()), "{kit}: {sent:?}");
+        assert!(!sent.contains(&crate::fixture::ESCAPE.to_string()), "{kit}: {sent:?}");
         assert!(sent.last().unwrap().contains("hello"), "{kit}: {sent:?}");
     }
 }

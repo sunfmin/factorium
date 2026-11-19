@@ -6,22 +6,21 @@
 
 use serde_json::{Value, json};
 
-use crate::{CLAUDE, Terminal, World, id, worker, worktree};
+use crate::fixture::{CLAUDE, Terminal, World, findings, keyed, worker};
 
 fn handle(wk: &Value) -> &str {
     wk["terminal"].as_str().unwrap()
 }
 
 async fn closed(w: &World, wk: &Value) -> bool {
-    crate::closed(&w.app, handle(wk)).await
+    crate::fixture::closed(&w.app, handle(wk)).await
 }
 
 #[tokio::test]
 async fn a_landed_worker_s_terminal_is_closed() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
-    w.commit(&worktree(&wk), "a.txt", "a\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a.txt", "a\n").await;
     assert!(!w.tick().await.landed.is_empty());
     assert!(closed(&w, &wk).await);
 }
@@ -34,8 +33,7 @@ async fn a_worker_s_terminal_is_never_an_orphan_while_it_closes() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
     let found = w.doctor_while_closing();
-    w.commit(&worktree(&wk), "a.txt", "a\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a.txt", "a\n").await;
     assert!(!w.tick().await.landed.is_empty());
     w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
     w.tick().await;
@@ -82,7 +80,7 @@ async fn a_start_that_fails_after_its_session_opened_closes_it_and_frees_its_iss
         w.checkout("web").await;
         w.app.kit_set(&[kit.into()]).await.unwrap();
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-        w.db_refuses(kind, true);
+        w.disk_refuses(kind, true);
         assert!(w.app.tick().await.is_err(), "{kind}");
         let opened: Vec<(String, Terminal)> = w.host.orca.terminals.lock().unwrap().clone().into_iter().collect();
         let opened: Vec<_> = opened.into_iter().filter(|(_, t)| t.title == "web#1").collect();
@@ -92,7 +90,7 @@ async fn a_start_that_fails_after_its_session_opened_closes_it_and_frees_its_iss
         assert_eq!((&issue["status"], &issue["worker"]), (&json!("ready"), &Value::Null), "{kind}: {issue}");
         assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "{kind}");
 
-        w.db_refuses(kind, false);
+        w.disk_refuses(kind, false);
         w.tick().await;
         let wk = worker(&w.app).await;
         assert_eq!((&wk["checkout"], &wk["number"]), (&json!("web"), &json!(1)), "{kind}: started anew");
@@ -107,7 +105,7 @@ async fn stop_closes_the_watch_s_terminal_and_the_next_tick_starts_a_new_session
     let first = w.tick().await.watch.unwrap()["watch"].as_str().unwrap().to_string();
     let stopped = w.app.stop().await.unwrap();
     assert_eq!(stopped["watch_closed"], first);
-    assert!(crate::closed(&w.app, &first).await);
+    assert!(crate::fixture::closed(&w.app, &first).await);
     assert_eq!(w.app.doctor().await.unwrap()["watch"]["terminal"], Value::Null, "the watch has no session");
 
     w.advance(5);
@@ -124,8 +122,7 @@ fn reopen(w: &World, handle: &str) {
 }
 
 fn orphans(found: &Value) -> Vec<String> {
-    let found = found["findings"].as_array().unwrap();
-    found.iter().filter_map(|f| f["key"].as_str()?.strip_prefix("orphan:").map(String::from)).collect()
+    keyed(found, "orphan:")
 }
 
 /// Seen 2026-11-18 (factorium#39): a scratch daemon on its own database
@@ -157,7 +154,7 @@ async fn doctor_names_only_terminals_its_own_factorium_opened_that_nothing_holds
     let mut seen = orphans(&found);
     seen.sort();
     assert_eq!(seen, expected);
-    let lost = found["findings"].as_array().unwrap().iter().find(|f| f["key"] == format!("orphan:{mine}")).unwrap();
+    let lost = findings(&found).iter().find(|f| f["key"] == format!("orphan:{mine}")).unwrap();
     assert!(lost["fix"].as_str().unwrap().contains(&format!("orca terminal close --terminal {mine}")), "{lost}");
 
     // A new watch session holds its own terminal; the old one stays an orphan.
@@ -168,9 +165,8 @@ async fn doctor_names_only_terminals_its_own_factorium_opened_that_nothing_holds
 }
 
 fn unclosed(found: &Value) -> Vec<(String, String)> {
-    let found = found["findings"].as_array().unwrap();
     let of = |f: &Value| Some((f["key"].as_str()?.strip_prefix("unclosed:")?.to_string(), f["what"].as_str()?.into()));
-    found.iter().filter_map(of).collect()
+    findings(found).iter().filter_map(of).collect()
 }
 
 /// A close Orca answers and does not carry out leaves the terminal listed:
@@ -180,8 +176,7 @@ async fn a_close_orca_ignores_is_recorded_and_named_by_doctor() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
     *w.host.orca.ignore_close.lock().unwrap() = true;
-    w.commit(&worktree(&wk), "a.txt", "a\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a.txt", "a\n").await;
     assert!(!w.tick().await.landed.is_empty(), "it lands all the same");
     assert!(!closed(&w, &wk).await);
     let row = w.app.workers(true).await.unwrap()[0].clone();

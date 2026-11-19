@@ -4,7 +4,7 @@
 
 use serde_json::json;
 
-use crate::{CLAUDE, World, id, worktree};
+use crate::fixture::{CLAUDE, World, id, worktree};
 
 #[tokio::test]
 async fn a_comment_with_no_worker_on_the_issue_is_only_recorded() {
@@ -85,11 +85,6 @@ async fn a_comment_factorium_writes_itself_is_typed_at_no_one() {
     }
 }
 
-/// What the watch and the worker say about the issue, as `issue show` keeps it.
-async fn said(w: &World) -> Vec<serde_json::Value> {
-    w.app.issue_show("web", 1).await.unwrap()["comments"].as_array().unwrap().clone()
-}
-
 #[tokio::test]
 async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
     let w = World::new();
@@ -100,7 +95,7 @@ async fn an_escalation_is_kept_on_the_issue_and_not_typed_back_at_its_worker() {
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
     let by = format!("worker {}", id(&wk));
     let at = 1_800_000_000_000_i64 + 60_000;
-    assert_eq!(said(&w).await, [json!({ "text": "which API version?", "by": by, "at": at })]);
+    assert_eq!(w.comments("web", 1).await, [json!({ "text": "which API version?", "by": by, "at": at })]);
     assert_eq!(w.terminal(handle).sent.len(), before, "not typed back at it");
     w.tick().await;
     let next = w.app.watch_next().await.unwrap();
@@ -120,15 +115,15 @@ async fn a_worker_s_own_comment_is_kept_and_changes_nothing_else() {
     assert_eq!(said_back["commented"], true);
     let by = format!("worker {}", id(&wk));
     let at = 1_800_000_000_000_i64 + 60_000;
-    assert_eq!(said(&w).await, [json!({ "text": "before 12.3s, after 4.1s", "by": by, "at": at })]);
-    assert_eq!(crate::worker(&w.app).await["status"], "working");
+    assert_eq!(w.comments("web", 1).await, [json!({ "text": "before 12.3s, after 4.1s", "by": by, "at": at })]);
+    assert_eq!(crate::fixture::worker(&w.app).await["status"], "working");
     assert!(w.app.worker_comment(id(&wk), "  ").await.is_err(), "an empty record is refused");
     w.advance(5);
     let t = w.tick().await;
     assert_eq!(w.terminal(handle).sent.len(), before, "not typed back at it");
     assert_eq!(t.watch.and_then(|l| l.get("round").cloned()).unwrap_or(json!(null)), json!(null), "no round");
     assert_eq!(w.app.watch_next().await.unwrap()["episodes"], json!({}), "no episode");
-    assert_eq!(crate::worker(&w.app).await["status"], "working");
+    assert_eq!(crate::fixture::worker(&w.app).await["status"], "working");
 }
 
 #[tokio::test]
@@ -138,15 +133,15 @@ async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
     let handle = wk["terminal"].as_str().unwrap();
     let before = w.terminal(handle).sent.len();
     w.app.watch_tell(id(&wk), "use the v2 API", false).await.unwrap();
-    assert_eq!(said(&w).await[0]["by"], "watch");
-    assert_eq!(said(&w).await[0]["text"], "use the v2 API");
+    assert_eq!(w.comments("web", 1).await[0]["by"], "watch");
+    assert_eq!(w.comments("web", 1).await[0]["text"], "use the v2 API");
     w.tick().await;
     assert_eq!(w.terminal(handle).sent[before..], ["factorium (the watch): use the v2 API".to_string()]);
 
     // Not delivered, it is kept all the same.
     *w.host.orca.refuse_send.lock().unwrap() = true;
     assert!(w.app.watch_tell(id(&wk), "and log it", false).await.is_err());
-    assert_eq!(said(&w).await[1]["text"], "and log it");
+    assert_eq!(w.comments("web", 1).await[1]["text"], "and log it");
 }
 
 #[tokio::test]
@@ -157,7 +152,7 @@ async fn what_the_watch_restarts_a_worker_with_is_kept_on_its_issue_and_typed_on
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
     let before = w.terminal(handle).sent.len();
     w.app.watch_restart(id(&wk), "use the v2 API.", false).await.unwrap();
-    let said = said(&w).await;
+    let said = w.comments("web", 1).await;
     assert_eq!((said[1]["by"].as_str(), said[1]["text"].as_str()), (Some("watch"), Some("use the v2 API.")));
     w.tick().await;
     let sent = &w.terminal(handle).sent[before..];
@@ -182,11 +177,7 @@ async fn a_comment_kept_before_authors_were_kept_still_reads() {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
     w.app.issue_comment("web", 1, "Started over: attempt 1's worktree was discarded").await.unwrap();
-    // Rewritten as the first version of the event wrote them: text alone.
-    let old = "UPDATE events SET type_version = 1, data = json_object('text', json_extract(data, '$.text')) \
-               WHERE kind = 'IssueCommented'; DELETE FROM snapshots;";
-    let ran = std::process::Command::new("sqlite3").arg(&w.db).arg(old).output().unwrap();
-    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    w.comments_as_their_first_version_wrote_them();
     let shown = w.run().issue_show("web", 1).await.unwrap();
     assert_eq!(
         shown["comments"],
