@@ -13,15 +13,15 @@ use crate::queue::{STUCK, gone, heavy, poll, until_file};
 
 /// A command that starts two processes outside its tree as a process group
 /// sees it: one in a process group of its own, and one whose parent exits
-/// (reparented to launchd). Each writes its pid to `dir`; then it waits.
-fn escaping(dir: &Path) -> String {
-    std::fs::create_dir_all(dir).unwrap();
+/// (reparented to launchd). Each writes its pid to `dir` and sleeps a
+/// minute; the command itself holds as [`World::holds`] does.
+fn escaping(w: &World, dir: &Path) -> String {
+    let holds = w.holds(dir);
     let d = dir.display();
     format!(
         "perl -e 'setpgrp(0, 0); open my $f, \">\", \"{d}/g.tmp\"; print $f $$; close $f; \
-         rename \"{d}/g.tmp\", \"{d}/grouped\"; exec \"sleep\", \"300\"' & \
-         ( sh -c 'echo $$ > {d}/o.tmp; mv {d}/o.tmp {d}/orphan; exec sleep 300' & ); \
-         until [ -e {d}/grouped ] && [ -e {d}/orphan ]; do sleep 0.02; done; touch {d}/started; sleep 300"
+         rename \"{d}/g.tmp\", \"{d}/grouped\"; exec \"sleep\", \"60\"' & \
+         ( sh -c 'echo $$ > {d}/o.tmp; mv {d}/o.tmp {d}/orphan; exec sleep 60' & ); {holds}"
     )
 }
 
@@ -59,7 +59,8 @@ impl Drop for Escaped {
 /// Once the command of [`escaping`] started both: their pids, each checked
 /// to have escaped as it means to.
 async fn escaped(dir: &Path) -> Escaped {
-    until_file(&dir.join("started")).await;
+    until_file(&dir.join("grouped")).await;
+    until_file(&dir.join("orphan")).await;
     let pid = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap().trim().parse::<u32>().unwrap();
     let (grouped, orphan) = (pid("grouped"), pid("orphan"));
     assert_eq!(ps(grouped, "pgid"), grouped.to_string(), "a process group of its own");
@@ -78,7 +79,7 @@ async fn entry(w: &World, what: &str) -> Uuid {
 async fn unqueue_ends_a_running_entrys_whole_process_tree_and_its_waiter_says_so() {
     let w = World::new();
     let dir = w.dir.join("escaping");
-    let line = escaping(&dir);
+    let line = escaping(&w, &dir);
     let cli = w.run();
     let owner = async {
         let pids = escaped(&dir).await;
@@ -102,7 +103,7 @@ async fn the_hold_bound_ends_a_running_entrys_whole_process_tree() {
     // No room for a second heavy command beside it.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let dir = w.dir.join("escaping");
-    let line = escaping(&dir);
+    let line = escaping(&w, &dir);
     let (a, b) = (w.run(), w.run());
     let others = async {
         let pids = escaped(&dir).await;
