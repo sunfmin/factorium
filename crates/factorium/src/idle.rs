@@ -58,7 +58,7 @@ fn steps(
     let mut tail = String::new();
     for step in &steps {
         let end = || stop.load(Ordering::Relaxed) || past();
-        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &end);
+        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &|_| {}, &end);
         if !ran.ok {
             let timed_out = past();
             let why = if timed_out {

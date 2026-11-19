@@ -1,5 +1,6 @@
-//! Shell commands under a limit. A command runs in its own process group,
-//! so ending it ends everything it started.
+//! Shell commands under a limit. A command runs in a session of its own,
+//! so ending it ends everything it started, even what left its process
+//! group or its parent.
 
 use std::io::Read;
 use std::os::unix::process::CommandExt;
@@ -49,23 +50,28 @@ impl Priority {
 /// How many of its last lines a run keeps.
 const TAIL_LINES: usize = 60;
 
-/// Runs `line` with `sh -c` in `dir` at `priority`, with `env` added,
-/// ending it after `limit`. `stop` is asked every 100ms whether to end it
-/// early.
 /// The heavy entry a waiter that execs the installed binary keeps: its own,
 /// never a step's.
 pub const PLACE: &str = "FACTORIUM_HEAVY_PLACE";
 
+/// How long an ended run's processes get to exit after TERM before KILL.
+const GRACE: Duration = Duration::from_secs(2);
+
+/// Runs `line` with `sh -c` in `dir` at `priority`, with `env` added, in a
+/// session of its own, ending it after `limit`. `started` is told the
+/// session as it starts; `stop` is asked every 20ms whether to end it
+/// early.
 pub fn run(
     dir: &Path,
     line: &str,
     env: &[(String, String)],
     limit: Duration,
     priority: Priority,
+    started: &dyn Fn(u32),
     stop: &dyn Fn() -> bool,
 ) -> Ran {
-    let started = Instant::now();
-    let log = std::env::temp_dir().join(format!("factorium-run-{}-{:?}", std::process::id(), started));
+    let at = Instant::now();
+    let log = std::env::temp_dir().join(format!("factorium-run-{}-{:?}", std::process::id(), at));
     let file = match std::fs::File::create(&log) {
         Ok(f) => f,
         Err(e) => return failed(format!("cannot make {}: {e}", log.display())),
@@ -79,7 +85,8 @@ pub fn run(
         }
     };
     cmd.arg("-c").arg(format!("exec 2>&1; {line}")).current_dir(dir).stdin(Stdio::null());
-    cmd.stdout(file).process_group(0);
+    cmd.stdout(file);
+    in_own_session(&mut cmd);
     cmd.env_remove(PLACE);
     for (k, v) in env {
         cmd.env(k, v);
@@ -88,6 +95,7 @@ pub fn run(
         Ok(c) => c,
         Err(e) => return failed(format!("cannot start sh: {e}")),
     };
+    started(child.id());
     let (mut timed_out, mut ended) = (false, false);
     let status = loop {
         match child.try_wait() {
@@ -95,10 +103,10 @@ pub fn run(
             Ok(None) => {}
             Err(_) => break None,
         }
-        if !ended && (started.elapsed() >= limit || stop()) {
-            timed_out = started.elapsed() >= limit;
+        if !ended && (at.elapsed() >= limit || stop()) {
+            timed_out = at.elapsed() >= limit;
             ended = true;
-            kill_group(child.id());
+            end(child.id());
         }
         std::thread::sleep(Duration::from_millis(20));
     };
@@ -108,12 +116,21 @@ pub fn run(
     }
     let _ = std::fs::remove_file(&log);
     let code = status.and_then(|s| s.code());
-    Ran {
-        ok: !ended && code == Some(0),
-        code,
-        tail: tail(&said),
-        took_ms: started.elapsed().as_millis() as u64,
-        timed_out,
+    Ran { ok: !ended && code == Some(0), code, tail: tail(&said), took_ms: at.elapsed().as_millis() as u64, timed_out }
+}
+
+/// Starts `cmd` as the leader of a new session (and so of a new process
+/// group): every process it starts stays in that session, whatever group
+/// or parent it moves to, unless it starts a session of its own.
+#[allow(unsafe_code)]
+fn in_own_session(cmd: &mut Command) {
+    // SAFETY: setsid is async-signal-safe and touches no memory of the
+    // parent: it may run between fork and exec.
+    unsafe {
+        cmd.pre_exec(|| match libc::setsid() {
+            -1 => Err(std::io::Error::last_os_error()),
+            _ => Ok(()),
+        });
     }
 }
 
@@ -127,12 +144,23 @@ pub fn tail(said: &str) -> String {
     lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
-/// Ends a process group: TERM, then KILL a second later.
-pub fn kill_group(pid: u32) {
-    let group = format!("-{pid}");
-    let _ = Command::new("kill").args(["-TERM", "--", &group]).status();
-    std::thread::sleep(Duration::from_millis(200));
-    let _ = Command::new("kill").args(["-KILL", "--", &group]).stderr(Stdio::null()).status();
+/// Ends every process of session `session`, a run's: TERM, then KILL what
+/// is left once they had [`GRACE`] to exit. The one way a run is ended,
+/// whoever ends it: its limit, its stop (the hold bound, the host no longer
+/// idle), or an unqueue from another process.
+pub fn end(session: u32) {
+    let signal = |sig: &str| {
+        let pids: Vec<String> = crate::procs::in_session(session).iter().map(u32::to_string).collect();
+        if !pids.is_empty() {
+            let _ = Command::new("kill").arg(sig).arg("--").args(&pids).stderr(Stdio::null()).status();
+        }
+    };
+    signal("-TERM");
+    let deadline = Instant::now() + GRACE;
+    while Instant::now() < deadline && !crate::procs::in_session(session).is_empty() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    signal("-KILL");
 }
 
 /// What a program answered: whether it succeeded, and what it printed on

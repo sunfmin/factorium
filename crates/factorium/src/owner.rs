@@ -137,14 +137,23 @@ impl App {
     }
 
     /// `factorium unqueue`: takes entry `id` off the heavy queue, waiting or
-    /// running; its owner, if it still asks, queues again behind the rest.
+    /// running. A running one is ended here: every process of the session
+    /// its step runs in, even one that left its process group or parent,
+    /// TERM then KILL after a grace (`ended`); its waiter answers
+    /// `unqueued`. One whose session is not noted yet (it just started, or
+    /// is idle work) its waiter ends as it sees the entry gone. Its owner,
+    /// if it still asks, queues again behind the rest.
     pub async fn unqueue(&self, id: Uuid) -> Answer {
         let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {
             return Err(Refusal::new("no_entry", format!("the heavy queue holds no entry {id}")));
         };
         self.submit::<heavy::EndHeavy>(heavy::End { id }).await?;
-        Ok(json!({ "unqueued": entry }))
+        if let Some(session) = entry.session {
+            let end = tokio::task::spawn_blocking(move || factorium_host::end(session));
+            end.await.map_err(|e| Refusal::new("internal", e.to_string()))?;
+        }
+        Ok(json!({ "unqueued": entry, "ended": entry.session.is_some() }))
     }
 }
 

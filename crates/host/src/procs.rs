@@ -48,6 +48,34 @@ fn parse(line: &str) -> Option<Proc> {
     Some(Proc { pid, ppid, cpu, rss_kib, command, worker })
 }
 
+/// The live processes of session `session`: what a run started in a
+/// session of its own, however its processes regrouped (`setpgid`) or were
+/// reparented since; only `setsid` leaves it. Zombies are left out: they
+/// are ended, only not yet reaped. Read with `getsid`, as neither `ps`'s
+/// `sess` nor a process's environment is readable on macOS 27.
+pub fn in_session(session: u32) -> Vec<u32> {
+    let me = std::process::id();
+    let Ok(out) = Command::new("ps").args(["-ax", "-o", "pid=,stat="]).output() else { return Vec::new() };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let pid: u32 = words.next()?.parse().ok()?;
+            let live = !words.next()?.starts_with('Z');
+            (live && pid != me && session_of(pid) == Some(session)).then_some(pid)
+        })
+        .collect()
+}
+
+/// The session `pid` is in, if it lives.
+#[allow(unsafe_code)]
+fn session_of(pid: u32) -> Option<u32> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: getsid reads the kernel's process table; no memory is shared.
+    let sid = unsafe { libc::getsid(pid) };
+    u32::try_from(sid).ok()
+}
+
 pub fn alive(pid: u32) -> bool {
     Command::new("kill")
         .args(["-0", &pid.to_string()])

@@ -30,7 +30,7 @@ fn a_program_is_found_only_as_a_file_that_may_be_run() {
 #[test]
 fn a_command_in_a_missing_directory_fails_and_says_it_could_not_start() {
     let gone = std::path::Path::new("/nonexistent/factorium-host-gone");
-    let ran = run(gone, "true", &[], std::time::Duration::from_secs(5), Priority::Normal, &|| false);
+    let ran = run(gone, "true", &[], std::time::Duration::from_secs(5), Priority::Normal, &|_| {}, &|| false);
     assert!(!ran.ok && ran.code.is_none() && !ran.timed_out, "{ran:?}");
     assert!(ran.tail.starts_with("cannot start sh: "), "{}", ran.tail);
 }

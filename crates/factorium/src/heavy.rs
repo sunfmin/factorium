@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, Rules, StartHeavy, older, queue_id,
+    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
+    queue_id,
 };
 use factorium_domain::settings::{Settings, Time};
 use factorium_host::{PLACE, Priority, Proc, Ran, run};
@@ -224,28 +225,42 @@ impl App {
         }
     }
 
-    /// Runs the started `id`'s steps, ending the one running once it holds
-    /// others up past the hold bound.
+    /// Runs the started `id`'s steps, noting the session each runs in, and
+    /// ending the one running once it holds others up past the hold bound.
+    /// Taken off the queue (an unqueue, which ends that session), it ends
+    /// too, refused as `unqueued`: no later step runs.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
         let bound = self.settings().await?.ms(Time::HoldBound);
         let held = Arc::new(AtomicBool::new(false));
+        let ended = Arc::new(AtomicBool::new(false));
         let mut rans = Vec::new();
         for step in job.steps {
             let (dir, line, env, limit) = (job.dir.to_path_buf(), step.clone(), job.env.to_vec(), job.limit);
-            let (flag, priority) = (held.clone(), job.priority);
+            let (stop, priority) = (ended.clone(), job.priority);
+            let (session, mut runs_in) = tokio::sync::mpsc::unbounded_channel();
             let mut run = tokio::task::spawn_blocking(move || {
-                run(&dir, &line, &env, limit, priority, &|| flag.load(Ordering::Relaxed))
+                let started = |s: u32| {
+                    let _ = session.send(s);
+                };
+                run(&dir, &line, &env, limit, priority, &started, &|| stop.load(Ordering::Relaxed))
             });
             let mut ran = loop {
                 tokio::select! {
                     ran = &mut run => break ran.map_err(|e| Refusal::new("internal", e.to_string()))?,
+                    Some(session) = runs_in.recv() => self.submit::<NoteRun>(Runs { id, session }).await?,
                     _ = self.clock.sleep(POLL) => {
-                        if self.state::<Heavy>(queue_id()).await?.overheld(id, self.now(), bound) {
-                            held.store(true, Ordering::Relaxed);
+                        let q = self.state::<Heavy>(queue_id()).await?;
+                        if !q.entries.iter().any(|e| e.id == id) || q.overheld(id, self.now(), bound) {
+                            held.store(q.entries.iter().any(|e| e.id == id), Ordering::Relaxed);
+                            ended.store(true, Ordering::Relaxed);
                         }
                     }
                 }
             };
+            if !self.state::<Heavy>(queue_id()).await?.entries.iter().any(|e| e.id == id) {
+                let why = format!("`{}` was unqueued: it and every process it started were ended", job.what);
+                return Err(Refusal::new("unqueued", format!("{why}\n{}", ran.tail)));
+            }
             if held.load(Ordering::Relaxed) {
                 let s = bound / 1000;
                 ran.tail = format!("{}\nended: it held others up past the hold bound of {s}s", ran.tail);

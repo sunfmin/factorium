@@ -61,6 +61,11 @@ pub struct Entry {
     /// workers' waiting entries.
     #[serde(default)]
     pub bound_at: Option<i64>,
+    /// The session the running step runs in, once its waiter noted it:
+    /// every process the step started, wherever it moved, so ending the
+    /// entry from another process ends them all.
+    #[serde(default)]
+    pub session: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -159,6 +164,11 @@ pub enum HeavyEvent {
     HeavyEnded {
         id: Uuid,
     },
+    /// A started entry's step runs in session `session`.
+    HeavyRuns {
+        id: Uuid,
+        session: u32,
+    },
     /// A binary with newer rules than any before asked.
     HeavyRules {
         version: String,
@@ -174,9 +184,16 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, at, bound_at } => {
-                s.entries.push(Entry { id, what, pid, worker, queued_at: at, started_at: None, bound_at })
-            }
+            HeavyEvent::HeavyQueued { id, what, pid, worker, at, bound_at } => s.entries.push(Entry {
+                id,
+                what,
+                pid,
+                worker,
+                queued_at: at,
+                started_at: None,
+                bound_at,
+                session: None,
+            }),
             HeavyEvent::HeavyStarted { id, at } => {
                 if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
                     e.started_at = Some(at);
@@ -184,6 +201,11 @@ impl Aggregate for Heavy {
                 s.last_start = at;
             }
             HeavyEvent::HeavyEnded { id } => s.entries.retain(|e| e.id != id),
+            HeavyEvent::HeavyRuns { id, session } => {
+                if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
+                    e.session = Some(session);
+                }
+            }
             HeavyEvent::HeavyRules { version } => s.rules = version,
         }
     }
@@ -247,6 +269,21 @@ pub struct End {
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(if s.entries.iter().any(|e| e.id == p.id) {
         vec![HeavyEvent::HeavyEnded { id: p.id }]
+    } else {
+        Vec::new()
+    })
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Runs {
+    pub id: Uuid,
+    pub session: u32,
+}
+
+command!(NoteRun, "heavy.runs", Heavy, Runs, |_p| queue_id(), |s, p, _now| {
+    let started = s.entries.iter().any(|e| e.id == p.id && e.started_at.is_some());
+    Ok::<_, factum_core::Rejection>(if started {
+        vec![HeavyEvent::HeavyRuns { id: p.id, session: p.session }]
     } else {
         Vec::new()
     })

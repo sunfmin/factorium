@@ -72,7 +72,8 @@ pub enum Top {
     Cut { checkout: String },
     /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
     /// queue, waiting or running: one that does not move and holds the rest
-    /// up. Its owner, if it still asks, queues again behind the rest.
+    /// up. A running one is ended with every process it started. Its
+    /// owner, if it still asks, queues again behind the rest.
     Unqueue { entry: Uuid },
     /// Holds a checkout's landings (`--why`), or releases them (`--release`).
     Hold {
