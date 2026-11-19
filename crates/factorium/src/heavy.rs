@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission::{self, Reading};
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, Rules, StartHeavy, older, queue_id,
+    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
+    queue_id,
 };
 use factorium_domain::settings::{Settings, Time};
 use factorium_host::{PLACE, Priority, Proc, Ran, run};
@@ -67,12 +68,9 @@ impl App {
         let outside = || procs.iter().filter(|p| !granted.contains(&p.pid));
         let workers: f64 = outside().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
         let slots: f64 = procs.iter().filter(|p| granted.contains(&p.pid)).map(|p| p.cpu).sum();
-        Reading {
-            cpu_busy: r.cpu_busy.saturating_sub((slots / cores).round() as u64),
-            memory_free: r.memory_free,
-            disk_free: r.disk_free,
-            workers_cpu: (workers / cores).round() as u64,
-        }
+        let pct = |cpu: f64| (cpu / cores).round() as u64;
+        let (memory_free, disk_free) = (r.memory_free, r.disk_free);
+        Reading { cpu_busy: r.cpu_busy.saturating_sub(pct(slots)), memory_free, disk_free, workers_cpu: pct(workers) }
     }
 
     /// How many cores the host has: a process's CPU is a percent of one.
@@ -170,13 +168,8 @@ impl App {
     pub async fn start_once(&self, id: Uuid, what: String, settings: &Settings) -> Answer<bool> {
         let pid = std::process::id();
         self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker: None, bound_at: None }).await?;
-        let begin = Begin {
-            id,
-            room: Ok(()),
-            read_at: self.now(),
-            settle: settings.ms(Time::HeavySettle),
-            rules: self.rules.clone(),
-        };
+        let settle = settings.ms(Time::HeavySettle);
+        let begin = Begin { id, room: Ok(()), read_at: self.now(), settle, rules: self.rules.clone() };
         match self.submit::<StartHeavy>(begin).await {
             Ok(()) => Ok(true),
             Err(r) => {
@@ -202,15 +195,9 @@ impl App {
         for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
             self.submit::<EndHeavy>(End { id: e.id }).await?;
         }
-        if !q.entries.iter().any(|e| e.id == id) {
-            self.submit::<EnqueueHeavy>(Enqueue {
-                id,
-                what: job.what.clone(),
-                pid,
-                worker: job.worker,
-                bound_at: job.bound_at,
-            })
-            .await?;
+        if !q.holds(id) {
+            let (what, worker, bound_at) = (job.what.clone(), job.worker, job.bound_at);
+            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, bound_at }).await?;
         }
         let settings = self.settings().await?;
         // Stamped before the host is read: a start after it is not in it.
@@ -224,29 +211,35 @@ impl App {
         }
     }
 
-    /// Runs the started `id`'s steps, ending the one running once it holds
-    /// others up past the hold bound.
+    /// Runs the started `id`'s steps, noting the session each runs in, and
+    /// ending the one running once it holds others up past the hold bound.
+    /// Taken off the queue (an unqueue, which ends that session), it ends
+    /// too, refused as `unqueued`; ended still queued, it was held.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
         let bound = self.settings().await?.ms(Time::HoldBound);
-        let held = Arc::new(AtomicBool::new(false));
+        let ended = Arc::new(AtomicBool::new(false));
         let mut rans = Vec::new();
         for step in job.steps {
             let (dir, line, env, limit) = (job.dir.to_path_buf(), step.clone(), job.env.to_vec(), job.limit);
-            let (flag, priority) = (held.clone(), job.priority);
-            let mut run = tokio::task::spawn_blocking(move || {
-                run(&dir, &line, &env, limit, priority, &|| flag.load(Ordering::Relaxed))
-            });
+            let (stop, priority) = (ended.clone(), job.priority);
+            let (session, mut runs_in) = tokio::sync::mpsc::unbounded_channel();
+            let (started, stop) = (move |s: u32| session.send(s).unwrap_or(()), move || stop.load(Ordering::Relaxed));
+            let mut run = tokio::task::spawn_blocking(move || run(&dir, &line, &env, limit, priority, &started, &stop));
             let mut ran = loop {
                 tokio::select! {
                     ran = &mut run => break ran.map_err(|e| Refusal::new("internal", e.to_string()))?,
+                    Some(session) = runs_in.recv() => self.submit::<NoteRun>(Runs { id, session }).await?,
                     _ = self.clock.sleep(POLL) => {
-                        if self.state::<Heavy>(queue_id()).await?.overheld(id, self.now(), bound) {
-                            held.store(true, Ordering::Relaxed);
-                        }
+                        let q = self.state::<Heavy>(queue_id()).await?;
+                        ended.fetch_or(!q.holds(id) || q.overheld(id, self.now(), bound), Ordering::Relaxed);
                     }
                 }
             };
-            if held.load(Ordering::Relaxed) {
+            if !self.state::<Heavy>(queue_id()).await?.holds(id) {
+                let why = format!("`{}` was unqueued: it and every process it started were ended", job.what);
+                return Err(Refusal::new("unqueued", format!("{why}\n{}", ran.tail)));
+            }
+            if ended.load(Ordering::Relaxed) {
                 let s = bound / 1000;
                 ran.tail = format!("{}\nended: it held others up past the hold bound of {s}s", ran.tail);
             }

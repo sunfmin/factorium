@@ -39,7 +39,8 @@ how to fix it. Then:
      nothing more: the daemon swaps to the installed binary on its own.
      Never stop the daemon; you live under it.
    - `factorium unqueue <entry>` — take an entry of the heavy queue
-     (doctor's `heavy`) that does not move off it, so the rest can start
+     (doctor's `heavy`) that does not move off it, so the rest can start;
+     a running one is ended with every process it started
 3. Report: `factorium watch report --text "what you found and did"`; add
    `--human "…"` only for what needs the owner.
 

@@ -68,7 +68,7 @@ fn steps(
     let mut tail = String::new();
     for step in &steps {
         let end = || stop.load(Ordering::Relaxed) || past();
-        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &end);
+        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &|_| {}, &end);
         if !ran.ok {
             let timed_out = past();
             let why = if timed_out {
@@ -94,7 +94,7 @@ impl App {
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let others =
             q.entries.iter().any(|e| e.id != r.id) || host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let busy = !q.entries.iter().any(|e| e.id == r.id) || (others && !r.overdue);
+        let busy = !q.holds(r.id) || (others && !r.overdue);
         if !r.run.is_finished() && !busy {
             self.memory.lock().unwrap().idle = Some(r);
             return Ok(None);
