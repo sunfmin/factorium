@@ -1,0 +1,22 @@
+{
+  "tree": "fdb04f594bc64102d93dc37edbaf2c2f16cac442+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/kept.rs:126:42: replace == with != in App::orphaned",
+        "why": "the branch test is the fix: the last attempt's resumed worktree must stay owned",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/kept.rs:126:72: replace || with && in App::orphaned",
+        "why": "either the last attempt's branch or a newer, still-starting attempt is owned, not only both",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/kept.rs:126:83: replace > with < in App::orphaned",
+        "why": "an older attempt's own worktree must still be found (web-1-0)",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
