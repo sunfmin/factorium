@@ -30,23 +30,30 @@ impl App {
                 Blocker::Across(a) => across.push(a),
             }
         }
+        let (title, body) = (title.into(), body.into());
+        let open = Open {
+            checkout: checkout.into(),
+            title,
+            body,
+            waiting_for_human,
+            blocked_by: here,
+            across,
+            ..Open::default()
+        };
+        let number = self.open_issue(open).await?;
+        self.issue_show(checkout, number).await
+    }
+
+    /// Opens `open` as the checkout's next issue; answers its number.
+    pub(crate) async fn open_issue(&self, mut open: Open) -> Answer<u64> {
         loop {
-            let last = self.rows(tracker::last_issue(checkout)).await?;
-            let number = last.first().map_or(0, |r| r.number) + 1;
-            let open = Open {
-                checkout: checkout.into(),
-                number,
-                title: title.into(),
-                body: body.into(),
-                waiting_for_human,
-                blocked_by: here.clone(),
-                across: across.clone(),
-            };
+            let last = self.rows(tracker::last_issue(&open.checkout)).await?;
+            open.number = last.first().map_or(0, |r| r.number) + 1;
             match self.submit::<OpenIssue>(&open).await {
                 // Another command took the number first: take the next.
                 Err(r) if r.code == "number_taken" => continue,
                 Err(r) => return Err(r),
-                Ok(()) => return self.issue_show(checkout, number).await,
+                Ok(()) => return Ok(open.number),
             }
         }
     }
@@ -74,6 +81,7 @@ impl App {
             "blocked_across": i.across.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "reason": i.reason,
             "worker": i.worker,
+            "task": i.task,
             "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
         }))
     }

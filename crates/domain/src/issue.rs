@@ -5,6 +5,7 @@ use factum_core::{Aggregate, Rejection, Upcast, Uuid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::task::Task;
 use crate::{command, issue_id, named, no};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +36,10 @@ pub struct Issue {
     pub attempts: u32,
     /// The one record of what was said about it, oldest first.
     pub comments: Vec<Note>,
+    /// The task it was filed for, by idle work (§1.16).
+    pub task: Option<Task>,
+    /// When it was closed, in ms (unknown for issues closed before it was kept).
+    pub closed_at: Option<i64>,
 }
 
 /// Who wrote a comment.
@@ -154,18 +159,48 @@ impl Issue {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum IssueEvent {
-    IssueOpened { checkout: String, number: u64, title: String, body: String, waiting_for_human: bool },
-    IssueEdited { title: String, body: String },
-    BlockedBy { number: u64 },
-    Unblocked { number: u64 },
+    IssueOpened {
+        checkout: String,
+        number: u64,
+        title: String,
+        body: String,
+        waiting_for_human: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<Task>,
+    },
+    IssueEdited {
+        title: String,
+        body: String,
+    },
+    BlockedBy {
+        number: u64,
+    },
+    Unblocked {
+        number: u64,
+    },
     BlockedAcross(Across),
-    UnblockedAcross { checkout: String, number: u64 },
-    IssueWaitingForHuman { reason: String },
+    UnblockedAcross {
+        checkout: String,
+        number: u64,
+    },
+    IssueWaitingForHuman {
+        reason: String,
+    },
     IssueReadied,
-    IssueClosed { reason: String },
-    IssueTaken { worker: Uuid },
+    IssueClosed {
+        reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    IssueTaken {
+        worker: Uuid,
+    },
     IssueReleased,
-    IssueCommented { text: String, by: Author, at: Option<i64> },
+    IssueCommented {
+        text: String,
+        by: Author,
+        at: Option<i64>,
+    },
 }
 
 /// Where an issue stands, and why it waits for a person or is closed.
@@ -183,7 +218,7 @@ impl IssueEvent {
             IssueEvent::IssueOpened { waiting_for_human: true, .. } => (Status::WaitingForHuman, None),
             IssueEvent::IssueOpened { .. } | IssueEvent::IssueReadied => (Status::Ready, None),
             IssueEvent::IssueWaitingForHuman { reason } => (Status::WaitingForHuman, Some(reason.clone())),
-            IssueEvent::IssueClosed { reason } => (Status::Closed, Some(reason.clone())),
+            IssueEvent::IssueClosed { reason, .. } => (Status::Closed, Some(reason.clone())),
             _ => return None,
         };
         Some(Standing { status, reason })
@@ -209,8 +244,8 @@ impl Aggregate for Issues {
     fn evolve(s: &mut Issue, event: IssueEvent) {
         let standing = event.standing();
         match event {
-            IssueEvent::IssueOpened { checkout, number, title, body, .. } => {
-                *s = Issue { checkout, number, title, body, ..Issue::default() };
+            IssueEvent::IssueOpened { checkout, number, title, body, task, .. } => {
+                *s = Issue { checkout, number, title, body, task, ..Issue::default() };
             }
             IssueEvent::IssueEdited { title, body } => (s.title, s.body) = (title, body),
             IssueEvent::BlockedBy { number } => s.blocked_by.push(number),
@@ -223,7 +258,8 @@ impl Aggregate for Issues {
                 s.worker = Some(worker);
                 s.attempts += 1;
             }
-            IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => s.worker = None,
+            IssueEvent::IssueReleased => s.worker = None,
+            IssueEvent::IssueClosed { at, .. } => (s.worker, s.closed_at) = (None, at),
             IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
             IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }
@@ -240,9 +276,9 @@ impl Aggregate for Issues {
         vec![("IssueCommented", authored)]
     }
 
-    /// "3": it waits for issues of other checkouts too.
+    /// "4": it keeps the task it was filed for, and when it closed.
     fn code() -> &'static str {
-        "3"
+        "4"
     }
 }
 
@@ -253,7 +289,7 @@ pub struct Ref {
     pub number: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Open {
     pub checkout: String,
     pub number: u64,
@@ -268,6 +304,9 @@ pub struct Open {
     /// The issues of other checkouts it waits for from the start.
     #[serde(default)]
     pub across: Vec<Across>,
+    /// The task it is filed for, by idle work.
+    #[serde(default)]
+    pub task: Option<Task>,
 }
 
 command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.number), |s, p, now| {
@@ -290,6 +329,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         title: p.title.trim().to_string(),
         body: p.body.clone(),
         waiting_for_human: p.waiting_for_human,
+        task: p.task.clone(),
     }];
     let mut blockers = p.blocked_by.clone();
     blockers.sort_unstable();
@@ -417,7 +457,7 @@ on_issue!(ReadyIssue, "issue.ready", Ref, |s, p, now| {
 });
 
 on_issue!(CloseIssue, "issue.close", Because, |s, p, now| {
-    Ok(vec![IssueEvent::IssueClosed { reason: p.reason.clone() }])
+    Ok(vec![IssueEvent::IssueClosed { reason: p.reason.clone(), at: Some(now.0) }])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

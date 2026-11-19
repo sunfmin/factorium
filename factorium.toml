@@ -10,3 +10,11 @@ slow_limit = 1800
 steps = ["packaging/release.sh cut $FACTORIUM_VERSION"]
 formula = "sunfmin/tap/factorium"
 limit = 1800
+
+# While the host is idle, slimfit's next task of each kind becomes an issue
+# (SPEC.md §1.16): read at most once an hour; slimfit's cache answers at
+# once while the base tip holds.
+[idle]
+tasks = "slimfit --version && slimfit next --all"
+every = 3600
+limit = 3600
