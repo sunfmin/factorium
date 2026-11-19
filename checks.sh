@@ -1,7 +1,6 @@
 #!/bin/sh
-# The checks both gates run before the tests: the line budgets, fmt,
-# clippy. ./gate.sh runs the tests after them; ./slow.sh runs them once,
-# instrumented, under slimfit (SPEC.md §6).
+# The checks ./gate.sh runs before the tests: the line budgets, fmt,
+# clippy (SPEC.md §5, §6).
 set -eu
 cd "$(dirname "$0")"
 
