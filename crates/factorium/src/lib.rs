@@ -167,6 +167,8 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
+    /// Each binary (canonical) proven on a copy of the database: opens it, or why not.
+    proven: std::collections::BTreeMap<PathBuf, Result<(), String>>,
     /// The idle work running beside the ticks, and its heavy job's run.
     idle: Option<idle::Running>,
     beside: Option<heavy::Running>,

@@ -26,6 +26,8 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 clap.workspace = true
+# The database copy a new binary is proven on: SQLite's backup, factum's own rusqlite.
+rusqlite = { version = "0.42", features = ["bundled", "backup"] }
 tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]

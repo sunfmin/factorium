@@ -198,7 +198,11 @@ defined in `packaging/factorium.plist`) with the installing shell's PATH
 declared in it, restarted whenever it exits; `factorium stop` unloads it.
 A daemon Homebrew installed notes its formula's link at start; once the
 link names another version (a cut by the daemon, by `factorium cut`, or
-by hand), it execs the link between ticks, as the same pid. So no session
+by hand), it execs the link between ticks, as the same pid, once that
+binary is proven to open this host's database: it answers `doctor` on a
+copy (SQLite's backup, never the live file). A cut of the formula proves
+it right after the install; one that fails is a failed cut, its why the
+error and the copy's path (kept for a look), and the old binary runs on. So no session
 stops it: the guard refuses `stop` to the watch, which lives under the
 daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
