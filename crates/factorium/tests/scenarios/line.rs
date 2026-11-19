@@ -76,20 +76,25 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
 }
 
 #[tokio::test]
-async fn promote_and_cut_by_hand_run_now() {
+async fn promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
+    let author = |sha: &str| w.git(&w.dir.join("remotes/web.git"), &["log", "-1", "--format=%an <%ae>", sha]).unwrap();
     assert_eq!(w.app.promote("web").await.unwrap()["promoted"], json!(null));
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
     let landed = land(&w, 1, "a").await;
+    assert_eq!(author(&landed), "factorium <factorium@localhost>", "a fresh host has no identity");
     assert_eq!(w.app.promote("web").await.unwrap()["tip"], landed.as_str());
     assert_eq!(w.app.cut("web").await.unwrap()["version"], "v0.1.0");
+    let mut config = std::fs::OpenOptions::new().append(true).open(w.host.home().join(".gitconfig")).unwrap();
+    std::io::Write::write_all(&mut config, b"[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
     // Idle once #2 lands: that tick promotes and cuts by itself.
-    let _ = land(&w, 2, "b").await;
+    let landed = land(&w, 2, "b").await;
+    assert_eq!(author(&landed), "Ann <ann@host>", "the host's config is its home's");
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.1"]).is_ok());
     assert_eq!(w.app.cut("web").await.unwrap()["cut"], json!(null), "nothing new to cut");
     let version = w.git(&w.dir.join("remotes/web.git"), &["show", "v0.1.1:VERSION"]);
@@ -335,25 +340,6 @@ async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
     w.advance(24 * 60);
     w.tick().await;
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok(), "cut once the bound passed");
-}
-
-#[tokio::test]
-async fn factorium_commits_as_the_hosts_own_identity_or_as_itself_on_a_fresh_host() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.kit().await;
-    let author = |sha: &str| w.git(&w.dir.join("remotes/web.git"), &["log", "-1", "--format=%an <%ae>", sha]).unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let landed = land(&w, 1, "a").await;
-    assert_eq!(author(&landed), "factorium <factorium@localhost>", "a fresh host has no identity");
-
-    let mut config = std::fs::OpenOptions::new().append(true).open(w.host.home().join(".gitconfig")).unwrap();
-    std::io::Write::write_all(&mut config, b"[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let landed = land(&w, 2, "b").await;
-    assert_eq!(author(&landed), "Ann <ann@host>", "the host's config is its home's");
 }
 
 #[tokio::test]
