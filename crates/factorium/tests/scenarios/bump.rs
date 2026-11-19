@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::World;
+use crate::fixture::World;
 
 /// Commits `Cargo.toml` pinning `url` at `rev` (and, sorted first, a repo
 /// no checkout is) in `app`, and pushes it to app's proving branch.
