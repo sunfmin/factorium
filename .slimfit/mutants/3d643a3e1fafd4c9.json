@@ -1,0 +1,32 @@
+{
+  "tree": "61ee1309bdc880e4da6d7d15169b9b559032e498+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/swap.rs:57:34: replace != with == in crate::App::swapped",
+        "why": "the refused link is not swapped back to",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/swap.rs:93:63: replace >= with < in crate::App::proving",
+        "why": "rollback only at tick_failures_max",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/swap.rs:93:87: replace != with == in crate::App::proving",
+        "why": "no rollback to a kept copy of the same version",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/swap.rs:106:9: replace crate::App::keep -> std::io::Result<()> with Ok(())",
+        "why": "a good first tick keeps the binary to go back to",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/swap.rs:126:9: replace crate::App::is_kept -> bool with false",
+        "why": "the kept binary is told apart, to read its handoff",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
