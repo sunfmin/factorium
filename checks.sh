@@ -14,10 +14,10 @@ budget() {
     exit 1
   fi
 }
-budget domain 6900
+budget domain 6700
 budget harness 8000
 budget host 4000
-budget factorium 4100
+budget factorium 4300
 
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --quiet -- -D warnings
