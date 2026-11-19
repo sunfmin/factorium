@@ -14,7 +14,7 @@ async fn unreadable(w: &World) -> String {
         let t = w.host.orca.terminals.lock().unwrap();
         t.iter().find(|(_, t)| t.title == "factorium watch").map(|(h, _)| h.clone()).expect("the watch's terminal")
     };
-    w.store_reads_fail();
+    w.store_reads_fail("data");
     watch
 }
 
@@ -45,6 +45,14 @@ async fn a_look_that_cannot_read_the_store_briefs_the_watch_once_an_hour() {
     let sent = w.terminal(&watch).sent;
     assert_eq!(sent.len(), before + 2, "again once the hour is past");
     assert!(sent.last().unwrap().contains("(13 so far)"), "{}", sent.last().unwrap());
+
+    // Another error is an episode of its own: briefed at once.
+    w.store_reads_fail("kind");
+    w.advance(5);
+    w.app.tick().await.unwrap_err();
+    let sent = w.terminal(&watch).sent;
+    assert_eq!(sent.len(), before + 3, "a new error, a new brief");
+    assert!(sent.last().unwrap().contains("(1 so far)"), "{}", sent.last().unwrap());
 }
 
 #[tokio::test]

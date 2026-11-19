@@ -31,8 +31,16 @@ impl World {
 
     /// The store no longer reads: a column the code reads is not there, as
     /// on a database an older binary left that a newer one cannot read.
-    pub fn store_reads_fail(&self) {
-        self.migrate("ALTER TABLE events RENAME COLUMN data TO data_before;");
+    /// `column` of the events is the one not there; any other gone before is back.
+    pub fn store_reads_fail(&self, column: &str) {
+        for c in ["data", "kind"] {
+            let gone = format!("{c}_before");
+            let there: bool = self.sql().prepare(&format!("SELECT {gone} FROM events LIMIT 0")).is_ok();
+            if there {
+                self.migrate(&format!("ALTER TABLE events RENAME COLUMN {gone} TO {c};"));
+            }
+        }
+        self.migrate(&format!("ALTER TABLE events RENAME COLUMN {column} TO {column}_before;"));
     }
 
     /// Every stream has a snapshot older code left, of no use to this code.
