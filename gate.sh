@@ -19,7 +19,7 @@ cd "$(dirname "$0")"
 # crates.
 bound=310
 (
-  eval "$(cargo llvm-cov show-env --export-prefix)"
+  eval "$(cargo llvm-cov show-env --sh)"
   cargo nextest run --workspace --no-run --target-dir target/llvm-cov-target
 )
 cpu=$(mktemp)
