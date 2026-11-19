@@ -4,7 +4,7 @@
 
 use serde_json::json;
 
-use crate::{CLAUDE, World, id, refused, worker, worktree};
+use crate::fixture::{CLAUDE, World, comments, findings, id, refused, worker, worktree};
 
 #[tokio::test]
 async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
@@ -49,7 +49,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
     assert!(issue["reason"].as_str().unwrap().contains(&landed));
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
-    assert!(crate::closed(&w.app, "term-1").await, "its session ends");
+    assert!(crate::fixture::closed(&w.app, "term-1").await, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
     let left = w.git(&web, &["branch", "--list", &branch]).unwrap();
     assert!(left.trim().is_empty(), "its branch goes: {branch}");
@@ -107,7 +107,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     assert_eq!(waiting["status"], "waiting");
     assert!(waiting["why"].as_str().unwrap().starts_with("red twice"));
     let doctor = w.app.doctor().await.unwrap();
-    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("red twice"));
+    assert!(findings(&doctor)[0]["what"].as_str().unwrap().contains("red twice"));
 }
 
 #[tokio::test]
@@ -131,11 +131,7 @@ async fn a_branch_that_does_not_merge_is_red() {
     let tree = worktree(&wk);
     w.commit(&tree, "README", "mine\n");
     // The proving branch moves under it, the same file changed.
-    let other = w.dir.join("other");
-    let remote = w.dir.join("remotes/web.git");
-    w.git(&w.dir, &["clone", "-q", "-b", "proving", &remote.to_string_lossy(), &other.to_string_lossy()]).unwrap();
-    w.commit(&other, "README", "theirs\n");
-    w.git(&other, &["push", "-q", "origin", "HEAD:proving"]).unwrap();
+    w.push_by_hand("web", "proving", "README", "theirs\n");
 
     w.app.worker_done(id(&wk)).await.unwrap();
     let t = w.tick().await;
@@ -191,8 +187,8 @@ async fn closing_an_issue_or_leaving_it_to_a_human_ends_its_worker() {
     w.app.issue_close("web", a["number"].as_u64().unwrap(), "not needed").await.unwrap();
     w.app.issue_wait_for_human("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
-    assert!(crate::closed(&w.app, a["terminal"].as_str().unwrap()).await);
-    assert!(crate::closed(&w.app, b["terminal"].as_str().unwrap()).await);
+    assert!(crate::fixture::closed(&w.app, a["terminal"].as_str().unwrap()).await);
+    assert!(crate::fixture::closed(&w.app, b["terminal"].as_str().unwrap()).await);
     assert!(b_tree.exists(), "the worktree of an issue waiting for a human stays");
     w.app.issue_ready("web", b["number"].as_u64().unwrap()).await.unwrap();
     let again = w.tick().await.started.unwrap();
@@ -217,8 +213,7 @@ async fn readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept()
     w.app.issue_add("web", "other", "", false, &[]).await.unwrap();
     w.tick().await;
     let other = worker(&w.app).await;
-    w.commit(&worktree(&other), "other.txt", "y");
-    w.app.worker_done(id(&other)).await.unwrap();
+    w.done(&other, "other.txt", "y").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#2");
 
     w.app.issue_ready("web", 1).await.unwrap();
@@ -264,7 +259,7 @@ async fn starting_an_issue_waiting_for_a_human_over_discards_its_kept_worktree_a
     assert_eq!(over["status"], "waiting_for_human", "its state stays");
     assert_eq!(over["abandoned"], "factorium/web-1-1-abandoned");
     assert!(!tree.exists(), "the kept worktree is gone");
-    let last = over["comments"].as_array().unwrap().last().unwrap().clone();
+    let last = comments(&over).last().unwrap().clone();
     assert_eq!(last["by"], "factorium", "{last}");
     let comment = last["text"].as_str().unwrap().to_string();
     assert!(comment.contains("`factorium/web-1-1-abandoned`") && comment.contains("wrong approach"), "{comment}");
@@ -364,8 +359,7 @@ async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
     assert_eq!((wk["started_at"].clone(), wk["since"].clone()), (json!(start), json!(start)));
 
     w.advance(5);
-    w.commit(&worktree(&wk), "f", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "f", "x").await;
     let landing = worker(&w.app).await;
     assert_eq!(landing["status"], "landing");
     assert_eq!(landing["since"], json!(start + 5 * 60_000));
@@ -392,7 +386,7 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     let at = start + 2 * 60_000;
     assert_eq!(row(&waiting), (json!("waiting"), json!("escalated: which API version?"), json!(at)));
     let doctor = w.app.doctor().await.unwrap();
-    let found = doctor["findings"].as_array().unwrap().iter().find(|f| f["key"] == format!("worker:{}", id(&wk)));
+    let found = findings(&doctor).iter().find(|f| f["key"] == format!("worker:{}", id(&wk)));
     let found = found.expect("the waiting worker, by its id");
     assert!(found["what"].as_str().unwrap().contains("on web#1 waits: escalated"), "{found}");
 
@@ -460,8 +454,7 @@ async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
 async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
-    w.commit(&worktree(&wk), "factorium.toml", "[gate]\nslow = \"true\"\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "factorium.toml", "[gate]\nslow = \"true\"\n").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 

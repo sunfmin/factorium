@@ -404,7 +404,7 @@ fn exclusive_runs_its_words_as_given() {
 fn exclusive_runs_at_a_gates_priority_unless_asked_for_background() {
     let dir = Dir::new();
     // The CLI runs at this process's nice value, as a gate would.
-    let nice = |op: &str| crate::priority::nice_is(op, crate::priority::own_nice());
+    let nice = |op: &str| crate::fixture::nice_is(op, crate::fixture::own_nice());
     let (ok, ran) = run(&dir, &["worker", "exclusive", "--", "sh", "-c", &nice("-eq")]);
     assert!(ok && ran["ok"] == true, "at the gate's priority: {ran}");
     let (ok, ran) = run(&dir, &["worker", "exclusive", "--background", "--", "sh", "-c", &nice("-gt")]);
@@ -463,7 +463,7 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(dir.0.join("stubs/ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut daemon = bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
-    let deadline = std::time::Instant::now() + crate::queue::STUCK;
+    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
     while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
         if gone.is_some() || std::time::Instant::now() > deadline {
@@ -483,7 +483,7 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
 /// Waits (a bounded while) for a daemon sent SIGTERM or SIGINT: it exits 0,
 /// as a normal return from main, and its pid file is gone.
 fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::Output {
-    let deadline = std::time::Instant::now() + crate::queue::STUCK;
+    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
     while daemon.try_wait().unwrap().is_none() {
         if std::time::Instant::now() > deadline {
             let _ = daemon.kill();
@@ -507,7 +507,7 @@ fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
     assert!(run(&dir, &["settings", "tick_every", "600"]).0);
     let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let pid = dir.0.join("data/factorium/daemon.pid");
-    let deadline = std::time::Instant::now() + crate::queue::STUCK;
+    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
     while !pid.exists() {
         if daemon.try_wait().unwrap().is_some() || std::time::Instant::now() > deadline {
             let _ = daemon.kill();
@@ -548,8 +548,7 @@ fn the_daemon_looks_for_the_kit_s_programs_on_its_path_at_its_start() {
     // It looks before its first tick.
     daemon_for(&dir, 1);
     let (_, doctor) = run(&dir, &["doctor"]);
-    let keys: Vec<&str> = doctor["findings"].as_array().unwrap().iter().filter_map(|f| f["key"].as_str()).collect();
-    let mut missing: Vec<&str> = keys.iter().filter_map(|k| k.strip_prefix("missing:")).collect();
+    let mut missing = crate::fixture::keyed(&doctor, "missing:");
     missing.sort();
     assert_eq!(missing, ["adir", "nosuch-program", "notrun"], "git and the stubs are found: {doctor}");
 }

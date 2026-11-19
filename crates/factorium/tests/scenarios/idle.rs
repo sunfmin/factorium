@@ -7,8 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::World;
-use crate::queue::{STUCK, heavy, until_file, while_busy};
+use crate::fixture::{STUCK, World, nice_is, own_nice, until_file};
 
 /// A checkout `web` whose base declares `[idle]` with `steps`, `every`
 /// seconds apart and within `limit`, as last fetched; and a kit.
@@ -20,11 +19,7 @@ async fn declares(w: &World, steps: &[String], every: u64, limit: u64) -> PathBu
         "[gate]\nfast = \"true\"\n\n[idle]\nsteps = [{}]\nevery = {every}\nlimit = {limit}\n",
         steps.join(", ")
     );
-    let clone = w.dir.join("edit");
-    let remote = w.dir.join("remotes/web.git");
-    w.git(&w.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.commit(&clone, "factorium.toml", &toml);
-    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    w.push_by_hand("web", "main", "factorium.toml", &toml);
     w.git(&web, &["fetch", "-q", "origin"]).unwrap();
     web
 }
@@ -58,14 +53,14 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     declares(&w, &["echo all mutants caught".into()], 3600, 60).await;
     let t = w.tick().await;
     assert!(started(&t.idle), "{:?}", t.idle);
-    assert_eq!(heavy(&w).await, ["idle work of web"], "it holds a heavy slot");
+    assert_eq!(w.queued().await, ["idle work of web"], "it holds a heavy slot");
     let run = ended(&w).await;
     assert_eq!(run["green"], true, "{run}");
     assert_eq!(run["tip"], w.remote_tip("web", "main"), "on the base's tip");
     let d = w.app.doctor().await.unwrap();
     let last = &d["idle"][0]["last"];
     assert_eq!((last["green"].clone(), last["tail"].clone()), (json!(true), json!("all mutants caught")), "{d}");
-    assert_eq!(heavy(&w).await, Vec::<String>::new());
+    assert_eq!(w.queued().await, Vec::<String>::new());
 
     w.advance(59);
     assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "not again within `every`");
@@ -73,7 +68,7 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     assert!(started(&w.tick().await.idle), "again once `every` has passed");
     // The daemon stops before its next tick: the run ends with it, unrecorded.
     assert_eq!(w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap()["ticks"], 0);
-    assert_eq!(heavy(&w).await, Vec::<String>::new(), "it left the queue");
+    assert_eq!(w.queued().await, Vec::<String>::new(), "it left the queue");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], d["idle"][0]["last"], "the first run is the last");
 }
 
@@ -90,12 +85,12 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
 
     let w = World::new();
     declares(&w, &["true".into()], 3600, 60).await;
-    while_busy(&w, async {
+    w.while_busy(async {
         // Room on the host and a new reading, but the queue holds a worker's heavy command.
         w.host.reading.lock().unwrap().cpu_busy = 10;
         w.advance(1);
         assert_eq!(w.tick().await.idle, Vec::<Value>::new());
-        assert!(!heavy(&w).await.contains(&"idle work of web".to_string()));
+        assert!(!w.queued().await.contains(&"idle work of web".to_string()));
     })
     .await;
     assert!(started(&w.tick().await.idle), "once the queue is empty");
@@ -114,13 +109,11 @@ async fn idle_work_yields_to_a_heavy_command_queued_beside_it_and_runs_next_idle
     let cli = w.run();
     let wants = cli.worker_exclusive(None, &w.dir, "echo after");
     let ticks = async {
-        while !heavy(&w).await.contains(&"echo after".to_string()) {
-            tokio::task::yield_now().await;
-        }
+        w.until_queued("echo after").await;
         let t = w.tick().await;
         // The idle work yielded: the worker's command asks again.
-        crate::queue::gone(&w, "idle work of web").await;
-        crate::queue::poll(&w, 1).await;
+        w.gone("idle work of web").await;
+        w.poll(1).await;
         t
     };
     let (ran, t) = tokio::time::timeout(STUCK, async { tokio::join!(wants, ticks) }).await.expect("it yields");
@@ -173,7 +166,7 @@ async fn idle_work_past_its_limit_ends_red_with_its_tail() {
 #[tokio::test]
 async fn idle_work_runs_below_factoriums_priority() {
     let w = World::new();
-    declares(&w, &[crate::priority::nice_is("-gt", crate::priority::own_nice())], 3600, 60).await;
+    declares(&w, &[nice_is("-gt", own_nice())], 3600, 60).await;
     w.tick().await;
     let run = ended(&w).await;
     assert_eq!(run["green"], true, "{run}");
@@ -189,10 +182,10 @@ async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
     let idle = || w.app.start_once(factum::Uuid::now_v7(), "idle work of web".into(), &s);
     assert!(w.app.start_once(factum::Uuid::now_v7(), "running".into(), &s).await.unwrap());
     assert!(!idle().await.unwrap(), "it waits behind what runs");
-    assert_eq!(heavy(&w).await, ["running"]);
+    assert_eq!(w.queued().await, ["running"]);
     // A newer binary's daemon starts: its rules replace this one's.
     w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
     let refused = idle().await.expect_err("refused under replaced rules");
     assert_eq!(refused.code, "stale", "{refused}");
-    assert_eq!(heavy(&w).await, ["running"]);
+    assert_eq!(w.queued().await, ["running"]);
 }

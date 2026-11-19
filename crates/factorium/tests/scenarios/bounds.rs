@@ -4,7 +4,7 @@
 use factorium::LineClone;
 use factorium::host::{Proc, Reading};
 
-use crate::{CLAUDE, GIB, World, worker};
+use crate::fixture::{CLAUDE, GIB, World, worker};
 
 fn cores() -> f64 {
     std::thread::available_parallelism().unwrap().get() as f64
@@ -117,7 +117,7 @@ async fn a_worker_is_hot_only_past_each_of_its_shares() {
 async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
     let w = World::new();
     let wk = w.working(CLAUDE, "a").await;
-    let id = crate::id(&wk);
+    let id = crate::fixture::id(&wk);
     *w.host.procs.lock().unwrap() = vec![proc(wk["worker"].as_str().unwrap(), 51.0 * cores(), 10)];
     w.tick().await;
     w.app.worker_escalate(id, "which API version?").await.unwrap();

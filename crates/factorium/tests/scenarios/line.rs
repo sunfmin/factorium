@@ -5,34 +5,15 @@ use serde_json::json;
 use factorium::LineClone;
 use factorium::host::Host;
 
-use crate::{CLAUDE, World, id, worker, worktree};
-
-/// Lands one commit of `file` through a worker; answers the landed commit.
-pub(crate) async fn land(w: &World, number: u64, file: &str) -> String {
-    let wk = w
-        .app
-        .workers(false)
-        .await
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|x| x["number"] == number)
-        .cloned()
-        .unwrap();
-    w.commit(&worktree(&wk), file, "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
-    t.landed.iter().find(|l| l["landed"] == format!("web#{number}")).expect("landed")["commit"].as_str().unwrap().into()
-}
+use crate::fixture::{CLAUDE, World, findings, id, worker, worktree};
 
 #[tokio::test]
 async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound_less_the_hold_bound() {
     let w = World::new();
     // #2 keeps working all along: it is never silent.
-    two(&w).await;
+    w.two_at_work().await;
     let main = w.remote_tip("web", "main");
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     assert_eq!(w.remote_tip("web", "main"), main, "#2 still works: not idle");
     w.advance(29);
     assert!(w.tick().await.lines.is_empty(), "busy, within the bound less the hold bound");
@@ -49,14 +30,13 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     w.working(CLAUDE, "a").await;
     let main = w.remote_tip("web", "main");
     let wk = worker(&w.app).await;
-    w.commit(&worktree(&wk), "SLOWRED", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "SLOWRED", "x").await;
     let t = w.tick().await;
     assert_eq!(t.landed[0]["landed"], "web#1", "the fast gate is green");
     assert!(t.lines.iter().any(|l| l["promotion"] == "web" && l["red"].is_string()), "{:?}", t.lines);
     assert_eq!(w.remote_tip("web", "main"), main);
     let doctor = w.app.doctor().await.unwrap();
-    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"));
+    assert!(findings(&doctor)[0]["what"].as_str().unwrap().contains("slow gate is red"));
     w.advance(61);
     assert!(w.tick().await.lines.is_empty(), "the same tip is not gated again");
     assert_eq!(w.remote_tip("web", "main"), main, "nor promoted while it is the red one");
@@ -86,14 +66,14 @@ async fn promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_iden
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     assert_eq!(author(&landed), "factorium <factorium@localhost>", "a fresh host has no identity");
     assert_eq!(w.app.promote("web").await.unwrap()["tip"], landed.as_str());
     assert_eq!(w.app.cut("web").await.unwrap()["version"], "v0.1.0");
     let mut config = std::fs::OpenOptions::new().append(true).open(w.host.home().join(".gitconfig")).unwrap();
     std::io::Write::write_all(&mut config, b"[user]\n\tname = Ann\n\temail = ann@host\n").unwrap();
     // Idle once #2 lands: that tick promotes and cuts by itself.
-    let landed = land(&w, 2, "b").await;
+    let landed = w.lands("web", 2, "b").await.commit;
     assert_eq!(author(&landed), "Ann <ann@host>", "the host's config is its home's");
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.1"]).is_ok());
     assert_eq!(w.app.cut("web").await.unwrap()["cut"], json!(null), "nothing new to cut");
@@ -104,38 +84,30 @@ async fn promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_iden
 #[tokio::test]
 async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     let w = World::new();
-    let web = w.checkout("web").await;
+    w.checkout("web").await;
     w.kit().await;
     // The repo now declares a cut whose step fails.
     let toml = "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"true\", \"exit 7\"]\n";
-    let clone = w.dir.join("edit");
-    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
-    w.git(&clone, &["fetch", "-q"]).unwrap();
-    w.git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
-    w.commit(&clone, "factorium.toml", toml);
-    w.git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
+    w.push_by_hand("web", "proving", "factorium.toml", toml);
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let t = {
         let wk = worker(&w.app).await;
-        w.commit(&worktree(&wk), "a", "x");
-        w.app.worker_done(id(&wk)).await.unwrap();
+        w.done(&wk, "a", "x").await;
         w.tick().await
     };
     let failed = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
     assert!(failed["failed"].as_str().unwrap().contains("exit 7"));
-    assert!(w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().contains("cutting v0.1.0 failed"));
+    assert!(w.findings().await[0]["what"].as_str().unwrap().contains("cutting v0.1.0 failed"));
     assert!(w.tick().await.lines.is_empty(), "not tried again on every tick");
     assert!(w.host.brewed().is_empty());
 }
 
 /// Lands, promotes and cuts one change of `web`, whose cut installs the
 /// formula `web`; answers the tick.
-async fn cut_one(w: &World) -> crate::Tick {
+async fn cut_one(w: &World) -> factorium::Tick {
     let wk = w.working(CLAUDE, "a").await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a", "x").await;
     w.tick().await
 }
 
@@ -165,8 +137,7 @@ async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
     let wk = worker(&w.app).await;
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     assert!(w.tick().await.started.is_some(), "b works on");
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a", "x").await;
     let t = w.tick().await;
     assert!(!t.landed.is_empty(), "{t:?}");
     assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
@@ -202,7 +173,7 @@ async fn a_cut_homebrew_does_not_link_fails_and_says_so() {
     assert_eq!(upgrades, 7, "an installed formula is upgraded, with backoff, before it fails");
     let slept = brew_waits(&w);
     assert_eq!(slept, ["sleep 2", "sleep 4", "sleep 8", "sleep 16", "sleep 30", "sleep 30"]);
-    let finding = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    let finding = w.findings().await[0]["what"].as_str().unwrap().to_string();
     assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("not 0.1.0"), "{finding}");
     assert_eq!(t.restart, None, "the daemon does not restart onto a version it lacks");
 }
@@ -236,8 +207,7 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a", "x").await;
     let t = w.tick().await;
     assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
@@ -254,7 +224,7 @@ async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
 #[tokio::test]
 async fn a_base_moved_outside_factorium_turns_promotion_red_and_stays() {
     let w = World::new();
-    let web = w.checkout("web").await;
+    w.checkout("web").await;
     w.kit().await;
     let why = w.app.promote("web").await.unwrap()["why"].as_str().unwrap().to_string();
     assert!(why.contains("nothing to promote"), "{why}");
@@ -264,15 +234,9 @@ async fn a_base_moved_outside_factorium_turns_promotion_red_and_stays() {
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
-    let _ = land(&w, 1, "a").await;
+    w.lands("web", 1, "a").await;
     // Someone pushes to the base by hand.
-    let clone = w.dir.join("outside");
-    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
-    w.git(&clone, &["fetch", "-q"]).unwrap();
-    w.git(&clone, &["checkout", "-q", "-B", "main", "origin/main"]).unwrap();
-    w.commit(&clone, "hotfix", "x");
-    w.git(&clone, &["push", "-q", "origin", "main"]).unwrap();
+    w.push_by_hand("web", "main", "hotfix", "x");
     let moved = w.remote_tip("web", "main");
     w.advance(61);
     let t = w.tick().await;
@@ -280,20 +244,17 @@ async fn a_base_moved_outside_factorium_turns_promotion_red_and_stays() {
     assert!(red["red"].as_str().unwrap().contains("moved outside factorium"), "{red}");
     assert_eq!(w.remote_tip("web", "main"), moved, "the base is not moved over");
     let doctor = w.app.doctor().await.unwrap();
-    assert!(doctor["findings"][0]["what"].as_str().unwrap().contains("slow gate is red"), "{doctor}");
+    assert!(findings(&doctor)[0]["what"].as_str().unwrap().contains("slow gate is red"), "{doctor}");
     assert!(w.tick().await.lines.is_empty(), "the same tip is not tried again");
 }
 
 #[tokio::test]
 async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
     let w = World::new();
-    two(&w).await;
-    let workers = w.app.workers(false).await.unwrap();
-    let of = |n: u64| workers.as_array().unwrap().iter().find(|x| x["number"] == n).cloned().unwrap();
+    w.two_at_work().await;
     for n in [2, 1] {
-        let wk = of(n);
-        w.commit(&worktree(&wk), &format!("f{n}"), "x");
-        w.app.worker_done(id(&wk)).await.unwrap();
+        let wk = w.worker_on("web", n).await;
+        w.done(&wk, &format!("f{n}"), "x").await;
         w.advance(1);
     }
     let t = w.tick().await;
@@ -302,38 +263,27 @@ async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
-/// Starts #1 and #2 of `web`, neither ever silent.
-pub(crate) async fn two(w: &World) {
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.tick().await;
-}
-
 #[tokio::test]
 async fn a_worker_waiting_for_the_watch_leaves_its_checkout_idle() {
     let w = World::new();
-    two(&w).await;
-    let wk = w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| x["number"] == 2).cloned();
-    w.app.worker_escalate(id(&wk.unwrap()), "which API version?").await.unwrap();
-    let landed = land(&w, 1, "a").await;
+    w.two_at_work().await;
+    let wk = w.worker_on("web", 2).await;
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    let landed = w.lands("web", 1, "a").await.commit;
     assert_eq!(w.remote_tip("web", "main"), landed, "promoted at once: #2 only waits");
 }
 
 #[tokio::test]
 async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
     let w = World::new();
-    two(&w).await;
-    let _ = land(&w, 1, "a").await;
+    w.two_at_work().await;
+    w.lands("web", 1, "a").await;
     w.advance(61);
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "#2 still works: no cut");
     // #2 lands a change whose slow gate is red: idle, but not all promoted.
-    let _ = land(&w, 2, "SLOWRED").await;
+    w.lands("web", 2, "SLOWRED").await;
     w.tick().await;
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_err(), "no version is cut");
     // Its own bound passed, it is cut whatever is unpromoted.
@@ -345,12 +295,11 @@ async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
 #[tokio::test]
 async fn a_promotion_takes_every_landing_up_to_its_tip() {
     let w = World::new();
-    two(&w).await;
-    land(&w, 1, "a").await;
+    w.two_at_work().await;
+    w.lands("web", 1, "a").await;
     // #2 lands: idle, so the same tick promotes both and, nothing left unpromoted, cuts.
     let wk = w.app.workers(false).await.unwrap()[0].clone();
-    w.commit(&worktree(&wk), "b", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "b", "x").await;
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
@@ -359,8 +308,8 @@ async fn a_promotion_takes_every_landing_up_to_its_tip() {
 #[tokio::test]
 async fn a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound_less_the_hold_bound() {
     let w = World::new();
-    two(&w).await;
-    land(&w, 1, "a").await;
+    w.two_at_work().await;
+    w.lands("web", 1, "a").await;
     assert!(w.app.promote("web").await.unwrap()["promoted"].is_string());
     w.advance(24 * 60 - 30 - 1);
     assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, under a day less the hold bound");
@@ -380,10 +329,8 @@ async fn a_checkout_is_idle_whatever_another_checkout_s_workers_do() {
     w.tick().await;
     w.tick().await;
     // api's worker works on; web's lands, and web is idle.
-    let all = w.app.workers(false).await.unwrap();
-    let web = all.as_array().unwrap().iter().find(|x| x["checkout"] == "web").cloned().unwrap();
-    w.commit(&worktree(&web), "w", "x");
-    w.app.worker_done(id(&web)).await.unwrap();
+    let web = w.worker_on("web", 1).await;
+    w.done(&web, "w", "x").await;
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
 }
@@ -398,8 +345,7 @@ async fn holding_one_checkout_s_landings_holds_no_other_s() {
     w.tick().await;
     w.app.hold("web", Some("repairs")).await.unwrap();
     let wk = worker(&w.app).await;
-    w.commit(&worktree(&wk), "a", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.done(&wk, "a", "x").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "api#1");
     assert_eq!(w.app.hold("api", None).await.unwrap()["held"], json!(null));
 }
@@ -441,22 +387,16 @@ fn landing_or_ending_a_worker_that_is_gone_is_refused_by_the_command_itself() {
 #[tokio::test]
 async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them() {
     let w = World::new();
-    let web = w.checkout("web").await;
+    w.checkout("web").await;
     w.kit().await;
     // Both gates describe the tip by its tags once `DESCRIBE` exists.
     let describe = "test ! -e DESCRIBE || git describe --tags";
     let toml = format!("[gate]\nfast = \"{describe}\"\nslow = \"{describe}\"\n");
-    let clone = w.dir.join("edit");
-    w.git(&w.dir, &["clone", "-q", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
-    w.git(&clone, &["remote", "set-url", "origin", &w.dir.join("remotes/web.git").to_string_lossy()]).unwrap();
-    w.git(&clone, &["fetch", "-q"]).unwrap();
-    w.git(&clone, &["checkout", "-q", "-B", "proving", "origin/proving"]).unwrap();
-    w.commit(&clone, "factorium.toml", &toml);
-    w.git(&clone, &["push", "-q", "origin", "proving"]).unwrap();
+    let clone = w.push_by_hand("web", "proving", "factorium.toml", &toml);
     // #1 lands and is promoted while origin has no tag: the clones are made.
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
-    let _ = land(&w, 1, "a").await;
+    w.lands("web", 1, "a").await;
     let promotion = w.data().clone_of(LineClone::Promotion, "web");
     assert!(promotion.join(".git").is_dir(), "the promotion clone is made");
     assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "");
@@ -465,7 +405,7 @@ async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_
     w.git(&clone, &["push", "-q", "origin", "v0.0.9"]).unwrap();
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
-    let landed = land(&w, 2, "DESCRIBE").await;
+    let landed = w.lands("web", 2, "DESCRIBE").await.commit;
     assert_eq!(w.remote_tip("web", "main"), landed, "the slow gate is green on proving");
     assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "v0.0.9", "the promotion clone has origin's tags");
 }
