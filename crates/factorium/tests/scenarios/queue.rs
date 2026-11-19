@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use crate::fixture::{CLAUDE, POLL, STUCK, World, finding_keys, id, until_file, worker};
+use crate::fixture::{CLAUDE, OPENS_ONCE, POLL, STUCK, World, finding_keys, id, until_file, worker};
 
 #[tokio::test]
 async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
@@ -374,11 +374,7 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     let (b, o, n) = (w.run(), w.run().under_rules("1.0.0"), w.run().under_rules("1.0.1"));
     // The old one runs as Homebrew's 0.0.9; Homebrew links a newer one since.
     let link = w.running_as(&o, "factorium");
-    let newer_keg = w.dir.join("brew/Cellar/factorium/0.1.0/bin");
-    std::fs::create_dir_all(&newer_keg).unwrap();
-    std::fs::write(newer_keg.join("factorium"), "a binary that may not be run").unwrap();
-    std::fs::remove_file(w.dir.join("brew/opt/factorium")).unwrap();
-    std::os::unix::fs::symlink(newer_keg.parent().unwrap(), w.dir.join("brew/opt/factorium")).unwrap();
+    w.links_newer("factorium", OPENS_ONCE);
     // As the waiter finds its link once refused: after the upgrade.
     o.runs_as(&w.dir.join("brew/Cellar/factorium/0.0.9/bin/factorium").canonicalize().unwrap());
     let runs = async {

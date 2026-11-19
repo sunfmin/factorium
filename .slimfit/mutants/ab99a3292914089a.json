@@ -1,0 +1,32 @@
+{
+  "tree": "5e039d2fa77cf7b9b7965a35b0c685ecf5bddd40+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/swap.rs:40:9: replace crate::App::proves -> Result<(), String> with Ok(())",
+        "why": "the cut must fail when the proof fails",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/proof.rs:35:5: replace prove -> Result<(), String> with Ok(())",
+        "why": "the proof itself decides: a binary that cannot open the copy is refused",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/swap.rs:29:59: replace != with == in crate::App::swapped",
+        "why": "the swap happens only to another version",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/proof.rs:22:9: replace Proofs::of -> Option<Result<(), String>> with None",
+        "why": "each binary is proven once per process",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/brew.rs:52:9: replace Brew<'_>::bin -> Option<PathBuf> with None",
+        "why": "the cut finds the formula's factorium to prove",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
