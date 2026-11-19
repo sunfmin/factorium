@@ -200,16 +200,12 @@ impl Aggregate for Heavy {
                 session: None,
             }),
             HeavyEvent::HeavyStarted { id, at } => {
-                if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
-                    e.started_at = Some(at);
-                }
+                s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.started_at = Some(at));
                 s.last_start = at;
             }
             HeavyEvent::HeavyEnded { id } => s.entries.retain(|e| e.id != id),
             HeavyEvent::HeavyRuns { id, session } => {
-                if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
-                    e.session = Some(session);
-                }
+                s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.session = Some(session))
             }
             HeavyEvent::HeavyRules { version } => s.rules = version,
         }

@@ -34,3 +34,30 @@ fn a_command_in_a_missing_directory_fails_and_says_it_could_not_start() {
     assert!(!ran.ok && ran.code.is_none() && !ran.timed_out, "{ran:?}");
     assert!(ran.tail.starts_with("cannot start sh: "), "{}", ran.tail);
 }
+
+/// A run that ignores TERM is ended all the same: once the grace is over,
+/// what is left of its session is KILLed.
+#[test]
+fn a_run_that_ignores_term_is_killed_after_the_grace() {
+    let dir = std::env::temp_dir().join(format!("factorium-host-term-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let up = dir.join("up");
+    let line = format!("trap '' TERM; sleep 30 & echo $! > {}; wait", up.display());
+    let limit = std::time::Duration::from_secs(60);
+    let ran = run(&dir, &line, &[], limit, Priority::Normal, &|_| {}, &|| up.exists());
+    let sleep: u32 = std::fs::read_to_string(&up).unwrap().trim().parse().unwrap();
+    assert!(!ran.ok && ran.took_ms >= 2000 && ran.took_ms < 30_000, "{ran:?}");
+    assert!(!factorium_host::procs::alive(sleep), "the sleep that ignored TERM is gone");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Ending a session never reaches launchd's nor the caller's own.
+#[test]
+fn no_session_but_a_runs_own_is_signalled() {
+    use factorium_host::procs::signal_session;
+    // SAFETY: getsid(0) only reads this process's session.
+    #[allow(unsafe_code)]
+    let mine = u32::try_from(unsafe { libc::getsid(0) }).unwrap();
+    assert_eq!(signal_session(1, 0), 0);
+    assert_eq!(signal_session(mine, 0), 0);
+}
