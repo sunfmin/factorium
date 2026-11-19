@@ -472,6 +472,8 @@ fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::O
             let _ = daemon.kill();
             panic!("the daemon did not end after its signal");
         }
+        // The real binary on the system clock: its signal handling and exit
+        // take real time, which no scenario clock moves.
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let out = daemon.wait_with_output().unwrap();
@@ -494,6 +496,8 @@ fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
             let _ = daemon.kill();
             panic!("the daemon never wrote its pid file");
         }
+        // The real binary on the system clock: its signal handling and exit
+        // take real time, which no scenario clock moves.
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(Command::new("kill").args(["-INT", &daemon.id().to_string()]).status().unwrap().success());

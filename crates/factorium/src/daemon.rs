@@ -40,8 +40,8 @@ pub struct Tick {
     pub restart: Option<String>,
 }
 
-/// How soon a stop between ticks is seen.
-const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+/// How soon a stop between ticks is seen, ms on the app's clock.
+const STOP_POLL: i64 = 100;
 
 impl App {
     async fn listed(&self) -> Answer<Vec<Checkout>> {
@@ -297,10 +297,10 @@ impl App {
                 .await
                 .map(|s| s.ms(Time::TickEvery))
                 .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
-            // In slices, so a stop between ticks ends the wait.
-            let until = tokio::time::Instant::now() + std::time::Duration::from_millis(every as u64);
-            while !stop.load(std::sync::atomic::Ordering::Relaxed) && tokio::time::Instant::now() < until {
-                tokio::time::sleep_until(until.min(tokio::time::Instant::now() + STOP_POLL)).await;
+            // On the app's clock, in slices, so a stop between ticks ends the wait.
+            let until = self.now() + every;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) && self.now() < until {
+                self.clock.sleep((until - self.now()).min(STOP_POLL) as u64).await;
             }
         }
         self.idle_end().await;
