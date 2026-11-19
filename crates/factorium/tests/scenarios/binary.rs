@@ -148,10 +148,21 @@ fn a_refusal_exits_one_with_its_code() {
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_issue");
     // The owner's commands of the line and the queue reach the app: refused here.
-    for args in [&["promote", "web"][..], &["cut", "web"], &["hold", "web", "--why", "x"], &["unqueue", WORKER]] {
+    let owner: [&[&str]; 5] = [
+        &["promote", "web"],
+        &["cut", "web"],
+        &["hold", "web", "--why", "x"],
+        &["unqueue", WORKER],
+        &["discard", "/nowhere"],
+    ];
+    for args in owner {
         let (ok, answer) = run(&dir, args);
         assert!(!ok, "{args:?}");
-        let code = if args[0] == "unqueue" { "no_entry" } else { "no_checkout" };
+        let code = match args[0] {
+            "unqueue" => "no_entry",
+            "discard" => "not_orphaned",
+            _ => "no_checkout",
+        };
         assert_eq!(answer["error"]["code"], code, "{args:?}");
     }
 }
