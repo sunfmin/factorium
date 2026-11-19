@@ -8,26 +8,14 @@ use crate::{CLAUDE, SHELL, UP, World, id, refused, worker};
 use factorium::host::Host;
 
 #[tokio::test]
-async fn a_codex_worker_is_told_the_repos_rules_it_does_not_read_from_its_start_directory() {
-    let w = World::new();
-    let repo = w.repo("web");
-    w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
-    w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
-    w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
-    assert!(line.contains("Always run the linter."), "{line}");
-    assert!(line.contains(&format!("{}/CLAUDE.md", wk["worktree"].as_str().unwrap())), "{line}");
-}
-
-#[tokio::test]
-async fn a_codex_worker_runs_on_the_host_s_model_settings_and_no_other_setting_of_theirs() {
+async fn a_codex_worker_is_told_the_repos_rules_and_runs_on_the_host_s_model_settings_only() {
     for (kit, model) in [("codex=codex", "model=\"gpt-host\""), ("codex=codex@gpt-kit", "--model 'gpt-kit'")] {
         let w = World::new();
-        w.checkout("web").await;
+        // Rules codex does not read from its start directory.
+        let repo = w.repo("web");
+        w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
+        w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
         let user = w.host.home().join(".codex");
         std::fs::create_dir_all(&user).unwrap();
         let config = "model = \"gpt-host\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"mine\"\n\
@@ -36,7 +24,11 @@ async fn a_codex_worker_runs_on_the_host_s_model_settings_and_no_other_setting_o
         w.app.kit_set(&[kit.into()]).await.unwrap();
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
-        let line = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap()).line;
+        let wk = worker(&w.app).await;
+        let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+        assert!(line.contains("Always run the linter."), "{kit}: told the repo's rules: {line}");
+        let rules = format!("{}/CLAUDE.md", wk["worktree"].as_str().unwrap());
+        assert!(line.contains(&rules), "{kit}: told where they are: {line}");
         assert!(line.contains(model) && line.contains("model_reasoning_effort=\"high\""), "{kit}: {line}");
         for other in ["gpt-host\" --model", "model_provider", "screen_reader", "/elsewhere"] {
             assert!(!line.contains(other), "{kit}: no {other} of the host's: {line}");
