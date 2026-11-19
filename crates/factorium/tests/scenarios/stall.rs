@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::Value;
 
 use crate::line::land;
-use crate::queue::{STUCK, heavy, running_on, until_file, while_busy};
+use crate::queue::{STUCK, heavy, poll, running_on, until_file, while_busy};
 use crate::{CLAUDE, UP, World, id, worker, worktree};
 
 /// Stages an entry at the head of the heavy queue whose owner no longer asks
@@ -304,23 +304,31 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
     let running = a.worker_exclusive(None, &dirs[0], &holds[0]);
     let line = async {
         until_file(&dirs[0].join("started")).await;
-        // Two of #2's entries wait behind what runs.
-        let (one, other) =
-            (w1.worker_exclusive(Some(two), &dirs[1], &holds[1]), w2.worker_exclusive(Some(two), &dirs[2], &holds[2]));
+        // Two of #2's entries wait behind what runs, asleep on the clock.
+        let one = w1.worker_exclusive(Some(two), &dirs[1], &holds[1]);
+        let other = w2.worker_exclusive(Some(two), &dirs[2], &holds[2]);
+        let (mut one, mut other) = (std::pin::pin!(one), std::pin::pin!(other));
+        let queued = async {
+            while heavy(&w).await.len() < 3 || w.clock.asleep() != 3 {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            _ = &mut one => panic!("it ran beside what runs"),
+            _ = &mut other => panic!("it ran beside what runs"),
+            _ = queued => {}
+        }
+        // What runs ends while the clock stands: nothing asks until it moves.
+        std::fs::write(dirs[0].join("release"), "").unwrap();
+        while heavy(&w).await.len() > 2 || w.clock.asleep() != 2 {
+            tokio::task::yield_now().await;
+        }
+        w.advance(1);
+        // Just due, the slow gate keeps its FIFO place: it queues behind the
+        // workers' entries, which ask (at the same time) once the tick did.
+        assert!(w.tick().await.lines.is_empty(), "just due, a worker's entry starts ahead of it");
+        assert!(heavy(&w).await.contains(&"slow gate of web".to_string()));
         let script = async {
-            while heavy(&w).await.len() < 3 {
-                tokio::task::yield_now().await;
-            }
-            w.advance(1);
-            assert!(w.tick().await.lines.is_empty(), "just due, its slow gate queues behind them");
-            assert!(heavy(&w).await.contains(&"slow gate of web".to_string()));
-
-            // What runs ends: just due, the slow gate keeps its FIFO place.
-            std::fs::write(dirs[0].join("release"), "").unwrap();
-            while heavy(&w).await.len() > 3 {
-                tokio::task::yield_now().await;
-            }
-            assert!(w.tick().await.lines.is_empty(), "a worker's entry starts ahead of it");
             let first = loop {
                 if let Some(d) = dirs[1..].iter().find(|d| started(d)) {
                     break d.clone();
@@ -342,6 +350,7 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
                 t.lines
             );
             std::fs::write(second.join("release"), "").unwrap();
+            poll(&w, 1).await;
         };
         let (one, other, ()) = tokio::join!(one, other, script);
         assert_eq!(one.unwrap()["ok"], true);

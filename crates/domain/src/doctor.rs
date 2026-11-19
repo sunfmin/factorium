@@ -39,6 +39,21 @@ pub struct Seen {
     /// still.
     #[serde(default)]
     pub unclosed: Vec<Unclosed>,
+    /// Workers' worktrees that no open issue's attempt owns.
+    #[serde(default)]
+    pub orphaned: Vec<Orphaned>,
+}
+
+/// A worker's worktree that no open issue's attempt owns, and why.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Orphaned {
+    pub checkout: String,
+    /// Its issue's number and its attempt, as its branch names them.
+    pub number: u64,
+    pub attempt: u32,
+    pub path: String,
+    pub branch: String,
+    pub why: String,
 }
 
 /// A worker that waits for the watch.
@@ -211,6 +226,16 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             format!("orphan:{handle}"),
             format!("Orca terminal {handle} ({title}) is factorium's, but no live worker or the watch holds it"),
             &format!("close it: `orca terminal close --terminal {handle}`"),
+        );
+    }
+    for Orphaned { path, branch, why, .. } in &seen.orphaned {
+        add(
+            format!("worktree:{path}"),
+            format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}"),
+            &format!(
+                "remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
+                 `{branch}-abandoned`"
+            ),
         );
     }
     for Unclosed { handle, title, why } in &seen.unclosed {

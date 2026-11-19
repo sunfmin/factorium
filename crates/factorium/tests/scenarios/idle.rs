@@ -117,7 +117,11 @@ async fn idle_work_yields_to_a_heavy_command_queued_beside_it_and_runs_next_idle
         while !heavy(&w).await.contains(&"echo after".to_string()) {
             tokio::task::yield_now().await;
         }
-        w.tick().await
+        let t = w.tick().await;
+        // The idle work yielded: the worker's command asks again.
+        crate::queue::gone(&w, "idle work of web").await;
+        crate::queue::poll(&w, 1).await;
+        t
     };
     let (ran, t) = tokio::time::timeout(STUCK, async { tokio::join!(wants, ticks) }).await.expect("it yields");
     assert_eq!(ran.unwrap()["ok"], true, "the worker's command runs");

@@ -128,7 +128,13 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     };
     issue(&["add", "web", "Then this", "--waiting-for-human"]);
     assert_eq!(issue(&["block", "web", "2", "--by", "1"])["blocked_by"], json!([1]));
-    assert_eq!(issue(&["comment", "web", "1", "a note"])["comments"][0]["text"], "a note");
+    let wall = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let before = wall();
+    let note = issue(&["comment", "web", "1", "a note"])["comments"][0].clone();
+    assert_eq!(note["text"], "a note");
+    // The binary's clock is the system's.
+    let at = note["at"].as_i64().unwrap();
+    assert!((before..=wall()).contains(&at), "{at} not within the call");
     assert_eq!(issue(&["wait-for-human", "web", "1", "--why", "later"])["status"], "waiting_for_human");
     assert_eq!(issue(&["ready", "web", "1"])["status"], "ready");
     assert_eq!(issue(&["start-over", "web", "1", "--why", "again"])["discarded"], false, "it had no worker");
@@ -148,10 +154,21 @@ fn a_refusal_exits_one_with_its_code() {
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_issue");
     // The owner's commands of the line and the queue reach the app: refused here.
-    for args in [&["promote", "web"][..], &["cut", "web"], &["hold", "web", "--why", "x"], &["unqueue", WORKER]] {
+    let owner: [&[&str]; 5] = [
+        &["promote", "web"],
+        &["cut", "web"],
+        &["hold", "web", "--why", "x"],
+        &["unqueue", WORKER],
+        &["discard", "/nowhere"],
+    ];
+    for args in owner {
         let (ok, answer) = run(&dir, args);
         assert!(!ok, "{args:?}");
-        let code = if args[0] == "unqueue" { "no_entry" } else { "no_checkout" };
+        let code = match args[0] {
+            "unqueue" => "no_entry",
+            "discard" => "not_orphaned",
+            _ => "no_checkout",
+        };
         assert_eq!(answer["error"]["code"], code, "{args:?}");
     }
 }
@@ -472,6 +489,8 @@ fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::O
             let _ = daemon.kill();
             panic!("the daemon did not end after its signal");
         }
+        // The real binary on the system clock: its signal handling and exit
+        // take real time, which no scenario clock moves.
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let out = daemon.wait_with_output().unwrap();
@@ -494,6 +513,8 @@ fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
             let _ = daemon.kill();
             panic!("the daemon never wrote its pid file");
         }
+        // The real binary on the system clock: its signal handling and exit
+        // take real time, which no scenario clock moves.
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(Command::new("kill").args(["-INT", &daemon.id().to_string()]).status().unwrap().success());

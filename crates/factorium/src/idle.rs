@@ -20,8 +20,9 @@ use factorium_domain::issue::Open;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::task::{self, ToFile};
 use factorium_domain::tracker;
+use factorium_host::Clock;
 use factorium_host::Priority;
-use factum::{Clock, Uuid, Value};
+use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::{Answer, App, LineClone, fail};
@@ -62,8 +63,8 @@ fn steps(
     stop: Arc<AtomicBool>,
 ) -> Ended {
     let started = Instant::now();
-    let deadline = clock.now().0.saturating_add(limit.as_millis() as i64);
-    let past = || clock.now().0 >= deadline;
+    let deadline = clock.now().saturating_add(limit.as_millis() as i64);
+    let past = || clock.now() >= deadline;
     let mut tail = String::new();
     for step in &steps {
         let end = || stop.load(Ordering::Relaxed) || past();
@@ -171,9 +172,7 @@ impl App {
         let tip = git.fetch(&c.base).map_err(fail("git"))?;
         let Some(mut work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
         let here = git.fresh(&self.data().clone_of(LineClone::Idle, &c.name), &tip).map_err(fail("git"))?;
-        if overdue {
-            work.steps.clear();
-        }
+        work.steps.retain(|_| !overdue); // overdue: the tasks alone
         let tasks = work.tasks.as_ref().map(|line| {
             let out = here.dir.with_extension("tasks");
             let _ = std::fs::remove_file(&out);

@@ -349,6 +349,8 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
         let it = worker(&w.app).await;
         assert_eq!(it["status"], "working", "its own heavy entry waits in the queue: {it}");
         std::fs::write(first.join("release"), "").unwrap();
+        crate::queue::gone(&w, first_line).await;
+        crate::queue::poll(&w, 1).await;
         crate::queue::until_file(&mine.join("started")).await;
         w.tick().await;
         w.advance(45);

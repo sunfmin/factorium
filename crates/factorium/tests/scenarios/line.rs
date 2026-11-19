@@ -405,13 +405,16 @@ async fn holding_one_checkout_s_landings_holds_no_other_s() {
 }
 
 #[tokio::test]
-async fn an_ended_worker_s_worktree_stays_while_it_holds_commits_nowhere_else() {
+async fn a_closed_issue_s_worktree_goes_and_its_commits_nowhere_else_stay_on_its_branch() {
     let w = World::new();
     let wk = w.working(CLAUDE, "a").await;
     let tree = worktree(&wk);
     w.commit(&tree, "a", "x");
-    w.app.issue_close("web", 1, "not needed").await.unwrap();
-    assert!(tree.exists(), "its commit is nowhere else");
+    let closed = w.app.issue_close("web", 1, "not needed").await.unwrap();
+    assert!(!tree.exists());
+    let repo = w.dir.join("repos").join("web");
+    let kept = format!("{}:a", closed["abandoned"].as_str().unwrap());
+    assert_eq!(w.git(&repo, &["show", &kept]).unwrap(), "x", "its commit is kept");
 }
 
 /// The app reads a worker before it asks to land it or end it; the worker

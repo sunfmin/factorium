@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+
+use crate::Clock;
 
 /// The git program, found once: the binary in the exec path of the `git` on
 /// PATH. On macOS `/usr/bin/git` is a shim that looks Xcode's git up on every
@@ -28,29 +30,40 @@ fn binary() -> &'static Path {
 pub struct Git {
     pub dir: PathBuf,
     home: PathBuf,
+    /// What dates the commits, merges and tags it makes; git's own clock if none.
+    clock: Option<Arc<dyn Clock>>,
 }
 
 impl Git {
     /// git in `dir` as the host whose home is `home` runs it.
     pub fn new(home: impl Into<PathBuf>, dir: impl Into<PathBuf>) -> Git {
-        Git { dir: dir.into(), home: home.into() }
+        Git { dir: dir.into(), home: home.into(), clock: None }
+    }
+
+    /// The same git, dating what it commits by `clock`.
+    pub fn dated(self, clock: Arc<dyn Clock>) -> Git {
+        Git { clock: Some(clock), ..self }
     }
 
     /// git in `dir`, as the same host.
     pub fn at(&self, dir: impl Into<PathBuf>) -> Git {
-        Git::new(self.home.clone(), dir)
+        Git { dir: dir.into(), ..self.clone() }
     }
 
     /// Runs git; its output trimmed, or its error.
     pub fn run(&self, args: &[&str]) -> Result<String, String> {
         // What factorium itself commits (a landing merge, a cut tag, the
         // watch's home) needs an identity; a host with none commits as factorium.
-        let as_factorium =
-            matches!(args.first(), Some(&("commit" | "merge" | "tag"))) && !self.holds(&["config", "user.email"]);
+        let commits = matches!(args.first(), Some(&("commit" | "merge" | "tag")));
+        let as_factorium = commits && !self.holds(&["config", "user.email"]);
+        let date = self.clock.as_ref().filter(|_| commits).map(|c| format!("@{} +0000", c.now().div_euclid(1000)));
         let output = |program: &Path| {
             let mut git = Command::new(program);
             // The host's own config is what its home holds.
             git.env("HOME", &self.home).env_remove("XDG_CONFIG_HOME").env_remove("GIT_CONFIG_GLOBAL");
+            if let Some(d) = &date {
+                git.env("GIT_AUTHOR_DATE", d).env("GIT_COMMITTER_DATE", d);
+            }
             if as_factorium {
                 for v in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"] {
                     git.env(v, "factorium");
@@ -185,6 +198,18 @@ impl Git {
         self.run(&["worktree", "remove", "--force", &path.to_string_lossy()]).map(|_| ())
     }
 
+    /// The worktrees git holds of this repo, other than its own, each with
+    /// its branch (`None`: detached).
+    pub fn worktrees(&self) -> Result<Vec<(PathBuf, Option<String>)>, String> {
+        let listed = self.run(&["worktree", "list", "--porcelain"])?;
+        let tree = |entry: &str| {
+            let path = entry.lines().find_map(|l| l.strip_prefix("worktree "))?;
+            let branch = entry.lines().find_map(|l| l.strip_prefix("branch refs/heads/"));
+            Some((PathBuf::from(path), branch.map(str::to_string)))
+        };
+        Ok(listed.split("\n\n").skip(1).filter_map(tree).collect())
+    }
+
     /// Forgets a worker's worktree at `path` and its `branch`, whatever of
     /// them is left.
     pub fn forget(&self, path: &Path, branch: &str) {
@@ -201,6 +226,18 @@ impl Git {
     pub fn commits(&self, base: &str, head: &str) -> Result<Vec<String>, String> {
         let log = self.run(&["log", "--oneline", "--no-decorate", &format!("{base}..{head}")])?;
         Ok(log.lines().map(str::to_string).collect())
+    }
+
+    /// The commits of `head` not in `base` along its first parents (its
+    /// landings, on a line), newest first, one line each.
+    pub fn landings(&self, base: &str, head: &str) -> Result<Vec<String>, String> {
+        let log = self.run(&["log", "--first-parent", "--oneline", "--no-decorate", &format!("{base}..{head}")])?;
+        Ok(log.lines().map(str::to_string).collect())
+    }
+
+    /// The URL of origin.
+    pub fn origin(&self) -> Result<String, String> {
+        self.run(&["remote", "get-url", "origin"])
     }
 
     /// The files with changes not committed: changed since `HEAD`, staged or

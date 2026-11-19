@@ -358,7 +358,7 @@ async fn a_worker_answers_when_it_started_while_since_follows_its_status() {
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let start = factum::Clock::now(&*w.clock).0;
+    let start = w.app_now();
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!((wk["started_at"].clone(), wk["since"].clone()), (json!(start), json!(start)));
@@ -378,7 +378,7 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let start = factum::Clock::now(&*w.clock).0;
+    let start = w.app_now();
     w.tick().await;
     let wk = worker(&w.app).await;
     let row = |v: &serde_json::Value| (v["status"].clone(), v["why"].clone(), v["since"].clone());

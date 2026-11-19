@@ -91,8 +91,23 @@ watch's look and the operator's view.
    `<branch>-abandoned`, a comment names that branch and the why, and the
    worktree goes, so the next start is branched from the proving tip. The
    issue stays ready or waiting for a human as it was.
+   Closing an issue unlanded (`issue close`, by the owner or the watch)
+   removes the worktree its last attempt left on disk the same way: its
+   uncommitted changes are committed, its branch is kept as
+   `<branch>-abandoned`, named in a comment written before the close (a
+   closed issue takes none), and the worktree goes with its Orca
+   terminals. A worker's
+   worktree (on a branch `factorium/<checkout>-<n>-<attempt>`) that no open
+   issue's attempt owns — its issue closed or unknown, or its attempt older
+   than the issue's last that started — is a doctor finding, fixed by
+   `discard <worktree>`, which removes it the same way.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
+8. A checkout whose proving tip pins another checkout by git rev in its
+   `Cargo.toml` gets one issue, on the first tick that finds the pin behind
+   that checkout's base tip as last fetched: "Bump <dep> to its base tip
+   (<sha>)", listing the landings since the pin. No second while one is
+   open (factorium#127).
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
@@ -138,7 +153,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
@@ -194,17 +209,18 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,800 |
+| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,700 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,200 |
+| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,300 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
 100 lines from the domain's budget (4,055 used) to the binary's: restarting
 a parked worker is the app's reading of issues and lines, and the binary
-stood at 3,987. factorium#125 moved 100 more (the domain at 4,177 used):
-filing idle work's tasks is the app's reading of a run and its issues, and
-the binary stood at 4,086.
+stood at 3,987. factorium#124 moved 200 more the same way (the domain at
+4,087): removing a closed issue's worktree, and finding and discarding
+worktrees no open issue owns, are git and Orca effects of the app, and the
+binary stood at 4,086.
 
 **What a repo declares**, in `factorium.toml` at its root (§3); every
 table may be left out:
