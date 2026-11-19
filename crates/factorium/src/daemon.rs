@@ -58,6 +58,7 @@ impl App {
     pub async fn tick(&self) -> Answer<Tick> {
         let done = self.pass().await;
         let error = done.as_ref().err().map(Refusal::to_string);
+        self.proving(error.as_deref()).await;
         self.submit::<NoteTick>(Ticked { error }).await?;
         if done.is_err() {
             let settings = self.settings().await.unwrap_or_default();
@@ -238,7 +239,11 @@ impl App {
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
         let _ = self.linked();
-        eprintln!("started: {}", self.daemon_start().await?);
+        // A database this binary cannot use fails its ticks, which may go back to the kept binary.
+        match self.daemon_start().await {
+            Ok(started) => eprintln!("started: {started}"),
+            Err(e) => eprintln!("start: {e}"),
+        }
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             match self.tick().await {
@@ -252,14 +257,15 @@ impl App {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
-                        // Between ticks, as the same pid: the pid file stays right.
-                        use std::os::unix::process::CommandExt;
-                        let _ = self.beside(false, true).await;
-                        let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
-                        eprintln!("restart as {binary}: {e}");
+                        self.exec(binary.as_ref()).await;
                     }
                 }
-                Err(e) => eprintln!("tick: {e}"),
+                Err(e) => {
+                    eprintln!("tick: {e}");
+                    if let Some(kept) = self.fallback() {
+                        self.exec(&kept).await;
+                    }
+                }
             }
             ticks += 1;
             let every = self
@@ -276,6 +282,15 @@ impl App {
         let _ = self.beside(false, true).await;
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
+    }
+
+    /// Runs `binary` in place of this one, between ticks, as the same pid:
+    /// the pid file stays right. Answers only if it cannot.
+    async fn exec(&self, binary: &std::path::Path) {
+        use std::os::unix::process::CommandExt;
+        let _ = self.beside(false, true).await;
+        let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
+        eprintln!("restart as {}: {e}", binary.display());
     }
 
     /// The pid of the daemon running now, if one is.
