@@ -2,10 +2,10 @@
   "suites": {
     "rust": {
       "prod_lines": 11767,
-      "test_lines": 7893,
-      "tests": 239,
+      "test_lines": 7878,
+      "tests": 240,
       "failures": 0,
-      "test_seconds": 195.716,
+      "test_seconds": 167.812,
       "covered_lines": 5366,
       "uncovered_lines": 108
     }
@@ -43,51 +43,9 @@
   "kept": [
     {
       "suite": "rust",
-      "test": "factorium::scenarios::line::promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own",
-      "hash": "df17f8e6406a14ed",
-      "reason": "It checks promote and cut asked by hand (nothing to promote before a landing, the tip promoted, v0.1.0 cut, nothing new to cut, the tag on the step's own commit) and the landings' author on a fresh host and with the host's [user]; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing, promotion and cut pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
       "test": "factorium::scenarios::line::a_cut_of_the_daemons_own_formula_asks_for_a_restart",
       "hash": "e7c92dfd1a2435c4",
       "reason": "It checks a cut of the daemon's own formula asks for a restart with the daemon's binary, and another formula's cut does not; the other checks the line's work dirs are clones. Folding it in would set which formula the daemon runs as under the work-dirs scenario, and its second case needs a daemon of another formula. They share the cut pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::base::a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding",
-      "hash": "53644624a5d3ebf4",
-      "reason": "It checks a local base with its own commits or uncommitted changes is left, is a finding saying which, and catches up once undone; the other checks a cut retries brew update with back-off until the tap shows the version. They share the landing and promotion pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip",
-      "hash": "8370c566c8986ec8",
-      "reason": "It checks a red slow gate holds origin's base, is a finding, is not gated again on the same tip (only by hand), and a new green tip is promoted; the other checks a local base left behind fast-forwards on the next tick. A red gate never promotes, so the setups conflict. They share the landing and promotion pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::an_idle_cut_waits_until_everything_landed_is_promoted",
-      "hash": "7789176cddce03f8",
-      "reason": "It checks an idle checkout's cut waits while a landing is unpromoted (a red slow gate) and is cut once its own bound passes; the other checks a busy checkout cuts once the oldest promotion waited the cut bound less the hold bound. Idle and busy are opposite setups, and the bounds differ. They share the line's pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
-      "hash": "658e9b49ecb26331",
-      "reason": "It checks gates that run git describe see a tag origin got after the line's clones were made; the other checks promote and cut by hand and commit identity. Folding it in would put its describe gates and origin's v0.0.9 tag under the other's cuts, whose versions (v0.1.0, v0.1.1) it asserts: the setups conflict. They share the landing and promotion pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::path::readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept",
-      "hash": "5ec182d948d22203",
-      "reason": "It checks an issue readied after waiting for a human resumes in the worktree and branch it kept, with its uncommitted work and a brief that says so, and then lands; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing pipeline, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::parked::a_worker_parked_behind_issues_of_its_checkout_goes_back_to_work_once_they_land",
-      "hash": "138ff1ef0ba872b0",
-      "reason": "It checks a worker parked behind issues of its checkout waits for each, is told what landed and to merge proving once all land, and runs no watch round; the other checks a worker hung in an open turn past the silent bound goes to the watch and lands once restarted. Parked and hung are different ways to wait, with different resumes. They share the worker and landing lines, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
