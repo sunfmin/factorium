@@ -45,17 +45,15 @@ impl App {
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
         let Some(ended) = self.beside(busy, false).await? else { return Ok(None) };
-        let Some(Running { checkout, tip, at, steps, limit, tasks }) = self.memory.lock().unwrap().idle.take() else {
-            return Ok(None);
-        };
+        let idle = self.memory.lock().unwrap().idle.take();
+        let Running { checkout, tip, at, steps, limit, tasks } = idle.expect("its idle work started it");
         let rans = match ended {
             Ok(rans) => rans,
             Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),
         };
         let took_ms = rans.iter().map(|r| r.took_ms).sum();
-        let (mut green, mut tail) = match rans.last() {
-            None => (true, String::new()),
-            Some(r) if r.ok => (true, r.tail.clone()),
+        let (mut green, mut tail) = match rans.last().filter(|r| !r.ok) {
+            None => (true, rans.last().map(|r| r.tail.clone()).unwrap_or_default()),
             Some(r) if r.timed_out => (false, format!("past its limit of {limit}s:\n{}", r.tail)),
             Some(r) => (false, format!("step `{}` failed:\n{}", steps[rans.len() - 1], r.tail)),
         };

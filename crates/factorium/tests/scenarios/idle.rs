@@ -284,15 +284,17 @@ async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
 }
 
 /// Idle work runs through the one heavy run (factorium#136): `unqueue` ends
-/// its whole process tree as it does any running entry's, and the next tick
-/// finds it gone, unrecorded, so it is due again.
+/// its whole process tree as it does any running entry's — a later step's
+/// too, its session noted at a tick — and the next tick finds it gone,
+/// unrecorded, so it is due again.
 #[tokio::test]
 async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
     let w = World::new();
     let dir = w.dir.join("escaping");
-    declares(&w, &[crate::unqueue::escaping(&w, &dir)], 3600, 60).await;
+    declares(&w, &["true".into(), crate::unqueue::escaping(&w, &dir)], 3600, 60).await;
     assert!(started(&w.tick().await.idle));
     let pids = crate::unqueue::escaped(&dir).await;
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
     let id = crate::unqueue::entry(&w, "idle work of web").await;
     let unqueued = w.run().unqueue(id).await.unwrap();
     assert_eq!(unqueued["ended"], true, "{unqueued}");
