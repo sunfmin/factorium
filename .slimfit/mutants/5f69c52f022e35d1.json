@@ -1,0 +1,32 @@
+{
+  "tree": "9506bf78b77ec720fbe67025304237d29ad723b6+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:238:16: delete ! in App::run_held",
+        "why": "unqueued is told from held by whether the entry is still queued",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/shell.rs:130:5: replace in_own_session with ()",
+        "why": "without its own session the escaped processes live on",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/procs.rs:64:24: delete ! in in_session",
+        "why": "a run's live processes are what is ended, not its zombies",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/procs.rs:81:74: replace == with != in signal_session",
+        "why": "each pid is signalled only once checked to be in the run's session",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:144:42: replace == with != in Queue::holds",
+        "why": "holds decides queued, unqueued and enqueue",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
