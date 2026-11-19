@@ -67,6 +67,25 @@ pub fn in_session(session: u32) -> Vec<u32> {
         .collect()
 }
 
+/// Sends `signal` to each live process of session `session`; answers how
+/// many it sent to. Each is checked again to be in that session just
+/// before, and this process's own session is never signalled: a wrong
+/// listing cannot reach past the session (a mutant of `in_session` that
+/// matched every other session once signalled all the owner's processes).
+#[allow(unsafe_code)]
+pub fn signal_session(session: u32, signal: libc::c_int) -> usize {
+    if session <= 1 || session_of(std::process::id()) == Some(session) {
+        return 0;
+    }
+    let mut sent = 0;
+    for pid in in_session(session).into_iter().filter(|p| session_of(*p) == Some(session)) {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { continue };
+        // SAFETY: kill only signals a process; no memory is shared.
+        sent += usize::from(unsafe { libc::kill(pid, signal) } == 0);
+    }
+    sent
+}
+
 /// The session `pid` is in, if it lives.
 #[allow(unsafe_code)]
 fn session_of(pid: u32) -> Option<u32> {

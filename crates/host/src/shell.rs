@@ -146,18 +146,12 @@ pub fn tail(said: &str) -> String {
 /// whoever ends it: its limit, its stop (the hold bound, the host no longer
 /// idle), or an unqueue from another process.
 pub fn end(session: u32) {
-    let signal = |sig: &str| {
-        let pids: Vec<String> = crate::procs::in_session(session).iter().map(u32::to_string).collect();
-        if !pids.is_empty() {
-            let _ = Command::new("kill").arg(sig).arg("--").args(&pids).stderr(Stdio::null()).status();
-        }
-    };
-    signal("-TERM");
+    crate::procs::signal_session(session, libc::SIGTERM);
     let deadline = Instant::now() + GRACE;
     while Instant::now() < deadline && !crate::procs::in_session(session).is_empty() {
         std::thread::sleep(Duration::from_millis(50));
     }
-    signal("-KILL");
+    crate::procs::signal_session(session, libc::SIGKILL);
 }
 
 /// What a program answered: whether it succeeded, and what it printed on
