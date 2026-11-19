@@ -106,6 +106,16 @@ impl Data {
         self.0.join("daemon.pid")
     }
 
+    /// The binary kept to roll back to, as `<version>/bin/<name>` in it.
+    pub fn binary(&self) -> PathBuf {
+        self.0.join("binary")
+    }
+
+    /// What a rollback hands the kept binary it execs.
+    pub fn rollback(&self) -> PathBuf {
+        self.0.join("rollback.json")
+    }
+
     /// A copy of the database, made to prove a binary on (`id` its own),
     /// kept where it failed for a look.
     pub fn proof(&self, id: impl std::fmt::Display) -> PathBuf {

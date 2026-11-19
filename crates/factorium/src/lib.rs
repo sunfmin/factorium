@@ -149,6 +149,7 @@ fn model() -> Model {
         .aggregate::<daemon::Daemons>()
         .command::<daemon::StartDaemon>()
         .command::<daemon::NoteTick>()
+        .command::<daemon::NoteRollback>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::EndWatch>()
@@ -170,6 +171,13 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
+    /// The binary a rollback went back from: a link that names it is not swapped to.
+    refused: Option<PathBuf>,
+    /// Whether a tick of this process went well; how many failed before one did.
+    proven: bool,
+    failed: u64,
+    /// The kept binary to exec in place of this one, whose ticks all failed.
+    fallback: Option<PathBuf>,
     /// The idle work running beside the ticks, and its heavy job's run.
     idle: Option<idle::Running>,
     beside: Option<heavy::Running>,

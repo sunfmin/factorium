@@ -337,7 +337,7 @@ pub fn proved(w: &World, formula: &str, version: &str) -> Vec<PathBuf> {
 }
 
 /// Writes `script` at `path` as a program.
-fn program(path: &Path, script: &str) {
+pub fn program(path: &Path, script: &str) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, script).unwrap();
