@@ -8,8 +8,7 @@ use std::path::Path;
 
 use factum::Uuid;
 
-use crate::World;
-use crate::queue::{STUCK, gone, heavy, poll, until_file};
+use crate::fixture::{STUCK, World, until_file};
 
 /// A command that starts two processes outside its tree as a process group
 /// sees it: one in a process group of its own, and one whose parent exits
@@ -70,9 +69,7 @@ async fn escaped(dir: &Path) -> Escaped {
 
 /// The id of the heavy entry doctor shows as `what`.
 async fn entry(w: &World, what: &str) -> Uuid {
-    let d = w.run().doctor().await.unwrap();
-    let e = d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == what).cloned().expect("queued");
-    e["id"].as_str().unwrap().parse().unwrap()
+    w.queued_entry(what).await["id"].as_str().unwrap().parse().unwrap()
 }
 
 #[tokio::test]
@@ -94,7 +91,7 @@ async fn unqueue_ends_a_running_entrys_whole_process_tree_and_its_waiter_says_so
     let refused = ran.expect_err("an unqueued command is no answer of its own");
     assert_eq!(refused.code, "unqueued");
     assert!(refused.message.contains("unqueued"), "{}", refused.message);
-    assert!(heavy(&w).await.is_empty());
+    assert!(w.queued().await.is_empty());
 }
 
 #[tokio::test]
@@ -109,15 +106,15 @@ async fn the_hold_bound_ends_a_running_entrys_whole_process_tree() {
         let pids = escaped(&dir).await;
         let mut waiter = std::pin::pin!(b.worker_exclusive(None, &w.dir, "echo after"));
         let queued = async {
-            while !heavy(&w).await.contains(&"echo after".to_string()) {
+            while !w.queued().await.contains(&"echo after".to_string()) {
                 tokio::task::yield_now().await;
             }
         };
         tokio::select! { _ = &mut waiter => panic!("it ran beside the running one"), _ = queued => {} }
         w.advance(31);
         let again = async {
-            gone(&w, &line).await;
-            poll(&w, 1).await;
+            w.gone(&line).await;
+            w.poll(1).await;
         };
         (tokio::join!(waiter, again).0, pids)
     };
