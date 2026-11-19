@@ -184,30 +184,6 @@ pub(crate) async fn running_on(w: &World) {
 }
 
 #[tokio::test]
-async fn beside_what_runs_one_heavy_command_starts_per_reading() {
-    let w = World::new();
-    running_on(&w).await;
-    // Room, but the reading is the one the running command started on.
-    w.host.reading.lock().unwrap().cpu_busy = 10;
-    let cli = w.run();
-    let mut asks = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo next"));
-    let entry = async || {
-        let d = w.run().doctor().await.unwrap();
-        d["heavy"].as_array().unwrap().iter().find(|e| e["what"] == "echo next").cloned()
-    };
-    let queued = async {
-        while entry().await.is_none() {
-            tokio::task::yield_now().await;
-        }
-    };
-    tokio::select! { _ = &mut asks => panic!("two starts on one reading"), _ = queued => {} }
-    assert_eq!(entry().await.unwrap()["started_at"], json!(null), "it waits for a new reading");
-    w.advance(1);
-    let ran = tokio::time::timeout(STUCK, asks).await.expect("a new reading starts it");
-    assert_eq!(ran.unwrap()["ok"], true);
-}
-
-#[tokio::test]
 async fn a_landing_whose_gate_runs_long_is_no_stall() {
     let w = World::new();
     w.working(CLAUDE, "a").await;

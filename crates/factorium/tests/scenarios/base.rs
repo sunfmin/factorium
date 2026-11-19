@@ -49,10 +49,11 @@ async fn a_promotion_by_hand_moves_a_local_base_not_checked_out() {
 }
 
 #[tokio::test]
-async fn a_local_base_with_its_own_commits_is_left_and_is_a_finding() {
+async fn a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding() {
     let w = World::new();
     let web = w.checkout("web").await;
     w.kit().await;
+    // Its own commit.
     w.commit(&web, "mine", "x");
     let mine = local(&w, &web);
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
@@ -67,18 +68,12 @@ async fn a_local_base_with_its_own_commits_is_left_and_is_a_finding() {
     w.tick().await;
     assert_eq!(local(&w, &web), landed);
     assert_eq!(w.finding("base:web").await, None);
-}
-
-#[tokio::test]
-async fn a_local_base_checked_out_over_changes_is_left_and_is_a_finding() {
-    let w = World::new();
-    let web = w.checkout("web").await;
-    w.kit().await;
-    let before = local(&w, &web);
+    // Changes not committed, over the checked-out base.
+    let before = landed;
     std::fs::write(web.join("README"), "edited\n").unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
-    let landed = land(&w, 1, "a").await;
+    let landed = land(&w, 2, "b").await;
     assert_eq!(local(&w, &web), before, "nothing moves under the changes");
     assert_eq!(std::fs::read_to_string(web.join("README")).unwrap(), "edited\n");
     let what = w.finding("base:web").await.expect("a finding")["what"].to_string();

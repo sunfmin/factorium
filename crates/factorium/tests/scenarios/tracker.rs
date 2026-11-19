@@ -54,7 +54,7 @@ async fn a_removed_checkout_leaves_the_list_takes_no_issues_and_can_come_back() 
 }
 
 #[tokio::test]
-async fn issues_are_numbered_per_checkout_from_one() {
+async fn issues_are_numbered_per_checkout_from_one_and_the_next_run_reads_them() {
     let w = World::new();
     w.checkout("web").await;
     w.checkout("api").await;
@@ -71,6 +71,15 @@ async fn issues_are_numbered_per_checkout_from_one() {
         vec![("api".into(), 1), ("web".into(), 1), ("web".into(), 2), ("web".into(), 3)]
     );
     assert_eq!(w.app.issue_show("web", 3).await.unwrap()["status"], "waiting_for_human");
+    // What one run records, the next run reads.
+    let next = w.run();
+    let read = numbers(&next.issue_list(None, false).await.unwrap());
+    assert_eq!(
+        read,
+        vec![("api".into(), 1), ("web".into(), 1), ("web".into(), 2), ("web".into(), 3)],
+        "the next run reads them"
+    );
+    assert_eq!(next.issue_add("web", "fourth", "", false, &[]).await.unwrap()["number"], 4, "and numbers on from them");
 }
 
 #[tokio::test]
@@ -163,16 +172,6 @@ async fn an_issue_waits_for_others_of_its_checkout() {
     refused(w.app.issue_block("web", 9, 1, false).await, "no_issue");
     assert_eq!(w.app.issue_block("web", 3, 1, true).await.unwrap()["blocked_by"], json!([2]));
     assert_eq!(w.app.issue_block("web", 3, 1, true).await.unwrap()["blocked_by"], json!([2]));
-}
-
-#[tokio::test]
-async fn what_one_run_records_the_next_run_reads() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
-    let next = w.run();
-    assert_eq!(numbers(&next.issue_list(None, false).await.unwrap()), vec![("web".into(), 1)]);
-    assert_eq!(next.issue_add("web", "two", "", false, &[]).await.unwrap()["number"], 2);
 }
 
 /// A db written before the state was named for who resumes it is rewritten
