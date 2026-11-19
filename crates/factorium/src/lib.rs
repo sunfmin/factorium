@@ -65,9 +65,9 @@ impl From<factum::Error> for Refusal {
     fn from(e: factum::Error) -> Refusal {
         match e {
             factum::Error::Rejected(r) => Refusal { code: r.code, message: r.message },
-            // The store failed to read or write: the daemon's watch hears of it outside the store.
-            factum::Error::Store(e) => Refusal::new("store", e.to_string()),
-            other => Refusal::new("internal", other.to_string()),
+            // The store failed to read or write, or what it holds does not
+            // fold: the daemon's watch hears of it outside the store.
+            other => Refusal::new("store", other.to_string()),
         }
     }
 }

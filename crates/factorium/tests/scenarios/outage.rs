@@ -56,6 +56,18 @@ async fn a_look_that_cannot_read_the_store_briefs_the_watch_once_an_hour() {
 }
 
 #[tokio::test]
+async fn an_outage_that_cannot_be_kept_still_briefs_the_watch() {
+    let w = World::new();
+    let watch = unreadable(&w).await;
+    // Where the outage is kept, a directory stands.
+    std::fs::create_dir_all(w.data().outage()).unwrap();
+    let before = w.terminal(&watch).sent.len();
+    w.advance(5);
+    w.app.tick().await.unwrap_err();
+    assert_eq!(w.terminal(&watch).sent.len(), before + 1);
+}
+
+#[tokio::test]
 async fn a_daemon_whose_start_cannot_record_goes_on_to_its_ticks() {
     let w = World::new();
     unreadable(&w).await;
