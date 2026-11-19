@@ -63,6 +63,12 @@
       "test": "factorium::scenarios::base::a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding",
       "hash": "53644624a5d3ebf4",
       "reason": "It checks a local base with its own commits or uncommitted changes is left, is a finding saying which, and catches up once undone; the other checks a cut retries brew update with back-off until the tap shows the version. They share the landing and promotion pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip",
+      "hash": "8370c566c8986ec8",
+      "reason": "It checks a red slow gate holds origin's base, is a finding, is not gated again on the same tip (only by hand), and a new green tip is promoted; the other checks a local base left behind fast-forwards on the next tick. A red gate never promotes, so the setups conflict. They share the landing and promotion pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
