@@ -313,8 +313,7 @@ impl App {
                         || !t.lines.is_empty()
                         || !t.seen.is_empty()
                         || !t.idle.is_empty()
-                        || !t.resumed.is_empty()
-                        || !t.bumped.is_empty();
+                        || !t.resumed.is_empty();
                     if t.started.is_some() || did {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
