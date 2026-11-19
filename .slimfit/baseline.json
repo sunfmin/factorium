@@ -33,5 +33,13 @@
       "reason": "summed test durations bimodal on this host again: this tree measured 102.6s and 128.0s for tasks 1-2 at load 47/28, then 383.4s, 391.5s, 384.2s with a 0.014s test added and 356.8s on the same tree without it (fresh runs, 1-min load 14-24 on 18 cores; raw sums 867-916s, git-heavy scenarios 10-14s each). Not this change; gate.sh's CPU bound is the time guard (SPEC 6). factorium#82"
     }
   ],
+  "kept": [
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::queue::beside_what_runs_asks_in_one_second_start_one_per_settled_reading",
+      "hash": "426a2c177a7e8ae3",
+      "reason": "It checks one start per settled reading among three asks in one second (factorium#102), and since factorium#117 carries the deleted one-start-per-reading scenario's assertions; the other checks a waiter under rules a newer binary replaced is refused stale and execs Homebrew's binary (factorium#106). They share the heavy queue's setup, not an assertion."
+    }
+  ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
 }
