@@ -81,6 +81,12 @@
       "test": "factorium::scenarios::line::a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
       "hash": "658e9b49ecb26331",
       "reason": "It checks gates that run git describe see a tag origin got after the line's clones were made; the other checks promote and cut by hand and commit identity. Folding it in would put its describe gates and origin's v0.0.9 tag under the other's cuts, whose versions (v0.1.0, v0.1.1) it asserts: the setups conflict. They share the landing and promotion pipeline, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept",
+      "hash": "5ec182d948d22203",
+      "reason": "It checks an issue readied after waiting for a human resumes in the worktree and branch it kept, with its uncommitted work and a brief that says so, and then lands; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
