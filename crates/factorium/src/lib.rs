@@ -14,6 +14,7 @@ mod kept;
 mod life;
 mod line;
 mod load;
+mod outage;
 mod owner;
 mod service;
 mod session;
@@ -64,7 +65,9 @@ impl From<factum::Error> for Refusal {
     fn from(e: factum::Error) -> Refusal {
         match e {
             factum::Error::Rejected(r) => Refusal { code: r.code, message: r.message },
-            other => Refusal::new("internal", other.to_string()),
+            // The store failed to read or write, or what it holds does not
+            // fold: the daemon's watch hears of it outside the store.
+            other => Refusal::new("store", other.to_string()),
         }
     }
 }

@@ -19,6 +19,7 @@ pub mod issue;
 pub mod kit;
 pub mod line;
 pub mod neutral;
+pub mod outage;
 pub mod outbox;
 pub mod settings;
 pub mod task;

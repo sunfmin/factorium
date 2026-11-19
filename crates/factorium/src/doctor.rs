@@ -57,7 +57,7 @@ impl App {
 
     /// The findings, each with its fix; the reading; and the owner's part of
     /// the watch's reports, which this marks seen.
-    pub async fn doctor(&self) -> Answer {
+    pub(crate) async fn doctor_view(&self) -> Answer {
         let seen = self.seen().await?;
         let settings = self.settings().await?;
         let findings = doctor::findings(&seen, &settings, self.now());

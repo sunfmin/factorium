@@ -1,0 +1,32 @@
+{
+  "tree": "a877897a511b1292a35786e30cdf277c0647096a+d1fba762150c532c",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon.rs:62:26: replace || with && in App::tick",
+        "why": "a tick whose record fails on the store must still look",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/outage.rs:33:19: replace != with == in App::look_failed",
+        "why": "only store failures brief the watch",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/outage.rs:67:23: replace match guard r.code == \"store\" with false in App::doctor",
+        "why": "doctor turns a store error into its one finding",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/outage.rs:38:24: replace match guard o.error == error with true in Outage::failed",
+        "why": "another error starts its own episode",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/outage.rs:45:47: replace >= with < in Outage::due",
+        "why": "no second brief within the hour, one after it",
+        "outcome": "killed"
+      }
+    ]
+  }
+}

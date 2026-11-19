@@ -207,7 +207,15 @@ stops it: the guard refuses `stop` to the watch, which lives under the
 daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
 tick is recorded, and `tick_failures_max` of them in a row is a finding;
-the watch still looks when a tick fails.
+the watch still looks when a tick fails. All three live in the store: a
+look that fails on the store itself (a binary that cannot read the
+database) briefs the watch's session directly — at its terminal as the
+last look that read the store kept it in the data directory — with the
+error, the binary's version, when the failures began and how many, once
+per episode of the same error and again each hour while it lasts, and
+what to read without factorium's commands. `doctor` that cannot read the
+store answers that as its one finding, naming the error and the data
+directory, and exits 1.
 
 A binary's first good tick keeps a copy of it under the data directory
 (`binary/<version>/bin/`, one, replaced by the next). A binary Homebrew
@@ -227,10 +235,10 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,540 |
+| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,420 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,530 |
+| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,650 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
 100 lines from the domain's budget (4,055 used) to the binary's: restarting
@@ -241,7 +249,10 @@ worktrees no open issue owns, are git and Orca effects of the app, and the
 binary stood at 4,086. factorium#137 raised the binary's to 4,340, factorium#141 to 4,370 (Total: 23,070).
 factorium#143 moved 160 more from the domain's (4,383 used): keeping the
 binary to roll back to, and going back to it, are file and exec effects of
-the app read from no database, and the binary stood at 4,479.
+the app read from no database, and the binary stood at 4,479. factorium#142 moved 120 more from the domain's (the domain to 6,420, 4,498
+used; the binary to 4,650, at 4,618): when the store cannot be read, the
+watch is briefed and doctor answers through files under the data directory
+and Orca's terminal, the app's effects.
 
 **What a repo declares**, in `factorium.toml` at its root (§3); every
 table may be left out:

@@ -122,7 +122,7 @@ impl App {
     /// typed at: typed at a shell, a line is a command it runs. A question
     /// its harness opened on its own mid-session is dismissed with its own
     /// key first: what is typed there never reaches the prompt.
-    fn up(&self, s: &Session) -> Answer<()> {
+    pub(crate) fn up(&self, s: &Session) -> Answer<()> {
         let mut dismissed = 0;
         loop {
             let screen = match self.host.orca().screen(&s.terminal) {

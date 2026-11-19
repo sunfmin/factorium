@@ -111,6 +111,8 @@ impl App {
             // Missed, it is passed again on the next look.
             self.tell(s, Sender::Round(r.n), &line, false).await?;
         }
+        // The look read the store through: no outage, and where the watch is reached without it.
+        self.keep_reach(&after);
         Ok(
             json!({ "findings": found.len(), "episodes": after.episodes.len(), "round": after.round, "watch": terminal }),
         )

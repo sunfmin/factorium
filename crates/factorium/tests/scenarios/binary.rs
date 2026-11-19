@@ -568,3 +568,17 @@ fn a_program_s_answer_is_read_as_it_printed_it() {
     assert!(ok, "{accounts}");
     assert_eq!(accounts[0]["name"], "team", "{accounts}");
 }
+
+/// Doctor that cannot read the store answers that as its one finding,
+/// naming the store's error and the data directory, and exits 1.
+#[test]
+fn doctor_on_a_store_it_cannot_read_answers_that_finding_and_fails() {
+    let dir = Dir::new();
+    assert!(run(&dir, &["settings", "silent_bound", "1900"]).0);
+    let db = dir.0.join("data/factorium/factorium.db");
+    rusqlite::Connection::open(&db).unwrap().execute_batch("ALTER TABLE events RENAME COLUMN data TO gone;").unwrap();
+    let (ok, doctor) = run(&dir, &["doctor"]);
+    assert!(!ok, "{doctor}");
+    let what = doctor["findings"][0]["what"].as_str().unwrap_or_default();
+    assert!(what.contains("no such column") && what.contains(&*db.parent().unwrap().to_string_lossy()), "{doctor}");
+}
