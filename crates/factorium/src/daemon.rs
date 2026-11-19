@@ -9,10 +9,8 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
 use factorium_domain::heavy::{Heavy, queue_id};
-use factorium_domain::issue::{Author, Issue, Status as IssueStatus};
+use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::line::Lines;
-use factorium_domain::line_id;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -183,25 +181,6 @@ impl App {
             }
         }
         Ok(None)
-    }
-
-    /// What `issue` waits for, each named, and how it was met (its issue's
-    /// close, such as the landing), or `None` while it is not: met once its
-    /// issue is closed (or gone), and, for its cut, its landing is in a cut.
-    /// Its landing is recorded before it closes, so a closed issue the line
-    /// does not hold either landed in a cut or never landed.
-    pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
-        let mut all = Vec::new();
-        for (name, a) in issue.waits_for() {
-            let met = match self.issue(&a.checkout, a.number).await {
-                Ok(i) if i.status != IssueStatus::Closed => None,
-                _ if a.cut && self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number) => None,
-                Ok(i) => Some(i.reason.unwrap_or_else(|| "closed".into()) + if a.cut { ", in a cut" } else { "" }),
-                Err(_) => Some("gone".into()),
-            };
-            all.push((name, met));
-        }
-        Ok(all)
     }
 
     /// Each worker the watch parked behind what its issue waits for, sent
