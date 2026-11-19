@@ -265,7 +265,7 @@ async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_too
     let file = w.host.home().join(".claude/projects/web/session.jsonl");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     // Written now by the world's clock, as the session would be.
-    let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
     let write = |file: &std::path::Path, text: &str| {
         std::fs::write(file, text).unwrap();
         std::fs::File::options().write(true).open(file).unwrap().set_modified(now).unwrap();
@@ -301,8 +301,7 @@ async fn a_tell_its_session_takes_just_after_orca_s_window_is_submitted_and_one_
         w.set_busy(handle, false, true);
         let file = w.host.home().join(".claude/projects/web/session.jsonl");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        let now =
-            std::time::UNIX_EPOCH + std::time::Duration::from_millis(factum::Clock::now(w.clock.as_ref()).0 as u64);
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
         let took = json!({
             "type": "user", "timestamp": NEXT_CENTURY, "cwd": cwd, "isSidechain": false,
             "message": { "role": "user", "content": "factorium (the watch): look at the FIFO" },
@@ -348,7 +347,7 @@ async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     for wk in workers {
         w.app.worker_escalate(id(wk), &format!("stuck on {}", wk["number"])).await.unwrap();
     }
-    let now = factum::Clock::now(w.clock.as_ref()).0;
+    let now = w.app_now();
     let looked = w.tick().await.watch.expect("the escalations make the look due");
     assert_eq!(looked["episodes"], 2, "{looked}");
     let next = w.app.watch_next().await.unwrap();

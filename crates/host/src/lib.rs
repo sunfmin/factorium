@@ -6,6 +6,7 @@
 //! for what is made of their answers.
 
 pub mod brew;
+pub mod clock;
 pub mod git;
 pub mod orca;
 pub mod procs;
@@ -13,6 +14,7 @@ pub mod reading;
 pub mod shell;
 
 pub use brew::Brew;
+pub use clock::{Clock, ManualClock, SystemClock};
 pub use git::{Git, Lag};
 pub use orca::{Delivery, Orca, Term};
 pub use procs::Proc;
@@ -31,6 +33,8 @@ pub trait Host: Send + Sync {
     fn alive(&self, pid: u32) -> bool;
     /// The user's home, where harnesses keep their sessions and git its config.
     fn home(&self) -> std::path::PathBuf;
+    /// The app's one clock.
+    fn clock(&self) -> std::sync::Arc<dyn Clock>;
 }
 
 impl dyn Host + '_ {
@@ -39,9 +43,9 @@ impl dyn Host + '_ {
         Orca(self.programs())
     }
 
-    /// git in `dir`, as this host runs it.
+    /// git in `dir`, as this host runs it, dating what it commits by the host's clock.
     pub fn git(&self, dir: impl Into<std::path::PathBuf>) -> Git {
-        Git::new(self.home(), dir)
+        Git::new(self.home(), dir).dated(self.clock())
     }
 
     /// Homebrew.
@@ -89,5 +93,9 @@ impl Host for Machine {
 
     fn home(&self) -> std::path::PathBuf {
         std::env::var_os("HOME").map(Into::into).unwrap_or_else(|| "/".into())
+    }
+
+    fn clock(&self) -> std::sync::Arc<dyn Clock> {
+        std::sync::Arc::new(SystemClock)
     }
 }

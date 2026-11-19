@@ -46,6 +46,7 @@ impl App {
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
+        seen.orphaned = self.orphaned().await?;
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             let projection = factorium_domain::tracker::TRACKER.into();

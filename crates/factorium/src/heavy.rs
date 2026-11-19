@@ -22,7 +22,8 @@ use crate::{Answer, App, Refusal};
 
 /// How often a waiting command asks for its turn, and a running one whether
 /// it holds others up past the bound.
-const POLL: Duration = Duration::from_millis(500);
+/// On the app's clock: a scenario moves it.
+const POLL: u64 = 500;
 
 /// A heavy command: its steps run in `dir` one after another, each under
 /// `limit`, until one fails.
@@ -106,7 +107,7 @@ impl App {
             };
             match (took, &turn) {
                 (true, _) => break,
-                (false, Turn::Wait) => tokio::time::sleep(POLL).await,
+                (false, Turn::Wait) => self.clock.sleep(POLL).await,
                 (false, Turn::Once(_)) => {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
@@ -238,7 +239,7 @@ impl App {
             let mut ran = loop {
                 tokio::select! {
                     ran = &mut run => break ran.map_err(|e| Refusal::new("internal", e.to_string()))?,
-                    _ = tokio::time::sleep(POLL) => {
+                    _ = self.clock.sleep(POLL) => {
                         if self.state::<Heavy>(queue_id()).await?.overheld(id, self.now(), bound) {
                             held.store(true, Ordering::Relaxed);
                         }

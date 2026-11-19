@@ -12,7 +12,7 @@ fn a_held_fixture_whose_world_is_dropped_unreleased_ends_within_two_seconds() {
     let dir = w.dir.join("held");
     let mut child = std::process::Command::new("sh").args(["-c", &w.holds(&dir)]).spawn().unwrap();
     while !dir.join("started").exists() {
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::yield_now();
     }
     drop(w);
     let dropped = Instant::now();
@@ -24,7 +24,7 @@ fn a_held_fixture_whose_world_is_dropped_unreleased_ends_within_two_seconds() {
             child.kill().unwrap();
             panic!("the fixture outlived its world");
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::yield_now();
     };
     assert_eq!(status.code(), Some(1), "it ends unreleased");
 }

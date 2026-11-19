@@ -10,11 +10,34 @@ use serde_json::json;
 
 use crate::{CLAUDE, World, id, worker, worktree};
 
-/// A hang guard, not a timing bound: far above a loaded run of any one
-/// scenario (the slowest: 6s at load 19, 17s under 36 CPU hogs on 18 cores),
-/// so it fails only on a hang.
+/// A hang guard, not a timing bound: no scenario waits on real time (the
+/// app's clock is the scenario's), so what is left is the real work of git,
+/// sqlite and the fixtures' processes: the slowest scenario took 3.3s at
+/// load 22 (factorium#119), 17s under 36 CPU hogs on 18 cores before it.
+/// It fails only on a hang, such as a waiter asleep on a clock no one moves.
 /// How fast the suite runs is the gate's bound to keep.
-pub(crate) const STUCK: Duration = Duration::from_secs(180);
+pub(crate) const STUCK: Duration = Duration::from_secs(30);
+
+/// How often a heavy command waiting for its turn asks again, and a running
+/// one whether it holds others up: ms on the app's clock (`heavy.rs`).
+pub(crate) const POLL: i64 = 500;
+
+/// Once `n` waits are asleep on the world's clock (each waiting or running
+/// heavy command has done what the time it woke at gave it to do), moves
+/// the clock a poll on: each asks again.
+pub(crate) async fn poll(w: &World, n: usize) {
+    while w.clock.asleep() != n {
+        tokio::task::yield_now().await;
+    }
+    w.clock.advance(POLL);
+}
+
+/// Until the heavy command `what` has left the queue.
+pub(crate) async fn gone(w: &World, what: &str) {
+    while heavy(w).await.iter().any(|h| h == what) {
+        tokio::task::yield_now().await;
+    }
+}
 
 pub(crate) async fn until_file(path: &Path) {
     while !path.exists() {
@@ -78,7 +101,12 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
         };
         tokio::select! { _ = &mut waiter => panic!("it ran past the gate"), _ = queued => {} }
         w.advance(31);
-        waiter.await
+        // The gate ended, the waiter asks again.
+        let again = async {
+            gone(&w, "fast gate of web").await;
+            poll(&w, 1).await;
+        };
+        tokio::join!(waiter, again).0
     };
     let (t, after) =
         tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), others) }).await.expect("the gate is ended");
@@ -165,12 +193,18 @@ async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_n
             let gates = heavy(&w).await.into_iter().filter(|h| h == "fast gate of web").count();
             assert_eq!(gates, 1, "one entry for the landing, however many ticks ask");
             // A new second: the landing's merge is a new commit each tick.
-            tokio::time::sleep(Duration::from_millis(1100)).await;
+            w.clock.advance(1000);
         }
     })
     .await;
-    assert_eq!(w.tick().await.landed[0]["landed"], "web#1", "its gate starts on the next tick");
+    let landed = w.tick().await.landed[0].clone();
+    assert_eq!(landed["landed"], "web#1", "its gate starts on the next tick");
     assert_eq!(heavy(&w).await, Vec::<String>::new());
+    // The merge is dated by the app's clock, not by git's.
+    let remote = w.dir.join("remotes/web.git");
+    let dates = w.git(&remote, &["show", "-s", "--format=%at %ct", landed["commit"].as_str().unwrap()]).unwrap();
+    let now = w.app_now() / 1000;
+    assert_eq!(dates, format!("{now} {now}"));
 }
 
 /// Stages a heavy command that started and whose asker went away: its
@@ -237,6 +271,8 @@ async fn promote_by_hand_waits_out_a_busy_queue_and_then_promotes() {
         }
         w.host.reading.lock().unwrap().cpu_busy = 10;
         std::fs::write(dir.join("release"), "").unwrap();
+        gone(&w, &line).await;
+        poll(&w, 1).await;
         promote.await
     };
     let (held, promoted) =
@@ -402,24 +438,22 @@ async fn beside_what_runs_asks_in_one_second_start_one_per_settled_reading() {
     let ask = |k: usize| clis[k].worker_exclusive(None, &w.dir, &lines[k]);
     let asks = async { tokio::join!(ask(0), ask(1), ask(2)) };
     let looks = async {
-        // Each look waits until `n` of the three started, then for a few more
-        // asks (they ask every 500ms), and answers how many started.
-        let count = || dirs.iter().filter(|d| d.join("started").exists()).count();
-        let after = async |n: usize| {
-            while count() < n {
+        // Each look waits until the three asked at the time they woke at
+        // (each asleep again, waiting or running), and answers how many of
+        // them started.
+        let after = async || {
+            while w.clock.asleep() != 3 {
                 tokio::task::yield_now().await;
             }
-            tokio::time::sleep(Duration::from_millis(1200)).await;
-            count()
+            started(&w).await.len() - 1
         };
-        assert_eq!(after(1).await, 1, "one starts on the reading the others saw");
-        w.clock.advance(settle - 1);
-        assert_eq!(after(1).await, 1, "a reading short of the settle interval starts none");
-        w.clock.advance(1);
-        assert_eq!(after(2).await, 2, "a reading the settle interval later starts the next");
-        assert_eq!(started(&w).await.len(), 3, "the running one and two of the three");
+        assert_eq!(after().await, 1, "one starts on the reading the others saw");
+        w.clock.advance(settle - POLL);
+        assert_eq!(after().await, 1, "a reading short of the settle interval starts none");
+        w.clock.advance(POLL);
+        assert_eq!(after().await, 2, "a reading the settle interval later starts the next");
         w.clock.advance(settle);
-        assert_eq!(after(3).await, 3);
+        assert_eq!(after().await, 3);
         for d in &dirs {
             std::fs::write(d.join("release"), "").unwrap();
         }
@@ -483,14 +517,17 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
         tokio::join!(held, waits)
     };
     let looks = async {
-        while heavy(&w).await.len() < 3 {
+        // The busy one runs, both wait: all three asleep on the clock.
+        while heavy(&w).await.len() < 3 || w.clock.asleep() != 3 {
             tokio::task::yield_now().await;
         }
         // The upgrade: a settled reading with room, for one start.
-        w.clock.advance(30_000);
         w.host.reading.lock().unwrap().cpu_busy = 10;
-        until_file(&new.join("started")).await;
+        w.clock.advance(30_000);
         until_file(&w.dir.join("old-asked")).await;
+        // The new one, if it asked behind the old one, asks again.
+        poll(&w, 2).await;
+        until_file(&new.join("started")).await;
         assert!(!old.join("started").exists(), "the old waiter never starts");
         for d in [&new, &busy] {
             std::fs::write(d.join("release"), "").unwrap();

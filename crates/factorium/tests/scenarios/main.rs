@@ -50,10 +50,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use factorium::host::{Git, Host, Proc, Programs, Reading, Said};
+use factorium::host::{Clock, Git, Host, ManualClock, Proc, Programs, Reading, Said};
 use factorium::{Answer, App, Data, Tick};
 use factorium_harness::Harness;
-use factum::{Instant, ManualClock, Uuid};
+use factum::Uuid;
 use serde_json::{Value, json};
 
 pub const GIB: u64 = 1 << 30;
@@ -385,6 +385,8 @@ pub struct FakeHost {
     pub ran: Mutex<Vec<String>>,
     /// Runs, once, on the next `sleep`: what happens while the app waits.
     pub while_sleeping: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The app's one clock: only the scenario moves it.
+    pub clock: Arc<ManualClock>,
     root: PathBuf,
 }
 
@@ -460,6 +462,9 @@ impl Host for FakeHost {
     }
     fn home(&self) -> PathBuf {
         home(&self.root)
+    }
+    fn clock(&self) -> Arc<dyn Clock> {
+        self.clock.clone()
     }
 }
 
@@ -571,7 +576,7 @@ impl World {
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
         make_home(&dir);
-        let clock = Arc::new(ManualClock::new(Instant(1_800_000_000_000)));
+        let clock = Arc::new(ManualClock::new(1_800_000_000_000));
         let host = Arc::new(FakeHost {
             orca: FakeOrca::default(),
             brew: Mutex::default(),
@@ -588,10 +593,11 @@ impl World {
             missing: Mutex::default(),
             service: Mutex::default(),
             while_sleeping: Mutex::default(),
+            clock: clock.clone(),
             root: dir.clone(),
         });
         let db = dir.join("data").join(name);
-        let app = App::open(&db, clock.clone(), "owner", host.clone()).unwrap();
+        let app = App::open(&db, "owner", host.clone()).unwrap();
         World { dir, db, clock, host, app }
     }
 
@@ -602,7 +608,7 @@ impl World {
 
     /// Another CLI run on the same database.
     pub fn run(&self) -> App {
-        App::open(&self.db, self.clock.clone(), "owner", self.host.clone()).unwrap()
+        App::open(&self.db, "owner", self.host.clone()).unwrap()
     }
 
     /// A clone of its own remote; answers its path.
@@ -663,7 +669,7 @@ impl World {
 
     /// The time on the world's clock, in milliseconds.
     pub fn app_now(&self) -> i64 {
-        factum::Clock::now(self.clock.as_ref()).0
+        self.clock.now()
     }
 
     pub async fn tick(&self) -> Tick {
@@ -683,11 +689,11 @@ impl World {
     /// run found, oldest first.
     pub fn doctor_while_closing(&self) -> Arc<Mutex<Vec<Value>>> {
         let found = Arc::new(Mutex::new(Vec::new()));
-        let (db, clock, host, into) = (self.db.clone(), self.clock.clone(), Arc::downgrade(&self.host), found.clone());
+        let (db, host, into) = (self.db.clone(), Arc::downgrade(&self.host), found.clone());
         *self.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| {
-            let (db, clock, host) = (db.clone(), clock.clone(), host.upgrade().unwrap());
+            let (db, host) = (db.clone(), host.upgrade().unwrap());
             let doctor = std::thread::spawn(move || {
-                let app = App::open(&db, clock, "owner", host).unwrap();
+                let app = App::open(&db, "owner", host).unwrap();
                 let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
                 rt.block_on(app.doctor()).unwrap()
             });

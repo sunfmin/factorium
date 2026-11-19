@@ -14,8 +14,9 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::{End, EndHeavy, Heavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
 use factorium_domain::settings::Settings;
+use factorium_host::Clock;
 use factorium_host::Priority;
-use factum::{Clock, Uuid, Value};
+use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::{Answer, App, LineClone, fail};
@@ -52,8 +53,8 @@ fn steps(
     stop: Arc<AtomicBool>,
 ) -> Ended {
     let started = Instant::now();
-    let deadline = clock.now().0.saturating_add(limit.as_millis() as i64);
-    let past = || clock.now().0 >= deadline;
+    let deadline = clock.now().saturating_add(limit.as_millis() as i64);
+    let past = || clock.now() >= deadline;
     let mut tail = String::new();
     for step in &steps {
         let end = || stop.load(Ordering::Relaxed) || past();
