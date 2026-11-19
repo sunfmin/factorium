@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{CLAUDE, World, worktree};
+use crate::fixture::{CLAUDE, World, comments, findings, keyed, worktree};
 
 /// Hides `web`'s remote, so its proving tip cannot be fetched, until `back`.
 struct Unreachable {
@@ -110,7 +110,7 @@ async fn closing_an_issue_removes_its_kept_worktree_and_keeps_its_branch() {
     assert_eq!(w.git(&repo, &["show", &format!("{old}:kept.txt")]).unwrap(), "x");
     assert_eq!(w.git(&repo, &["show", &format!("{old}:wip.txt")]).unwrap(), "half done");
     assert!(w.git(&repo, &["rev-parse", "--verify", "factorium/web-1-1"]).is_err(), "only the abandoned one");
-    let last = closed["comments"].as_array().unwrap().last().unwrap().clone();
+    let last = comments(&closed).last().unwrap().clone();
     assert_eq!(last["by"], "factorium", "{last}");
     assert!(last["text"].as_str().unwrap().contains(&format!("`{old}`")), "{last}");
 }
@@ -123,7 +123,7 @@ async fn closing_an_issue_waiting_for_a_human_removes_the_worktree_it_kept() {
     let closed = w.app.issue_close("web", 1, "dropped").await.unwrap();
     assert!(!tree.exists(), "closed, it goes");
     assert_eq!(closed["abandoned"], "factorium/web-1-1-abandoned");
-    assert_eq!(closed["comments"].as_array().unwrap().len(), 1, "{closed}");
+    assert_eq!(comments(&closed).len(), 1, "{closed}");
 }
 
 #[tokio::test]
@@ -158,8 +158,7 @@ async fn doctor_finds_a_worktree_no_open_issue_owns_and_discard_fixes_it() {
     assert!(w.finding(&key(&tree)).await.is_none() && w.finding(&key(&real)).await.is_none(), "fixed");
     assert!(done["why"].as_str().unwrap().contains("web#1 is closed"), "{done}");
     // The close named the branch before it closed; a closed issue takes no more comments.
-    let comments = w.app.issue_show("web", 1).await.unwrap()["comments"].clone();
-    let last = comments.as_array().unwrap().last().unwrap()["text"].as_str().unwrap().to_string();
+    let last = w.comments("web", 1).await.last().unwrap()["text"].as_str().unwrap().to_string();
     assert!(last.contains("`factorium/web-1-1-abandoned`"), "{last}");
 }
 
@@ -168,7 +167,7 @@ async fn doctor_leaves_an_open_issue_s_worktrees_and_discard_refuses_them() {
     let w = World::new();
     let live = worktree(&w.working(CLAUDE, "t").await);
     let d = w.app.doctor().await.unwrap();
-    let named = d["findings"].as_array().unwrap().iter().any(|f| f["key"].as_str().unwrap().starts_with("worktree:"));
+    let named = !keyed(&d, "worktree:").is_empty();
     assert!(!named, "{d}");
     let refused = w.app.discard_orphaned(&live).await.unwrap_err();
     assert_eq!(refused.code, "not_orphaned");
@@ -182,15 +181,15 @@ async fn doctor_leaves_an_open_issue_s_worktrees_and_discard_refuses_them() {
         let branch = format!("factorium/{name}");
         w.git(&repo, &["worktree", "add", "--quiet", "-b", &branch, &at.to_string_lossy(), &tip]).unwrap();
         let d = w.app.doctor().await.unwrap();
-        let f = d["findings"].as_array().unwrap().iter().find(|f| f["what"].as_str().unwrap().contains(&branch));
+        let f = findings(&d).iter().find(|f| f["what"].as_str().unwrap().contains(&branch));
         assert!(f.expect("named")["what"].as_str().unwrap().contains(why), "{d}");
         let done = w.app.discard_orphaned(&at).await.unwrap();
         assert_eq!(done["abandoned"], format!("{branch}-abandoned"));
         assert!(!at.exists());
     }
     // The older attempt's issue is open: a comment names the branch.
-    let comments = w.app.issue_show("web", 1).await.unwrap()["comments"].clone();
-    let said: Vec<&str> = comments.as_array().unwrap().iter().map(|c| c["text"].as_str().unwrap()).collect();
+    let comments = w.comments("web", 1).await;
+    let said: Vec<&str> = comments.iter().map(|c| c["text"].as_str().unwrap()).collect();
     assert!(said.iter().any(|t| t.contains("`factorium/web-1-0-abandoned`")), "{said:?}");
 }
 

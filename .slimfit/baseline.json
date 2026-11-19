@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 11390,
-      "test_lines": 7655,
-      "tests": 235,
+      "prod_lines": 11767,
+      "test_lines": 7893,
+      "tests": 239,
       "failures": 0,
-      "test_seconds": 204.103,
-      "covered_lines": 5182,
+      "test_seconds": 195.716,
+      "covered_lines": 5366,
       "uncovered_lines": 108
     }
   },
@@ -41,18 +41,6 @@
     }
   ],
   "kept": [
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::queue::beside_what_runs_asks_in_one_second_start_one_per_settled_reading",
-      "hash": "426a2c177a7e8ae3",
-      "reason": "It checks one start per settled reading among three asks in one second (factorium#102), and since factorium#117 carries the deleted one-start-per-reading scenario's assertions; the other checks a waiter under rules a newer binary replaced is refused stale and execs Homebrew's binary (factorium#106). They share the heavy queue's setup, not an assertion."
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::queue::a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick",
-      "hash": "a931f94b44b5ee1c",
-      "reason": "It checks a landing waiting out a running heavy command keeps one queue entry however many ticks ask, and its gate starts on the next tick; the other checks a cut retries brew update with back-off until the tap shows the version. They share the landing pipeline's lines, not an assertion."
-    },
     {
       "suite": "rust",
       "test": "factorium::scenarios::line::promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own",

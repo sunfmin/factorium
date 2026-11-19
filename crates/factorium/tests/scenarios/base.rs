@@ -4,8 +4,7 @@
 
 use std::path::Path;
 
-use crate::World;
-use crate::line::land;
+use crate::fixture::World;
 
 /// The checkout's local `main`.
 fn local(w: &World, web: &Path) -> String {
@@ -20,7 +19,7 @@ async fn a_promotion_moves_the_checked_out_local_base_and_its_tree() {
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     // Idle once it lands: the same tick promotes.
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     assert_eq!(w.remote_tip("web", "main"), landed);
     assert_eq!(local(&w, &web), landed, "the local base follows");
     assert!(web.join("a").exists(), "and the tree it is checked out in");
@@ -40,7 +39,7 @@ async fn a_promotion_by_hand_moves_a_local_base_not_checked_out() {
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     let promoted = w.app.promote("web").await.unwrap();
     assert_eq!(promoted["tip"], landed.as_str(), "{promoted}");
     assert_eq!(promoted["local"]["fast_forwarded"], 2, "the commit and its landing: {promoted}");
@@ -58,7 +57,7 @@ async fn a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding()
     let mine = local(&w, &web);
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     assert_eq!(w.remote_tip("web", "main"), landed, "origin's base is promoted");
     assert_eq!(local(&w, &web), mine, "the local base keeps its own commit");
     let what = w.finding("base:web").await.expect("a finding")["what"].to_string();
@@ -73,7 +72,7 @@ async fn a_local_base_with_its_own_commits_or_changes_is_left_and_is_a_finding()
     std::fs::write(web.join("README"), "edited\n").unwrap();
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
-    let landed = land(&w, 2, "b").await;
+    let landed = w.lands("web", 2, "b").await.commit;
     assert_eq!(local(&w, &web), before, "nothing moves under the changes");
     assert_eq!(std::fs::read_to_string(web.join("README")).unwrap(), "edited\n");
     let what = w.finding("base:web").await.expect("a finding")["what"].to_string();
@@ -93,7 +92,7 @@ async fn a_local_base_left_behind_catches_up_on_the_next_tick() {
     let start = local(&w, &web);
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
-    let landed = land(&w, 1, "a").await;
+    let landed = w.lands("web", 1, "a").await.commit;
     // Left behind, as a base nothing moved was.
     w.git(&web, &["reset", "-q", "--hard", &start]).unwrap();
     assert_eq!(w.finding("base:web").await, None, "behind and nothing of its own: not a finding, it follows");

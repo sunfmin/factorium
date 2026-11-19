@@ -7,43 +7,25 @@ use serde_json::{Value, json};
 
 use factorium_domain::issue::Blocker;
 
-use crate::{CLAUDE, World, id, worktree};
-
-/// The live worker on `checkout`#`number`.
-async fn on(w: &World, checkout: &str, number: u64) -> Value {
-    let all = w.app.workers(false).await.unwrap();
-    let found = all.as_array().unwrap().iter().find(|r| r["checkout"] == checkout && r["number"] == number).cloned();
-    found.unwrap_or_else(|| panic!("{all}"))
-}
-
-/// The worker on `checkout`#`number` commits and lands: answers the tick.
-async fn land(w: &World, checkout: &str, number: u64) -> crate::Tick {
-    let wk = on(w, checkout, number).await;
-    w.commit(&worktree(&wk), &format!("{checkout}{number}"), "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
-    let t = w.tick().await;
-    assert!(!t.landed.is_empty(), "{t:?}");
-    t
-}
+use crate::fixture::{CLAUDE, World, finding_keys, id};
 
 /// How the worker stands, as `workers` lists it.
 async fn status(w: &World, worker: &Value) -> Value {
-    on(w, worker["checkout"].as_str().unwrap(), worker["number"].as_u64().unwrap()).await["status"].clone()
+    w.worker_on(worker["checkout"].as_str().unwrap(), worker["number"].as_u64().unwrap()).await["status"].clone()
 }
 
 /// What doctor lists as parked, and whether `worker` is a finding.
 async fn doctor(w: &World, worker: &Value) -> (Value, bool) {
     let d = w.run().doctor().await.unwrap();
     let key = format!("worker:{}", worker["worker"].as_str().unwrap());
-    let found = d["findings"].as_array().unwrap().iter().any(|f| f["key"] == key);
+    let found = finding_keys(&d).contains(&key);
     (d["parked"].clone(), found)
 }
 
 /// factorium's comments on an issue.
 async fn said(w: &World, checkout: &str, number: u64) -> Vec<String> {
-    let shown = w.app.issue_show(checkout, number).await.unwrap();
-    let comments = shown["comments"].as_array().unwrap().iter();
-    comments.filter(|c| c["by"] == "factorium").map(|c| c["text"].as_str().unwrap().to_string()).collect()
+    let comments = w.comments(checkout, number).await;
+    comments.iter().filter(|c| c["by"] == "factorium").map(|c| c["text"].as_str().unwrap().to_string()).collect()
 }
 
 #[tokio::test]
@@ -63,12 +45,12 @@ async fn a_worker_parked_behind_issues_of_its_checkout_goes_back_to_work_once_th
     assert_eq!(parked[0]["waits_for"], json!(["#2", "#3"]), "{parked}");
     assert!(parked[0]["why"].as_str().unwrap().contains("at its bound"), "{parked}");
 
-    let t = land(&w, "web", 2).await;
+    let t = w.lands("web", 2, "web2").await.tick;
     assert!(t.resumed.is_empty(), "#3 is open: {t:?}");
     assert_eq!(status(&w, &wk).await, "waiting");
     assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], json!(["#3"]));
 
-    let t = land(&w, "web", 3).await;
+    let t = w.lands("web", 3, "web3").await.tick;
     assert_eq!(t.resumed.len(), 1, "{t:?}");
     assert_eq!(status(&w, &wk).await, "working");
     let told = said(&w, "web", 1).await;
@@ -99,16 +81,16 @@ async fn a_worker_parked_behind_another_checkouts_issue_and_cut_goes_back_once_b
     for _ in 0..4 {
         w.tick().await;
     }
-    let wk = on(&w, "factorium", 1).await;
+    let wk = w.worker_on("factorium", 1).await;
     w.app.worker_escalate(id(&wk), "needs web").await.unwrap();
     for b in ["web#1", "web#2@cut"] {
         w.app.issue_block("factorium", 1, b.parse::<Blocker>().unwrap(), false).await.unwrap();
     }
     assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], json!(["web#1", "web#2@cut"]));
 
-    assert!(land(&w, "web", 1).await.resumed.is_empty(), "web#2 is open");
+    assert!(w.lands("web", 1, "web1").await.tick.resumed.is_empty(), "web#2 is open");
     // web#3 keeps web busy: web#2 lands, and is not cut.
-    assert!(land(&w, "web", 2).await.resumed.is_empty(), "landed is not cut");
+    assert!(w.lands("web", 2, "web2").await.tick.resumed.is_empty(), "landed is not cut");
     assert_eq!(status(&w, &wk).await, "waiting");
     assert_eq!(
         doctor(&w, &wk).await,

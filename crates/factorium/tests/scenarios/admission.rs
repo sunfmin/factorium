@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use factorium::host::Proc;
 use serde_json::json;
 
-use crate::{CLAUDE, GIB, World, id, worker};
+use crate::fixture::{CLAUDE, GIB, STUCK, World, id, until_file, worker};
 
 async fn ready(w: &World) {
     w.checkout("web").await;
@@ -25,15 +25,15 @@ async fn nothing_starts_while_the_host_has_no_room_and_a_long_hold_goes_to_the_w
     assert!(t.held.unwrap().starts_with("cpu"));
     w.advance(29);
     w.tick().await;
-    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "not held long yet");
+    assert_eq!(w.findings().await, Vec::<serde_json::Value>::new(), "not held long yet");
     w.advance(2);
     w.tick().await;
-    let found = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    let found = w.findings().await[0]["what"].as_str().unwrap().to_string();
     assert!(found.contains("admission held") && found.contains("cpu"), "{found}");
 
     w.host.reading.lock().unwrap().cpu_busy = 20;
     assert!(w.tick().await.started.is_some());
-    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "the hold ended");
+    assert_eq!(w.findings().await, Vec::<serde_json::Value>::new(), "the hold ended");
 }
 
 #[tokio::test]
@@ -61,9 +61,9 @@ async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
     assert!(w.tick().await.held.unwrap().starts_with("kit"));
     w.kit().await;
     assert!(w.tick().await.started.is_some());
-    assert_eq!(w.app.workers(false).await.unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(w.workers().await.len(), 1);
     assert!(w.tick().await.started.is_some());
-    assert_eq!(w.app.workers(false).await.unwrap().as_array().unwrap().len(), 2);
+    assert_eq!(w.workers().await.len(), 2);
 }
 
 #[tokio::test]
@@ -108,7 +108,7 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     let dir = w.dir.join("slot");
     let line = &w.holds(&dir);
     let body = async {
-        crate::queue::until_file(&dir.join("started")).await;
+        until_file(&dir.join("started")).await;
         *w.host.procs.lock().unwrap() = vec![mutants.clone()];
         w.host.reading.lock().unwrap().cpu_busy = 95;
         w.tick().await;
@@ -119,7 +119,7 @@ async fn what_a_worker_runs_in_its_heavy_slot_does_not_count_against_its_share()
     };
     let cli = w.run();
     let ran = async { tokio::join!(cli.worker_exclusive(Some(id(&wk)), &dir, line), body) };
-    let (held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the slot's command ends");
+    let (held, ()) = tokio::time::timeout(STUCK, ran).await.expect("the slot's command ends");
     assert_eq!(held.unwrap()["ok"], true);
     // The same load outside the slot is the worker's own.
     w.tick().await;
@@ -145,7 +145,7 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
     let dir = w.dir.join("slot");
     let line = &w.holds(&dir);
     let body = async {
-        crate::queue::until_file(&dir.join("started")).await;
+        until_file(&dir.join("started")).await;
         *w.host.procs.lock().unwrap() = vec![sweep.clone()];
         w.host.reading.lock().unwrap().cpu_busy = 95;
         let t = w.tick().await;
@@ -154,7 +154,7 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
     };
     let cli = w.run();
     let ran = async { tokio::join!(cli.worker_exclusive(None, &dir, line), body) };
-    let (held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the slot's command ends");
+    let (held, ()) = tokio::time::timeout(STUCK, ran).await.expect("the slot's command ends");
     assert_eq!(held.unwrap()["ok"], true);
     // The same load outside any slot holds admission.
     *w.host.procs.lock().unwrap() = vec![Proc { ppid: 1, ..sweep }];
@@ -220,16 +220,15 @@ async fn a_heavy_command_runs_with_its_exit_code_and_leaves_the_queue_empty() {
 async fn a_working_worker_with_an_open_turn_is_not_silent_and_one_idle_past_the_bound_is() {
     let w = World::new();
     let wk = w.working(CLAUDE, "a").await;
-    let (cwd, id_) = (wk["worktree"].as_str().unwrap().to_string(), id(&wk));
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
     let now = (w.app_now() / 1000) as u64;
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, true, now);
+    w.claude_session(&cwd, true, now);
     w.advance(45);
     w.tick().await;
     assert_eq!(worker(&w.app).await["status"], "working", "its turn is open");
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, now + 60);
+    w.claude_session(&cwd, false, now + 60);
     w.tick().await;
-    let silent =
-        w.app.workers(false).await.unwrap().as_array().unwrap().iter().find(|x| id(x) == id_).cloned().unwrap();
+    let silent = w.worker_on("web", 1).await;
     assert!(silent["why"].as_str().unwrap().starts_with("silent"), "{silent}");
 }
 
@@ -270,7 +269,7 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     let w = World::new();
     let all = w.app.settings_set(None, None).await.unwrap();
     let all = all.as_array().unwrap();
-    assert_eq!(all.len(), 19, "every setting is listed");
+    assert_eq!(all.len(), 20, "every setting is listed");
     let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
     assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
     let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();
@@ -288,10 +287,10 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     assert!(w.tick().await.started.is_none());
     w.advance(1);
     w.tick().await;
-    assert_eq!(w.app.doctor().await.unwrap()["findings"], json!([]), "held 60 of 120 seconds");
+    assert_eq!(w.findings().await, Vec::<serde_json::Value>::new(), "held 60 of 120 seconds");
     w.advance(1);
     w.tick().await;
-    let found = w.app.doctor().await.unwrap()["findings"][0]["what"].as_str().unwrap().to_string();
+    let found = w.findings().await[0]["what"].as_str().unwrap().to_string();
     assert!(found.contains("admission held"), "{found}");
     w.app.settings_set(Some("cpu_busy_max"), Some(95)).await.unwrap();
     assert!(w.tick().await.started.is_some(), "90% is under 95%");
@@ -304,16 +303,14 @@ async fn silence_counts_from_the_end_of_the_last_turn() {
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     w.advance(20);
     let closed = (w.app_now() / 1000) as u64;
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, closed);
+    w.claude_session(&cwd, false, closed);
     w.advance(30);
     w.tick().await;
-    let all = w.app.workers(false).await.unwrap();
-    let it = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
+    let it = w.worker_on("web", 1).await;
     assert_eq!(it["status"], "working", "30 minutes since its turn ended: at the bound");
     w.advance(1);
     w.tick().await;
-    let all = w.app.workers(false).await.unwrap();
-    let silent = all.as_array().unwrap().iter().find(|x| x["worker"] == wk["worker"]).cloned().unwrap();
+    let silent = w.worker_on("web", 1).await;
     assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
 }
 
@@ -325,21 +322,18 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
     let wk = w.working(CLAUDE, "a").await;
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     let closed = (w.app_now() / 1000) as u64;
-    crate::harnesses::write_session(&w, factorium_harness::Harness::ClaudeCode, None, &cwd, false, closed);
+    w.claude_session(&cwd, false, closed);
     let (first, mine) = (w.dir.join("first"), w.dir.join("mutants"));
     let (first_line, line) = (&w.holds(&first), &w.holds(&mine));
     let cli = w.run();
     let queued = async {
-        crate::queue::until_file(&first.join("started")).await;
+        until_file(&first.join("started")).await;
         w.host.reading.lock().unwrap().cpu_busy = 99;
         cli.worker_exclusive(Some(id(&wk)), &mine, line).await
     };
     let body = async {
-        crate::queue::until_file(&first.join("started")).await;
-        let waits = async || {
-            let d = w.run().doctor().await.unwrap();
-            d["heavy"].as_array().unwrap().iter().any(|e| e["what"] == line.as_str() && e["started_at"].is_null())
-        };
+        until_file(&first.join("started")).await;
+        let waits = async || w.heavy().await.iter().any(|e| e["what"] == line.as_str() && e["started_at"].is_null());
         while !waits().await {
             tokio::task::yield_now().await;
         }
@@ -349,9 +343,9 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
         let it = worker(&w.app).await;
         assert_eq!(it["status"], "working", "its own heavy entry waits in the queue: {it}");
         std::fs::write(first.join("release"), "").unwrap();
-        crate::queue::gone(&w, first_line).await;
-        crate::queue::poll(&w, 1).await;
-        crate::queue::until_file(&mine.join("started")).await;
+        w.gone(first_line).await;
+        w.poll(1).await;
+        until_file(&mine.join("started")).await;
         w.tick().await;
         w.advance(45);
         w.tick().await;
@@ -360,7 +354,7 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
         std::fs::write(mine.join("release"), "").unwrap();
     };
     let ran = async { tokio::join!(cli.worker_exclusive(None, &first, first_line), queued, body) };
-    let (_, held, ()) = tokio::time::timeout(crate::queue::STUCK, ran).await.expect("the heavy commands end");
+    let (_, held, ()) = tokio::time::timeout(STUCK, ran).await.expect("the heavy commands end");
     assert_eq!(held.unwrap()["ok"], true);
     // Its silence counts from when its entry ended.
     w.tick().await;
