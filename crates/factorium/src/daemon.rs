@@ -1,18 +1,15 @@
 //! The daemon's tick: one pass over everything that moves without a
-//! command — workers watched, landings, promotions, cuts, one start if
-//! admission allows, idle work, issues to bump a pin of another checkout,
-//! and the watch's look.
+//! command — landings, promotions, cuts, issues to bump a pin of another
+//! checkout, workers watched, one start if admission allows, idle work, and
+//! the watch's look. The host and the heavy queue are read once a pass
+//! ([`crate::load`]), after the lines' gates.
 
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
-use factorium_domain::health;
-use factorium_domain::heavy::{Heavy, queue_id};
-use factorium_domain::issue::{Author, Issue, Status as IssueStatus};
+use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
-use factorium_domain::line::Lines;
-use factorium_domain::line_id;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -75,42 +72,26 @@ impl App {
         let mut t = Tick::default();
         self.engine.settle().await?;
         let settings = self.settings().await?;
-        // Workers: their sessions, and their share of the host.
-        let procs = self.host.processes();
-        let queue = self.state::<Heavy>(queue_id()).await?;
-        for w in self.live_workers().await? {
-            let id = w.worker;
-            // What runs in its heavy slot is the queue's to bound, not its share's.
-            let held = crate::heavy::granted(&procs, queue.entries.iter().filter(|e| e.worker == Some(id)));
-            let mine: Vec<_> = procs
-                .iter()
-                .filter(|p| p.worker.as_deref() == Some(&id.to_string()) && !held.contains(&p.pid))
-                .collect();
-            let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
-            let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
-            let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
-            // Its own entry waiting, or running alive within the hold bound: it is not silent.
-            let hold = settings.ms(Time::HoldBound);
-            let heavy = queue.entries.iter().any(|e| {
-                e.worker == Some(id) && self.host.alive(e.pid) && e.started_at.is_none_or(|t| self.now() - t <= hold)
-            });
-            let quiet = health::quiet(core_percent);
-            if let Some(seen) = self.worker_health(id, load, quiet, heavy, &settings).await? {
-                t.seen.push(seen);
-            }
-        }
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
         t.bumped = self.bumps(&checkouts).await?;
+        // The host and the heavy queue, read once, after the lines' gates
+        // ran: the workers' shares, admission and idle work all ask it.
+        let load = self.load().await?;
+        // Workers: their sessions, and their share of the host.
+        let hold = settings.ms(Time::HoldBound);
+        for w in self.live_workers().await? {
+            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
+            {
+                t.seen.push(seen);
+            }
+        }
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
-            // What the heavy queue granted is its to bound: admission counts the rest.
-            let (procs, queue) = (self.host.processes(), self.state::<Heavy>(queue_id()).await?);
-            let reading = self.reading_outside(&procs, &crate::heavy::granted(&procs, &queue.entries));
-            let held = admission::admit(&reading, &settings);
+            let held = admission::admit(&load.admission(), &settings);
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
                     Ok(started) => {
@@ -128,42 +109,14 @@ impl App {
             self.submit::<NoteAdmission>(Held { why: None }).await?;
         }
         // Idle work, once the lines and the workers have what they need.
-        t.idle.extend(self.idle_start(&checkouts, &settings).await?);
-        if admission::disk_short(&self.reading(), &settings) {
+        t.idle.extend(self.idle_start(&checkouts, &load, &settings).await?);
+        if admission::disk_short(&load.room(), &settings) {
             self.reclaim();
         }
         t.resumed = self.resume_parked().await?;
         t.watch = self.look_if_due(&settings).await?;
         t.restart = self.swapped().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
-    }
-
-    /// This process runs the binary `me` (canonical): if Homebrew installed
-    /// it, each tick of the daemon, or a waiter refused as stale, asks whether
-    /// its link now names another version.
-    pub fn runs_as(&self, me: &std::path::Path) {
-        let link = self.host.brew().link_of(me);
-        self.memory.lock().unwrap().running = link.map(|l| (me.to_path_buf(), l));
-    }
-
-    /// [`App::runs_as`] this process's own binary, unless the binary it runs
-    /// as is known already.
-    pub(crate) fn runs_as_this(&self) {
-        if self.memory.lock().unwrap().running.is_some() {
-            return;
-        }
-        if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
-            self.runs_as(&me);
-        }
-    }
-
-    /// The link to exec in place of this binary: Homebrew links a version
-    /// other than the one running, by a cut from the daemon, the CLI or
-    /// by hand. Mid-upgrade, when the link resolves to nothing, not yet.
-    pub(crate) fn swapped(&self) -> Option<std::path::PathBuf> {
-        let (me, link) = self.memory.lock().unwrap().running.clone()?;
-        let now = link.canonicalize().ok()?;
-        (now != me).then_some(link)
     }
 
     /// One issue to bump, in each checkout whose proving tip pins another
@@ -211,25 +164,6 @@ impl App {
             }
         }
         Ok(None)
-    }
-
-    /// What `issue` waits for, each named, and how it was met (its issue's
-    /// close, such as the landing), or `None` while it is not: met once its
-    /// issue is closed (or gone), and, for its cut, its landing is in a cut.
-    /// Its landing is recorded before it closes, so a closed issue the line
-    /// does not hold either landed in a cut or never landed.
-    pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
-        let mut all = Vec::new();
-        for (name, a) in issue.waits_for() {
-            let met = match self.issue(&a.checkout, a.number).await {
-                Ok(i) if i.status != IssueStatus::Closed => None,
-                _ if a.cut && self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number) => None,
-                Ok(i) => Some(i.reason.unwrap_or_else(|| "closed".into()) + if a.cut { ", in a cut" } else { "" }),
-                Err(_) => Some("gone".into()),
-            };
-            all.push((name, met));
-        }
-        Ok(all)
     }
 
     /// Each worker the watch parked behind what its issue waits for, sent
@@ -303,7 +237,7 @@ impl App {
             return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
-        self.runs_as_this();
+        let _ = self.linked();
         eprintln!("started: {}", self.daemon_start().await?);
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {

@@ -4,20 +4,19 @@
 //! daemon's ticks (idle work), run its steps noting each one's session, end
 //! it if it holds others up past the hold bound, and take it off the queue.
 
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use factorium_domain::admission::{self, Reading};
+use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy,
-    older, queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
+    queue_id,
 };
 use factorium_domain::settings::Time;
-use factorium_host::{PLACE, Priority, Proc, Ran, run};
+use factorium_host::{PLACE, Priority, Ran, run};
 use factum::Uuid;
 
 use crate::{Answer, App, Refusal};
@@ -72,30 +71,6 @@ pub(crate) struct Running {
 }
 
 impl App {
-    /// The host's reading as the rules see it: the workers' share of the CPU
-    /// added from their processes.
-    pub(crate) fn reading(&self) -> Reading {
-        self.reading_outside(&self.host.processes(), &BTreeSet::new())
-    }
-
-    /// [`App::reading`] with the CPU of the processes in `granted` left out:
-    /// load outside the heavy slots, which the queue does not bound.
-    pub(crate) fn reading_outside(&self, procs: &[Proc], granted: &BTreeSet<u32>) -> Reading {
-        let r = self.host.reading();
-        let cores = self.cores() as f64;
-        let outside = || procs.iter().filter(|p| !granted.contains(&p.pid));
-        let workers: f64 = outside().filter(|p| p.worker.is_some()).map(|p| p.cpu).sum();
-        let slots: f64 = procs.iter().filter(|p| granted.contains(&p.pid)).map(|p| p.cpu).sum();
-        let pct = |cpu: f64| (cpu / cores).round() as u64;
-        let (memory_free, disk_free) = (r.memory_free, r.disk_free);
-        Reading { cpu_busy: r.cpu_busy.saturating_sub(pct(slots)), memory_free, disk_free, workers_cpu: pct(workers) }
-    }
-
-    /// How many cores the host has: a process's CPU is a percent of one.
-    pub(crate) fn cores(&self) -> usize {
-        std::thread::available_parallelism().map_or(1, |n| n.get())
-    }
-
     /// Runs `job` when its turn comes: how each step ran, up to the first
     /// that failed. `None`: [`Turn::Once`] or [`Turn::Beside`], and not its
     /// turn yet. [`Turn::Beside`] answers no runs once it started: each
@@ -185,7 +160,7 @@ impl App {
     /// entry `id`; answers why not if it cannot.
     fn as_installed(&self, id: Uuid, stale: Refusal) -> Refusal {
         use std::os::unix::process::CommandExt;
-        self.runs_as_this();
+        let _ = self.linked();
         let Some(link) = self.swapped() else { return stale };
         let e = std::process::Command::new(&link).args(std::env::args_os().skip(1)).env(PLACE, id.to_string()).exec();
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
@@ -235,7 +210,7 @@ impl App {
         let settings = self.settings().await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
-        let room = admission::room(&self.reading(), &settings);
+        let room = admission::room(&crate::load::Load::read(&*self.host, q).room(), &settings);
         let settle = settings.ms(Time::HeavySettle);
         match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules: self.rules.clone() }).await {
             Ok(()) => Ok(true),
@@ -314,17 +289,4 @@ impl App {
         }
         Ok(rans)
     }
-}
-
-/// The processes the heavy queue granted: the pid of each started entry of
-/// `entries`, and every process under it.
-pub(crate) fn granted<'a>(procs: &[Proc], entries: impl IntoIterator<Item = &'a Entry>) -> BTreeSet<u32> {
-    let mut roots: Vec<u32> = entries.into_iter().filter(|e| e.started_at.is_some()).map(|e| e.pid).collect();
-    let mut all = BTreeSet::new();
-    while let Some(pid) = roots.pop() {
-        if all.insert(pid) {
-            roots.extend(procs.iter().filter(|p| p.ppid == pid).map(|p| p.pid));
-        }
-    }
-    all
 }

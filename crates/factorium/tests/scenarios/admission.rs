@@ -150,6 +150,8 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
         w.host.reading.lock().unwrap().cpu_busy = 95;
         let t = w.tick().await;
         assert!(t.started.is_some(), "the slot's load is the queue's to bound: {:?}", t.held);
+        let doctor = w.app.doctor().await.unwrap();
+        assert_eq!(doctor["reading"]["cpu_busy"], 5, "doctor reads as admission does: {doctor}");
         std::fs::write(dir.join("release"), "").unwrap();
     };
     let cli = w.run();
@@ -159,7 +161,9 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
     // The same load outside any slot holds admission.
     *w.host.procs.lock().unwrap() = vec![Proc { ppid: 1, ..sweep }];
     let t = w.tick().await;
-    assert!(t.started.is_none() && t.held.as_deref().unwrap().starts_with("cpu"), "{:?}", t.held);
+    assert!(t.started.is_none() && t.held.as_deref().unwrap().starts_with("cpu: 95%"), "{:?}", t.held);
+    let doctor = w.app.doctor().await.unwrap();
+    assert_eq!(doctor["reading"]["cpu_busy"], 95, "doctor reads as admission does: {doctor}");
 }
 
 #[tokio::test]

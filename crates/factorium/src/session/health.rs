@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use factorium_domain::health::{self, Observation, Observe, Sight, Verdict};
+use factorium_domain::health::{Observation, Observe, Sight, Verdict};
 use factorium_domain::kit::{AccountNote, LimitAccount};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
@@ -16,6 +16,7 @@ use serde_json::json;
 
 use super::Session;
 use crate::life::End;
+use crate::load::Share;
 use crate::{Answer, App};
 
 impl App {
@@ -27,18 +28,10 @@ impl App {
         Ok((handed && matches!(self.see(&s), Some(Sight::Closed(Some(_))))).then_some(s))
     }
 
-    /// Looks at one live worker, whose processes hold `load` and are near
-    /// idle if `quiet`, and which has a heavy entry in flight if `heavy`: the observation is recorded and decided on in one
-    /// command, and what it decided is carried out. Answers what it found,
-    /// if anything.
-    pub(crate) async fn worker_health(
-        &self,
-        worker: Uuid,
-        load: health::Load,
-        quiet: bool,
-        heavy: bool,
-        settings: &Settings,
-    ) -> Answer<Option<Value>> {
+    /// Looks at one live worker, with its `share` of the host: the
+    /// observation is recorded and decided on in one command, and what it
+    /// decided is carried out. Answers what it found, if anything.
+    pub(crate) async fn worker_health(&self, worker: Uuid, share: Share, s: &Settings) -> Answer<Option<Value>> {
         let wk = self.state::<Workers>(worker).await?;
         let Some(st) = wk.started.clone() else { return Ok(None) };
         let Ok(session) = Self::worker_session(worker, &st) else { return Ok(None) };
@@ -53,7 +46,8 @@ impl App {
         let Some(sight) = self.see(&session) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now());
         let evidence = evidence.to_string_lossy().into_owned();
-        let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: settings.clone() };
+        let Share { load, quiet, heavy } = share;
+        let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: s.clone() };
         match Verdict::of(&self.decide::<Observe>(seen).await?) {
             Verdict::Fine => Ok(None),
             Verdict::Waits { why, hot } => {
