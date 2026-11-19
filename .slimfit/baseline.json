@@ -45,6 +45,12 @@
       "test": "factorium::scenarios::queue::a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_next_tick",
       "hash": "a931f94b44b5ee1c",
       "reason": "It checks a landing waiting out a running heavy command keeps one queue entry however many ticks ask, and its gate starts on the next tick; the other checks a cut retries brew update with back-off until the tap shows the version. They share the landing pipeline's lines, not an assertion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own",
+      "hash": "df17f8e6406a14ed",
+      "reason": "It checks promote and cut asked by hand (nothing to promote before a landing, the tip promoted, v0.1.0 cut, nothing new to cut, the tag on the step's own commit) and the landings' author on a fresh host and with the host's [user]; the other checks the line's work dirs are clones, not worktrees of the checkout. They share the landing, promotion and cut pipeline, not an assertion."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
