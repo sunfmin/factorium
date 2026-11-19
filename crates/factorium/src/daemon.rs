@@ -1,14 +1,13 @@
 //! The daemon's tick: one pass over everything that moves without a
-//! command — workers watched, landings, promotions, cuts, one start if
-//! admission allows, idle work, issues to bump a pin of another checkout,
-//! and the watch's look.
+//! command — landings, promotions, cuts, issues to bump a pin of another
+//! checkout, workers watched, one start if admission allows, idle work, and
+//! the watch's look. The host and the heavy queue are read once a pass
+//! ([`crate::load`]), after the lines' gates.
 
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
-use factorium_domain::health;
-use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
@@ -73,42 +72,26 @@ impl App {
         let mut t = Tick::default();
         self.engine.settle().await?;
         let settings = self.settings().await?;
-        // Workers: their sessions, and their share of the host.
-        let procs = self.host.processes();
-        let queue = self.state::<Heavy>(queue_id()).await?;
-        for w in self.live_workers().await? {
-            let id = w.worker;
-            // What runs in its heavy slot is the queue's to bound, not its share's.
-            let held = crate::heavy::granted(&procs, queue.entries.iter().filter(|e| e.worker == Some(id)));
-            let mine: Vec<_> = procs
-                .iter()
-                .filter(|p| p.worker.as_deref() == Some(&id.to_string()) && !held.contains(&p.pid))
-                .collect();
-            let core_percent = mine.iter().map(|p| p.cpu).sum::<f64>();
-            let rss_kib = mine.iter().map(|p| p.rss_kib).sum();
-            let load = health::Load::of(core_percent, rss_kib, mine.len() as u64, self.cores());
-            // Its own entry waiting, or running alive within the hold bound: it is not silent.
-            let hold = settings.ms(Time::HoldBound);
-            let heavy = queue.entries.iter().any(|e| {
-                e.worker == Some(id) && self.host.alive(e.pid) && e.started_at.is_none_or(|t| self.now() - t <= hold)
-            });
-            let quiet = health::quiet(core_percent);
-            if let Some(seen) = self.worker_health(id, load, quiet, heavy, &settings).await? {
-                t.seen.push(seen);
-            }
-        }
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
         t.bumped = self.bumps(&checkouts).await?;
+        // The host and the heavy queue, read once, after the lines' gates
+        // ran: the workers' shares, admission and idle work all ask it.
+        let load = self.load().await?;
+        // Workers: their sessions, and their share of the host.
+        let hold = settings.ms(Time::HoldBound);
+        for w in self.live_workers().await? {
+            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
+            {
+                t.seen.push(seen);
+            }
+        }
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
-            // What the heavy queue granted is its to bound: admission counts the rest.
-            let (procs, queue) = (self.host.processes(), self.state::<Heavy>(queue_id()).await?);
-            let reading = self.reading_outside(&procs, &crate::heavy::granted(&procs, &queue.entries));
-            let held = admission::admit(&reading, &settings);
+            let held = admission::admit(&load.admission(), &settings);
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
                     Ok(started) => {
@@ -126,8 +109,8 @@ impl App {
             self.submit::<NoteAdmission>(Held { why: None }).await?;
         }
         // Idle work, once the lines and the workers have what they need.
-        t.idle.extend(self.idle_start(&checkouts, &settings).await?);
-        if admission::disk_short(&self.reading(), &settings) {
+        t.idle.extend(self.idle_start(&checkouts, &load, &settings).await?);
+        if admission::disk_short(&load.room(), &settings) {
             self.reclaim();
         }
         t.resumed = self.resume_parked().await?;
