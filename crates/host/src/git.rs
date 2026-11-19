@@ -145,27 +145,29 @@ impl Git {
 
     /// A work dir of this repo at `path`, detached on `rev`: a clone sharing
     /// this repo's objects, whose `origin` is this one's origin, keeping its
-    /// ignored files (builds) from before, and this repo's tags as they are
-    /// now: a gate there sees the refs a worktree of this repo sees
-    /// (factorium#109). Neither git nor Orca counts it among this repo's
-    /// worktrees; one made as a worktree before is made again as a clone.
+    /// ignored files (builds) from before. Each time it is made or reused it
+    /// gets this repo's tags and remote-tracking refs (`origin/*`, with
+    /// `origin/HEAD`) as this repo has them now, those it lacks pruned: a
+    /// gate there sees the refs a worktree of this repo sees, and measures
+    /// against the base this repo has (factorium#109, factorium#131).
+    /// Neither git nor Orca counts it among this repo's worktrees; one made
+    /// as a worktree before is made again as a clone.
     pub fn fresh(&self, path: &Path, rev: &str) -> Result<Git, String> {
         let here = self.at(path);
         if path.join(".git").is_file() {
             self.worktree_remove(path)?;
         }
         let from = self.dir.to_string_lossy();
-        if path.join(".git").is_dir() {
-            here.run(&["fetch", "--quiet", "--force", "--prune", &from, "+refs/tags/*:refs/tags/*"])?;
-            here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
-            here.run(&["clean", "-fdq"])?;
-            return Ok(here);
+        if !path.join(".git").is_dir() {
+            std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
+            let origin = self.run(&["remote", "get-url", "origin"])?;
+            self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &path.to_string_lossy()])?;
+            here.run(&["remote", "set-url", "origin", &origin])?;
         }
-        std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
-        let origin = self.run(&["remote", "get-url", "origin"])?;
-        self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &path.to_string_lossy()])?;
-        here.run(&["remote", "set-url", "origin", &origin])?;
-        here.run(&["checkout", "--quiet", "--detach", rev])?;
+        let refs = ["+refs/tags/*:refs/tags/*", "+refs/remotes/origin/*:refs/remotes/origin/*"];
+        here.run(&["fetch", "--quiet", "--force", "--prune", &from, refs[0], refs[1]])?;
+        here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
+        here.run(&["clean", "-fdq"])?;
         Ok(here)
     }
 
