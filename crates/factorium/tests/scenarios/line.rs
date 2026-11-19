@@ -5,7 +5,7 @@ use serde_json::json;
 use factorium::LineClone;
 use factorium::host::Host;
 
-use crate::fixture::{CLAUDE, World, findings, id, worker, worktree};
+use crate::fixture::{CLAUDE, NEEDS_NEWER, World, findings, id, proved, worker, worktree};
 
 #[tokio::test]
 async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound_less_the_hold_bound() {
@@ -118,6 +118,11 @@ async fn a_cut_of_the_daemons_own_formula_asks_for_a_restart() {
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()));
+    // The new binary was proven on a copy of the database, not the live one, gone once proven.
+    let proved = proved(&w, "web", "0.1.0");
+    assert_eq!(proved.len(), 1, "once, the cut's proof the swap takes: {proved:?}");
+    assert!(proved[0] != w.db && proved[0].starts_with(w.data().root()), "{proved:?}");
+    assert!(!proved[0].exists(), "a proven copy is not kept");
     let w = World::new();
     w.running_as(&w.app, "other");
     let t = cut_one(&w).await;
@@ -148,6 +153,34 @@ async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
     assert_eq!(cut["installed"], "web", "{cut}");
     let t = w.tick().await;
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()), "the next tick swaps the binary");
+}
+
+/// A version whose store needed a column the host's database lacked: once
+/// swapped in, every tick and command failed (factorium#141).
+#[tokio::test]
+async fn a_cut_whose_binary_cannot_open_the_hosts_database_fails_and_the_old_one_runs_on() {
+    let w = World::new();
+    w.running_as(&w.app, "web");
+    w.next_binary("web", NEEDS_NEWER);
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("no such column: handed_back"), "{why}");
+    assert_eq!(t.restart, None, "the old binary runs on");
+    // It ran on a copy, kept and named for a look.
+    let ran_on = proved(&w, "web", "0.1.0");
+    assert_eq!(ran_on.len(), 1, "{ran_on:?}");
+    let copy = &ran_on[0];
+    assert!(copy != &w.db && copy.exists(), "{copy:?}");
+    assert_eq!(std::fs::read(copy).unwrap()[..16], *b"SQLite format 3\0");
+    let finding = w.findings().await[0]["what"].as_str().unwrap().to_string();
+    assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("no such column: handed_back"), "{finding}");
+    assert!(finding.contains(&*copy.to_string_lossy()), "it names the copy: {finding}");
+    // Another process on the old binary (the daemon, restarted) proves it again, and does not swap.
+    let daemon = w.run();
+    daemon.runs_as(&w.dir.join("brew/Cellar/web/0.0.9/bin/factorium").canonicalize().unwrap());
+    assert_eq!(daemon.tick().await.unwrap().restart, None);
+    assert_eq!(proved(&w, "web", "0.1.0").len(), 2, "proven again, on a copy of its own");
 }
 
 /// The `sleep`s run since the cut's first `brew update`: its waits for the tap.

@@ -17,7 +17,7 @@ budget() {
 budget domain 6580
 budget harness 8000
 budget host 4000
-budget factorium 4460
+budget factorium 4490
 
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --quiet -- -D warnings

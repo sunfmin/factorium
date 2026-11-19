@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 9718,
-      "test_lines": 7350,
-      "tests": 250,
+      "prod_lines": 9635,
+      "test_lines": 7296,
+      "tests": 247,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 5508,
+      "covered_lines": 5451,
       "uncovered_lines": 107
     }
   },
@@ -40,14 +40,7 @@
       "reason": "the fast gate now runs slimfit check on every landing (factorium#121), and the same tree measured 204.1s, 206.1s, 208.9s, 216.8s at 1-min load 25-50 on 18 cores, load-corrected (slimfit 0.1.15), against a 213.8s limit: one landing in four would go red on the host's load, not its code. gate.sh's CPU bound (231-233s of 310s) is the time guard (SPEC 6). factorium#121"
     }
   ],
-  "kept": [
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_cut_of_the_daemons_own_formula_asks_for_a_restart",
-      "hash": "e7c92dfd1a2435c4",
-      "reason": "It checks a cut of the daemon's own formula asks for a restart with the daemon's binary, and another formula's cut does not; the other checks the line's work dirs are clones. Folding it in would set which formula the daemon runs as under the work-dirs scenario, and its second case needs a daemon of another formula. They share the cut pipeline, not an assertion."
-    }
-  ],
+  "kept": [],
   "kept_files": [
     {
       "suite": "rust",

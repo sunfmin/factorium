@@ -106,6 +106,12 @@ impl Data {
         self.0.join("daemon.pid")
     }
 
+    /// A copy of the database, made to prove a binary on (`id` its own),
+    /// kept where it failed for a look.
+    pub fn proof(&self, id: impl std::fmt::Display) -> PathBuf {
+        self.0.join("proofs").join(id.to_string()).join("factorium.db")
+    }
+
     /// What the daemon prints, as the service keeps it.
     pub fn log(&self) -> PathBuf {
         self.0.join("daemon.log")

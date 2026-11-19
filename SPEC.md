@@ -198,7 +198,11 @@ defined in `packaging/factorium.plist`) with the installing shell's PATH
 declared in it, restarted whenever it exits; `factorium stop` unloads it.
 A daemon Homebrew installed notes its formula's link at start; once the
 link names another version (a cut by the daemon, by `factorium cut`, or
-by hand), it execs the link between ticks, as the same pid. So no session
+by hand), it execs the link between ticks, as the same pid, once that
+binary is proven to open this host's database: it answers `doctor` on a
+copy (SQLite's backup, never the live file). A cut of the formula proves
+it right after the install; one that fails is a failed cut, its why the
+error and the copy's path (kept for a look), and the old binary runs on. So no session
 stops it: the guard refuses `stop` to the watch, which lives under the
 daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
@@ -223,7 +227,7 @@ The help in the binary is the manual (as in afkconvoy): every command's
 | `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,580 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,460 |
+| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,490 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
 100 lines from the domain's budget (4,055 used) to the binary's: restarting
@@ -232,7 +236,7 @@ stood at 3,987. factorium#124 moved 200 more the same way (the domain at
 4,087): removing a closed issue's worktree, and finding and discarding
 worktrees no open issue owns, are git and Orca effects of the app, and the
 binary stood at 4,086. factorium#142 moved 120 more (the domain to 6,580, the
-binary to 4,460; the domain at 4,456): when the store cannot be read, the
+binary to 4,490; the domain at 4,456): when the store cannot be read, the
 watch is briefed and doctor answers through files under the data
 directory and Orca's terminal, the app's effects.
 
