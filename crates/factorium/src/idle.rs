@@ -1,117 +1,71 @@
 //! Idle work as the daemon runs it: a checkout's `[idle]` steps on its base
 //! tip, in their own clone, as a heavy command that starts only while the
-//! host is idle and the queue holds nothing else. It runs beside the ticks,
-//! never inside one: a tick that finds it ended records it; a tick that
-//! finds the host no longer idle — a worker at work, anything else queued —
-//! ends it, unrecorded, so the next idle window runs it again. The tasks
-//! a run's `tasks` line prints are filed as issues before it is recorded.
-//! Tasks overdue by `tasks_bound` run without an idle host, and only them:
-//! such a run yields to nothing.
+//! host is idle and the queue holds nothing else. It runs beside the ticks
+//! through the heavy queue ([`Turn::Beside`]), which notes its sessions,
+//! ends it when it is unqueued, and gives way for it when the host is no
+//! longer idle — a worker at work, anything else queued — unrecorded, so the
+//! next idle window runs it again. What is idle work's own is here: what is
+//! due, its clone, the tasks a run's `tasks` line prints, filed as issues
+//! before it is recorded, and the record. Tasks overdue by `tasks_bound` run
+//! without an idle host, and only them: such a run yields to nothing.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::heavy::{End, EndHeavy, Heavy, queue_id};
+use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
 use factorium_domain::issue::Open;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::task::{self, ToFile};
 use factorium_domain::tracker;
-use factorium_host::Clock;
 use factorium_host::Priority;
-use factum::{Uuid, Value};
+use factum::Value;
 use serde_json::json;
 
+use crate::heavy::{Besides, Job, Turn};
 use crate::{Answer, App, LineClone, fail};
 
 /// The idle work running now, of one checkout: the host runs one at a time.
 pub(crate) struct Running {
     checkout: String,
     tip: String,
-    /// Its heavy-queue entry.
-    id: Uuid,
     at: i64,
+    /// Its steps, and their limit in all, s.
+    steps: Vec<String>,
+    limit: u64,
     /// Where its `tasks` line prints, if it has one.
     tasks: Option<std::path::PathBuf>,
-    /// Overdue: it runs whether the host is idle or not.
-    overdue: bool,
-    stop: Arc<AtomicBool>,
-    run: std::thread::JoinHandle<Ended>,
-}
-
-/// How a run's steps ended.
-struct Ended {
-    green: bool,
-    /// Ended because the host was no longer idle.
-    yielded: bool,
-    tail: String,
-    took_ms: u64,
-}
-
-/// Runs `steps` in `dir` one after another until one fails, all of them
-/// within `limit` on `clock`, or until `stop` is set. The limit is the
-/// app's clock, not the time a background step is given the CPU: a busy
-/// host slows the step, and a scenario moves the clock past it.
-fn steps(
-    dir: std::path::PathBuf,
-    steps: Vec<String>,
-    limit: Duration,
-    clock: Arc<dyn Clock>,
-    stop: Arc<AtomicBool>,
-) -> Ended {
-    let started = Instant::now();
-    let deadline = clock.now().saturating_add(limit.as_millis() as i64);
-    let past = || clock.now() >= deadline;
-    let mut tail = String::new();
-    for step in &steps {
-        let end = || stop.load(Ordering::Relaxed) || past();
-        let ran = factorium_host::run(&dir, step, &[], Duration::MAX, Priority::Background, &|_| {}, &end);
-        if !ran.ok {
-            let timed_out = past();
-            let why = if timed_out {
-                format!("past its limit of {}s", limit.as_secs())
-            } else {
-                format!("step `{step}` failed")
-            };
-            let took_ms = started.elapsed().as_millis() as u64;
-            let yielded = stop.load(Ordering::Relaxed) && !timed_out;
-            return Ended { green: false, yielded, tail: format!("{why}:\n{}", ran.tail), took_ms };
-        }
-        tail = ran.tail;
-    }
-    Ended { green: true, yielded: false, tail, took_ms: started.elapsed().as_millis() as u64 }
 }
 
 impl App {
-    /// The running idle work, if any: recorded once it ended; ended if its
-    /// queue entry was taken off, or, unless overdue, the host is no longer idle.
+    /// The running idle work, if any: recorded once it ended; unrecorded if
+    /// it was unqueued, or gave way as the host is no longer idle.
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
-        let Some(r) = self.memory.lock().unwrap().idle.take() else { return Ok(None) };
-        let q = self.state::<Heavy>(queue_id()).await?;
-        let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
-        let others =
-            q.entries.iter().any(|e| e.id != r.id) || host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let busy = !q.holds(r.id) || (others && !r.overdue);
-        if !r.run.is_finished() && !busy {
-            self.memory.lock().unwrap().idle = Some(r);
+        if self.memory.lock().unwrap().idle.is_none() {
             return Ok(None);
         }
-        let Running { checkout, tip, id, at, tasks, stop, run, .. } = r;
-        stop.store(busy, Ordering::Relaxed);
-        let ended = tokio::task::spawn_blocking(move || run.join()).await.ok().and_then(Result::ok).unwrap_or(Ended {
-            green: false,
-            yielded: false,
-            tail: "its run panicked".into(),
-            took_ms: 0,
-        });
-        self.submit::<EndHeavy>(End { id }).await?;
-        if ended.yielded {
-            return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": "the host is no longer idle" })));
+        let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
+        let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
+        let ended = self.beside(busy).await?;
+        if matches!(ended, Some(Besides::Runs)) {
+            return Ok(None);
         }
-        let Ended { mut green, mut tail, took_ms, .. } = ended;
+        let Some(Running { checkout, tip, at, steps, limit, tasks }) = self.memory.lock().unwrap().idle.take() else {
+            return Ok(None);
+        };
+        let rans = match ended {
+            Some(Besides::Ran(rans)) => rans,
+            Some(Besides::Unqueued) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "unqueued": true }))),
+            _ => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": "the host is no longer idle" }))),
+        };
+        let took_ms = rans.iter().map(|r| r.took_ms).sum();
+        let (mut green, mut tail) = match rans.last() {
+            None => (true, String::new()),
+            Some(r) if r.ok => (true, r.tail.clone()),
+            Some(r) if r.timed_out => (false, format!("past its limit of {limit}s:\n{}", r.tail)),
+            Some(r) => (false, format!("step `{}` failed:\n{}", steps[rans.len() - 1], r.tail)),
+        };
         let mut filed = Vec::new();
         if let (true, Some(out)) = (green, tasks) {
             match self.file_tasks(&checkout, &tip, &out).await? {
@@ -179,26 +133,29 @@ impl App {
             work.steps.push(format!("( {line} ) > '{}'", out.display()));
             out
         });
-        let id = Uuid::now_v7();
-        if !self.start_once(id, idle::job(&c.name), settings).await? {
+        let job = Job {
+            what: idle::job(&c.name),
+            worker: None,
+            bound_at: None,
+            dir: &here.dir,
+            steps: &work.steps,
+            env: &[],
+            limit: Duration::from_secs(work.limit),
+            priority: Priority::Background,
+        };
+        let at = self.now();
+        if self.heavy(job, Turn::Beside { yields: !overdue }).await?.is_none() {
             return Ok(None);
         }
-        let stop = Arc::new(AtomicBool::new(false));
-        let (dir, flag, limit, clock) =
-            (here.dir.clone(), stop.clone(), Duration::from_secs(work.limit), self.clock.clone());
-        let run = std::thread::spawn(move || steps(dir, work.steps, limit, clock, flag));
-        let (checkout, at) = (c.name.clone(), self.now());
-        self.memory.lock().unwrap().idle =
-            Some(Running { checkout, tip: tip.clone(), id, at, tasks, overdue, stop, run });
+        let (checkout, steps, limit) = (c.name.clone(), work.steps, work.limit);
+        self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))
     }
 
     /// Ends the running idle work, unrecorded: the daemon is about to stop
     /// or be replaced, and what it started must not outlive it.
     pub(crate) async fn idle_end(&self) {
-        let Some(r) = self.memory.lock().unwrap().idle.take() else { return };
-        r.stop.store(true, Ordering::Relaxed);
-        let _ = tokio::task::spawn_blocking(move || r.run.join()).await;
-        let _ = self.submit::<EndHeavy>(End { id: r.id }).await;
+        self.memory.lock().unwrap().idle = None;
+        self.beside_end().await;
     }
 }

@@ -167,6 +167,8 @@ struct Memory {
     running: Option<(PathBuf, PathBuf)>,
     /// The idle work running beside the ticks.
     idle: Option<idle::Running>,
+    /// The heavy job running beside the ticks.
+    beside: Option<heavy::Beside>,
 }
 
 /// The host's clock, as the engine reads it.
