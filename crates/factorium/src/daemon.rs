@@ -241,9 +241,9 @@ impl App {
         let _ = self.linked();
         match self.daemon_start().await {
             Ok(started) => eprintln!("started: {started}"),
-            // Its ticks go on: their looks reach the watch outside the store.
-            Err(r) if r.code == "store" => eprintln!("start: {r}"),
-            Err(r) => return Err(r),
+            // Its ticks go on: a failing one is recorded, and its look
+            // reaches the watch, outside the store if need be.
+            Err(r) => eprintln!("start: {r}"),
         }
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {

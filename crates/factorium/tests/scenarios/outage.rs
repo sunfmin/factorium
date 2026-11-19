@@ -48,6 +48,14 @@ async fn a_look_that_cannot_read_the_store_briefs_the_watch_once_an_hour() {
 }
 
 #[tokio::test]
+async fn a_daemon_whose_start_cannot_record_goes_on_to_its_ticks() {
+    let w = World::new();
+    unreadable(&w).await;
+    let ran = w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+    assert_eq!(ran["ticks"], 0, "{ran}");
+}
+
+#[tokio::test]
 async fn doctor_that_cannot_read_the_store_says_so_as_its_one_finding() {
     let w = World::new();
     unreadable(&w).await;
