@@ -26,6 +26,7 @@ mod admission;
 mod base;
 mod binary;
 mod bounds;
+mod bump;
 mod comment;
 mod daemon;
 mod fixtures;

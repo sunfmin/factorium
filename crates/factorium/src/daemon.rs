@@ -1,8 +1,10 @@
 //! The daemon's tick: one pass over everything that moves without a
 //! command — workers watched, landings, promotions, cuts, one start if
-//! admission allows, idle work, and the watch's look.
+//! admission allows, idle work, issues to bump a pin of another checkout,
+//! and the watch's look.
 
 use factorium_domain::admission;
+use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
 use factorium_domain::health;
@@ -32,6 +34,8 @@ pub struct Tick {
     pub started: Option<Value>,
     /// Parked workers sent back to work: what their issues waited for is met.
     pub resumed: Vec<Value>,
+    /// Issues filed to bump a pin of another checkout behind its base tip.
+    pub bumped: Vec<Value>,
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
@@ -100,6 +104,7 @@ impl App {
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
+        t.bumped = self.bumps(&checkouts).await?;
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
             // What the heavy queue granted is its to bound: admission counts the rest.
@@ -159,6 +164,37 @@ impl App {
         let (me, link) = self.memory.lock().unwrap().running.clone()?;
         let now = link.canonicalize().ok()?;
         (now != me).then_some(link)
+    }
+
+    /// One issue to bump, in each checkout whose proving tip pins another
+    /// checkout by git rev behind that one's base tip, while none is open
+    /// (factorium#127). Read from refs as last fetched: no fetch of its own.
+    async fn bumps(&self, checkouts: &[Checkout]) -> Answer<Vec<Value>> {
+        let mut filed = Vec::new();
+        for c in checkouts {
+            let proving = format!("refs/remotes/origin/{}", c.proving);
+            let pins = self.host.git(&c.path).shown(&proving, "Cargo.toml").map(|t| bump::pins(&t)).unwrap_or_default();
+            if pins.is_empty() {
+                continue;
+            }
+            let open: Vec<String> =
+                self.rows(tracker::issues(Some(&c.name), false)).await?.into_iter().map(|r| r.title).collect();
+            for d in checkouts.iter().filter(|d| d.name != c.name && !bump::open(&d.name, &open)) {
+                let git = self.host.git(&d.path);
+                let Some(pin) = git.origin().ok().and_then(|u| pins.iter().find(|p| bump::same_repo(&p.url, &u)))
+                else {
+                    continue;
+                };
+                let Ok(tip) = git.sha(&d.fetched_base()) else { continue };
+                let landings = git.landings(&pin.rev, &tip).unwrap_or_default();
+                if landings.is_empty() || !git.is_ancestor(&pin.rev, &tip) {
+                    continue;
+                }
+                let (title, body) = bump::issue(&d.name, &pin.rev, &tip, &landings);
+                filed.push(self.issue_add(&c.name, &title, &body, false, &[]).await?);
+            }
+        }
+        Ok(filed)
     }
 
     /// The oldest ready issue no worker holds and nothing open blocks.
@@ -277,7 +313,8 @@ impl App {
                         || !t.lines.is_empty()
                         || !t.seen.is_empty()
                         || !t.idle.is_empty()
-                        || !t.resumed.is_empty();
+                        || !t.resumed.is_empty()
+                        || !t.bumped.is_empty();
                     if t.started.is_some() || did {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
