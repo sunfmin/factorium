@@ -29,6 +29,12 @@ impl World {
         }
     }
 
+    /// The store no longer reads: a column the code reads is not there, as
+    /// on a database an older binary left that a newer one cannot read.
+    pub fn store_reads_fail(&self) {
+        self.migrate("ALTER TABLE events RENAME COLUMN data TO data_before;");
+    }
+
     /// Every stream has a snapshot older code left, of no use to this code.
     pub fn snapshots_older_code_left(&self) {
         self.migrate(

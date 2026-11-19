@@ -58,14 +58,15 @@ impl App {
     pub async fn tick(&self) -> Answer<Tick> {
         let done = self.pass().await;
         let error = done.as_ref().err().map(Refusal::to_string);
-        self.submit::<NoteTick>(Ticked { error }).await?;
-        if done.is_err() {
+        let noted = self.submit::<NoteTick>(Ticked { error }).await;
+        if done.is_err() || noted.is_err() {
             let settings = self.settings().await.unwrap_or_default();
             if let Err(e) = self.look_if_due(&settings).await {
                 eprintln!("look: {e}");
+                self.look_failed(&e);
             }
         }
-        done
+        noted.and(done)
     }
 
     async fn pass(&self) -> Answer<Tick> {
@@ -238,7 +239,12 @@ impl App {
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
         let _ = self.linked();
-        eprintln!("started: {}", self.daemon_start().await?);
+        match self.daemon_start().await {
+            Ok(started) => eprintln!("started: {started}"),
+            // Its ticks go on: their looks reach the watch outside the store.
+            Err(r) if r.code == "store" => eprintln!("start: {r}"),
+            Err(r) => return Err(r),
+        }
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             match self.tick().await {

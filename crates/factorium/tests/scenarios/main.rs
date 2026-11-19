@@ -34,6 +34,7 @@ mod idle;
 mod kept;
 mod line;
 mod one_harness;
+mod outage;
 mod outbox;
 mod parked;
 mod path;

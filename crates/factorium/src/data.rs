@@ -91,6 +91,16 @@ impl Data {
         self.0.join("evidence").join(format!("{worker}-{at}.txt"))
     }
 
+    /// Where the watch's session is reached when the store cannot be read.
+    pub fn watch_reach(&self) -> PathBuf {
+        self.0.join("watch-reach.json")
+    }
+
+    /// The looks failing on the store now, and when the watch heard of it.
+    pub fn outage(&self) -> PathBuf {
+        self.0.join("outage.json")
+    }
+
     /// The running daemon's pid.
     pub fn pid(&self) -> PathBuf {
         self.0.join("daemon.pid")

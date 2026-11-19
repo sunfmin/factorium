@@ -66,6 +66,10 @@ fn main() -> ExitCode {
             if exclusive {
                 return ExitCode::from(answer["code"].as_i64().unwrap_or(1).clamp(0, 255) as u8);
             }
+            // Doctor that cannot read the store answers that finding, and fails.
+            if answer.get("unreadable").is_some() {
+                return ExitCode::FAILURE;
+            }
             ExitCode::SUCCESS
         }
         Err(refusal) => {
