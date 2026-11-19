@@ -16,6 +16,7 @@ mod line;
 mod owner;
 mod service;
 mod session;
+mod swap;
 mod watch;
 mod work;
 

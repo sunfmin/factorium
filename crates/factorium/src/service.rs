@@ -48,9 +48,7 @@ impl App {
 
     fn service_plist(&self) -> String {
         // As Homebrew links it, so the agent outlives upgrades; else as it is.
-        self.runs_as_this();
-        let link = self.memory.lock().unwrap().running.clone().map(|(_, link)| link);
-        let exe = link.or_else(|| std::env::current_exe().ok()).unwrap_or_else(|| PathBuf::from("factorium"));
+        let exe = self.linked().or_else(|| std::env::current_exe().ok()).unwrap_or_else(|| PathBuf::from("factorium"));
         let mut path: Vec<PathBuf> = Vec::new();
         for d in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
             if d.is_absolute() && d.is_dir() && !path.contains(&d) {
