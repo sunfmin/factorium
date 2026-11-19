@@ -3,7 +3,7 @@
     "rust": {
       "prod_lines": 11220,
       "test_lines": 7511,
-      "tests": 231,
+      "tests": 230,
       "failures": 0,
       "test_seconds": 177.366,
       "covered_lines": 5084,
