@@ -263,9 +263,9 @@ depend on nothing else of factorium.
   setup, is found by slimfit's coverage-plus-review task and deleted or
   merged into the other; the rule is slimfit's (slimfit#31), not
   restated here.
-- **Bounds.** The tests spend 200 seconds of CPU or less once built: the
-  user+sys time of the `cargo test` tree, which `gate.sh` reads from the
-  shell's `times`. No test sleeps; time moves when a scenario moves it.
+- **Bounds.** The tests spend 310 seconds of CPU or less once built: the
+  user+sys time of the `slimfit check` tree (the one test run, below),
+  which `gate.sh` reads from the shell's `times`. No test sleeps; time moves when a scenario moves it.
   CPU time, not wall time, because the bound must fail when the tests got
   slower and pass the same code on the same host however busy it is.
   Wall time does not: the suite took 24s idle and 75-193s at load 55-73 on
@@ -282,25 +282,44 @@ depend on nothing else of factorium.
   repos are copied in-process; a scenario of several worlds runs them at
   once (`each`, `at_once!`), so it takes its slowest world's time, not
   their sum; and the binary's tests run in the scenarios' binary, beside
-  them rather than after. The bound is about 1.5 times that 138s, so the
-  gain holds and a test that adds a minute of CPU fails it.
-  slimfit#13, not landed yet, fixes slimfit's `test_seconds` by dividing
-  by a measured load instead.
-- **slimfit holds the suite.** factorium's slow gate (`./slow.sh`) is
-  `./checks.sh` (the line budgets of §5, fmt, clippy: what `./gate.sh`
-  runs before its tests) then `slimfit check` against the committed
-  `.slimfit/baseline.json`: no failing test, no more uncovered lines than
-  the baseline (code may grow, untested code may not), and the tests'
-  summed durations within the baseline's tolerance. The suite runs once
-  there, the instrumented run. The CPU bound is held in `gate.sh`, on the
-  uninstrumented run every landing passes before it reaches proving:
-  slimfit records line counts but does not bound them, and its
-  `test_seconds` sums the tests' durations, not the CPU they spend.
-  A change that gains (fewer uncovered lines, faster tests) runs
-  `slimfit ratchet` and commits the moved baseline with the code, in the
-  same commit; a bound is raised only by `slimfit ratchet --loosen`, with
-  its reason kept in the baseline. `slimfit next` names the next thing to
-  test or make smaller.
+  them rather than after. The bound was about 1.5 times that 138s, so the
+  gain holds and a test that adds a minute of CPU fails it: 200s of plain
+  `cargo test`. factorium#121 moved the run under slimfit; the same tree
+  spent 148-152s plain and 231-233s instrumented (two rounds each,
+  interleaved, load 30-50 on 18 cores), so the bound became 310s, the
+  same margin over the instrumented run. slimfit corrects `test_seconds`
+  for the load now (slimfit#13), yet the same tree still measured
+  206-217s at load 25-50; the CPU bound stays the time guard.
+- **slimfit holds the suite, in the fast gate.** `./gate.sh` is
+  `./checks.sh` (the line budgets of §5, fmt, clippy) then `slimfit check`
+  against the committed `.slimfit/baseline.json` and `.slimfit/mutants/`:
+  no failing test, no more uncovered lines than the baseline (code may
+  grow, untested code may not), the tests' summed durations within the
+  baseline's tolerance, and no source line the change adds since
+  `origin/HEAD` outside a ratcheted mutants record. The suite runs once
+  there, instrumented, in place of a plain `cargo test`; the CPU bound
+  above is held around it. So a landing without its coverage or its
+  mutants record is stopped at its own gate, before it reaches proving:
+  until factorium#121 only `./slow.sh` ran slimfit, on the proving tip
+  after the landing, and #118 reached proving with 5 uncovered lines and
+  22 unmeasured. Its cost, measured on the same tree: the gate took 25-26s
+  against 14-16s with the plain run, 231-233s of CPU against 148-152s
+  (load 30-50 on 18 cores); with this tree's measurement cached (an
+  unchanged tree) `slimfit check` takes 1s. Cold, `gate.sh` first builds
+  the instrumented tests' dependencies outside the timed run (21s), as it
+  did the plain ones; slimfit rebuilds the workspace's own crates in every
+  run, which the bound counts. Run on the tree #118 landed with (its new
+  lines untested, no record), `./gate.sh` fails with `uncovered_lines`
+  and `unmeasured_mutants` in 26s. The slow gate (`./slow.sh`) is
+  `./gate.sh` again, on the proving tip a promotion moves.
+  The worker that changes source measures the change's mutants, at
+  background priority (`factorium worker exclusive --background --
+  slimfit check --mutants`), then runs `slimfit ratchet` and commits
+  `.slimfit/mutants/` with the change; the gate's failure says so. A
+  change that gains (fewer uncovered lines, faster tests) commits the
+  moved baseline with the code, in the same commit; a bound is raised
+  only by `slimfit ratchet --loosen`, with its reason kept in the
+  baseline. `slimfit next` names the next thing to test or make smaller.
 
 ## 7. From afkconvoy
 

@@ -1,0 +1,41 @@
+{
+  "lines": {
+    "crates/factorium/src/cli.rs": [
+      "09a302aa8a709825",
+      "42b58d070a95fc9f",
+      "53d8f346ecb80193",
+      "5c85056118425745",
+      "6693096dd826c67d",
+      "6c918b5c341fafac",
+      "7613ae4872d69411",
+      "b936a57b6c597279",
+      "c525ea33d5faaf6c",
+      "c5569e4297f6ac9c",
+      "c9a935232a43b7a0",
+      "ca7c438a6efdb543",
+      "db48c15f66224957",
+      "e9ceb877cbbae4c8",
+      "ec13cbef316c60cc"
+    ],
+    "crates/factorium/src/life.rs": [
+      "058a1e9033cc7c00",
+      "14689de6396433a0",
+      "2cf2e9e27eff4705"
+    ],
+    "crates/factorium/src/work.rs": [
+      "1a08b81f16ad405e",
+      "1cbaedb73f0dade6",
+      "3ac7dc7e17e3bad8",
+      "491d0bac92b5d723",
+      "769e4c0678fa3e6c",
+      "9374281d94a59a58",
+      "c2e140d75f28b3fa",
+      "c47420ac88fcc59a",
+      "c47ced528d8b3278",
+      "cbf29ce484222325",
+      "d7e9771ea9be2a28",
+      "dfa9cf7be4dbec23",
+      "f9f3c0c28acb8836"
+    ]
+  }
+}

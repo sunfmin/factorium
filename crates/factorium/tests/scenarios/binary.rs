@@ -166,6 +166,18 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run_with(&dir, &worker, &["worker", "done"]);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_worker", "a worker command runs for a worker");
+    // A comment's text comes from --text, else from stdin; empty, it is refused before the worker is looked up.
+    let (ok, answer) = run_with(&dir, &worker, &["worker", "comment", "--text", " "]);
+    assert!(!ok);
+    assert_eq!(answer["error"]["code"], "no_text", "{answer}");
+    let mut cmd = bin(&dir);
+    cmd.args(["worker", "comment"]).env("FACTORIUM_WORKER", WORKER);
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"before 12.3s, after 4.1s").unwrap();
+    let out = child.wait_with_output().unwrap();
+    let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(!out.status.success());
+    assert_eq!(answer["error"]["code"], "no_worker", "stdin's text reached the app: {answer}");
     let (ok, answer) = run(&dir, &["watch", "next"]);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "guarded");

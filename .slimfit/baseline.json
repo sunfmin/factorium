@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 11115,
-      "test_lines": 7410,
-      "tests": 231,
+      "prod_lines": 11247,
+      "test_lines": 7580,
+      "tests": 235,
       "failures": 0,
-      "test_seconds": 177.366,
-      "covered_lines": 5035,
+      "test_seconds": 204.103,
+      "covered_lines": 5097,
       "uncovered_lines": 108
     }
   },
@@ -31,6 +31,13 @@
       "from": 174.79,
       "to": 384.215,
       "reason": "summed test durations bimodal on this host again: this tree measured 102.6s and 128.0s for tasks 1-2 at load 47/28, then 383.4s, 391.5s, 384.2s with a 0.014s test added and 356.8s on the same tree without it (fresh runs, 1-min load 14-24 on 18 cores; raw sums 867-916s, git-heavy scenarios 10-14s each). Not this change; gate.sh's CPU bound is the time guard (SPEC 6). factorium#82"
+    },
+    {
+      "suite": "rust",
+      "metric": "test_seconds",
+      "from": 177.366,
+      "to": 204.103,
+      "reason": "the fast gate now runs slimfit check on every landing (factorium#121), and the same tree measured 204.1s, 206.1s, 208.9s, 216.8s at 1-min load 25-50 on 18 cores, load-corrected (slimfit 0.1.15), against a 213.8s limit: one landing in four would go red on the host's load, not its code. gate.sh's CPU bound (231-233s of 310s) is the time guard (SPEC 6). factorium#121"
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
