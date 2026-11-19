@@ -14,7 +14,7 @@ use crate::fixture::{STUCK, World, until_file};
 /// sees it: one in a process group of its own, and one whose parent exits
 /// (reparented to launchd). Each writes its pid to `dir` and sleeps a
 /// minute; the command itself holds as [`World::holds`] does.
-fn escaping(w: &World, dir: &Path) -> String {
+pub(crate) fn escaping(w: &World, dir: &Path) -> String {
     let holds = w.holds(dir);
     let d = dir.display();
     format!(
@@ -38,11 +38,11 @@ fn runs(pid: u32) -> bool {
 
 /// The escaped processes, killed when dropped: a failing scenario leaves
 /// none behind.
-struct Escaped([u32; 2]);
+pub(crate) struct Escaped([u32; 2]);
 
 impl Escaped {
     /// Those that still run.
-    fn left(&self) -> Vec<u32> {
+    pub(crate) fn left(&self) -> Vec<u32> {
         self.0.into_iter().filter(|p| runs(*p)).collect()
     }
 }
@@ -57,7 +57,7 @@ impl Drop for Escaped {
 
 /// Once the command of [`escaping`] started both: their pids, each checked
 /// to have escaped as it means to.
-async fn escaped(dir: &Path) -> Escaped {
+pub(crate) async fn escaped(dir: &Path) -> Escaped {
     until_file(&dir.join("grouped")).await;
     until_file(&dir.join("orphan")).await;
     let pid = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap().trim().parse::<u32>().unwrap();
@@ -68,7 +68,7 @@ async fn escaped(dir: &Path) -> Escaped {
 }
 
 /// The id of the heavy entry doctor shows as `what`.
-async fn entry(w: &World, what: &str) -> Uuid {
+pub(crate) async fn entry(w: &World, what: &str) -> Uuid {
     w.queued_entry(what).await["id"].as_str().unwrap().parse().unwrap()
 }
 

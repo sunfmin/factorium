@@ -254,7 +254,7 @@ impl App {
                     if let Some(binary) = &t.restart {
                         // Between ticks, as the same pid: the pid file stays right.
                         use std::os::unix::process::CommandExt;
-                        self.idle_end().await;
+                        let _ = self.beside(false, true).await;
                         let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
                         eprintln!("restart as {binary}: {e}");
                     }
@@ -273,7 +273,7 @@ impl App {
                 self.clock.sleep(STOP_POLL).await;
             }
         }
-        self.idle_end().await;
+        let _ = self.beside(false, true).await;
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
     }

@@ -173,21 +173,26 @@ async fn idle_work_runs_below_factoriums_priority() {
 }
 
 /// Idle work asks the heavy queue once. Refused, its entry leaves the queue
-/// again, so it holds nothing up: it waits behind what runs, and gives up
-/// under rules a newer binary replaced.
+/// again, so it holds nothing up: overdue tasks wait behind what runs on a
+/// host with no room, and under rules a newer binary replaced (the daemon
+/// execs that binary after the tick, as for any job it asks once).
 #[tokio::test]
 async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
     let w = World::new();
-    let s = factorium_domain::settings::Settings::default();
-    let idle = || w.app.start_once(factum::Uuid::now_v7(), "idle work of web".into(), &s);
-    assert!(w.app.start_once(factum::Uuid::now_v7(), "running".into(), &s).await.unwrap());
-    assert!(!idle().await.unwrap(), "it waits behind what runs");
-    assert_eq!(w.queued().await, ["running"]);
-    // A newer binary's daemon starts: its rules replace this one's.
-    w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
-    let refused = idle().await.expect_err("refused under replaced rules");
-    assert_eq!(refused.code, "stale", "{refused}");
-    assert_eq!(w.queued().await, ["running"]);
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    w.while_busy(async {
+        let running = w.queued().await;
+        w.advance(1);
+        assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it waits behind what runs");
+        assert_eq!(w.queued().await, running);
+        // A newer binary's daemon starts: its rules replace this one's.
+        w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+        assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "refused under replaced rules");
+        assert_eq!(w.queued().await, running);
+    })
+    .await;
 }
 
 /// What slimfit's `next --all` answers with tasks of each `(kind, file)`.
@@ -276,4 +281,29 @@ async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
     w.advance(10);
     let run = ended(&w).await;
     assert_eq!(run["filed"], json!([2]), "past `every` and `tasks_bound`: {run}");
+}
+
+/// Idle work runs through the one heavy run (factorium#136): `unqueue` ends
+/// its whole process tree as it does any running entry's — a later step's
+/// too, its session noted at a tick — and the next tick finds it gone,
+/// unrecorded, so it is due again.
+#[tokio::test]
+async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
+    let w = World::new();
+    let dir = w.dir.join("escaping");
+    declares(&w, &["true".into(), crate::unqueue::escaping(&w, &dir)], 3600, 60).await;
+    assert!(started(&w.tick().await.idle));
+    let pids = crate::unqueue::escaped(&dir).await;
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
+    let id = crate::unqueue::entry(&w, "idle work of web").await;
+    let unqueued = w.run().unqueue(id).await.unwrap();
+    assert_eq!(unqueued["ended"], true, "{unqueued}");
+    assert_eq!(pids.left(), Vec::<u32>::new(), "still running");
+    let t = w.tick().await;
+    assert!(t.idle.iter().any(|v| v["idle"] == "web" && v["yielded"] == "unqueued"), "{:?}", t.idle);
+    assert_ne!(crate::unqueue::entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
+    assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], json!(null), "an unqueued run is no run");
+    // The daemon stops: the run it started again ends with it.
+    w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+    assert_eq!(w.queued().await, Vec::<String>::new());
 }

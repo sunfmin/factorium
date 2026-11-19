@@ -167,8 +167,9 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
-    /// The idle work running beside the ticks.
+    /// The idle work running beside the ticks, and its heavy job's run.
     idle: Option<idle::Running>,
+    beside: Option<heavy::Running>,
 }
 
 /// The host's clock, as the engine reads it.

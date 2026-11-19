@@ -1,7 +1,8 @@
 //! The heavy-command queue as the app uses it, and the one way to run a
-//! heavy command: queue it, wait for its turn (the CLI) or ask once (the
-//! daemon, which asks again next tick), run its steps, end it if it holds
-//! others up past the hold bound, and take it off the queue.
+//! heavy command: queue it, wait for its turn (the CLI), ask once (the
+//! daemon, which asks again next tick) or ask once and run beside the
+//! daemon's ticks (idle work), run its steps noting each one's session, end
+//! it if it holds others up past the hold bound, and take it off the queue.
 
 use std::future::Future;
 use std::path::Path;
@@ -11,9 +12,10 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older, queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
+    queue_id,
 };
-use factorium_domain::settings::{Settings, Time};
+use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
 use factum::Uuid;
 
@@ -25,7 +27,8 @@ use crate::{Answer, App, Refusal};
 const POLL: u64 = 500;
 
 /// A heavy command: its steps run in `dir` one after another, each under
-/// `limit`, until one fails.
+/// `limit`, until one fails. Beside the ticks, `limit` is the whole run's,
+/// on the app's clock.
 pub(crate) struct Job<'a> {
     pub what: String,
     pub worker: Option<Uuid>,
@@ -49,13 +52,32 @@ pub(crate) enum Turn {
     /// [`App::asking_once`] does not ask again: the daemon, whose tick never
     /// waits.
     Once(String),
+    /// Asks once and, let start, runs beside the daemon's ticks ([`App::beside`]):
+    /// idle work. Refused, it leaves the queue. One that `yields` gives way.
+    Beside { yields: bool },
+}
+
+/// A job's steps running on a thread of their own, as entry `id`: beside
+/// the ticks, within `deadline` on the app's clock; ended once it must, `why`.
+pub(crate) struct Running {
+    id: Uuid,
+    yields: bool,
+    deadline: Option<i64>,
+    hold_ms: i64,
+    why: Option<Ends>,
+    stop: Arc<AtomicBool>,
+    sessions: tokio::sync::mpsc::UnboundedReceiver<u32>,
+    run: tokio::task::JoinHandle<Vec<Ran>>,
 }
 
 impl App {
     /// Runs `job` when its turn comes: how each step ran, up to the first
-    /// that failed. `None`: [`Turn::Once`] and not its turn yet.
+    /// that failed. `None`: [`Turn::Once`] or [`Turn::Beside`], and not its
+    /// turn yet. [`Turn::Beside`] answers no runs once it started: each
+    /// tick's [`App::beside`] answers how it ran.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
         let id = match &turn {
+            Turn::Beside { .. } => Uuid::now_v7(),
             // A waiter that execs the installed binary keeps its place.
             Turn::Wait => std::env::var(PLACE).ok().and_then(|p| p.parse().ok()).unwrap_or_else(Uuid::now_v7),
             Turn::Once(key) => {
@@ -73,7 +95,7 @@ impl App {
                         return Err(r);
                     }
                     // The daemon execs the installed binary after this tick.
-                    Turn::Once(_) => false,
+                    Turn::Once(_) | Turn::Beside { .. } => false,
                 },
                 took => took?,
             };
@@ -84,7 +106,17 @@ impl App {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
                 }
+                (false, Turn::Beside { .. }) => return self.submit::<EndHeavy>(End { id }).await.map(|()| None),
             }
+        }
+        if let Turn::Beside { yields } = turn {
+            let mut r = self.run_steps(id, &job, Some(yields)).await?;
+            // Its first session noted before this answers: an unqueue from then on ends it.
+            if let Some(session) = r.sessions.recv().await {
+                self.submit::<NoteRun>(Runs { id, session }).await?;
+            }
+            self.memory.lock().unwrap().beside = Some(r);
+            return Ok(Some(Vec::new()));
         }
         let ran = self.run_held(id, &job).await;
         self.memory.lock().unwrap().queued.remove(&id);
@@ -134,23 +166,25 @@ impl App {
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
     }
 
-    /// Queues `id` as `what`, held by no worker, and asks once to start it,
-    /// with room on the host as its caller read it. Refused, it is taken off
-    /// the queue again, so it never holds others up: `false` when it must
-    /// wait, the refusal otherwise (`stale`: a newer binary's rules replaced
-    /// this one's). The daemon's idle work starts so.
-    pub async fn start_once(&self, id: Uuid, what: String, settings: &Settings) -> Answer<bool> {
-        let pid = std::process::id();
-        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker: None, bound_at: None }).await?;
-        let settle = settings.ms(Time::HeavySettle);
-        let begin = Begin { id, room: Ok(()), read_at: self.now(), settle, rules: self.rules.clone() };
-        match self.submit::<StartHeavy>(begin).await {
-            Ok(()) => Ok(true),
-            Err(r) => {
-                self.submit::<EndHeavy>(End { id }).await?;
-                if r.code == "wait" { Ok(false) } else { Err(r) }
-            }
+    /// The job beside the ticks, once it ended, off the queue: how its steps
+    /// ran, or why it was ended before. `None`: it runs on, or none runs.
+    /// `end`: the daemon stops or is replaced, and it must not outlive it.
+    pub(crate) async fn beside(&self, busy: bool, end: bool) -> Answer<Option<Result<Vec<Ran>, Ends>>> {
+        let Some(mut r) = self.memory.lock().unwrap().beside.take() else { return Ok(None) };
+        let looked = self.look_at(&mut r, busy || end).await;
+        r.stop.fetch_or(end, Ordering::Relaxed);
+        if !end && (looked.is_err() || (r.why.is_none() && !r.run.is_finished())) {
+            self.memory.lock().unwrap().beside = Some(r);
+            return looked.map(|()| None);
         }
+        let (id, why, rans) = (r.id, r.why, self.ran(r).await);
+        self.submit::<EndHeavy>(End { id }).await?;
+        let rans = rans?;
+        Ok(Some(match why {
+            Some(w @ Ends::Unqueued) => Err(w),
+            Some(w @ Ends::GaveWay) if rans.iter().any(|r| !r.ok) => Err(w),
+            _ => Ok(rans),
+        }))
     }
 
     /// Records that the rules this app asks under are the newest, if they are.
@@ -190,37 +224,67 @@ impl App {
     /// Taken off the queue (an unqueue, which ends that session), it ends
     /// too, refused as `unqueued`; ended still queued, it was held.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
-        let bound = self.settings().await?.ms(Time::HoldBound);
-        let ended = Arc::new(AtomicBool::new(false));
-        let mut rans = Vec::new();
-        for step in job.steps {
-            let (dir, line, env, limit) = (job.dir.to_path_buf(), step.clone(), job.env.to_vec(), job.limit);
-            let (stop, priority) = (ended.clone(), job.priority);
-            let (session, mut runs_in) = tokio::sync::mpsc::unbounded_channel();
-            let (started, stop) = (move |s: u32| session.send(s).unwrap_or(()), move || stop.load(Ordering::Relaxed));
-            let mut run = tokio::task::spawn_blocking(move || run(&dir, &line, &env, limit, priority, &started, &stop));
-            let mut ran = loop {
-                tokio::select! {
-                    ran = &mut run => break ran.map_err(|e| Refusal::new("internal", e.to_string()))?,
-                    Some(session) = runs_in.recv() => self.submit::<NoteRun>(Runs { id, session }).await?,
-                    _ = self.clock.sleep(POLL) => {
-                        let q = self.state::<Heavy>(queue_id()).await?;
-                        ended.fetch_or(!q.holds(id) || q.overheld(id, self.now(), bound), Ordering::Relaxed);
-                    }
-                }
-            };
-            if !self.state::<Heavy>(queue_id()).await?.holds(id) {
-                let why = format!("`{}` was unqueued: it and every process it started were ended", job.what);
-                return Err(Refusal::new("unqueued", format!("{why}\n{}", ran.tail)));
+        let mut r = self.run_steps(id, job, None).await?;
+        loop {
+            tokio::select! {
+                session = r.sessions.recv() => match session {
+                    Some(session) => self.submit::<NoteRun>(Runs { id, session }).await?,
+                    None => break,
+                },
+                _ = self.clock.sleep(POLL) => self.look_at(&mut r, false).await?,
             }
-            if ended.load(Ordering::Relaxed) {
-                let s = bound / 1000;
-                ran.tail = format!("{}\nended: it held others up past the hold bound of {s}s", ran.tail);
+        }
+        let rans = self.ran(r).await?;
+        if !self.state::<Heavy>(queue_id()).await?.holds(id) {
+            let why = format!("`{}` was unqueued: it and every process it started were ended", job.what);
+            let tail = rans.last().map_or("", |r| r.tail.as_str());
+            return Err(Refusal::new("unqueued", format!("{why}\n{tail}")));
+        }
+        Ok(rans)
+    }
+
+    /// Starts `job`'s steps as the started entry `id`, one after another
+    /// until one fails, each within the job's limit or, beside the ticks
+    /// (whether it `yields`), all of them within it on the app's clock.
+    async fn run_steps(&self, id: Uuid, job: &Job<'_>, beside: Option<bool>) -> Answer<Running> {
+        let (hold_ms, yields) = (self.settings().await?.ms(Time::HoldBound), beside == Some(true));
+        let deadline = beside.map(|_| self.now().saturating_add(job.limit.as_millis() as i64));
+        let (stop, (session, sessions)) = (Arc::new(AtomicBool::new(false)), tokio::sync::mpsc::unbounded_channel());
+        let (dir, steps, env, priority) = (job.dir.to_path_buf(), job.steps.to_vec(), job.env.to_vec(), job.priority);
+        let (ended, clock, limit) = (stop.clone(), self.clock.clone(), deadline.map_or(job.limit, |_| Duration::MAX));
+        let run = tokio::task::spawn_blocking(move || {
+            let stop = || ended.load(Ordering::Relaxed) || deadline.is_some_and(|d| clock.now() >= d);
+            let (started, mut rans) = (|s| session.send(s).unwrap_or(()), Vec::<Ran>::new());
+            while rans.len() < steps.len() && rans.last().is_none_or(|r| r.ok) {
+                rans.push(run(&dir, &steps[rans.len()], &env, limit, priority, &started, &stop));
             }
-            let ok = ran.ok;
-            rans.push(ran);
-            if !ok {
-                break;
+            rans
+        });
+        Ok(Running { id, yields, deadline, hold_ms, why: None, stop, sessions, run })
+    }
+
+    /// Notes the sessions `r`'s steps started in, and ends the one running
+    /// once `r` must end: unqueued, held past the hold bound, or giving way.
+    async fn look_at(&self, r: &mut Running, busy: bool) -> Answer<()> {
+        while let Ok(session) = r.sessions.try_recv() {
+            self.submit::<NoteRun>(Runs { id: r.id, session }).await?;
+        }
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
+        r.why = r.why.or(ends);
+        r.stop.store(r.why.is_some(), Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// How `r`'s steps ran, once they ended: ended held, the last one's tail
+    /// says so; past its deadline, it `timed_out`.
+    async fn ran(&self, r: Running) -> Answer<Vec<Ran>> {
+        let mut rans = r.run.await.map_err(|e| Refusal::new("internal", e.to_string()))?;
+        if let Some(last) = rans.last_mut().filter(|l| !l.ok) {
+            if r.why == Some(Ends::Held) {
+                last.tail = format!("{}\nended: {} of {}s", last.tail, Ends::Held, r.hold_ms / 1000);
+            } else if r.deadline.is_some_and(|d| self.now() >= d) {
+                last.timed_out = true;
             }
         }
         Ok(rans)
