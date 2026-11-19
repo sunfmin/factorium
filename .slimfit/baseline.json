@@ -48,5 +48,23 @@
       "reason": "It checks a cut of the daemon's own formula asks for a restart with the daemon's binary, and another formula's cut does not; the other checks the line's work dirs are clones. Folding it in would set which formula the daemon runs as under the work-dirs scenario, and its second case needs a daemon of another formula. They share the cut pipeline, not an assertion."
     }
   ],
+  "kept_files": [
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/line.rs",
+      "prod_lines": 207,
+      "commits_90d": 34,
+      "commits_total": 34,
+      "reason": "deepened by factorium#93 (docs/adr/0003): one pass for the tick, two moves for the owner, the cut in line/cut.rs; no commit has touched it since, its churn predates that change"
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/lib.rs",
+      "prod_lines": 247,
+      "commits_90d": 27,
+      "commits_total": 27,
+      "reason": "deepened by factorium#91 (docs/adr/0001): model() lives here beside App::open on purpose, so each new domain command adds one line here; churn since (#113, #119, #128) is those lines plus #119's HostClock adapter beside Engine::new, no new concept"
+    }
+  ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
 }
