@@ -58,6 +58,11 @@ impl App {
             let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
             let up = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}")));
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
+            // Its factorium runs in the daemon's place only once it opens this
+            // host's database (factorium#141): else the cut failed, and the old one runs on.
+            if let Some(bin) = self.host.brew().bin(formula, "factorium") {
+                self.proves(&bin).await.map_err(|e| format!("installed {formula}, but {e}"))?;
+            }
             Ok((tagged, Some(formula.clone())))
         };
         let (tagged, installed) = match done.await {

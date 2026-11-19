@@ -1,8 +1,10 @@
 //! The binary this process runs, and the one Homebrew links now, which the
-//! daemon (between ticks) and a waiter refused as stale exec in its place;
+//! daemon (between ticks) and a waiter refused as stale exec in its place,
+//! once that binary is proven to open this host's database (factorium#141);
 //! the binary kept to go back to, and the rollback to it when a new
 //! binary's ticks all fail (factorium#143).
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 use factorium_domain::daemon::{NoteRollback, Rollback, RolledBack};
 use factorium_domain::settings::{Setting, Settings};
@@ -49,12 +51,20 @@ impl crate::App {
 
     /// The link to exec in place of this binary: Homebrew links a version other
     /// than the one running (a cut, or by hand) and than the one a rollback
-    /// went back from; mid-upgrade, it resolves to nothing.
+    /// went back from, and that version opens this host's database;
+    /// mid-upgrade, it resolves to nothing.
     pub(crate) fn swapped(&self) -> Option<PathBuf> {
-        let m = self.memory.lock().unwrap();
-        let (me, link) = m.running.clone()?;
-        let now = link.canonicalize().ok()?;
-        (now != me && Some(&now) != m.refused.as_ref()).then_some(link)
+        let (me, link, refused) = {
+            let m = self.memory.lock().unwrap();
+            let (me, link) = m.running.clone()?;
+            (me, link, m.refused.clone())
+        };
+        let to = link.canonicalize().ok().filter(|to| *to != me && Some(to) != refused.as_ref())?;
+        let proven = self.proofs.of(&to).unwrap_or_else(|| {
+            let proven = self.proofs.prove(&self.db, &to, &self.data().proof(Uuid::now_v7()));
+            proven.inspect_err(|why| eprintln!("not swapping to {}: {why}", to.display()))
+        });
+        proven.ok().map(|()| link)
     }
 
     /// The kept binary to exec in place of this one, once its ticks all failed.
@@ -128,5 +138,15 @@ impl crate::App {
 
     fn handoff(&self) -> Option<Handoff> {
         serde_json::from_slice(&std::fs::read(self.data().rollback()).ok()?).ok()
+    }
+
+    /// Whether the binary `bin` opens this host's database, proven once per
+    /// binary (as [`crate::App::swapped`] asks), off the runtime's threads.
+    pub(crate) async fn proves(&self, bin: &Path) -> Result<(), String> {
+        let bin = bin.canonicalize().map_err(|e| format!("cannot find {}: {e}", bin.display()))?;
+        let (proofs, db, copy) = (self.proofs.clone(), self.db.clone(), self.data().proof(Uuid::now_v7()));
+        let proven =
+            tokio::task::spawn_blocking(move || proofs.of(&bin).unwrap_or_else(|| proofs.prove(&db, &bin, &copy)));
+        proven.await.unwrap_or_else(|e| Err(format!("proving panicked: {e}")))
     }
 }

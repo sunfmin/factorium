@@ -199,6 +199,7 @@ pub struct App {
     db: PathBuf,
     by: By,
     memory: std::sync::Mutex<Memory>,
+    proofs: Arc<factorium_host::proof::Proofs>,
     /// The heavy queue's rules it asks under: [`factorium_domain::heavy::RULES`], unless a
     /// scenario stands in for another version.
     rules: String,
@@ -224,6 +225,7 @@ impl App {
             db,
             by: By::Principal(by.into()),
             memory: Default::default(),
+            proofs: Default::default(),
             rules: factorium_domain::heavy::RULES.into(),
         })
     }

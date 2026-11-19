@@ -307,18 +307,70 @@ pub fn refused(answer: Answer, code: &str) {
     }
 }
 
+/// A factorium binary as a scenario has one: it answers `doctor` on the
+/// SQLite file `--db` names, and notes each database it was run on in
+/// `proved` beside it.
+pub const OPENS: &str = r#"#!/bin/sh
+echo "$2" >> "$(dirname "$0")/proved"
+[ "$(head -c 15 "$2")" = 'SQLite format 3' ] || { echo "not a database: $2"; exit 1; }
+echo '{"findings": []}'
+"#;
+
+/// One that needs a newer database than this host's: a column its store
+/// lacks, as 0.1.42 needed `taken_over` (factorium#141).
+pub const NEEDS_NEWER: &str = r#"#!/bin/sh
+echo "$2" >> "$(dirname "$0")/proved"
+grep -q 'handed_back INTEGER' "$2" || { echo 'Error: no such column: handed_back'; exit 1; }
+"#;
+
+/// One that opens the database, and may not be run after (no longer
+/// executable): what an exec of it meets.
+pub const OPENS_ONCE: &str = r#"#!/bin/sh
+chmod -x "$0"
+echo '{"findings": []}'
+"#;
+
+/// The databases the binary of `formula`'s `version` was run on, oldest first.
+pub fn proved(w: &World, formula: &str, version: &str) -> Vec<PathBuf> {
+    let at = w.dir.join("brew/Cellar").join(formula).join(version).join("bin/proved");
+    std::fs::read_to_string(at).unwrap_or_default().lines().map(PathBuf::from).collect()
+}
+
+/// Writes `script` at `path` as a program.
+pub fn program(path: &Path, script: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, script).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 impl World {
     /// Makes the daemon `app` run as version 0.0.9 of `formula`, as
-    /// Homebrew installs it; answers the link Homebrew keeps to it.
+    /// Homebrew installs it, a binary that [`OPENS`] the database; answers
+    /// the link Homebrew keeps to it.
     pub fn running_as(&self, app: &App, formula: &str) -> PathBuf {
-        let bin = self.dir.join("brew/Cellar").join(formula).join("0.0.9/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("factorium"), "a binary").unwrap();
+        let bin = self.dir.join("brew/Cellar").join(formula).join("0.0.9/bin/factorium");
+        program(&bin, OPENS);
         let opt = self.dir.join("brew/opt").join(formula);
         std::fs::create_dir_all(opt.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(bin.parent().unwrap(), &opt).unwrap();
+        std::os::unix::fs::symlink(bin.parent().unwrap().parent().unwrap(), &opt).unwrap();
         self.host.brew.lock().unwrap().installed.insert(formula.into(), "0.0.9".into());
-        app.runs_as(&bin.join("factorium").canonicalize().unwrap());
+        app.runs_as(&bin.canonicalize().unwrap());
         opt.join("bin/factorium")
+    }
+
+    /// The binary that `formula`'s next cut installs is `script`: as
+    /// Homebrew copies it from the version installed.
+    pub fn next_binary(&self, formula: &str, script: &str) {
+        program(&self.dir.join("brew/Cellar").join(formula).join("0.0.9/bin/factorium"), script);
+    }
+
+    /// Homebrew links `formula` 0.1.0, by hand, its binary `script`.
+    pub fn links_newer(&self, formula: &str, script: &str) {
+        let keg = self.dir.join("brew/Cellar").join(formula).join("0.1.0");
+        program(&keg.join("bin/factorium"), script);
+        let opt = self.dir.join("brew/opt").join(formula);
+        std::fs::remove_file(&opt).unwrap();
+        std::os::unix::fs::symlink(&keg, &opt).unwrap();
     }
 }

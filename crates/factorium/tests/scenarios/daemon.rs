@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 
-use crate::fixture::{CLAUDE, World};
+use crate::fixture::{CLAUDE, OPENS, OPENS_ONCE, World, program};
 
 #[tokio::test]
 async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
@@ -155,12 +155,8 @@ async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
     let w = World::new();
     w.app.settings_set(Some("tick_every"), Some(1)).await.unwrap();
     w.running_as(&w.app, "factorium");
-    // Homebrew links a newer one since, which may not be run (not executable).
-    let newer = w.dir.join("brew/Cellar/factorium/0.1.0/bin");
-    std::fs::create_dir_all(&newer).unwrap();
-    std::fs::write(newer.join("factorium"), "a binary that may not be run").unwrap();
-    std::fs::remove_file(w.dir.join("brew/opt/factorium")).unwrap();
-    std::os::unix::fs::symlink(newer.parent().unwrap(), w.dir.join("brew/opt/factorium")).unwrap();
+    // Homebrew links a newer one since, which opens the database, then may not be run.
+    w.links_newer("factorium", OPENS_ONCE);
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let during = stop.clone();
     let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -172,12 +168,16 @@ async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
 /// one): answers its binary, canonical.
 fn link(w: &World, version: &str) -> std::path::PathBuf {
     let bin = w.dir.join("brew/Cellar/factorium").join(version).join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("factorium"), format!("binary {version}")).unwrap();
+    program(&bin.join("factorium"), &binary(version));
     let opt = w.dir.join("brew/opt/factorium");
     std::fs::remove_file(&opt).unwrap();
     std::os::unix::fs::symlink(bin.parent().unwrap(), &opt).unwrap();
     bin.join("factorium").canonicalize().unwrap()
+}
+
+/// A binary of `version` that opens the database.
+fn binary(version: &str) -> String {
+    format!("{OPENS}# {version}\n")
 }
 
 /// The binary kept to go back to: its version, and what it holds.
@@ -200,7 +200,7 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     let link0 = w.running_as(&w.app, "factorium");
     assert!(kept(&w).is_empty(), "nothing is kept before a tick goes well");
     assert_eq!(w.tick().await.restart, None);
-    assert_eq!(kept(&w), [("0.0.9".into(), "a binary".into())], "the first good tick keeps it");
+    assert_eq!(kept(&w), [("0.0.9".into(), OPENS.into())], "the first good tick keeps it");
     let new = link(&w, "0.1.0");
     assert_eq!(w.tick().await.restart.as_deref(), Some(&*link0.to_string_lossy()));
 
@@ -215,7 +215,7 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     }
     let back = swapped.fallback().unwrap();
     assert!(back.starts_with(w.data().binary().canonicalize().unwrap()), "{}", back.display());
-    assert_eq!(kept(&w), [("0.0.9".into(), "a binary".into())], "a binary that never ticked well is not kept");
+    assert_eq!(kept(&w), [("0.0.9".into(), OPENS.into())], "a binary that never ticked well is not kept");
 
     // The kept binary, exec'd as the same pid, reads it.
     unreadable(&w, false);
@@ -241,7 +241,7 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     w.advance(5);
     swapped.tick().await.unwrap();
     assert_eq!(w.finding("daemon:rollback").await, None);
-    assert_eq!(kept(&w), [("0.1.1".into(), "binary 0.1.1".into())]);
+    assert_eq!(kept(&w), [("0.1.1".into(), binary("0.1.1"))]);
 }
 
 #[tokio::test]
@@ -253,7 +253,7 @@ async fn a_swap_whose_first_tick_is_good_keeps_the_new_binary() {
     let swapped = w.run();
     swapped.runs_as(&new);
     swapped.tick().await.unwrap();
-    assert_eq!(kept(&w), [("0.1.0".into(), "binary 0.1.0".into())], "the one to go back to, alone");
+    assert_eq!(kept(&w), [("0.1.0".into(), binary("0.1.0"))], "the one to go back to, alone");
     // Its ticks failing later go back to nothing: it is the kept one's version.
     unreadable(&w, true);
     for _ in 1..=4 {
@@ -270,6 +270,9 @@ async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
     let w = World::new();
     w.running_as(&w.app, "factorium");
     w.tick().await;
+    // Kept, it may not be run after: the exec fails, as this process must go on.
+    let kept_bin = w.data().binary().join("0.0.9/bin/factorium");
+    std::fs::set_permissions(&kept_bin, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
     let new = link(&w, "0.1.0");
     let swapped = w.run();
     swapped.runs_as(&new);

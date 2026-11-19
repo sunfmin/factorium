@@ -47,6 +47,12 @@ impl Brew<'_> {
         Err(stale(formula, version, &has(), waited))
     }
 
+    /// The program `name` that `formula`, as Homebrew links it now, has, if it has one.
+    pub fn bin(&self, formula: &str, name: &str) -> Option<PathBuf> {
+        let prefix = self.brew(&["--prefix", formula]).ok()?;
+        Some(Path::new(prefix.trim()).join("bin").join(name)).filter(|b| b.is_file())
+    }
+
     /// Where Homebrew links the program `me` (a path canonical, as
     /// `<cellar>/<formula>/<version>/bin/<name>`), if Homebrew installed
     /// it: the opt link, which follows whichever version is installed, `me`'s
