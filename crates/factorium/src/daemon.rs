@@ -138,34 +138,6 @@ impl App {
         Ok(t)
     }
 
-    /// This process runs the binary `me` (canonical): if Homebrew installed
-    /// it, each tick of the daemon, or a waiter refused as stale, asks whether
-    /// its link now names another version.
-    pub fn runs_as(&self, me: &std::path::Path) {
-        let link = self.host.brew().link_of(me);
-        self.memory.lock().unwrap().running = link.map(|l| (me.to_path_buf(), l));
-    }
-
-    /// [`App::runs_as`] this process's own binary, unless the binary it runs
-    /// as is known already.
-    pub(crate) fn runs_as_this(&self) {
-        if self.memory.lock().unwrap().running.is_some() {
-            return;
-        }
-        if let Ok(me) = std::env::current_exe().and_then(|e| e.canonicalize()) {
-            self.runs_as(&me);
-        }
-    }
-
-    /// The link to exec in place of this binary: Homebrew links a version
-    /// other than the one running, by a cut from the daemon, the CLI or
-    /// by hand. Mid-upgrade, when the link resolves to nothing, not yet.
-    pub(crate) fn swapped(&self) -> Option<std::path::PathBuf> {
-        let (me, link) = self.memory.lock().unwrap().running.clone()?;
-        let now = link.canonicalize().ok()?;
-        (now != me).then_some(link)
-    }
-
     /// One issue to bump, in each checkout whose proving tip pins another
     /// checkout by git rev behind that one's base tip, while none is open
     /// (factorium#127). Read from refs as last fetched: no fetch of its own.
@@ -303,7 +275,7 @@ impl App {
             return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
         }
         std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
-        self.runs_as_this();
+        let _ = self.linked();
         eprintln!("started: {}", self.daemon_start().await?);
         let mut ticks = 0u64;
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
