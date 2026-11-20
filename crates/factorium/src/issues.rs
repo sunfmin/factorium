@@ -9,6 +9,7 @@ use factorium_domain::tracker::{self, shown};
 use factum::Command;
 use serde_json::json;
 
+use crate::kept::Why;
 use crate::life::End;
 use crate::{Answer, App, Refusal};
 
@@ -89,30 +90,24 @@ impl App {
         self.issue_show(checkout, number).await
     }
 
-    /// Closes an issue; a worker on it ends. The worktree its last attempt
-    /// left on disk goes as start-over discards one: what was not committed
-    /// there is committed, and its branch is kept as `<branch>-abandoned`,
-    /// which a comment names first (a closed issue takes no comment).
+    /// Closes an issue; a worker on it ends. The attempt whose worktree its
+    /// last attempt left on disk is abandoned ([`App::abandon`]).
     pub async fn issue_close(&self, checkout: &str, number: u64, reason: &str) -> Answer {
-        let why = format!("its issue closed: {reason}");
         let issue = self.issue(checkout, number).await?;
         // A checkout off the list has no worktrees factorium removes.
         let left = match self.checkout(checkout).await {
             Ok(c) => self.left(&issue).await?.map(|st| (c, st)),
             Err(_) => None,
         };
-        let Some((c, st)) = left else {
-            return self.leave::<CloseIssue>(checkout, number, reason, End::because(why, false)).await;
-        };
-        let text = format!(
-            "Closed unlanded: attempt {}'s worktree is removed; its branch is kept as `{}-abandoned`.",
-            st.attempt, st.branch
-        );
-        self.note(checkout, number, Author::Factorium, &text).await?;
-        let mut shown = self.leave::<CloseIssue>(checkout, number, reason, End::because(why, true)).await?;
-        shown["abandoned"] = json!(self.discard_left(&c, &st)?);
-        shown["discarded"] = json!(st.worktree);
-        Ok(shown)
+        let Some((c, st)) = left else { return self.close(checkout, number, reason, false).await };
+        let done = self.abandon(&c, &st, Why::Close(reason)).await?;
+        Ok(done.shown(self.issue_show(checkout, number).await?))
+    }
+
+    /// Closes an issue for `reason`; a worker on it ends, keeping its worktree if `keep`.
+    pub(crate) async fn close(&self, checkout: &str, number: u64, reason: &str, keep: bool) -> Answer {
+        let why = format!("its issue closed: {reason}");
+        self.leave::<CloseIssue>(checkout, number, reason, End::because(why, keep)).await
     }
 
     /// Leaves an issue to a person: only `issue ready` moves it again. A
@@ -133,11 +128,10 @@ impl App {
         self.issue_show(checkout, number).await
     }
 
-    /// Starts an issue over on purpose: the worktree its last attempt kept
-    /// is removed, so its next start begins from the proving tip. Nothing is
-    /// lost: what was not committed there is committed, the branch is kept
-    /// as `<branch>-abandoned`, and a comment names it with `why`. Refused
-    /// while a worker is on the issue; its state (ready or waiting for a person) stays.
+    /// Starts an issue over on purpose: the attempt whose worktree its last
+    /// attempt kept is abandoned ([`App::abandon`]), so its next start
+    /// begins from the proving tip; nothing is lost. Refused while a worker
+    /// is on the issue; its state (ready or waiting for a person) stays.
     pub async fn issue_start_over(&self, checkout: &str, number: u64, why: &str) -> Answer {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say why the issue starts over"));
@@ -152,21 +146,14 @@ impl App {
             ));
         }
         let c = self.checkout(checkout).await?;
-        let Some((worktree, abandoned)) = self.discard_kept(&c, &issue, "start-over").await? else {
+        let Some(st) = self.kept_now(&c, &issue).await? else {
             let mut shown = self.issue_show(checkout, number).await?;
             shown["discarded"] = json!(false);
             shown["said"] = json!("nothing was kept to discard: the next start begins from the proving tip");
             return Ok(shown);
         };
-        let text = format!(
-            "Started over: attempt {}'s worktree was discarded; its branch is kept as `{abandoned}` (not landed). Why: {why}",
-            issue.attempts
-        );
-        self.note(checkout, number, Author::Factorium, &text).await?;
-        let mut shown = self.issue_show(checkout, number).await?;
-        shown["discarded"] = json!(worktree);
-        shown["abandoned"] = json!(abandoned);
-        Ok(shown)
+        let done = self.abandon(&c, &st, Why::StartOver(why)).await?;
+        Ok(done.shown(self.issue_show(checkout, number).await?))
     }
 
     pub async fn issue_ready(&self, checkout: &str, number: u64) -> Answer {

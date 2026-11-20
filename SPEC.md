@@ -235,10 +235,10 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,290 |
+| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,240 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,780 |
+| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,830 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
 100 lines from the domain's budget (4,055 used) to the binary's: restarting
@@ -259,7 +259,10 @@ reads, its question and answer the domain's. factorium#159 moved 30 more from th
 domain's (the domain to 6,290, 4,669 used; the binary to 4,780, at 4,748
 before it): one environment for a terminal's session and a headless ask,
 whose secrets file is removed by its owner when no shell takes it over, is
-a file effect of the app.
+a file effect of the app. factorium#156 moved 50 more from the domain's (the
+domain to 6,240, 4,646 used; the binary to 4,830, at 4,776 before it):
+abandoning an attempt, keeping its branch and naming it in a comment, is
+one git, Orca and tracker effect of the app.
 
 **What a repo declares**, in `factorium.toml` at its root (§3); every
 table may be left out:
