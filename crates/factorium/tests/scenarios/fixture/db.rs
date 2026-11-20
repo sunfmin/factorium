@@ -60,6 +60,19 @@ impl World {
         );
     }
 
+    /// What a waiting worker heard as the code before factorium#161 kept
+    /// it: a copy of the comment `text` on the worker, by `worker.hear`.
+    pub fn heard_as_code_before_161_kept_it(&self, text: &str) {
+        let script = format!(
+            "INSERT INTO events (id, stream, version, kind, type_version, data, meta) \
+             SELECT lower(hex(randomblob(16))), stream, MAX(version) + 1, 'WorkerHeard', 1, \
+                 json_object('text', '{text}', 'at', 0), json_set(meta, '$.command', 'worker.hear') \
+             FROM events WHERE stream = (SELECT stream FROM events WHERE kind = 'WorkerWaits'); \
+             DELETE FROM snapshots;"
+        );
+        self.migrate(&script);
+    }
+
     /// The watch's start as an older binary recorded it: no rules.
     pub fn watch_started_as_an_older_binary_wrote_it(&self) {
         self.migrate(

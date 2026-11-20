@@ -159,6 +159,13 @@ impl Issue {
         self.waits.iter().filter(|a| !self.here(a)).map(ToString::to_string).collect()
     }
 
+    /// What a worker waiting since `since` (ms) heard: the owner's comments
+    /// made since then, oldest first. Comments of no known time, made
+    /// before times were kept, are left out.
+    pub fn heard_since(&self, since: i64) -> impl Iterator<Item = &Note> {
+        self.comments.iter().filter(move |n| n.by == Author::Owner && n.at.is_some_and(|at| at >= since))
+    }
+
     /// Everything it waits for, each named as the CLI names it: one of its
     /// own checkout as `#N`, with the issue it is as one of any checkout.
     /// Those of its own checkout come first.

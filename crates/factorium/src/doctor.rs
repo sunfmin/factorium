@@ -18,11 +18,12 @@ impl App {
         for w in self.rows(tracker::workers(Some(worker::Status::Waiting), false)).await? {
             let issue = format!("{}#{}", w.checkout, w.number);
             let wk = self.state::<worker::Workers>(w.worker).await?;
-            let heard = wk.heard.into_iter().map(|(_, t)| t).collect();
+            let on = self.issue(&w.checkout, w.number).await?;
+            let heard = on.heard_since(w.state.since).map(|n| n.text.clone()).collect();
             let why = w.state.why.unwrap_or_default();
             let mut parked = Vec::new();
             if wk.parked {
-                let blockers = self.blockers(&self.issue(&w.checkout, w.number).await?).await?;
+                let blockers = self.blockers(&on).await?;
                 parked = blockers.into_iter().filter(|(_, met)| met.is_none()).map(|(name, _)| name).collect();
             }
             seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard, parked });

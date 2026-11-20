@@ -1,0 +1,33 @@
+{
+  "tree": "e73e0add736df72e6feeb9a8a1ec2dbeb997e5cd+d1fba762150c532c",
+  "picker": "codex:01a1f7f6-3ff8-74a2-99de-cdfd7771e03b:default",
+  "author": "claude-code:81e58c20-a783-5a79-b184-b9b7d880580c:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/watch.rs:73:88: replace > with >= in App::waits_unseen",
+        "why": "The new scenario advances the clock before commenting, so it may miss a comment timestamped exactly at the last watch look making another look due.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/watch.rs:73:30: replace > with >= in App::waits_unseen",
+        "why": "A wait that began at the same millisecond as the last watch look could be reported as unseen again.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/worker.rs:197:13: delete match arm WorkerEvent::WorkerWaits{..} in <impl Aggregate for Workers>::evolve",
+        "why": "The comment scenarios enter waiting without checking whether it clears an existing quiet or overdue marker.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/worker.rs:198:13: delete match arm WorkerEvent::WorkerResumed{..} in <impl Aggregate for Workers>::evolve",
+        "why": "The replay scenario checks that the worker accepts commands after restart and leaves the resume resets for parked state, quiet state, and consecutive failures unasserted.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
