@@ -174,11 +174,11 @@ fn tool_call<'de, D: Deserializer<'de>>(described: D, shell_tool: &str) -> Resul
 
 /// A file or directory of the host user's that a kept directory links to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Link {
+pub(crate) struct Link {
     /// Where it is, under the host user's home.
-    home: &'static str,
+    pub(crate) home: &'static str,
     /// Where the link is, under the kept directory.
-    kept: &'static str,
+    pub(crate) kept: &'static str,
 }
 
 /// A question a harness opens on its own mid-session, in a dialog that
@@ -260,6 +260,11 @@ impl Harness {
     /// logged in.
     pub(crate) fn login_file(self) -> Option<&'static str> {
         each!(self, |K| K::KEPT_LINKS).first().map(|link| link.kept)
+    }
+
+    /// The host user's files its kept directory links, its login first.
+    pub(crate) fn links(self) -> &'static [Link] {
+        each!(self, |K| K::KEPT_LINKS)
     }
 
     /// Where its sessions keep their files on this host, decided once from

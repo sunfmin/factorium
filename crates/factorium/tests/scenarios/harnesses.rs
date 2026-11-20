@@ -203,6 +203,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "account.rs: struct Skipped",
         "account.rs: struct Usable",
         "account.rs: type Mytokens",
+        "ask.rs: fn ask_home",
         "ask.rs: fn ask_line",
         "ask.rs: fn asked",
         "ask.rs: fn asked_stand_in",

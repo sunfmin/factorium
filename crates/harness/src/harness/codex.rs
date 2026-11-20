@@ -12,6 +12,7 @@ use serde_json::json;
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use crate::ask::Asked;
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::RULES;
@@ -241,6 +242,57 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
+
+/// Codex asked one question headless (`codex exec`, read in codex-cli
+/// 0.169.0): the question on stdin, its events as JSON lines. Not kept, no
+/// configuration, rules or project docs read, no memories or carried skills,
+/// a read-only sandbox, and every tool it lets be turned off turned off;
+/// those it still offers (`exec`, `spawn_agent`) fail closed, as a run
+/// asked to use them showed.
+const HEADLESS: crate::ask::Headless = crate::ask::Headless {
+    flags: "exec --ephemeral --ignore-user-config --ignore-rules --skip-git-repo-check --sandbox read-only \
+            --config features.memories=false --config skills.bundled.enabled=false \
+            --config project_doc_max_bytes=0 --config 'web_search=\"disabled\"' \
+            --disable shell_tool --disable unified_exec --disable code_mode_host --disable multi_agent \
+            --disable apps --disable plugins --disable hooks --disable browser_use --disable computer_use \
+            --disable in_app_browser --disable image_generation --disable view_image --disable sleep_tool \
+            --disable goals --disable tool_suggest --disable skill_search --json -",
+    model: MODEL,
+    files: crate::ask::no_files,
+    read: asked,
+    stand_in: asked_stand_in,
+};
+
+/// What `codex exec --json` printed: the thread in `thread.started`, its
+/// last `agent_message`, the tokens in `turn.completed`; a `turn.failed` or
+/// no completed turn is why it did not answer. Its events name no model:
+/// the kit's, else `default`, as the worker's id says one.
+fn asked(out: &str, model: Option<&str>) -> Result<Asked, String> {
+    let events: Vec<serde_json::Value> = out.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let of = |kind: &'static str| events.iter().filter(move |e| e["type"] == kind);
+    if let Some(failed) = of("turn.failed").next_back() {
+        return Err(format!("codex failed: {}", failed["error"]["message"].as_str().unwrap_or(out.trim())));
+    }
+    let session = of("thread.started").find_map(|e| e["thread_id"].as_str()).ok_or_else(|| format!("codex named no thread: {out}"))?;
+    let usage = &of("turn.completed").next_back().ok_or_else(|| format!("codex completed no turn: {out}"))?["usage"];
+    let items = of("item.completed").map(|e| &e["item"]).filter(|i| i["type"] == "agent_message");
+    let text = items.filter_map(|i| i["text"].as_str()).next_back().ok_or_else(|| format!("codex answered nothing: {out}"))?;
+    let n = |field: &str| usage[field].as_u64().unwrap_or(0);
+    let (tokens_in, tokens_out) = (n("input_tokens"), n("output_tokens"));
+    let model = model.unwrap_or("default").to_string();
+    Ok(Asked { session: session.into(), model, text: text.into(), tokens_in, tokens_out })
+}
+
+fn asked_stand_in(a: &Asked) -> String {
+    let lines = [
+        json!({"type": "thread.started", "thread_id": a.session}),
+        json!({"type": "turn.started"}),
+        json!({"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": a.text}}),
+        json!({"type": "turn.completed", "usage": {"input_tokens": a.tokens_in, "cached_input_tokens": 0, "output_tokens": a.tokens_out}}),
+    ];
+    lines.iter().map(|l| format!("{l}\n")).collect()
+}
+
 /// Codex, as a harness: what its module says of it.
 pub(super) struct Codex;
 
@@ -258,8 +310,7 @@ impl Kind for Codex {
     const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
-    /// Not asked headless: no run of it so has been read here.
-    const HEADLESS: Option<crate::ask::Headless> = None;
+    const HEADLESS: Option<crate::ask::Headless> = Some(HEADLESS);
 
     fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(Vec::new())

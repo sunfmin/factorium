@@ -7,7 +7,11 @@
 use std::path::Path;
 
 use crate::Harness;
+use crate::harness::Login;
 use crate::line::Line;
+
+/// Files of a user directory, each its path and text.
+pub(crate) type Files = Vec<(&'static str, String)>;
 
 /// What a harness that can be asked headless says of it (`Kind::HEADLESS`).
 #[derive(Debug, Clone, Copy)]
@@ -18,8 +22,12 @@ pub(crate) struct Headless {
     pub(crate) flags: &'static str,
     /// Its flag for the model.
     pub(crate) model: &'static str,
-    /// What its stdout `out` says it answered, or why it did not answer.
-    pub(crate) read: fn(out: &str) -> Result<Asked, String>,
+    /// What the fresh user directory of a session asked holds beside its
+    /// login, for a harness logged in by a file there: path and text.
+    pub(crate) files: fn() -> Result<Files, String>,
+    /// What its stdout `out` says it answered, or why it did not answer; it
+    /// was asked on the kit's `model`, if the kit names one.
+    pub(crate) read: fn(out: &str, model: Option<&str>) -> Result<Asked, String>,
     /// The stdout it would print for `asked`: a stand-in's.
     pub(crate) stand_in: fn(asked: &Asked) -> String,
 }
@@ -45,9 +53,12 @@ pub struct Ask<'a> {
     pub command: &'a str,
     pub model: Option<&'a str>,
     /// The host user's home and the PATH: the only variables the session
-    /// gets, beside those its secrets file exports.
+    /// gets, beside its user directory and those its secrets file exports.
     pub home: &'a Path,
     pub path: &'a str,
+    /// The session's own user directory, made by `ask_home`, for a harness
+    /// logged in by a file there.
+    pub user_dir: &'a Path,
     /// The file the question is read from, and the one the answer goes to.
     pub question: &'a str,
     pub answer: &'a str,
@@ -59,6 +70,32 @@ impl Harness {
     /// Whether a session of it can be asked headless.
     pub fn asks(self) -> bool {
         self.headless().is_some()
+    }
+
+    /// Makes the empty directory `fresh` the user directory of one session
+    /// asked headless, for a harness logged in by a file there: that login
+    /// linked — the `account`'s, else the host user's under `user_home` —
+    /// and the files it is asked with; nothing else of either home, so no
+    /// hook, memory, skill or setting of theirs. A link, so a login renewed
+    /// there stays fresh in both places.
+    pub fn ask_home(self, user_home: &Path, account: Option<&str>, fresh: &Path) -> Result<(), String> {
+        let (Some(h), Login::Machine { .. }) = (self.headless(), self.login()) else { return Ok(()) };
+        let link = self.links().first().ok_or_else(|| format!("{} names no login file", self.key()))?;
+        let login = match account {
+            Some(name) => crate::account::login_home(user_home, name).join(link.kept),
+            None => user_home.join(link.home),
+        };
+        if !login.exists() {
+            return Err(format!("{} is not logged in: no {}", self.key(), login.display()));
+        }
+        let io = |e: std::io::Error| format!("{}: {e}", fresh.display());
+        std::os::unix::fs::symlink(&login, fresh.join(link.kept)).map_err(io)?;
+        for (file, text) in (h.files)()? {
+            let path = fresh.join(file);
+            path.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;
+            std::fs::write(path, text).map_err(io)?;
+        }
+        Ok(())
     }
 
     /// The shell line that asks a fresh session of it `ask.question`, its
@@ -74,15 +111,18 @@ impl Harness {
             None => line.done(),
         };
         let home = ask.home.to_string_lossy();
-        let outer = Line::new().fixed("exec env -i").set("HOME", &home).set("PATH", ask.path).fixed(" sh -c ");
-        Some(outer.launch(&crate::quoted(&inner)).done())
+        let mut outer = Line::new().fixed("exec env -i").set("HOME", &home).set("PATH", ask.path);
+        if let Login::Machine { user_dir } = self.login() {
+            outer = outer.set(user_dir, &ask.user_dir.to_string_lossy());
+        }
+        Some(outer.fixed(" sh -c ").launch(&crate::quoted(&inner)).done())
     }
 
-    /// What a session asked headless answered, read from its stdout `out`;
-    /// why not, when it did not answer.
-    pub fn asked(self, out: &str) -> Result<Asked, String> {
+    /// What a session asked headless on the kit's `model` answered, read
+    /// from its stdout `out`; why not, when it did not answer.
+    pub fn asked(self, out: &str, model: Option<&str>) -> Result<Asked, String> {
         let h = self.headless().ok_or_else(|| format!("{} is not asked headless", self.key()))?;
-        (h.read)(out)
+        (h.read)(out, model)
     }
 
     /// The stdout a stand-in for a session of it asked headless prints,
@@ -90,4 +130,9 @@ impl Harness {
     pub fn asked_stand_in(self, asked: &Asked) -> Option<String> {
         self.headless().map(|h| (h.stand_in)(asked))
     }
+}
+
+/// No file beside the login.
+pub(crate) fn no_files() -> Result<Files, String> {
+    Ok(Vec::new())
 }

@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use crate::ask::Asked;
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{Start, TOLD};
@@ -69,17 +70,25 @@ const REPORT: &str = "hook=\"${HOME-}/.orca/agent-hooks/grok-hook.sh\"; \
      if [ -x \"$hook\" ]; then ORCA_HOOK_AGENT_PID=\"$PPID\" /bin/sh \"$hook\"; \
      else cat >/dev/null; fi; exit 0";
 
-/// The configuration a session gets. The host user's Grok config is not
-/// read: its hooks, MCP servers, plugins, permission mode and memories stay
-/// out, and so do Claude's and Cursor's of theirs, and every skill of the
-/// host user's.
-fn configuration(guard: &str) -> Result<String, String> {
+/// What keeps a session off the host user's: Claude's and Cursor's hooks,
+/// MCP servers, rules and agents, and every skill of the host user's.
+fn isolation() -> toml::map::Map<String, Toml> {
     let off = |cells: &[&str]| Toml::Table(cells.iter().map(|cell| (cell.to_string(), Toml::from(false))).collect());
     let mut compat = toml::map::Map::new();
     compat.insert("claude".into(), off(&["hooks", "mcps", "rules", "agents"]));
     compat.insert("cursor".into(), off(&["hooks", "mcps", "skills", "rules", "agents"]));
     let mut skills = toml::map::Map::new();
     skills.insert("ignore".into(), Toml::Array(HOME_SKILLS.into_iter().map(Toml::from).collect()));
+    let mut table = toml::map::Map::new();
+    table.insert("compat".into(), Toml::Table(compat));
+    table.insert("skills".into(), Toml::Table(skills));
+    table
+}
+
+/// The configuration a session gets. The host user's Grok config is not
+/// read: its hooks, MCP servers, plugins, permission mode and memories stay
+/// out, and so do [`isolation`]'s.
+fn configuration(guard: &str) -> Result<String, String> {
     let command = |command: &str| {
         let mut hook = toml::map::Map::new();
         hook.insert("type".into(), Toml::from("command"));
@@ -96,9 +105,7 @@ fn configuration(guard: &str) -> Result<String, String> {
     for event in STATE_EVENTS {
         hooks.insert(event.into(), group(vec![command(REPORT)]));
     }
-    let mut table = toml::map::Map::new();
-    table.insert("compat".into(), Toml::Table(compat));
-    table.insert("skills".into(), Toml::Table(skills));
+    let mut table = isolation();
     table.insert("hooks".into(), Toml::Table(hooks));
     toml::to_string_pretty(&Toml::Table(table)).map_err(|error| error.to_string())
 }
@@ -168,6 +175,51 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
+/// Grok asked one question headless (`grok --prompt-file`, read in grok
+/// 1.0.89): the question on stdin, its answer one JSON object. Its tools are
+/// allowed down to one and that one removed, so none is left of any
+/// version's, and so are `use_tool` and `search_tool`, which reach a shell
+/// past both lists (a real pick called `use_tool` for bash); no web search,
+/// no subagents. Its own system prompt is one of an agent that reads first:
+/// with no tools it ended its turn saying it would, so it is replaced. Its
+/// user directory is a fresh one (`ask_home`) holding only its login and
+/// [`isolation`].
+const HEADLESS: crate::ask::Headless = crate::ask::Headless {
+    flags: "--prompt-file /dev/stdin --output-format json --tools todo_write --disallowed-tools todo_write,use_tool,search_tool \
+            --disable-web-search --no-subagents \
+            --system-prompt-override 'You have no tools. Answer the question in this one reply, as it asks, and nothing else.'",
+    model: MODEL,
+    files: asked_files,
+    read: asked,
+    stand_in: asked_stand_in,
+};
+
+/// A session asked headless is configured with [`isolation`] alone.
+fn asked_files() -> Result<crate::ask::Files, String> {
+    let text = toml::to_string_pretty(&Toml::Table(isolation())).map_err(|e| e.to_string())?;
+    Ok(vec![(CONFIG, text)])
+}
+
+/// What `grok --output-format json` printed: its answer in `text`, its
+/// session in `sessionId`, the tokens of each model it used in `modelUsage`.
+fn asked(out: &str, _model: Option<&str>) -> Result<Asked, String> {
+    let said: serde_json::Value =
+        serde_json::from_str(out.trim()).map_err(|e| format!("grok answered no JSON ({e}): {out}"))?;
+    let text = said["text"].as_str().filter(|t| !t.trim().is_empty()).ok_or_else(|| format!("grok answered nothing: {out}"))?;
+    let session = said["sessionId"].as_str().filter(|s| !s.is_empty()).ok_or("grok named no sessionId")?;
+    let models = said["modelUsage"].as_object().cloned().unwrap_or_default();
+    let sum = |field: &str| models.values().map(|m| m[field].as_u64().unwrap_or(0)).sum::<u64>();
+    let tokens_in = sum("inputTokens") + sum("cacheReadInputTokens") + sum("cacheCreationInputTokens");
+    let model = models.keys().cloned().collect::<Vec<_>>().join("+");
+    Ok(Asked { session: session.into(), model, text: text.into(), tokens_in, tokens_out: sum("outputTokens") })
+}
+
+fn asked_stand_in(a: &Asked) -> String {
+    let usage = serde_json::json!({ "inputTokens": a.tokens_in, "outputTokens": a.tokens_out });
+    let said = serde_json::json!({ "text": a.text, "stopReason": "end_turn", "sessionId": a.session, "modelUsage": { a.model.clone(): usage } });
+    said.to_string()
+}
+
 /// Grok, as a harness: what its module says of it.
 pub(super) struct Grok;
 
@@ -186,8 +238,7 @@ impl Kind for Grok {
     const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
-    /// Not asked headless: no run of it so has been read here.
-    const HEADLESS: Option<crate::ask::Headless> = None;
+    const HEADLESS: Option<crate::ask::Headless> = Some(HEADLESS);
 
     /// What the host keeps for Grok beside the links: the configuration, and
     /// where its rules are.
