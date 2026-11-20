@@ -1,0 +1,27 @@
+{
+  "tree": "442726c99dfe09c527fa5c18a9416986ebdf7e33+d1fba762150c532c",
+  "picker": "codex:01a1f7fc-14e9-7e80-9ff8-5cb24f6e7b34:default",
+  "author": "claude-code:07ab45c3-4093-54b7-9cad-d9d9db00fafa:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/work.rs:43:30: replace match guard waiting with false in App::live",
+        "why": "A waiting worker would reach paths reserved for working workers, which may go unnoticed unless a health check runs while the worker is waiting.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/work.rs:51:23: replace match guard [\"no_worker\", \"ended\", \"waiting\", \"no_harness\"].contains(&r.code.as_str()) with true in App::live_or_none",
+        "why": "Unexpected worker-state errors would silently become absence, so the mutant can survive unless a test exercises error propagation.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/work.rs:51:23: replace match guard [\"no_worker\", \"ended\", \"waiting\", \"no_harness\"].contains(&r.code.as_str()) with false in App::live_or_none",
+        "why": "The ended-worker scenario checks direct refusals, so it can pass even if optional callers propagate expected refusals instead of returning None.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

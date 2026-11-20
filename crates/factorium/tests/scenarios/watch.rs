@@ -125,6 +125,22 @@ async fn restarting_a_worker_whose_session_is_gone_starts_its_issue_again() {
     assert_ne!(again["worker"], wk["worker"]);
 }
 
+/// One read answers whether a worker is live: a worker's own command and
+/// the watch's refuse an ended worker alike, and keep nothing on its issue.
+#[tokio::test]
+async fn an_ended_worker_is_refused_alike_by_its_own_commands_and_the_watch_s() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    w.kill_terminal(wk["terminal"].as_str().unwrap());
+    assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["ended"], true);
+    let kept = w.comments("web", 1).await.len();
+    let refused = crate::fixture::refused;
+    refused(w.app.worker_done(id(&wk)).await, "ended");
+    refused(w.app.watch_restart(id(&wk), "go on", false).await, "ended");
+    refused(w.app.watch_tell(id(&wk), "hello", false).await, "ended");
+    assert_eq!(w.comments("web", 1).await.len(), kept, "nothing is kept for an ended worker");
+}
+
 #[tokio::test]
 async fn a_new_watch_session_gets_the_round_that_is_running() {
     let w = World::new();

@@ -41,6 +41,7 @@ pub use daemon::Tick;
 pub use data::{Data, LineClone};
 pub use factorium_host as host;
 pub use session::{Caller, DB_ENV};
+pub(crate) use work::{Live, Want};
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.

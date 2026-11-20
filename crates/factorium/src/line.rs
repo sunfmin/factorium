@@ -15,14 +15,14 @@ use factorium_domain::doctor::Stuck;
 use factorium_domain::line::{self, Due, Lines, Move};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
-use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_domain::worker::{self as w, Workers};
 use factorium_host::{Git, Lag};
 use factum::Uuid;
 use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::life::End;
-use crate::{Answer, App, LineClone, fail};
+use crate::{Answer, App, LineClone, Want, fail};
 
 /// Fast-forwards the checkout's local base to `tip`, never further, where
 /// nothing of it is lost; answers what it did, if it moved or failed.
@@ -167,9 +167,9 @@ impl App {
         self.submit::<w::RedLanding>(w::Because { worker, why: why.clone() }).await?;
         let wk = self.state::<Workers>(worker).await?;
         // A red that does not reach it sends it to the watch at once, not after its silence.
-        if let (Status::Working, Some(st)) = (wk.status, &wk.started) {
+        if let Some(live) = self.live_or_none(worker, Want::Working).await? {
             let text = format!("your landing was red. {why}\nFix it, commit, and run `factorium worker done` again.");
-            self.tell(&Self::worker_session(worker, st)?, Sender::Factorium, &text, false).await?;
+            self.tell(&live.session, Sender::Factorium, &text, false).await?;
         }
         Ok(json!({ "worker": worker, "red": why, "status": wk.status }))
     }

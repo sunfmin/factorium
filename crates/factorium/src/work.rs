@@ -15,23 +15,49 @@ use serde_json::json;
 
 use crate::gate::At;
 use crate::heavy::{Job, Turn};
+use crate::session::Session;
 use crate::{Answer, App, Refusal, fail};
 
+/// Which live workers [`App::live`] accepts: never one not started
+/// (`no_worker`) or ended (`ended`); `Working`, not one waiting (`waiting`).
+pub(crate) enum Want {
+    Working,
+    Any,
+}
+
+/// A live worker as one read saw it.
+pub(crate) struct Live {
+    pub(crate) started: Started,
+    pub(crate) session: Session,
+    pub(crate) waiting: bool,
+}
+
 impl App {
-    pub(crate) async fn started(&self, worker: Uuid) -> Answer<(w::Worker, Started)> {
+    /// Worker `worker`, live as `want` accepts it, with its session: one read.
+    pub(crate) async fn live(&self, worker: Uuid, want: Want) -> Answer<Live> {
         let wk = self.state::<Workers>(worker).await?;
-        let st = wk.started.clone().ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
-        if wk.status == Status::Ended {
-            return Err(Refusal::new("ended", "this worker has ended"));
+        let started = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
+        let waiting = wk.status == Status::Waiting;
+        match want {
+            _ if wk.status == Status::Ended => Err(Refusal::new("ended", "this worker has ended")),
+            Want::Working if waiting => Err(Refusal::new("waiting", "this worker waits for the watch")),
+            _ => Ok(Live { session: Self::worker_session(worker, &started)?, started, waiting }),
         }
-        Ok((wk, st))
+    }
+
+    /// [`App::live`], `None` for a worker not live or of an unknown harness.
+    pub(crate) async fn live_or_none(&self, worker: Uuid, want: Want) -> Answer<Option<Live>> {
+        match self.live(worker, want).await {
+            Err(r) if ["no_worker", "ended", "waiting", "no_harness"].contains(&r.code.as_str()) => Ok(None),
+            live => live.map(Some),
+        }
     }
 
     /// Runs the fast gate on the worktree as it stands. A clean worktree's
     /// green is recorded against its tree, so landing does not run it again
     /// on that tree.
     pub async fn worker_gate(&self, worker: Uuid) -> Answer {
-        let (_, st) = self.started(worker).await?;
+        let st = self.live(worker, Want::Any).await?.started;
         let at = At::Worktree { worker, number: st.number };
         let g = self.gate(&st.checkout, &self.host.git(&st.worktree), at, Kind::Fast).await?.expect("a waited turn");
         let Some(ran) = g.ran else {
@@ -44,7 +70,7 @@ impl App {
 
     /// Asks to land: the worktree must be committed, with commits of its own.
     pub async fn worker_done(&self, worker: Uuid) -> Answer {
-        let (_, st) = self.started(worker).await?;
+        let st = self.live(worker, Want::Any).await?.started;
         let git = self.host.git(&st.worktree);
         if git.dirty().map_err(fail("git"))? {
             return Err(Refusal::new("dirty", "commit or remove your changes first: landing takes only commits"));
@@ -53,15 +79,12 @@ impl App {
             return Err(Refusal::new("nothing", "your branch has no commits to land"));
         }
         if git.branch().as_deref() != Some(st.branch.as_str()) {
-            return Err(Refusal::new(
-                "off_branch",
-                format!("check out your branch {} again: landing takes it", st.branch),
-            ));
+            let why = format!("check out your branch {} again: landing takes it", st.branch);
+            return Err(Refusal::new("off_branch", why));
         }
         self.submit::<w::AskLanding>(w::Of { worker }).await?;
-        Ok(
-            json!({ "landing": true, "said": "Landing is queued. Stop here: if it is red you will be told why in this terminal; if it is green your session ends." }),
-        )
+        let said = "Landing is queued. Stop here: if it is red you will be told why in this terminal; if it is green your session ends.";
+        Ok(json!({ "landing": true, "said": said }))
     }
 
     /// Hands the worker to the watch.
@@ -69,7 +92,7 @@ impl App {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say what you need"));
         }
-        let (_, st) = self.started(worker).await?;
+        let st = self.live(worker, Want::Any).await?.started;
         self.submit::<w::Wait>(w::Because { worker, why: format!("escalated: {why}") }).await?;
         // Kept on its issue; typed back at no one.
         self.note(&st.checkout, st.number, Author::Worker(worker), why).await?;
@@ -83,7 +106,7 @@ impl App {
         if text.trim().is_empty() {
             return Err(Refusal::new("no_text", "say what to keep"));
         }
-        let (_, st) = self.started(worker).await?;
+        let st = self.live(worker, Want::Any).await?.started;
         self.note(&st.checkout, st.number, Author::Worker(worker), text).await?;
         Ok(json!({ "commented": true, "checkout": st.checkout, "number": st.number }))
     }
