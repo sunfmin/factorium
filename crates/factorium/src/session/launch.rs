@@ -264,7 +264,7 @@ impl App {
             dir: &dir_text,
             worktree: &worktree_text,
             model: pick.model.as_deref(),
-            guard: session.exe(),
+            guard: &session.exe,
             home: &home,
             user_home: &user_home,
             env,
@@ -288,41 +288,32 @@ impl App {
     }
 }
 
-/// The environment a session of a pick runs in, whether a terminal's or a
-/// headless ask's: its PATH, and its account's secrets by a file only this
-/// user may read, which the session's line reads first and removes. Dropped
-/// before a shell took the file over ([`SessionEnv::hand_over`]), it removes
-/// the file itself: a session that never started leaves no secret behind.
+/// The environment a session on a pick runs in, a terminal's or a headless
+/// ask's: its PATH, and its account's secrets in a file only this user may
+/// read, which its line reads first and removes. Dropped before a shell took
+/// the file over ([`SessionEnv::hand_over`]), it removes the file itself.
 pub(crate) struct SessionEnv {
-    exe: String,
+    /// This factorium's executable.
+    pub(crate) exe: String,
     path: String,
     secrets: Option<String>,
 }
 
 impl SessionEnv {
-    /// The environment for a session on `pick`, its secrets file written.
     pub(crate) fn new(app: &App, pick: &Pick) -> Answer<SessionEnv> {
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
-        // This factorium first, then the directory of the kit's program, so
-        // that what it runs by name is found beside it; then the PATH here.
+        // This factorium, then the kit program's directory: what it runs by name is beside it.
         let mut path: Vec<String> = Path::new(&exe).parent().map(|bin| bin.display().to_string()).into_iter().collect();
         path.extend(program_dir(&pick.command, &app.host.home()));
         path.push(std::env::var("PATH").unwrap_or_default());
-        let secrets = write_secrets(app, &pick.secrets)?.map(|f| f.to_string_lossy().into_owned());
+        let secrets = (!pick.secrets.is_empty()).then(|| write_secrets(app, &pick.secrets)).transpose()?;
         Ok(SessionEnv { exe, path: path.join(":"), secrets })
     }
 
-    /// This factorium's executable.
-    pub(crate) fn exe(&self) -> &str {
-        &self.exe
-    }
-
-    /// The session's PATH.
     pub(crate) fn path(&self) -> &str {
         &self.path
     }
 
-    /// The secrets file its line reads first and removes, if the account has secrets.
     pub(crate) fn secrets_file(&self) -> Option<&str> {
         self.secrets.as_deref()
     }
@@ -335,24 +326,19 @@ impl SessionEnv {
 
 impl Drop for SessionEnv {
     fn drop(&mut self) {
-        if let Some(file) = self.secrets.take() {
-            let _ = std::fs::remove_file(file);
-        }
+        let _ = self.secrets.take().map(std::fs::remove_file);
     }
 }
 
-/// Writes `secrets`, if any, to a file only this user may read: its path.
-fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
-    if secrets.is_empty() {
-        return Ok(None);
-    }
+/// Writes `secrets` to a new file only this user may read: its path.
+fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let dir = app.data().secrets();
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
     let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
     let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
     std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
-    Ok(Some(file))
+    Ok(file.to_string_lossy().into_owned())
 }
 
 /// A hash of `rules` that is the same from one build to the next (64-bit
