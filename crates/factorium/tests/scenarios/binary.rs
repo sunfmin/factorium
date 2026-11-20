@@ -420,12 +420,20 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     assert!(run(&dir, &["settings", "memory_free_min", "100"]).0);
     sh(&dir.0, "mkfifo go");
     let mut held = bin(&dir);
-    held.args(["worker", "exclusive", "--", "sh", "-c", "touch running; perl -e 'alarm 20; exec @ARGV' cat go"])
-        .current_dir(&dir.0);
+    // `running` once its last process is the one left waiting on the fifo.
+    let line = "perl -e 'alarm 20; open my $f, \">\", \"running\"; exec @ARGV' cat go";
+    held.args(["worker", "exclusive", "--", "sh", "-c", line]).current_dir(&dir.0);
     let mut held = held.stdout(Stdio::null()).spawn().unwrap();
     let running = dir.0.join("running");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !running.exists() {
+    // Killed once it noted its command's session, so the kill finds it at
+    // the same point however long a loaded host took to get it there.
+    let db = rusqlite::Connection::open(dir.0.join("data/factorium/factorium.db")).unwrap();
+    let noted = || {
+        let runs = "SELECT count(*) FROM events WHERE kind = 'HeavyRuns'";
+        running.exists() && db.query_row(runs, [], |r| r.get::<_, i64>(0)).unwrap() > 0
+    };
+    while !noted() {
         assert!(std::time::Instant::now() < deadline, "the first never ran");
         std::thread::sleep(crate::fixture::LOOK);
     }
