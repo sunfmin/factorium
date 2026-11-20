@@ -64,6 +64,14 @@
       "commits_90d": 27,
       "commits_total": 27,
       "reason": "deepened by factorium#91 (docs/adr/0001): model() lives here beside App::open on purpose, so each new domain command adds one line here; churn since (#113, #119, #128) is those lines plus #119's HostClock adapter beside Engine::new, no new concept"
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/daemon.rs",
+      "prod_lines": 255,
+      "commits_90d": 40,
+      "commits_total": 40,
+      "reason": "The tick is the composition root: pass() orders every step that moves without a command (idle, lines, bumps, worker health, one admitted start, resume, watch look, swap), and each step's rules already live behind deeper modules (line.rs via lines(), load.rs, swap.rs, issues.rs blockers, domain admission/bump/worker). Its interface is small: tick/run/stop/daemon_start, and scenarios test through tick() only. Churn is features adding one step each, which belong in the pass's order here; daemon.rs was already deepened by factorium#93 (lines) and #134 (swap). Moving bumps/next_issue/resume_parked out would only relocate one-call private helpers, not add depth."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
