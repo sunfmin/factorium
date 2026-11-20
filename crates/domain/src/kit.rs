@@ -85,6 +85,25 @@ impl Kit {
     }
 }
 
+impl Kit {
+    /// The harness and account a worker on `harness` has its mutants picked
+    /// on: the first other harness of the kit `asks` says can be asked, else
+    /// `harness` again (a new session), whatever a pin says, on its account
+    /// with the most left.
+    pub fn choose_picker(
+        &self,
+        harness: &str,
+        asks: impl Fn(&str) -> bool,
+        now: i64,
+        here: &[(String, String)],
+    ) -> Result<Choice, String> {
+        let (others, same): (Vec<Entry>, Vec<Entry>) =
+            self.entries.iter().filter(|e| asks(&e.harness)).cloned().partition(|e| e.harness != harness);
+        let kit = Kit { entries: [others, same].concat(), pins: BTreeMap::new(), accounts: self.accounts.clone() };
+        kit.choose("", now, here).map_err(|why| format!("no harness of the kit that can pick mutants: {why}"))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum KitEvent {
@@ -149,3 +168,26 @@ command!(LimitAccount, "account.limited", Kits, AccountNote, |_p| kit_id(), |s, 
         _ => Vec::new(),
     })
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only one harness can be asked headless today, so no scenario tells the
+    /// other harness from the worker's: this does.
+    #[test]
+    fn a_picker_runs_on_the_kit_s_other_harness_that_asks_else_on_the_worker_s() {
+        let entry = |h: &str| Entry { harness: h.into(), command: h.into(), model: None };
+        let pins = BTreeMap::from([("web".to_string(), "a".to_string())]);
+        let kit = Kit { entries: vec![entry("a"), entry("b"), entry("c")], pins, accounts: BTreeMap::new() };
+        let picked = |worker: &str, asks: &[&str]| {
+            let asks = |h: &str| asks.contains(&h);
+            kit.choose_picker(worker, asks, 0, &[]).map(|c| c.entry.harness)
+        };
+        assert_eq!(picked("a", &["a", "b"]), Ok("b".into()));
+        assert_eq!(picked("b", &["a", "b"]), Ok("a".into()));
+        assert_eq!(picked("a", &["a", "c"]), Ok("c".into()), "the pin is the worker's, not the picker's");
+        assert_eq!(picked("a", &["a"]), Ok("a".into()));
+        assert!(picked("a", &[]).unwrap_err().starts_with("no harness of the kit that can pick mutants"));
+    }
+}

@@ -16,6 +16,7 @@ mod line;
 mod load;
 mod outage;
 mod owner;
+mod pick;
 mod service;
 mod session;
 mod swap;

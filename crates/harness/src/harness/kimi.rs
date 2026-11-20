@@ -187,6 +187,8 @@ impl Kind for Kimi {
     const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
+    /// Not asked headless: no run of it so has been read here.
+    const HEADLESS: Option<crate::ask::Headless> = None;
 
     /// What the host keeps for Kimi beside the links: the migration declined,
     /// the configuration, and its own prompt (`${base_prompt}`) then where its

@@ -1,9 +1,11 @@
 //! What a scenario does through the CLI, as one step each: a worker is
-//! done, a worker lands, two workers keep a checkout busy.
+//! done, a worker lands, two workers keep a checkout busy, a picker is
+//! asked.
 
 use std::path::PathBuf;
 
 use factorium::Tick;
+use factorium_harness::{Asked, Harness};
 use serde_json::Value;
 
 use super::{World, id, worktree};
@@ -66,4 +68,45 @@ pub fn own_nice() -> i32 {
 /// value `op` (`-eq`, `-gt`) `n`.
 pub fn nice_is(op: &str, n: i32) -> String {
     format!("test $(sh -c 'ps -o ni= -p $$') {op} {n}")
+}
+
+/// A mutant picker as a scenario stands one in: the program the kit names,
+/// what it was asked, and with what.
+pub struct Picker {
+    pub program: PathBuf,
+    dir: PathBuf,
+}
+
+impl Picker {
+    /// What it read on stdin, its arguments (one a line) and its environment.
+    pub fn asked(&self) -> (String, String, String) {
+        let read = |f: &str| std::fs::read_to_string(self.dir.join(f)).unwrap_or_default();
+        (read("asked"), read("args"), read("env"))
+    }
+}
+
+impl World {
+    /// slimfit as the scenario has it: `goal` its `help picker`, `listing`
+    /// its `check --mutants`.
+    pub fn slimfit(&self, goal: &str, listing: &str) {
+        let mut said = self.host.slimfit.lock().unwrap();
+        said.insert("help".into(), goal.into());
+        said.insert("check".into(), listing.into());
+    }
+
+    /// A stand-in for a session of `harness` asked headless: it keeps what it
+    /// was asked, then runs `then` (shell), then prints `answered` as that
+    /// harness would.
+    pub fn picker(&self, harness: Harness, then: &str, answered: &Asked) -> Picker {
+        let dir = self.dir.join(format!("picker-{}", harness.key()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("said"), harness.asked_stand_in(answered).unwrap()).unwrap();
+        let d = dir.display();
+        let script = format!(
+            "#!/bin/sh\ncat > '{d}/asked'\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
+        );
+        let program = dir.join("program");
+        super::program(&program, &script);
+        Picker { program, dir }
+    }
 }

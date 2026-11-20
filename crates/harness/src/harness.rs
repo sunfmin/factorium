@@ -8,6 +8,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Deserializer};
 
+use crate::ask::Headless;
 use crate::line::Line;
 use crate::start::{Home, Kept, Launch, Start};
 use crate::turn::Turn;
@@ -44,6 +45,9 @@ trait Kind {
     /// The key that, typed without Enter, stops its running turn and leaves
     /// it at its prompt.
     const INTERRUPT: &'static str;
+    /// How a fresh session of it is asked one question headless; `None`:
+    /// it is not, here.
+    const HEADLESS: Option<Headless>;
     /// The files the tool carries or makes for it, by path under its home.
     /// An error: a file of the host user's they are made from could not be
     /// read as it must be.
@@ -313,6 +317,11 @@ impl Harness {
     /// hook's stderr is shown to the session.
     pub const fn refused(self) -> u8 {
         each!(self, |K| K::REFUSED)
+    }
+
+    /// How a fresh session of it is asked one question headless.
+    pub(crate) const fn headless(self) -> Option<Headless> {
+        each!(self, |K| K::HEADLESS)
     }
 
     /// The key that, typed without Enter, stops its running turn and leaves

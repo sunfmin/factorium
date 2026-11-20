@@ -11,6 +11,9 @@ Your brief (the file you were handed) says what the issue is.
   has room and runs it at a gate's priority, so what it times (tests,
   `slimfit check`) is what the gate would. Work whose time nothing
   compares (a mutation run) goes through `worker exclusive --background`.
+- A change's mutants are picked by a second agent, never you (`slimfit help
+  picker`): `factorium worker pick-mutants` starts it and answers the picks
+  and the commands that run and record them.
 - When the work is committed and the gate is green, run
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told

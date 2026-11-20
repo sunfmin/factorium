@@ -10,6 +10,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use crate::ask::{Asked, Headless};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::Start;
@@ -238,6 +239,38 @@ struct Typed {
     message: Said,
 }
 
+/// Claude Code asked one question headless (`claude -p`, read in Claude Code
+/// 2.1.329): no tools, no settings of any source (and so no CLAUDE.md
+/// either), no MCP servers, its answer one JSON object.
+const HEADLESS: Headless = Headless {
+    flags: "-p --tools '' --setting-sources '' --strict-mcp-config --output-format json",
+    model: MODEL,
+    read: asked,
+    stand_in: asked_stand_in,
+};
+
+/// What `claude -p --output-format json` printed: its answer in `result`,
+/// unless `is_error`; the tokens of each model it used in `modelUsage`.
+fn asked(out: &str) -> Result<Asked, String> {
+    let said: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
+    let text = said["result"].as_str().unwrap_or_default().to_string();
+    if said["is_error"].as_bool() != Some(false) {
+        return Err(format!("claude-code answered an error: {}", if text.is_empty() { out.trim() } else { &text }));
+    }
+    let session = said["session_id"].as_str().filter(|s| !s.is_empty()).ok_or("claude-code named no session_id")?;
+    let models = said["modelUsage"].as_object().cloned().unwrap_or_default();
+    let sum = |field: &str| models.values().map(|m| m[field].as_u64().unwrap_or(0)).sum::<u64>();
+    let tokens_in = sum("inputTokens") + sum("cacheReadInputTokens") + sum("cacheCreationInputTokens");
+    let model = models.keys().cloned().collect::<Vec<_>>().join("+");
+    Ok(Asked { session: session.into(), model, text, tokens_in, tokens_out: sum("outputTokens") })
+}
+
+fn asked_stand_in(a: &Asked) -> String {
+    let usage = serde_json::json!({ "inputTokens": a.tokens_in, "outputTokens": a.tokens_out });
+    let said = serde_json::json!({ "type": "result", "is_error": false, "session_id": a.session, "result": a.text, "modelUsage": { a.model.clone(): usage } });
+    said.to_string()
+}
+
 #[derive(Deserialize)]
 struct Said {
     content: serde_json::Value,
@@ -262,6 +295,7 @@ impl Kind for ClaudeCode {
     const REFUSED: u8 = 2;
     /// Escape. Text queued behind the turn is then submitted as the next turn.
     const INTERRUPT: &'static str = "\x1b";
+    const HEADLESS: Option<Headless> = Some(HEADLESS);
 
     fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(Vec::new())

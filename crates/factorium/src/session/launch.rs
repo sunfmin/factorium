@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use factorium_domain::kit::{Kits, kit_id};
+use factorium_domain::kit::{Choice, Kit, Kits, kit_id};
 use factorium_harness::account::{self, Here};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::Uuid;
@@ -159,9 +159,9 @@ pub(crate) struct Pick {
     /// The account it starts on, if its harness takes one.
     pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
-    command: String,
+    pub(crate) command: String,
     /// The account's environment, kept off the terminal's command line.
-    secrets: Vec<(&'static str, String)>,
+    pub(crate) secrets: Vec<(&'static str, String)>,
 }
 
 /// A session opened: its terminal, the brief it was handed, and the line to
@@ -204,10 +204,19 @@ impl App {
     /// What a session for `checkout` (the watch: `""`) starts on now; refused
     /// `no_harness` when nothing of the kit can.
     pub(crate) async fn pick(&self, checkout: &str) -> Answer<Pick> {
+        self.pick_by(|kit, now, here| kit.choose(checkout, now, here)).await
+    }
+
+    /// What a session starts on now, as `choose` chooses from the kit and
+    /// the accounts here (name, harness); refused `no_harness` when it cannot.
+    pub(crate) async fn pick_by(
+        &self,
+        choose: impl FnOnce(&Kit, i64, &[(String, String)]) -> Result<Choice, String>,
+    ) -> Answer<Pick> {
         let kit = self.state::<Kits>(kit_id()).await?;
         let accounts = self.accounts_here().usable;
         let here: Vec<(String, String)> = accounts.iter().map(|a| (a.name.clone(), a.harness.key().into())).collect();
-        let choice = kit.choose(checkout, self.now(), &here).map_err(fail("no_harness"))?;
+        let choice = choose(&kit, self.now(), &here).map_err(fail("no_harness"))?;
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
         let secrets = choice
@@ -289,7 +298,7 @@ impl App {
 
     /// Writes `secrets`, if any, to a file only this user may read, which
     /// the start line reads first and removes: its path.
-    fn write_secrets(&self, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
+    pub(crate) fn write_secrets(&self, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
         if secrets.is_empty() {
             return Ok(None);
         }
@@ -337,7 +346,7 @@ fn keep(kept: &Kept) -> std::io::Result<()> {
 /// The directory of the program a kit's `command` names by path, as its
 /// first word: absolute, or under the host user's `home` as `~/`. A program
 /// named by name is found on the PATH already.
-fn program_dir(command: &str, home: &Path) -> Option<String> {
+pub(crate) fn program_dir(command: &str, home: &Path) -> Option<String> {
     let program = command.split_whitespace().next()?;
     let path = match program.strip_prefix("~/") {
         Some(rest) => home.join(rest),

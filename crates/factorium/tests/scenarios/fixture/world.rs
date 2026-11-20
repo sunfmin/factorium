@@ -120,6 +120,7 @@ impl World {
             procs: Mutex::default(),
             reading_procs: Mutex::default(),
             tokens: Mutex::default(),
+            slimfit: Mutex::default(),
             ran: Mutex::default(),
             missing: Mutex::default(),
             service: Mutex::default(),

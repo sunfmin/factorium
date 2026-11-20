@@ -254,6 +254,11 @@ pub enum WorkerCmd {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Has a second agent, a fresh session factorium starts, pick your
+    /// change's mutants from slimfit's candidates, given slimfit's goal
+    /// (`slimfit help picker`) and your diff. Answers the picks, or why
+    /// none, by whom, and the commands that run and record them.
+    PickMutants,
     /// Runs a heavy command once the machine has room, after those queued
     /// before it, at a gate's priority. Exits with its exit code.
     Exclusive {
@@ -357,6 +362,7 @@ impl Top {
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
                 WorkerCmd::Done => app.worker_done(worker_id()?).await,
+                WorkerCmd::PickMutants => app.worker_pick_mutants(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
                 WorkerCmd::Comment { text } => {
                     let text = match text {
