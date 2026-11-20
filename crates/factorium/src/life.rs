@@ -12,7 +12,7 @@ use factorium_domain::worker_id;
 use factum::Uuid;
 use serde_json::json;
 
-use crate::kept::Resumed;
+use crate::kept::{Resumed, WorkerBranch};
 use crate::session::{Pick, Role};
 use crate::{Answer, App, Refusal, fail};
 
@@ -147,8 +147,9 @@ impl App {
         pick: &Pick,
         tip: String,
     ) -> Answer<(Started, Option<String>)> {
-        let name = format!("{}-{}-{attempt}", c.name, issue.number);
-        let next = self.next_worktree(c, issue, &name, &tip).await?;
+        let branch = WorkerBranch { checkout: c.name.clone(), number: issue.number, attempt };
+        let name = branch.worker();
+        let next = self.next_worktree(c, issue, &branch, &tip).await?;
         let (path, branch, resumed) = (next.path, next.branch, next.resumed);
         let title = format!("{}#{}", c.name, issue.number);
         let brief = worker_brief(c, issue, &branch, resumed.as_ref());

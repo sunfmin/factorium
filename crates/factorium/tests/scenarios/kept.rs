@@ -9,6 +9,15 @@ use serde_json::json;
 
 use crate::fixture::{CLAUDE, World, comments, findings, keyed, worktree};
 
+/// The branch a comment of factorium's names, in backticks, which a git
+/// branch of `web` must be.
+fn named_branch(w: &World, text: &str) -> String {
+    let branch = text.split('`').nth(1).unwrap_or_else(|| panic!("names no branch: {text}"));
+    let repo = w.dir.join("repos").join("web");
+    assert!(w.git(&repo, &["rev-parse", "--verify", &format!("refs/heads/{branch}")]).is_ok(), "{text}");
+    branch.to_string()
+}
+
 /// Hides `web`'s remote, so its proving tip cannot be fetched, until `back`.
 struct Unreachable {
     at: PathBuf,
@@ -112,7 +121,7 @@ async fn closing_an_issue_removes_its_kept_worktree_and_keeps_its_branch() {
     assert!(w.git(&repo, &["rev-parse", "--verify", "factorium/web-1-1"]).is_err(), "only the abandoned one");
     let last = comments(&closed).last().unwrap().clone();
     assert_eq!(last["by"], "factorium", "{last}");
-    assert!(last["text"].as_str().unwrap().contains(&format!("`{old}`")), "{last}");
+    assert_eq!(named_branch(&w, last["text"].as_str().unwrap()), old, "{last}");
 }
 
 #[tokio::test]
@@ -190,7 +199,8 @@ async fn doctor_leaves_an_open_issue_s_worktrees_and_discard_refuses_them() {
     // The older attempt's issue is open: a comment names the branch.
     let comments = w.comments("web", 1).await;
     let said: Vec<&str> = comments.iter().map(|c| c["text"].as_str().unwrap()).collect();
-    assert!(said.iter().any(|t| t.contains("`factorium/web-1-0-abandoned`")), "{said:?}");
+    let older = said.iter().find(|t| t.contains("attempt 0")).expect("named");
+    assert_eq!(named_branch(&w, older), "factorium/web-1-0-abandoned", "{said:?}");
 }
 
 #[tokio::test]
@@ -217,6 +227,9 @@ async fn starting_over_with_the_proving_tip_unread_discards_the_worktree_and_kee
     assert_eq!(over["discarded"], json!(tree));
     assert_eq!(over["abandoned"], "factorium/web-1-1-abandoned");
     assert!(!tree.exists(), "the worktree is gone");
+    let said = comments(&over).last().unwrap()["text"].as_str().unwrap().to_string();
+    assert!(said.starts_with("Started over: attempt 1's worktree"), "{said}");
+    assert_eq!(named_branch(&w, &said), "factorium/web-1-1-abandoned");
     away.back();
 
     w.app.issue_ready("web", 1).await.unwrap();
