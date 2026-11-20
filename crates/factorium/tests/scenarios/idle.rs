@@ -101,6 +101,31 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
     ended(&w).await;
 }
 
+/// A tick while idle work runs starts none beside it, overdue as it is: its
+/// clone, which its line uses, is left as it made it.
+#[tokio::test]
+async fn a_tick_while_overdue_idle_work_runs_leaves_it_and_its_clone_be() {
+    let w = World::new();
+    let (web, answer, dir) = (w.checkout("web").await, w.dir.join("next.json"), w.dir.join("held"));
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    let line = format!(
+        "touch mark && ( {} ) >/dev/null && test -f mark && echo slimfit 0.1.16 && cat '{}'",
+        w.holds(&dir),
+        answer.display()
+    );
+    w.push_by_hand("web", "main", "factorium.toml", &format!("[idle]\ntasks = {line:?}\nevery = 60\nlimit = 60\n"));
+    w.git(&web, &["fetch", "-q", "origin"]).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(1);
+    assert!(started(&w.tick().await.idle));
+    until_file(&dir.join("started")).await;
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
+    std::fs::write(dir.join("release"), "").unwrap();
+    let run = ended(&w).await;
+    assert_eq!(run["green"], true, "{run}");
+}
+
 /// Idle work whose steps ended green before a command queued beside it is
 /// a run, recorded green: giving way ends only what still runs.
 #[tokio::test]
