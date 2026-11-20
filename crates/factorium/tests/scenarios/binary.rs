@@ -427,7 +427,7 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while !running.exists() {
         assert!(std::time::Instant::now() < deadline, "the first never ran");
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     }
     held.kill().unwrap();
     held.wait().unwrap();
@@ -443,7 +443,7 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
             next.kill().unwrap();
             break None;
         }
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     };
     // The dead one's command is still waiting on the fifo.
     {
@@ -472,7 +472,7 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
             let _ = daemon.kill();
             panic!("the daemon did not keep ticking: {gone:?}");
         }
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     }
     let (ok, stopped) = run(dir, &["stop"]);
     if stopped["stopped"] != true {

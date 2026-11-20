@@ -19,10 +19,16 @@ pub const STUCK: Duration = Duration::from_secs(30);
 /// one whether it holds others up: ms on the app's clock (`heavy.rs`).
 pub const POLL: i64 = 500;
 
+/// How often a scenario looks again at what nothing tells it of: a file a
+/// fixture's process writes, the queue another run changes, a child's exit. Real time,
+/// but a sleep, not a spin: what a look costs does not grow with how long a
+/// loaded host leaves the scenario waiting (factorium#155).
+pub const LOOK: Duration = Duration::from_millis(10);
+
 /// Until `path` is there.
 pub async fn until_file(path: &Path) {
     while !path.exists() {
-        tokio::task::yield_now().await;
+        tokio::time::sleep(LOOK).await;
     }
 }
 
@@ -31,24 +37,31 @@ impl World {
     /// heavy command has done what the time it woke at gave it to do), moves
     /// the clock a poll on: each asks again.
     pub async fn poll(&self, n: usize) {
-        while self.clock.asleep() != n {
-            tokio::task::yield_now().await;
-        }
+        self.until(async || self.clock.asleep() == n).await;
         self.clock.advance(POLL);
+    }
+
+    /// Until `done`: looked at again each time the world's clock tells of a
+    /// wait that began or ended, and every [`LOOK`] besides, for what moves
+    /// without the clock (another run's entry leaving the queue).
+    pub async fn until(&self, mut done: impl AsyncFnMut() -> bool) {
+        loop {
+            let changed = self.clock.changed();
+            if done().await {
+                return;
+            }
+            tokio::select! { () = changed => {}, () = tokio::time::sleep(LOOK) => {} }
+        }
     }
 
     /// Until the heavy command `what` has left the queue.
     pub async fn gone(&self, what: &str) {
-        while self.queued().await.iter().any(|h| h == what) {
-            tokio::task::yield_now().await;
-        }
+        self.until(async || !self.queued().await.iter().any(|h| h == what)).await;
     }
 
     /// Until the heavy command `what` is in the queue.
     pub async fn until_queued(&self, what: &str) {
-        while !self.queued().await.iter().any(|h| h == what) {
-            tokio::task::yield_now().await;
-        }
+        self.until(async || self.queued().await.iter().any(|h| h == what)).await;
     }
 
     /// Runs `during` while another CLI run's heavy command holds the queue, then

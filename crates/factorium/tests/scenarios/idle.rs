@@ -24,15 +24,19 @@ async fn declares(w: &World, steps: &[String], every: u64, limit: u64) -> PathBu
     web
 }
 
-/// Ticks until a tick says idle work ended green or red; answers what it said.
+/// Ticks until a tick says idle work ended green or red; answers what it
+/// said. Between ticks it waits for the run's steps to end, so it ticks a
+/// few times, not once per turn of a spin: one tick starts it, the next
+/// finds it ended.
 async fn ended(w: &World) -> Value {
     let ticks = async {
-        loop {
+        for _ in 0..3 {
             if let Some(v) = w.tick().await.idle.into_iter().find(|v| v.get("green").is_some()) {
                 return v;
             }
-            tokio::task::yield_now().await;
+            w.app.beside_ended().await;
         }
+        panic!("three ticks and no idle work ended");
     };
     tokio::time::timeout(STUCK, ticks).await.expect("the idle work ends")
 }
