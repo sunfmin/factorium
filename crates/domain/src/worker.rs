@@ -64,10 +64,6 @@ pub struct Worker {
     /// from no earlier.
     #[serde(default)]
     pub freed_at: Option<i64>,
-    /// Comments on its issue since it started waiting, each with when, in
-    /// ms: its watch episode carries them.
-    #[serde(default)]
-    pub heard: Vec<(i64, String)>,
     /// Waiting, its issue was blocked: the watch parked it behind what its
     /// issue waits for, and it goes back to work once all of that is met.
     #[serde(default)]
@@ -139,7 +135,8 @@ pub enum WorkerEvent {
         said: String,
         until: i64,
     },
-    /// A comment on its issue came while it waits.
+    /// Written before what a waiting worker heard was read from its
+    /// issue's comments (#161); read and ignored.
     WorkerHeard {
         text: String,
         at: i64,
@@ -197,15 +194,8 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerStarted(started) => s.started = Some(*started),
             WorkerEvent::LandingRed { .. } => s.reds += 1,
             WorkerEvent::WorkerLanded { commit, .. } => s.landed = Some(commit),
-            WorkerEvent::WorkerWaits { .. } => {
-                (s.over_since, s.quiet) = (None, None);
-                s.heard.clear();
-            }
-            WorkerEvent::WorkerResumed { .. } => {
-                (s.reds, s.quiet, s.parked) = (0, None, false);
-                s.heard.clear();
-            }
-            WorkerEvent::WorkerHeard { text, at } => s.heard.push((at, text)),
+            WorkerEvent::WorkerWaits { .. } => (s.over_since, s.quiet) = (None, None),
+            WorkerEvent::WorkerResumed { .. } => (s.reds, s.quiet, s.parked) = (0, None, false),
             WorkerEvent::WorkerParked => s.parked = true,
             WorkerEvent::WorkerUnparked => s.parked = false,
             WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
@@ -354,28 +344,6 @@ command!(
     Of,
     |p| p.worker,
     |s, _p, _now| Ok::<_, Rejection>(if s.parked { vec![WorkerEvent::WorkerUnparked] } else { Vec::new() })
-);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Heard {
-    pub worker: Uuid,
-    pub text: String,
-}
-
-command!(
-    /// A comment on a waiting worker's issue, kept for the watch.
-    Hear,
-    "worker.hear",
-    Workers,
-    Heard,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        if s.status != Status::Waiting {
-            return no("not_waiting", "the worker does not wait for the watch");
-        }
-        Ok(vec![WorkerEvent::WorkerHeard { text: p.text.clone(), at: now.0 }])
-    }
 );
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
