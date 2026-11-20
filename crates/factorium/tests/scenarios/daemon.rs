@@ -137,9 +137,7 @@ async fn the_daemon_waits_between_ticks_on_the_apps_clock() {
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
     let moves = async {
         // Its first tick done, it waits, asleep on the clock.
-        while w.clock.asleep() != 1 {
-            tokio::task::yield_now().await;
-        }
+        w.until(async || w.clock.asleep() == 1).await;
         w.advance(10);
     };
     let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop), moves) })
@@ -281,9 +279,7 @@ async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
     let moves = async {
         // Each wait between ticks, until one tick went back and the exec was tried.
         loop {
-            while w.clock.asleep() != 1 {
-                tokio::task::yield_now().await;
-            }
+            w.until(async || w.clock.asleep() == 1).await;
             if swapped.fallback().is_some() {
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }
@@ -291,9 +287,7 @@ async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
             if swapped.fallback().is_some() {
                 break;
             }
-            while w.clock.asleep() == 1 {
-                tokio::task::yield_now().await;
-            }
+            w.until(async || w.clock.asleep() != 1).await;
         }
     };
     let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(swapped.run(&stop), moves) })

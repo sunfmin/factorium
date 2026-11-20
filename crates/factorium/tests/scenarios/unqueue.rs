@@ -105,11 +105,7 @@ async fn the_hold_bound_ends_a_running_entrys_whole_process_tree() {
     let others = async {
         let pids = escaped(&dir).await;
         let mut waiter = std::pin::pin!(b.worker_exclusive(None, &w.dir, "echo after"));
-        let queued = async {
-            while !w.queued().await.contains(&"echo after".to_string()) {
-                tokio::task::yield_now().await;
-            }
-        };
+        let queued = w.until_queued("echo after");
         tokio::select! { _ = &mut waiter => panic!("it ran beside the running one"), _ = queued => {} }
         w.advance(31);
         let again = async {

@@ -420,14 +420,22 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     assert!(run(&dir, &["settings", "memory_free_min", "100"]).0);
     sh(&dir.0, "mkfifo go");
     let mut held = bin(&dir);
-    held.args(["worker", "exclusive", "--", "sh", "-c", "touch running; perl -e 'alarm 20; exec @ARGV' cat go"])
-        .current_dir(&dir.0);
+    // `running` once its last process is the one left waiting on the fifo.
+    let line = "perl -e 'alarm 20; open my $f, \">\", \"running\"; exec @ARGV' cat go";
+    held.args(["worker", "exclusive", "--", "sh", "-c", line]).current_dir(&dir.0);
     let mut held = held.stdout(Stdio::null()).spawn().unwrap();
     let running = dir.0.join("running");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !running.exists() {
+    // Killed once it noted its command's session, so the kill finds it at
+    // the same point however long a loaded host took to get it there.
+    let db = rusqlite::Connection::open(dir.0.join("data/factorium/factorium.db")).unwrap();
+    let noted = || {
+        let runs = "SELECT count(*) FROM events WHERE kind = 'HeavyRuns'";
+        running.exists() && db.query_row(runs, [], |r| r.get::<_, i64>(0)).unwrap() > 0
+    };
+    while !noted() {
         assert!(std::time::Instant::now() < deadline, "the first never ran");
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     }
     held.kill().unwrap();
     held.wait().unwrap();
@@ -443,7 +451,7 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
             next.kill().unwrap();
             break None;
         }
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     };
     // The dead one's command is still waiting on the fifo.
     {
@@ -454,17 +462,21 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     assert!(ended.is_some_and(|s| s.success()), "the dead one's entry held it up");
 }
 
-/// Runs the daemon on `dir` until it starts its tick number `ticks` (each
-/// reads the host's processes, through a `ps` that counts), then `stop`s it,
-/// as `stop` must; answers what it printed.
-fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
+/// Starts the daemon on `dir`, its `ps` one that counts: each tick reads the
+/// host's processes through it.
+fn ticking(dir: &Dir) -> std::process::Child {
     let calls = dir.0.join("stubs/ps.calls");
     let ps = format!("#!/bin/sh\necho >> '{}'\nexec /bin/ps \"$@\"\n", calls.display());
     let _ = bin(dir);
     std::fs::write(dir.0.join("stubs/ps"), ps).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(dir.0.join("stubs/ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut daemon = bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap();
+    bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap()
+}
+
+/// Until the daemon [`ticking`] on `dir` starts its tick number `ticks`.
+fn until_tick(dir: &Dir, daemon: &mut std::process::Child, ticks: usize) {
+    let calls = dir.0.join("stubs/ps.calls");
     let deadline = std::time::Instant::now() + crate::fixture::STUCK;
     while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
@@ -472,8 +484,15 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
             let _ = daemon.kill();
             panic!("the daemon did not keep ticking: {gone:?}");
         }
-        std::thread::yield_now();
+        std::thread::sleep(crate::fixture::LOOK);
     }
+}
+
+/// Runs the daemon on `dir` until it starts its tick number `ticks`, then
+/// `stop`s it, as `stop` must; answers what it printed.
+fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
+    let mut daemon = ticking(dir);
+    until_tick(dir, &mut daemon, ticks);
     let (ok, stopped) = run(dir, &["stop"]);
     if stopped["stopped"] != true {
         let _ = daemon.kill();
@@ -507,22 +526,15 @@ fn a_daemon_sent_sigint_between_ticks_ends_in_order() {
     let dir = Dir::new();
     // A long wait between ticks: the signal ends it, not its next tick.
     assert!(run(&dir, &["settings", "tick_every", "600"]).0);
-    let mut daemon = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let pid = dir.0.join("data/factorium/daemon.pid");
-    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
-    while !pid.exists() {
-        if daemon.try_wait().unwrap().is_some() || std::time::Instant::now() > deadline {
-            let _ = daemon.kill();
-            panic!("the daemon never wrote its pid file");
-        }
-        // The real binary on the system clock: its signal handling and exit
-        // take real time, which no scenario clock moves.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    // Signalled once its first tick began: in it or in the wait after it,
+    // whichever a loaded host makes it, it ends after that one tick.
+    let mut daemon = ticking(&dir);
+    until_tick(&dir, &mut daemon, 1);
     assert!(Command::new("kill").args(["-INT", &daemon.id().to_string()]).status().unwrap().success());
     let out = ended_in_order(&dir, daemon);
     let said: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(said["stopped"], true, "{said}");
+    assert_eq!(said["ticks"], 1, "{said}");
 }
 
 #[test]

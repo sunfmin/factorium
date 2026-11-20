@@ -269,9 +269,7 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
         let other = w2.worker_exclusive(Some(two), &dirs[2], &holds[2]);
         let (mut one, mut other) = (std::pin::pin!(one), std::pin::pin!(other));
         let queued = async {
-            while w.queued().await.len() < 3 || w.clock.asleep() != 3 {
-                tokio::task::yield_now().await;
-            }
+            w.until(async || w.queued().await.len() >= 3 && w.clock.asleep() == 3).await;
         };
         tokio::select! {
             _ = &mut one => panic!("it ran beside what runs"),
@@ -280,29 +278,21 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
         }
         // What runs ends while the clock stands: nothing asks until it moves.
         std::fs::write(dirs[0].join("release"), "").unwrap();
-        while w.queued().await.len() > 2 || w.clock.asleep() != 2 {
-            tokio::task::yield_now().await;
-        }
+        w.until(async || w.queued().await.len() <= 2 && w.clock.asleep() == 2).await;
         w.advance(1);
         // Just due, the slow gate keeps its FIFO place: it queues behind the
         // workers' entries, which ask (at the same time) once the tick did.
         assert!(w.tick().await.lines.is_empty(), "just due, a worker's entry starts ahead of it");
         assert!(w.queued().await.contains(&"slow gate of web".to_string()));
         let script = async {
-            let first = loop {
-                if let Some(d) = dirs[1..].iter().find(|d| started(d)) {
-                    break d.clone();
-                }
-                tokio::task::yield_now().await;
-            };
+            w.until(async || dirs[1..].iter().any(started)).await;
+            let first = dirs[1..].iter().find(|d| started(d)).unwrap().clone();
             let second = dirs[1..].iter().find(|d| **d != first).unwrap().clone();
 
             // Past when it fell due, it goes ahead of the worker's entry still waiting.
             w.advance(1);
             std::fs::write(first.join("release"), "").unwrap();
-            while w.queued().await.len() > 2 {
-                tokio::task::yield_now().await;
-            }
+            w.until(async || w.queued().await.len() <= 2).await;
             let t = w.tick().await;
             assert!(
                 t.lines.iter().any(|l| l["promoted"] == "web"),
