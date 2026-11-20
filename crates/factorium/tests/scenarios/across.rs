@@ -97,7 +97,13 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     let own_cut = waits(block(2, "factorium#1@cut", false).await);
     assert_eq!(own_cut, (json!([]), json!(["factorium#1@cut"])));
     assert_eq!(waits(block(2, "1", false).await), (json!([1]), json!([])), "it waits for #1 closed now");
-    assert_eq!(waits(block(2, "factorium#1", true).await), (json!([]), json!([])));
+    for b in ["web#1", "web#2", "web#1"] {
+        block(2, b, false).await.unwrap();
+    }
+    assert_eq!(waits(block(2, "1", false).await), (json!([1]), json!(["web#1", "web#2"])), "each once, in order");
+    assert_eq!(waits(block(2, "factorium#1", true).await), (json!([]), json!(["web#1", "web#2"])));
+    block(2, "1", false).await.unwrap();
+    assert_eq!(waits(block(2, "web#1", true).await), (json!([1]), json!(["web#2"])));
 
     // A repo with no cut has none to wait for.
     w.commit(&path, "factorium.toml", "[gate]\nfast = \"true\"\n");
