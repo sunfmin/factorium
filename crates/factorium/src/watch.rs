@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::life::End;
 use crate::session::{Opened, Role};
-use crate::{Answer, App, Refusal};
+use crate::{Answer, App, Live, Refusal, Want};
 
 impl App {
     /// The look, if one is due: doctor's findings become episodes, and a new
@@ -142,24 +142,14 @@ impl App {
 
     /// Sends a waiting worker back to work, told `text`, kept as `by`'s comment.
     pub(crate) async fn restart(&self, worker: Uuid, by: Author, text: &str, now: bool) -> Answer {
-        let wk = self.state::<Workers>(worker).await?;
-        let st = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
-        if wk.status == Status::Ended {
-            return Err(Refusal::new("ended", "this worker has ended"));
-        }
+        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
         let from = if by == Author::Watch { Sender::Watch } else { Sender::Factorium };
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, by, text).await?;
-        let session = Self::worker_session(worker, &st)?;
-        match self.gone(&session) {
-            Ok(false) => {}
-            Err(why) => return Err(Refusal::new("orca", why)),
-            Ok(true) => {
-                self.end_worker(worker, End::because("restarted: its session was gone", true)).await?;
-                return Ok(
-                    json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
-                );
-            }
+        if self.gone(&session).map_err(|why| Refusal::new("orca", why))? {
+            self.end_worker(worker, End::because("restarted: its session was gone", true)).await?;
+            let issue = format!("{}#{}", st.checkout, st.number);
+            return Ok(json!({ "worker": worker, "ended": true, "issue": issue }));
         }
         let line = format!("{text} Then go on, and run `factorium worker done` when the work is committed.");
         // A brief never handed goes first: the word is about its work.
@@ -175,14 +165,10 @@ impl App {
     /// whether it started a turn (`submitted`) or waits behind the running
     /// one (`queued`). `now`: first stops the running turn.
     pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
-        let st =
-            self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
+        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
-        let delivery = self
-            .tell(&Self::worker_session(worker, &st)?, Sender::Watch, text, now)
-            .await
-            .and_then(crate::session::heard)?;
+        let delivery = self.tell(&session, Sender::Watch, text, now).await.and_then(crate::session::heard)?;
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word(), "missed": delivery.why() }))
     }
 
@@ -194,13 +180,12 @@ impl App {
     /// or `none`), and why it did not reach the worker; the issue
     /// keeps the comment for the next brief either way.
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started.as_ref().filter(|_| wk.status != Status::Ended) else { return Ok(("none", None)) };
-        if wk.status == Status::Waiting {
+        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
+        if live.waiting {
             self.submit::<w::Hear>(w::Heard { worker, text: text.into() }).await?;
             return Ok(("watch", None));
         }
-        let d = self.tell(&Self::worker_session(worker, st)?, Sender::Comment, text, false).await?;
+        let d = self.tell(&live.session, Sender::Comment, text, false).await?;
         Ok((d.word(), d.why().map(str::to_string)))
     }
 }

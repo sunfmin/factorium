@@ -14,7 +14,7 @@ use serde_json::json;
 
 use crate::kept::Resumed;
 use crate::session::{Pick, Role};
-use crate::{Answer, App, Refusal, fail};
+use crate::{Answer, App, Refusal, Want, fail};
 
 /// Why a worker ends.
 pub(crate) enum End {
@@ -63,7 +63,7 @@ impl App {
         let failed = |r: Refusal| (format!("its start failed: {r}"), r);
         self.submit::<w::StartWorker>(w::Start { worker, started: st.clone() }).await.map_err(failed)?;
         let Some(typed) = typed else { return Ok(()) };
-        let session = Self::worker_session(worker, st).map_err(failed)?;
+        let session = self.live(worker, Want::Working).await.map_err(failed)?.session;
         match self.hand_brief(&session, &typed).await.map_err(failed)? {
             // Typed once the harness is up, on a later look.
             Outcome::NotTyped { code, .. } if code == "not_up" => Ok(()),

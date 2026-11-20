@@ -15,14 +15,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::session::Pick;
-use crate::{Answer, App, Refusal, fail};
+use crate::{Answer, App, Refusal, Want, fail};
 
 impl App {
     /// Has the worker's change's mutants picked, and answers the picks, or
     /// why none, by whom, with the commands that run and record them; when
     /// every picker fails, the last one's refusal, and nothing is kept.
     pub async fn worker_pick_mutants(&self, worker: Uuid) -> Answer {
-        let (_, st) = self.started(worker).await?;
+        let st = self.live(worker, Want::Any).await?.started;
         let proving = self.checkout(&st.checkout).await?.fetched_proving();
         let git = self.host.git(&st.worktree);
         let from = git.run(&["merge-base", "HEAD", &proving]).map_err(fail("git"))?;
