@@ -18,7 +18,7 @@ use crate::heavy::{Job, Turn};
 use crate::{Answer, App, Refusal, fail};
 
 impl App {
-    async fn started(&self, worker: Uuid) -> Answer<(w::Worker, Started)> {
+    pub(crate) async fn started(&self, worker: Uuid) -> Answer<(w::Worker, Started)> {
         let wk = self.state::<Workers>(worker).await?;
         let st = wk.started.clone().ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
         if wk.status == Status::Ended {

@@ -258,6 +258,8 @@ impl Kind for Codex {
     const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
+    /// Not asked headless: no run of it so has been read here.
+    const HEADLESS: Option<crate::ask::Headless> = None;
 
     fn kept(_start: &Start) -> Result<Vec<(&'static str, String)>, String> {
         Ok(Vec::new())

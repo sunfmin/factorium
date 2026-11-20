@@ -38,6 +38,7 @@ mod outage;
 mod outbox;
 mod parked;
 mod path;
+mod pick;
 mod priority;
 mod queue;
 mod stall;

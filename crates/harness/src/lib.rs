@@ -7,6 +7,7 @@
 //! knows why.
 
 pub mod account;
+mod ask;
 mod brief;
 mod harness;
 mod line;
@@ -14,6 +15,7 @@ mod screen;
 mod start;
 mod turn;
 
+pub use ask::{Ask, Asked};
 pub use harness::{Call, Harness, Stop};
 pub use line::{quoted, secrets_file};
 pub use start::{Home, Kept, Launch, RULES, SKILLS, Start};

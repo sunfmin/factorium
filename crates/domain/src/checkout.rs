@@ -21,6 +21,11 @@ impl Checkout {
     pub fn fetched_base(&self) -> String {
         format!("refs/remotes/origin/{}", self.base)
     }
+
+    /// Origin's proving branch as last fetched: what a worker's change lands on.
+    pub fn fetched_proving(&self) -> String {
+        format!("refs/remotes/origin/{}", self.proving)
+    }
 }
 
 #[derive(Serialize, Deserialize)]

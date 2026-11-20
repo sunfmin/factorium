@@ -157,7 +157,7 @@ worker run only `factorium worker …` and lets only the watch run
 | Group | Who | Commands |
 |---|---|---|
 | `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
-| `factorium worker …` | a worker | `gate`, `done`, `escalate`, `exclusive [--background] -- <cmd>` |
+| `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
 Every message to a session — a brief, a landing's red, a round, `watch
@@ -235,10 +235,10 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 | Crate | Holds | Budget (source lines) |
 |---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,420 |
+| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,320 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,650 |
+| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,750 |
 
 `gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
 100 lines from the domain's budget (4,055 used) to the binary's: restarting
@@ -252,7 +252,10 @@ binary to roll back to, and going back to it, are file and exec effects of
 the app read from no database, and the binary stood at 4,479. factorium#142 moved 120 more from the domain's (the domain to 6,420, 4,498
 used; the binary to 4,650, at 4,618): when the store cannot be read, the
 watch is briefed and doctor answers through files under the data directory
-and Orca's terminal, the app's effects.
+and Orca's terminal, the app's effects. factorium#147 moved 100 more from the
+domain's (the domain to 6,320, 4,662 used; the binary to 4,750, at 4,618
+before it): a worker's mutant picker is a process the app starts and
+reads, its question and answer the domain's.
 
 **What a repo declares**, in `factorium.toml` at its root (§3); every
 table may be left out:
@@ -341,7 +344,14 @@ depend on nothing else of factorium.
   its own gate, before it reaches proving. The worker follows
   `slimfit next`; what is factorium's is the priority: a mutants run goes
   through `factorium worker exclusive --background`, a run whose baseline
-  it ratchets through `factorium worker exclusive` (§1, row 9).
+  it ratchets through `factorium worker exclusive` (§1, row 9). And the
+  second agent that picks a change's mutants ([`slimfit help picker`](https://github.com/sunfmin/slimfit/blob/main/src/help/picker.md)):
+  `factorium worker pick-mutants` asks a fresh headless session, on another
+  harness of the kit that can be asked headless (else the worker's, anew),
+  on its account with the most left, within `pick_bound`, given only
+  slimfit's goal, the diff from origin's proving and `slimfit check
+  --mutants`; its time and tokens go on the issue, and one that fails is a
+  refusal the worker gets, never a pick (factorium#147).
 
 ## 7. From afkconvoy
 

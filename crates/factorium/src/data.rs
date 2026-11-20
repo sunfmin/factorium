@@ -86,6 +86,11 @@ impl Data {
         self.0.join("secrets")
     }
 
+    /// Where one mutant picker is asked, alone: its question and answer.
+    pub fn pick(&self, id: impl std::fmt::Display) -> PathBuf {
+        self.0.join("picks").join(id.to_string())
+    }
+
     /// What was seen of `worker` at `at`.
     pub fn evidence(&self, worker: impl std::fmt::Display, at: i64) -> PathBuf {
         self.0.join("evidence").join(format!("{worker}-{at}.txt"))

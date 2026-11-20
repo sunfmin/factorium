@@ -1,4 +1,4 @@
-//! The machine a scenario runs on: Orca, Homebrew, mytokens and launchd as
+//! The machine a scenario runs on: Orca, Homebrew, mytokens, slimfit and launchd as
 //! programs whose answers the scenario gives, the host's readings and
 //! processes, and its one clock. Git is real.
 
@@ -327,6 +327,8 @@ pub struct FakeHost {
     pub reading_procs: Mutex<Option<Box<dyn Fn() + Send>>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
+    /// slimfit: its subcommand → what it prints (`help picker`, `check --mutants`).
+    pub slimfit: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
     /// Whether launchd has the service loaded.
@@ -364,6 +366,10 @@ impl Programs for FakeHost {
                     _ => None,
                 };
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
+            }
+            "slimfit" => {
+                let out = self.slimfit.lock().unwrap().get(args[0]).cloned();
+                Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
             "sleep" => {
                 if let Some(then) = self.while_sleeping.lock().unwrap().take() {
