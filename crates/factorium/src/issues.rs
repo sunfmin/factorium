@@ -25,12 +25,8 @@ impl App {
         blocked_by: &[Blocker],
     ) -> Answer {
         self.checkout(checkout).await?;
-        let (mut here, mut across) = (Vec::new(), Vec::new());
         for by in blocked_by {
-            match self.blocker(checkout, by.clone()).await? {
-                Blocker::Here(n) => here.push(n),
-                Blocker::Across(a) => across.push(a),
-            }
+            self.blocker(checkout, by.clone()).await?;
         }
         let (title, body) = (title.into(), body.into());
         let open = Open {
@@ -38,8 +34,7 @@ impl App {
             title,
             body,
             waiting_for_human,
-            blocked_by: here,
-            across,
+            blocked_by: blocked_by.to_vec(),
             ..Open::default()
         };
         let number = self.open_issue(open).await?;
@@ -79,8 +74,8 @@ impl App {
             "title": i.title,
             "body": i.body,
             "status": i.status,
-            "blocked_by": i.blocked_by,
-            "blocked_across": i.across.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "blocked_by": i.blocked_by(),
+            "blocked_across": i.blocked_across(),
             "reason": i.reason,
             "worker": i.worker,
             "task": i.task,
@@ -208,19 +203,11 @@ impl App {
     /// Makes issue `number` wait for `by`, an issue of its checkout or of
     /// another, or, with `undo`, stop waiting for it.
     pub async fn issue_block(&self, checkout: &str, number: u64, by: impl Into<Blocker>, undo: bool) -> Answer {
-        let by = by.into().of(checkout);
-        let by = if undo { by } else { self.blocker(checkout, by).await? };
-        let c = checkout.to_string();
-        match (by, undo) {
-            (Blocker::Here(by), false) => self.submit::<BlockIssue>(Block { checkout: c, number, by }).await?,
-            (Blocker::Here(by), true) => self.submit::<UnblockIssue>(Block { checkout: c, number, by }).await?,
-            (Blocker::Across(by), false) => {
-                self.submit::<BlockIssueAcross>(BlockAcross { checkout: c, number, by }).await?
-            }
-            (Blocker::Across(by), true) => {
-                self.submit::<UnblockIssueAcross>(BlockAcross { checkout: c, number, by }).await?
-            }
+        let by = by.into();
+        if !undo {
+            self.blocker(checkout, by.clone()).await?;
         }
+        self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, undo }).await?;
         // Its waiting worker is parked behind it (SPEC §2): back to work once all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
             self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;

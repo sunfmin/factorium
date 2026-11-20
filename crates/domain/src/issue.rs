@@ -24,10 +24,8 @@ pub struct Issue {
     pub title: String,
     pub body: String,
     pub status: Status,
-    /// The numbers of the issues of its checkout it waits for.
-    pub blocked_by: Vec<u64>,
-    /// The issues of other checkouts it waits for.
-    pub across: Vec<Across>,
+    /// The issues it waits for, of its checkout or of others.
+    pub waits: Vec<Across>,
     /// Why it waits for a person, or why it is closed.
     pub reason: Option<String>,
     /// The worker that holds it now.
@@ -99,7 +97,7 @@ impl std::fmt::Display for Across {
 /// What an issue waits for, as the CLI names it: `N`, an issue of its own
 /// checkout; `<checkout>#N`, one of another, met when it is closed;
 /// `<checkout>#N@cut`, met once a cut holds its landing.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Blocker {
     Here(u64),
     Across(Across),
@@ -145,6 +143,22 @@ impl Issue {
         self.number > 0
     }
 
+    /// Whether `a` is an issue of its own checkout, waited for until it
+    /// closes: the CLI names it `N`.
+    fn here(&self, a: &Across) -> bool {
+        a.checkout == self.checkout && !a.cut
+    }
+
+    /// The numbers of the issues of its own checkout it waits for.
+    pub fn blocked_by(&self) -> Vec<u64> {
+        self.waits.iter().filter(|a| self.here(a)).map(|a| a.number).collect()
+    }
+
+    /// What else it waits for: issues of other checkouts, and cuts.
+    pub fn blocked_across(&self) -> Vec<String> {
+        self.waits.iter().filter(|a| !self.here(a)).map(ToString::to_string).collect()
+    }
+
     /// What a worker waiting since `since` (ms) heard: the owner's comments
     /// made since then, oldest first. Comments of no known time, made
     /// before times were kept, are left out.
@@ -154,16 +168,42 @@ impl Issue {
 
     /// Everything it waits for, each named as the CLI names it: one of its
     /// own checkout as `#N`, with the issue it is as one of any checkout.
+    /// Those of its own checkout come first.
     pub fn waits_for(&self) -> Vec<(String, Across)> {
-        let here = self
-            .blocked_by
-            .iter()
-            .map(|&number| (format!("#{number}"), Across { checkout: self.checkout.clone(), number, cut: false }));
-        here.chain(self.across.iter().map(|a| (a.to_string(), a.clone()))).collect()
+        let (here, across): (Vec<_>, Vec<_>) = self.waits.iter().partition(|a| self.here(a));
+        let here = here.into_iter().map(|a| (format!("#{}", a.number), a.clone()));
+        here.chain(across.into_iter().map(|a| (a.to_string(), a.clone()))).collect()
+    }
+
+    /// The events that make it wait for `by`, or, with `undo`, stop: none
+    /// when it already does (or does not). Waiting for an issue otherwise
+    /// (for its cut, or no longer) replaces how it waited for it.
+    fn wait(&self, by: Blocker, undo: bool) -> Result<Vec<IssueEvent>, Rejection> {
+        let by = match by.of(&self.checkout) {
+            Blocker::Here(number) => Across { checkout: self.checkout.clone(), number, cut: false },
+            Blocker::Across(a) => a,
+        };
+        if !undo && by.checkout == self.checkout && by.number == self.number {
+            return no("blocks_itself", "an issue cannot wait for itself");
+        }
+        let held = self.waits.iter().find(|a| a.same(&by));
+        let unblock = held.map(|a| match self.here(a) {
+            true => IssueEvent::Unblocked { number: a.number },
+            false => IssueEvent::UnblockedAcross { checkout: a.checkout.clone(), number: a.number },
+        });
+        let block = || match self.here(&by) {
+            true => IssueEvent::BlockedBy { number: by.number },
+            false => IssueEvent::BlockedAcross(by.clone()),
+        };
+        Ok(match (held, undo) {
+            (_, true) => unblock.into_iter().collect(),
+            (Some(a), false) if *a == by => Vec::new(),
+            (_, false) => unblock.into_iter().chain([block()]).collect(),
+        })
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum IssueEvent {
     IssueOpened {
@@ -255,11 +295,21 @@ impl Aggregate for Issues {
                 *s = Issue { checkout, number, title, body, task, ..Issue::default() };
             }
             IssueEvent::IssueEdited { title, body } => (s.title, s.body) = (title, body),
-            IssueEvent::BlockedBy { number } => s.blocked_by.push(number),
-            IssueEvent::Unblocked { number } => s.blocked_by.retain(|n| *n != number),
-            IssueEvent::BlockedAcross(a) => s.across.push(a),
+            // An own-checkout issue waited for until it closes is written as
+            // `BlockedBy` and `Unblocked`; any other as `…Across`.
+            IssueEvent::BlockedBy { number } => {
+                s.waits.push(Across { checkout: s.checkout.clone(), number, cut: false })
+            }
+            IssueEvent::Unblocked { number } => {
+                let own = s.checkout.clone();
+                s.waits.retain(|a| !(a.checkout == own && !a.cut && a.number == number))
+            }
+            IssueEvent::BlockedAcross(a) => s.waits.push(a),
             IssueEvent::UnblockedAcross { checkout, number } => {
-                s.across.retain(|a| (a.checkout.as_str(), a.number) != (checkout.as_str(), number))
+                let own = s.checkout.clone();
+                s.waits.retain(|a| {
+                    (a.checkout == own && !a.cut) || (a.checkout.as_str(), a.number) != (checkout.as_str(), number)
+                })
             }
             IssueEvent::IssueTaken { worker } => {
                 s.worker = Some(worker);
@@ -283,9 +333,9 @@ impl Aggregate for Issues {
         vec![("IssueCommented", authored)]
     }
 
-    /// "4": it keeps the task it was filed for, and when it closed.
+    /// "5": it keeps what it waits for, of its checkout or another, in one list.
     fn code() -> &'static str {
-        "4"
+        "5"
     }
 }
 
@@ -305,12 +355,9 @@ pub struct Open {
     pub body: String,
     #[serde(default)]
     pub waiting_for_human: bool,
-    /// The issues of its checkout it waits for from the start.
+    /// The issues it waits for from the start, of its checkout or others.
     #[serde(default)]
-    pub blocked_by: Vec<u64>,
-    /// The issues of other checkouts it waits for from the start.
-    #[serde(default)]
-    pub across: Vec<Across>,
+    pub blocked_by: Vec<Blocker>,
     /// The task it is filed for, by idle work.
     #[serde(default)]
     pub task: Option<Task>,
@@ -326,10 +373,6 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
     if p.title.trim().is_empty() {
         return no("no_title", "an issue needs a title");
     }
-    if p.blocked_by.contains(&p.number) || p.across.iter().any(|a| (a.checkout == p.checkout) && (a.number == p.number))
-    {
-        return no("blocks_itself", "an issue cannot wait for itself");
-    }
     let mut events = vec![IssueEvent::IssueOpened {
         checkout: p.checkout.clone(),
         number: p.number,
@@ -338,17 +381,14 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         waiting_for_human: p.waiting_for_human,
         task: p.task.clone(),
     }];
-    let mut blockers = p.blocked_by.clone();
-    blockers.sort_unstable();
-    blockers.dedup();
-    events.extend(blockers.into_iter().map(|number| IssueEvent::BlockedBy { number }));
-    let mut across: Vec<&Across> = Vec::new();
-    for a in &p.across {
-        if !across.iter().any(|b| b.same(a)) {
-            across.push(a);
+    let mut opened = Issue::default();
+    Issues::evolve(&mut opened, events[0].clone());
+    for by in &p.blocked_by {
+        for e in opened.wait(by.clone(), false)? {
+            Issues::evolve(&mut opened, e.clone());
+            events.push(e);
         }
     }
-    events.extend(across.into_iter().cloned().map(IssueEvent::BlockedAcross));
     Ok(events)
 });
 
@@ -388,57 +428,17 @@ on_issue!(EditIssue, "issue.edit", Edit, |s, p, now| {
     }
 });
 
+/// Issue `number` of `checkout` waits for `by`, or, with `undo`, stops.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     pub checkout: String,
     pub number: u64,
-    pub by: u64,
+    pub by: Blocker,
+    #[serde(default)]
+    pub undo: bool,
 }
 
-on_issue!(BlockIssue, "issue.block", Block, |s, p, now| {
-    if p.by == p.number {
-        no("blocks_itself", "an issue cannot wait for itself")
-    } else if s.blocked_by.contains(&p.by) {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![IssueEvent::BlockedBy { number: p.by }])
-    }
-});
-
-on_issue!(UnblockIssue, "issue.unblock", Block, |s, p, now| {
-    Ok(if s.blocked_by.contains(&p.by) { vec![IssueEvent::Unblocked { number: p.by }] } else { Vec::new() })
-});
-
-/// Issue `number` of `checkout` waits for `by`, of another checkout.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BlockAcross {
-    pub checkout: String,
-    pub number: u64,
-    pub by: Across,
-}
-
-on_issue!(BlockIssueAcross, "issue.block_across", BlockAcross, |s, p, now| {
-    if (p.by.checkout == p.checkout) && (p.by.number == p.number) {
-        return no("blocks_itself", "an issue cannot wait for itself");
-    }
-    Ok(match s.across.iter().find(|a| a.same(&p.by)) {
-        Some(a) if *a == p.by => Vec::new(),
-        // Waits for it otherwise now: for its cut, or no longer.
-        Some(_) => vec![
-            IssueEvent::UnblockedAcross { checkout: p.by.checkout.clone(), number: p.by.number },
-            IssueEvent::BlockedAcross(p.by.clone()),
-        ],
-        None => vec![IssueEvent::BlockedAcross(p.by.clone())],
-    })
-});
-
-on_issue!(UnblockIssueAcross, "issue.unblock_across", BlockAcross, |s, p, now| {
-    Ok(if s.across.iter().any(|a| a.same(&p.by)) {
-        vec![IssueEvent::UnblockedAcross { checkout: p.by.checkout.clone(), number: p.by.number }]
-    } else {
-        Vec::new()
-    })
-});
+on_issue!(BlockIssue, "issue.block", Block, |s, p, now| s.wait(p.by.clone(), p.undo));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Because {
