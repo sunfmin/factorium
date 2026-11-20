@@ -252,36 +252,27 @@ impl App {
                 (home.clone(), home, brief, WATCH_TITLE.to_string(), vec![(WATCH_ENV, "1".to_string())])
             }
         };
-        let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
-        // The session runs factorium by name: this one, on this database;
-        // and finds what the kit's program runs by name beside it.
+        // The session runs factorium by name: this one, on this database.
         env.push((DB_ENV, self.db.to_string_lossy().into_owned()));
-        let mut path: Vec<String> = Path::new(&exe).parent().map(|bin| bin.display().to_string()).into_iter().collect();
-        path.extend(program_dir(&pick.command, &self.host.home()));
-        path.push(std::env::var("PATH").unwrap_or_default());
-        env.push(("PATH", path.join(":")));
+        let session = SessionEnv::new(self, pick)?;
+        env.push(("PATH", session.path().to_string()));
         let (dir_text, worktree_text, brief_text) =
             (dir.to_string_lossy(), worktree.to_string_lossy(), brief.to_string_lossy());
         let (home, user_home) = (self.session_home(pick.harness, pick.account.as_deref()), self.host.home());
-        let secret = self.write_secrets(&pick.secrets)?;
-        let secret_text = secret.as_ref().map(|file| file.to_string_lossy().into_owned());
         let start = Start {
             command: &pick.command,
             dir: &dir_text,
             worktree: &worktree_text,
             model: pick.model.as_deref(),
-            guard: &exe,
+            guard: session.exe(),
             home: &home,
             user_home: &user_home,
             env,
             brief: &brief_text,
-            secrets: secret_text.as_deref(),
+            secrets: session.secrets_file(),
         };
-        let opened = self.open_terminal(pick, &start, &worktree, &title);
-        if let (Err(_), Some(file)) = (&opened, &secret) {
-            let _ = std::fs::remove_file(file);
-        }
-        let (terminal, typed) = opened?;
+        let (terminal, typed) = self.open_terminal(pick, &start, &worktree, &title)?;
+        session.hand_over();
         Ok(Opened { terminal, brief, typed, rules: rules_hash })
     }
 
@@ -295,21 +286,73 @@ impl App {
         let terminal = self.host.orca().open(at, title, &launched.line).map_err(fail("orca"))?;
         Ok((terminal, launched.typed))
     }
+}
 
-    /// Writes `secrets`, if any, to a file only this user may read, which
-    /// the start line reads first and removes: its path.
-    pub(crate) fn write_secrets(&self, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
-        if secrets.is_empty() {
-            return Ok(None);
-        }
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-        let dir = self.data().secrets();
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
-        let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
-        std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
-        Ok(Some(file))
+/// The environment a session of a pick runs in, whether a terminal's or a
+/// headless ask's: its PATH, and its account's secrets by a file only this
+/// user may read, which the session's line reads first and removes. Dropped
+/// before a shell took the file over ([`SessionEnv::hand_over`]), it removes
+/// the file itself: a session that never started leaves no secret behind.
+pub(crate) struct SessionEnv {
+    exe: String,
+    path: String,
+    secrets: Option<String>,
+}
+
+impl SessionEnv {
+    /// The environment for a session on `pick`, its secrets file written.
+    pub(crate) fn new(app: &App, pick: &Pick) -> Answer<SessionEnv> {
+        let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or("factorium".into());
+        // This factorium first, then the directory of the kit's program, so
+        // that what it runs by name is found beside it; then the PATH here.
+        let mut path: Vec<String> = Path::new(&exe).parent().map(|bin| bin.display().to_string()).into_iter().collect();
+        path.extend(program_dir(&pick.command, &app.host.home()));
+        path.push(std::env::var("PATH").unwrap_or_default());
+        let secrets = write_secrets(app, &pick.secrets)?.map(|f| f.to_string_lossy().into_owned());
+        Ok(SessionEnv { exe, path: path.join(":"), secrets })
     }
+
+    /// This factorium's executable.
+    pub(crate) fn exe(&self) -> &str {
+        &self.exe
+    }
+
+    /// The session's PATH.
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// The secrets file its line reads first and removes, if the account has secrets.
+    pub(crate) fn secrets_file(&self) -> Option<&str> {
+        self.secrets.as_deref()
+    }
+
+    /// Hands the secrets file to the shell that started: its line removes it.
+    pub(crate) fn hand_over(mut self) {
+        self.secrets = None;
+    }
+}
+
+impl Drop for SessionEnv {
+    fn drop(&mut self) {
+        if let Some(file) = self.secrets.take() {
+            let _ = std::fs::remove_file(file);
+        }
+    }
+}
+
+/// Writes `secrets`, if any, to a file only this user may read: its path.
+fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<Option<PathBuf>> {
+    if secrets.is_empty() {
+        return Ok(None);
+    }
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let dir = app.data().secrets();
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;
+    let file = dir.join(format!("{}.sh", uuid::Uuid::now_v7()));
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
+    std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
+    Ok(Some(file))
 }
 
 /// A hash of `rules` that is the same from one build to the next (64-bit
@@ -346,7 +389,7 @@ fn keep(kept: &Kept) -> std::io::Result<()> {
 /// The directory of the program a kit's `command` names by path, as its
 /// first word: absolute, or under the host user's `home` as `~/`. A program
 /// named by name is found on the PATH already.
-pub(crate) fn program_dir(command: &str, home: &Path) -> Option<String> {
+fn program_dir(command: &str, home: &Path) -> Option<String> {
     let program = command.split_whitespace().next()?;
     let path = match program.strip_prefix("~/") {
         Some(rest) => home.join(rest),

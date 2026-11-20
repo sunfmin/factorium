@@ -44,6 +44,11 @@ async fn kept(w: &World) -> Vec<Value> {
     shown["comments"].as_array().unwrap().iter().filter(|c| c["by"] == "factorium").cloned().collect()
 }
 
+/// Whether no secrets file is left where factorium writes them.
+fn no_secrets_left(w: &World) -> bool {
+    std::fs::read_dir(w.data().secrets()).map_or(true, |mut d| d.next().is_none())
+}
+
 #[tokio::test]
 async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_harness() {
     let picks = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
@@ -81,6 +86,7 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         assert_eq!(env.contains("CLAUDE_CODE_OAUTH_TOKEN=sk-it's\n"), first.is_none(), "{env}");
         assert!(!args.contains("sk-"), "{args}");
         assert!(names.iter().all(|n| theirs.contains(n)), "only its home and PATH: {names:?}");
+        assert!(no_secrets_left(&w), "no secrets file outlives the ask");
 
         let kept = kept(&w).await;
         assert_eq!(kept.len(), 1, "{kept:?}");
@@ -115,9 +121,12 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
     ];
     crate::fixture::each(&cases, |(then, text, code)| async move {
         let (w, wk, _) = changed(None, then, text).await;
+        let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-1"}});
+        w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
         w.app.settings_set(Some("pick_bound"), Some(1)).await.unwrap();
         refused(w.app.worker_pick_mutants(id(&wk)).await, code);
         assert_eq!(kept(&w).await, Vec::<Value>::new(), "{code}: nothing is kept of it");
+        assert!(no_secrets_left(&w), "{code}: no secrets file outlives the ask");
         assert!(!worktree(&wk).join(".slimfit").exists(), "{code}");
     });
 }
