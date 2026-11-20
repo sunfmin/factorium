@@ -77,7 +77,8 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         assert_eq!(kept.len(), 1, "{kept:?}");
         let text = kept[0]["text"].as_str().unwrap();
         assert!(text.starts_with(&format!("pick-mutants: {picker_id} on the host's own login, ")), "{text}");
-        assert!(text.ends_with("1200 tokens in, 80 out; 1 picked"), "{text}");
+        let secs = answer["took_ms"].as_u64().unwrap() as f64 / 1000.0;
+        assert!(text.ends_with(&format!(", {secs:.1}s, 1200 tokens in, 80 out; 1 picked")), "{text}");
     });
 }
 
@@ -100,6 +101,7 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
         (String::new(), format!(r#"{{"picks": [{}]}}"#, six.join(",")), "picker_answer"),
         (String::new(), r#"{"picks": [], "none": "two\nlines"}"#.into(), "picker_answer"),
         (String::new(), "I would pick the comparison.".into(), "picker_answer"),
+        (String::new(), "} I would pick { nothing".into(), "picker_answer"),
     ];
     crate::fixture::each(&cases, |(then, text, code)| async move {
         let (w, wk, _) = changed(None, then, text).await;
