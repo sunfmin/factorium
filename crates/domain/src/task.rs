@@ -1,7 +1,7 @@
 //! Tasks a checkout's idle work finds, filed as its issues (§1.16): what
-//! `[idle] tasks` prints is slimfit's `next --all` answer, and of each kind
-//! the first task is filed, while no issue of that kind is open. A task
-//! closed in the last week is not filed again.
+//! `[idle] tasks` prints is one or more answers shaped as slimfit's `next
+//! --all`, and of each kind the first task is filed, while no issue of that
+//! kind is open. A task closed in the last week is not filed again.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,14 +27,22 @@ pub struct ToFile {
 }
 
 /// The issues to file from what the tasks line `said` at `tip`: the lines
-/// before its JSON name what read the tasks (`slimfit --version`), the JSON
-/// is `slimfit next --all`'s answer. `issues` are the checkout's, open and
-/// closed; `now` is in ms.
+/// before its JSON name what read the tasks (`slimfit --version`), then come
+/// answers listing `tasks`: `slimfit next --all`'s, and any other's that
+/// names itself in `by` (`./lines.sh --tasks`, SPEC §5). `issues` are the
+/// checkout's, open and closed; `now` is in ms.
 pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<ToFile>, String> {
     let at = said.find("\n{").map_or(0, |i| i + 1);
     let (by, json) = said.split_at(at);
-    let answer = serde_json::from_str::<Value>(json).unwrap_or_default();
-    let tasks = answer["tasks"].as_array().ok_or("the tasks line printed no answer listing `tasks`")?;
+    let answers: Vec<Value> = serde_json::Deserializer::from_str(json).into_iter().map_while(Result::ok).collect();
+    let mut tasks = Vec::new();
+    for a in &answers {
+        let listed = a["tasks"].as_array().ok_or("the tasks line printed an answer listing no `tasks`")?;
+        tasks.extend(listed.iter().map(|t| (a["by"].as_str(), t)));
+    }
+    if answers.is_empty() {
+        return Err("the tasks line printed no answer listing `tasks`".into());
+    }
     let by = by.trim();
     let open = |kind: &str| {
         issues.iter().any(|i| i.status != Status::Closed && i.task.as_ref().is_some_and(|t| t.kind == kind))
@@ -43,7 +51,7 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<
         issues.iter().any(|i| i.task.as_ref() == Some(task) && i.closed_at.is_some_and(|at| now - at < AGAIN_MS))
     };
     let mut filed: Vec<ToFile> = Vec::new();
-    for t in tasks {
+    for (own, t) in tasks {
         let kind = t["kind"].as_str().unwrap_or_default().to_string();
         let files = t["files"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string);
         let task = Task { kind, files: files.collect() };
@@ -52,15 +60,19 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<
         }
         let shown = serde_json::to_string_pretty(t).unwrap_or_default();
         let summary = t["summary"].as_str().unwrap_or_default();
+        let (from, rules) = match own {
+            Some(own) => (own, ""),
+            None => ("slimfit", " slimfit's rules: `slimfit help`."),
+        };
         let body = format!(
-            "The next `{kind}` task, as `{by}` read it at {tip}:\n\n```json\n{shown}\n```\n\n\
+            "The next `{kind}` task, as `{read}` read it at {tip}:\n\n```json\n{shown}\n```\n\n\
              Do this one task, by its `steps`; accept it as its `accept` says, then land. \
-             Your judgment is accepted (slimfit#44): nothing is checked beyond the task's own accept. \
-             slimfit's rules: `slimfit help`.\n\n\
+             Your judgment is accepted (slimfit#44): nothing is checked beyond the task's own accept.{rules}\n\n\
              Filed by idle work (SPEC §1.16): one open issue per kind; once this closes, the next idle run files the next.",
             kind = task.kind,
+            read = own.unwrap_or(by),
         );
-        filed.push(ToFile { title: format!("slimfit {}: {summary}", task.kind), body, task });
+        filed.push(ToFile { title: format!("{from} {}: {summary}", task.kind), body, task });
     }
     Ok(filed)
 }

@@ -287,8 +287,15 @@ async fn files(w: &World) -> Value {
 async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     let w = World::new();
     let answer = finds_tasks(&w).await;
-    std::fs::write(&answer, next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")])).unwrap();
-    assert_eq!(files(&w).await, json!([1, 2]), "one of each kind");
+    // slimfit's answer, then one that names what read it (`./lines.sh --tasks`, SPEC §5).
+    let lines = json!({ "by": "lines.sh", "tasks": [{ "kind": "crate-lines", "files": ["c/a.rs"], "summary": "crates/c: rose" }] });
+    let said = next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")]);
+    std::fs::write(&answer, format!("{said}\n{lines}\n")).unwrap();
+    assert_eq!(files(&w).await, json!([1, 2, 3]), "one of each kind, of each answer");
+    let crate_lines = w.app.issue_show("web", 3).await.unwrap();
+    assert_eq!(crate_lines["title"], "lines.sh crate-lines: crates/c: rose");
+    let body = crate_lines["body"].as_str().unwrap();
+    assert!(body.contains("as `lines.sh` read it") && !body.contains("slimfit's rules"), "{body}");
     let one = w.app.issue_show("web", 1).await.unwrap();
     assert_eq!(one["title"], "slimfit deepen: a.rs: 316 lines, changed in 28 commits in 90 days");
     assert_eq!(one["task"], json!({ "kind": "deepen", "files": ["a.rs"] }));
@@ -301,13 +308,13 @@ async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     assert_eq!(files(&w).await, json!([]), "none while one of its kind is open");
 
     w.app.issue_close("web", 1, "deepened").await.unwrap();
-    assert_eq!(files(&w).await, json!([3]), "the next of its kind, not the one just closed");
-    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["task"]["files"], json!(["b.rs"]));
+    assert_eq!(files(&w).await, json!([4]), "the next of its kind, not the one just closed");
+    assert_eq!(w.app.issue_show("web", 4).await.unwrap()["task"]["files"], json!(["b.rs"]));
     std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
-    w.app.issue_close("web", 3, "deepened").await.unwrap();
+    w.app.issue_close("web", 4, "deepened").await.unwrap();
     assert_eq!(files(&w).await, json!([]), "a task closed this week is not filed again");
     w.advance(7 * 24 * 60);
-    assert_eq!(files(&w).await, json!([4]), "a week on, it is");
+    assert_eq!(files(&w).await, json!([5]), "a week on, it is");
 
     std::fs::write(&answer, "no tasks").unwrap();
     w.advance(2);

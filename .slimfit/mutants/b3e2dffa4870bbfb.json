@@ -1,0 +1,6 @@
+{
+  "tree": "753c03e5f0a5d2a9ff4df71214a44f24223d8e83+d1fba762150c532c",
+  "picker": "codex:01a1f825-5004-7811-9cf6-29d7b81a86a2:default",
+  "author": "claude-code:b7c4eeae-8d5a-5c7c-8274-d721940ebb05:opus",
+  "none": "The idle scenario expects three filed issues, so it kills the empty-vector mutant, and the other mutant requires a Default implementation for ToFile."
+}
