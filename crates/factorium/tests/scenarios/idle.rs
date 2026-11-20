@@ -101,6 +101,30 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
     ended(&w).await;
 }
 
+/// Idle work whose steps ended green before a command queued beside it is
+/// a run, recorded green: giving way ends only what still runs.
+#[tokio::test]
+async fn idle_work_that_ended_green_before_a_command_queued_beside_it_is_recorded_green() {
+    let w = World::new();
+    declares(&w, &["true".into()], 3600, 60).await;
+    assert!(started(&w.tick().await.idle));
+    w.app.beside_ended().await;
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let cli = w.run();
+    let wants = cli.worker_exclusive(None, &w.dir, "echo after");
+    let ticks = async {
+        w.until_queued("echo after").await;
+        let t = w.tick().await;
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        w.poll(1).await;
+        t
+    };
+    let (ran, t) = tokio::time::timeout(STUCK, async { tokio::join!(wants, ticks) }).await.expect("it ends");
+    assert_eq!(ran.unwrap()["ok"], true);
+    assert!(t.idle.iter().any(|v| v["idle"] == "web" && v["green"] == true), "{:?}", t.idle);
+    assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"]["green"], true, "{:?}", t.idle);
+}
+
 #[tokio::test]
 async fn idle_work_yields_to_a_heavy_command_queued_beside_it_and_runs_next_idle_window() {
     let w = World::new();

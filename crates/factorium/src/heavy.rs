@@ -55,7 +55,7 @@ impl<'a> Job<'a> {
     /// A command run by hand (`worker exclusive`), within four hold bounds of `hold_ms`, a minute
     /// at least: at a gate's priority, or `background` for work whose time no gate compares.
     pub(crate) fn exclusive(what: String, dir: &'a Path, steps: &'a [String], hold_ms: i64, background: bool) -> Self {
-        let limit = Duration::from_millis(hold_ms.max(60_000) as u64 * 4);
+        let limit = 4 * Duration::from_millis(hold_ms.max(60_000) as u64);
         Job::new(what, dir, steps, limit, if background { Priority::Background } else { Priority::Normal })
     }
     /// Idle work's `steps` in its clone `dir`, all within `limit` s on the app's clock: in the background.
