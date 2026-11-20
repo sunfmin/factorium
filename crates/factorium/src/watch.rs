@@ -7,13 +7,13 @@ use factorium_domain::outbox::{Outcome, Sender};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, StartWatch, Watches, watch_id};
-use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_domain::worker::{self as w, Status};
 use factum::{Uuid, Value};
 use serde_json::json;
 
 use crate::life::End;
 use crate::session::{Opened, Role};
-use crate::{Answer, App, Refusal};
+use crate::{Answer, App, Live, Refusal, Want};
 
 impl App {
     /// The look, if one is due: doctor's findings become episodes, and a new
@@ -69,8 +69,8 @@ impl App {
     /// its issue was commented on since.
     async fn waits_unseen(&self, last_look: i64) -> Answer<bool> {
         for w in self.rows(tracker::workers(Some(Status::Waiting), false)).await? {
-            let heard = self.state::<Workers>(w.worker).await?.heard;
-            if w.state.since > last_look || heard.iter().any(|(at, _)| *at > last_look) {
+            let on = self.issue(&w.checkout, w.number).await?;
+            if w.state.since > last_look || on.heard_since(w.state.since).any(|n| n.at > Some(last_look)) {
                 return Ok(true);
             }
         }
@@ -142,24 +142,14 @@ impl App {
 
     /// Sends a waiting worker back to work, told `text`, kept as `by`'s comment.
     pub(crate) async fn restart(&self, worker: Uuid, by: Author, text: &str, now: bool) -> Answer {
-        let wk = self.state::<Workers>(worker).await?;
-        let st = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
-        if wk.status == Status::Ended {
-            return Err(Refusal::new("ended", "this worker has ended"));
-        }
+        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
         let from = if by == Author::Watch { Sender::Watch } else { Sender::Factorium };
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, by, text).await?;
-        let session = Self::worker_session(worker, &st)?;
-        match self.gone(&session) {
-            Ok(false) => {}
-            Err(why) => return Err(Refusal::new("orca", why)),
-            Ok(true) => {
-                self.end_worker(worker, End::because("restarted: its session was gone", true)).await?;
-                return Ok(
-                    json!({ "worker": worker, "ended": true, "issue": format!("{}#{}", st.checkout, st.number) }),
-                );
-            }
+        if self.gone(&session).map_err(|why| Refusal::new("orca", why))? {
+            self.end_worker(worker, End::because("restarted: its session was gone", true)).await?;
+            let issue = format!("{}#{}", st.checkout, st.number);
+            return Ok(json!({ "worker": worker, "ended": true, "issue": issue }));
         }
         let line = format!("{text} Then go on, and run `factorium worker done` when the work is committed.");
         // A brief never handed goes first: the word is about its work.
@@ -175,32 +165,26 @@ impl App {
     /// whether it started a turn (`submitted`) or waits behind the running
     /// one (`queued`). `now`: first stops the running turn.
     pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
-        let st =
-            self.state::<Workers>(worker).await?.started.ok_or_else(|| Refusal::new("no_worker", "no such worker"))?;
+        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
-        let delivery = self
-            .tell(&Self::worker_session(worker, &st)?, Sender::Watch, text, now)
-            .await
-            .and_then(crate::session::heard)?;
+        let delivery = self.tell(&session, Sender::Watch, text, now).await.and_then(crate::session::heard)?;
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word(), "missed": delivery.why() }))
     }
 
     /// A comment on a worker's issue, passed to the worker exactly once.
-    /// Waiting for the watch, it is not typed at: its watch episode carries
-    /// the comment. Else it goes through its session's outbox: into its
-    /// brief while that is still to be typed, or typed behind any running
+    /// Waiting for the watch, it is not typed at: its watch episode reads
+    /// the comment from the issue (`Issue::heard_since`). Else it goes
+    /// through its session's outbox: into its brief while that is still to be typed, or typed behind any running
     /// turn. Answers how (`submitted`, `queued`, `brief`, `missed`, `watch`,
     /// or `none`), and why it did not reach the worker; the issue
     /// keeps the comment for the next brief either way.
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started.as_ref().filter(|_| wk.status != Status::Ended) else { return Ok(("none", None)) };
-        if wk.status == Status::Waiting {
-            self.submit::<w::Hear>(w::Heard { worker, text: text.into() }).await?;
+        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
+        if live.waiting {
             return Ok(("watch", None));
         }
-        let d = self.tell(&Self::worker_session(worker, st)?, Sender::Comment, text, false).await?;
+        let d = self.tell(&live.session, Sender::Comment, text, false).await?;
         Ok((d.word(), d.why().map(str::to_string)))
     }
 }

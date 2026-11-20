@@ -1,0 +1,33 @@
+{
+  "tree": "3639f484900d00206a0731225f6911df7558ca13+d1fba762150c532c",
+  "picker": "codex:01a1f7f7-8615-7e11-8e5a-642842763f72:default",
+  "author": "claude-code:75714a37-eb89-5e8c-9188-b40941ce321b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/issue.rs:193:33: replace match guard *a == by with false in Issue::wait",
+        "why": "Adding an identical blocker still leaves the expected blocker in the response, so a test may miss the extra unblock and block events.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:298:56: replace && with || in <impl Aggregate for Issues>::evolve",
+        "why": "Removing a local blocker can also remove a blocker with the same issue number in another checkout, which the single-blocker scenario would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:304:51: replace || with && in <impl Aggregate for Issues>::evolve",
+        "why": "Removing a cut blocker can also erase unrelated waits, while the shown cut replacement starts with only one blocker.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:304:33: replace == with != in <impl Aggregate for Issues>::evolve",
+        "why": "The shown cut replacement still works, but unblocking an ordinary issue in another checkout can silently leave that blocker in place.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

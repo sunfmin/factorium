@@ -41,6 +41,7 @@ pub use daemon::Tick;
 pub use data::{Data, LineClone};
 pub use factorium_host as host;
 pub use session::{Caller, DB_ENV};
+pub(crate) use work::{Live, Want};
 
 /// What a command answers instead of its answer: a code a script can match
 /// and a sentence a person can read.
@@ -104,9 +105,6 @@ fn model() -> Model {
         .command::<issue::OpenIssue>()
         .command::<issue::EditIssue>()
         .command::<issue::BlockIssue>()
-        .command::<issue::UnblockIssue>()
-        .command::<issue::BlockIssueAcross>()
-        .command::<issue::UnblockIssueAcross>()
         .command::<issue::WaitForHuman>()
         .command::<issue::ReadyIssue>()
         .command::<issue::CloseIssue>()
@@ -122,7 +120,6 @@ fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::Park>()
         .command::<worker::Unpark>()
-        .command::<worker::Hear>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()
         .command::<health::Observe>()

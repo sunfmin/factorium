@@ -10,14 +10,13 @@ use factorium_domain::health::{Observation, Observe, Sight, Verdict};
 use factorium_domain::kit::{AccountNote, LimitAccount};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
-use factorium_domain::worker::{Status, Workers};
 use factum::{Uuid, Value};
 use serde_json::json;
 
 use super::Session;
 use crate::life::End;
 use crate::load::Share;
-use crate::{Answer, App};
+use crate::{Answer, App, Want};
 
 impl App {
     /// The watch's session, when it is up, handed its brief, and idle: it
@@ -32,20 +31,14 @@ impl App {
     /// observation is recorded and decided on in one command, and what it
     /// decided is carried out. Answers what it found, if anything.
     pub(crate) async fn worker_health(&self, worker: Uuid, share: Share, s: &Settings) -> Answer<Option<Value>> {
-        let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started.clone() else { return Ok(None) };
-        let Ok(session) = Self::worker_session(worker, &st) else { return Ok(None) };
-        if wk.status == Status::Ended {
-            return Ok(None);
-        }
+        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
         // Its brief held is tried again even while it waits: it is its brief.
-        self.retry(&session).await?;
-        if self.state::<Workers>(worker).await?.status == Status::Waiting {
+        self.retry(&live.session).await?;
+        if self.live_or_none(worker, Want::Working).await?.is_none() {
             return Ok(None);
         }
-        let Some(sight) = self.see(&session) else { return Ok(None) };
-        let evidence = self.data().evidence(worker, self.now());
-        let evidence = evidence.to_string_lossy().into_owned();
+        let Some(sight) = self.see(&live.session) else { return Ok(None) };
+        let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
         let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: s.clone() };
         match Verdict::of(&self.decide::<Observe>(seen).await?) {
@@ -57,7 +50,7 @@ impl App {
                 Ok(Some(json!({ "worker": worker, "waits": why })))
             }
             Verdict::UsedUp { said, until } => {
-                if let Some(account) = &st.account {
+                if let Some(account) = &live.started.account {
                     self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await?;
                 }
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;

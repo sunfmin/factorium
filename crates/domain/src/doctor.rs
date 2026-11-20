@@ -53,6 +53,8 @@ pub struct Orphaned {
     pub attempt: u32,
     pub path: String,
     pub branch: String,
+    /// The branch removing it keeps what it holds on.
+    pub kept: String,
     pub why: String,
 }
 
@@ -239,13 +241,13 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             &format!("close it: `orca terminal close --terminal {handle}`"),
         );
     }
-    for Orphaned { path, branch, why, .. } in &seen.orphaned {
+    for Orphaned { path, branch, kept, why, .. } in &seen.orphaned {
         add(
             format!("worktree:{path}"),
             format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}"),
             &format!(
                 "remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
-                 `{branch}-abandoned`"
+                 `{kept}`"
             ),
         );
     }
