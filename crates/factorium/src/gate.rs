@@ -2,13 +2,11 @@
 //! checkout, run as a heavy command, and recorded against the tree so the
 //! same tree is never gated twice. The one writer of gate records.
 
-use std::time::Duration;
-
 use factorium_domain::declared::Kind;
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id, record_key};
 use factorium_domain::heavy;
 use factorium_domain::named;
-use factorium_host::{Git, Priority, Ran};
+use factorium_host::{Git, Ran};
 use factum::Uuid;
 
 use crate::heavy::{Job, Turn};
@@ -70,16 +68,7 @@ impl App {
             }
         };
         let steps = [cmd];
-        let job = Job {
-            what,
-            worker,
-            bound_at,
-            dir: &here.dir,
-            steps: &steps,
-            env: &[],
-            limit: Duration::from_secs(limit),
-            priority: Priority::Normal,
-        };
+        let job = Job::gate(what, worker, bound_at, &here.dir, &steps, limit);
         let Some(mut rans) = self.heavy(job, turn).await? else { return Ok(None) };
         let ran = rans.pop().expect("one step");
         if recorded {

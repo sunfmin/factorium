@@ -1,12 +1,9 @@
 //! The cut: a version from the base tip, its steps in one heavy turn, then
 //! the tag and the formula's install; recorded once, done or failed.
 
-use std::time::Duration;
-
 use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::LineJob;
 use factorium_domain::line::{self, next_version};
-use factorium_host::Priority;
 use serde_json::json;
 
 use super::{Did, QUEUED};
@@ -31,16 +28,7 @@ impl App {
             failed,
         };
         // The steps share the clone, so they take one turn of the queue.
-        let job = Job {
-            what: LineJob::Cut.of(&c.name),
-            worker: None,
-            bound_at,
-            dir: &here.dir,
-            steps: &cut.steps,
-            env: &env,
-            limit: Duration::from_secs(cut.limit),
-            priority: Priority::Background,
-        };
+        let job = Job::cut(LineJob::Cut.of(&c.name), bound_at, &here.dir, &cut.steps, &env, cut.limit);
         let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
         let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
         // Each step after the queue, in turn; the first that fails is why the

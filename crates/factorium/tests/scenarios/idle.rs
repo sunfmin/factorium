@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::fixture::{STUCK, World, nice_is, own_nice, until_file};
+use crate::fixture::{STUCK, World, entry, escaped, escaping, nice_is, own_nice, until_file};
 
 /// A checkout `web` whose base declares `[idle]` with `steps`, `every`
 /// seconds apart and within `limit`, as last fetched; and a kit.
@@ -295,17 +295,17 @@ async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
 async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
     let w = World::new();
     let dir = w.dir.join("escaping");
-    declares(&w, &["true".into(), crate::unqueue::escaping(&w, &dir)], 3600, 60).await;
+    declares(&w, &["true".into(), escaping(&w, &dir)], 3600, 60).await;
     assert!(started(&w.tick().await.idle));
-    let pids = crate::unqueue::escaped(&dir).await;
+    let pids = escaped(&dir).await;
     assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
-    let id = crate::unqueue::entry(&w, "idle work of web").await;
+    let id = entry(&w, "idle work of web").await;
     let unqueued = w.run().unqueue(id).await.unwrap();
     assert_eq!(unqueued["ended"], true, "{unqueued}");
     assert_eq!(pids.left(), Vec::<u32>::new(), "still running");
     let t = w.tick().await;
     assert!(t.idle.iter().any(|v| v["idle"] == "web" && v["yielded"] == "unqueued"), "{:?}", t.idle);
-    assert_ne!(crate::unqueue::entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
+    assert_ne!(entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], json!(null), "an unqueued run is no run");
     // The daemon stops: the run it started again ends with it.
     w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
