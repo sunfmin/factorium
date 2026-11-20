@@ -1,0 +1,27 @@
+{
+  "tree": "3ef677c76b3e284df247749313c6787f1ab1f493+d1fba762150c532c",
+  "picker": "claude-code:81462d2e-b520-4aa3-9255-db854973cc10:claude-opus-5-5",
+  "author": "claude-code:62c71dfb-ba0c-5086-b530-8402b3ddba75:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:196:9: replace App::beside_ended with ()",
+        "why": "Only the idle scenario's three-tick loop relies on this wait; if the steps finish fast, three ticks may still find them ended, so the wait would never be tested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/clock.rs:102:9: replace <impl Drop for Gone>::drop with ()",
+        "why": "asleep() skips waits that have passed, and until() looks again every LOOK anyway, so losing both the removal and the notify may only slow scenarios down instead of failing them.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/clock.rs:82:63: replace += with *= in <impl Clock for ManualClock>::sleep",
+        "why": "An entry that starts at 0 stays 0, so every wait counts as zero; this only fails if a scenario actually checks that asleep() is nonzero, instead of hanging until STUCK.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
