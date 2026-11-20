@@ -113,7 +113,8 @@ pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, 
     let ratchet = format!("factorium worker exclusive -- slimfit ratchet {ids}");
     let mut said = json!({ "picker": picker, "author": t.author, "harness": t.harness, "model": t.model,
         "account": t.account, "took_ms": t.took_ms, "tokens": { "in": t.tokens_in, "out": t.tokens_out } });
-    let failed: Vec<Value> = t.fell_back.iter().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
+    let failed: Vec<Value> =
+        t.fell_back.iter().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
     said["fell_back"] = failed.into();
     let what = match picked {
         Picked::Picks(picks) => {

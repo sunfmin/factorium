@@ -141,7 +141,8 @@ async fn beside(other: Harness, model: &str, then: &str, picks: &str) -> (World,
     w.checkout("web").await;
     w.slimfit(GOAL, LISTING);
     let claude = w.picker(Harness::ClaudeCode, "", &answered(PICKS));
-    let theirs = Asked { session: "t-1".into(), model: model.into(), text: picks.into(), tokens_in: 900, tokens_out: 40 };
+    let theirs =
+        Asked { session: "t-1".into(), model: model.into(), text: picks.into(), tokens_in: 900, tokens_out: 40 };
     let picker = w.picker(other, then, &theirs);
     let login = w.host.home().join(format!(".{}", other.key())).join("auth.json");
     std::fs::create_dir_all(login.parent().unwrap()).unwrap();
@@ -181,7 +182,8 @@ async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_nam
         let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", user_dir];
         assert!(names.iter().all(|n| theirs.contains(n)), "{names:?}");
         let held: Vec<String> = picker.user_dir().lines().map(String::from).collect();
-        let expected: Vec<&str> = if *other == Harness::Grok { vec!["auth.json", "config.toml"] } else { vec!["auth.json"] };
+        let expected: Vec<&str> =
+            if *other == Harness::Grok { vec!["auth.json", "config.toml"] } else { vec!["auth.json"] };
         assert_eq!(held, expected);
 
         let kept = kept(&w).await;

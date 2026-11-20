@@ -190,7 +190,7 @@ const HEADLESS: crate::ask::Headless = crate::ask::Headless {
 };
 
 /// A session asked headless is configured with [`isolation`] alone.
-fn asked_files() -> Result<Vec<(&'static str, String)>, String> {
+fn asked_files() -> Result<crate::ask::Files, String> {
     let text = toml::to_string_pretty(&Toml::Table(isolation())).map_err(|e| e.to_string())?;
     Ok(vec![(CONFIG, text)])
 }

@@ -10,6 +10,9 @@ use crate::Harness;
 use crate::harness::Login;
 use crate::line::Line;
 
+/// Files of a user directory, each its path and text.
+pub(crate) type Files = Vec<(&'static str, String)>;
+
 /// What a harness that can be asked headless says of it (`Kind::HEADLESS`).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Headless {
@@ -21,7 +24,7 @@ pub(crate) struct Headless {
     pub(crate) model: &'static str,
     /// What the fresh user directory of a session asked holds beside its
     /// login, for a harness logged in by a file there: path and text.
-    pub(crate) files: fn() -> Result<Vec<(&'static str, String)>, String>,
+    pub(crate) files: fn() -> Result<Files, String>,
     /// What its stdout `out` says it answered, or why it did not answer; it
     /// was asked on the kit's `model`, if the kit names one.
     pub(crate) read: fn(out: &str, model: Option<&str>) -> Result<Asked, String>,
@@ -130,6 +133,6 @@ impl Harness {
 }
 
 /// No file beside the login.
-pub(crate) fn no_files() -> Result<Vec<(&'static str, String)>, String> {
+pub(crate) fn no_files() -> Result<Files, String> {
     Ok(Vec::new())
 }

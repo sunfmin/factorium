@@ -270,13 +270,13 @@ const HEADLESS: crate::ask::Headless = crate::ask::Headless {
 fn asked(out: &str, model: Option<&str>) -> Result<Asked, String> {
     let events: Vec<serde_json::Value> = out.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let of = |kind: &'static str| events.iter().filter(move |e| e["type"] == kind);
-    if let Some(failed) = of("turn.failed").last() {
+    if let Some(failed) = of("turn.failed").next_back() {
         return Err(format!("codex failed: {}", failed["error"]["message"].as_str().unwrap_or(out.trim())));
     }
     let session = of("thread.started").find_map(|e| e["thread_id"].as_str()).ok_or_else(|| format!("codex named no thread: {out}"))?;
-    let usage = &of("turn.completed").last().ok_or_else(|| format!("codex completed no turn: {out}"))?["usage"];
+    let usage = &of("turn.completed").next_back().ok_or_else(|| format!("codex completed no turn: {out}"))?["usage"];
     let items = of("item.completed").map(|e| &e["item"]).filter(|i| i["type"] == "agent_message");
-    let text = items.filter_map(|i| i["text"].as_str()).last().ok_or_else(|| format!("codex answered nothing: {out}"))?;
+    let text = items.filter_map(|i| i["text"].as_str()).next_back().ok_or_else(|| format!("codex answered nothing: {out}"))?;
     let n = |field: &str| usage[field].as_u64().unwrap_or(0);
     let (tokens_in, tokens_out) = (n("input_tokens"), n("output_tokens"));
     let model = model.unwrap_or("default").to_string();

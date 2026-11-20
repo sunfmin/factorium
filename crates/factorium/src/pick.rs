@@ -9,21 +9,13 @@
 use factorium_domain::issue::Author;
 use factorium_domain::pick;
 use factorium_domain::settings::Time;
-use factorium_harness::{Ask, Asked, Harness};
+use factorium_harness::{Ask, Harness};
 use factorium_host::Priority;
 use factum::Uuid;
-use serde_json::Value;
 use std::time::Duration;
 
 use crate::session::Pick;
 use crate::{Answer, App, Refusal, fail};
-
-/// What one picker answered, as taken, and how long it took.
-struct Answered {
-    asked: Asked,
-    picked: pick::Picked,
-    took_ms: u64,
-}
 
 impl App {
     /// Has the worker's change's mutants picked, and answers the picks, or
@@ -45,51 +37,46 @@ impl App {
         let bound = Duration::from_millis(self.settings().await?.ms(Time::PickBound) as u64);
 
         let mut failed: Vec<(String, Refusal)> = Vec::new();
-        let (on, answered) = loop {
+        let (on, (picked, asked, took_ms)) = loop {
             let tried: Vec<&str> = failed.iter().map(|(h, _)| h.as_str()).collect();
             let asks = |key: &str| !tried.contains(&key) && Harness::read(key).is_some_and(Harness::asks);
             let on = match self.pick_by(|kit, now, here| kit.choose_picker(&st.harness, asks, now, here)).await {
                 Ok(on) => on,
                 Err(none) => return Err(failed.pop().map(|(_, last)| last).unwrap_or(none)),
             };
-            match self.ask_picker(&on, &question, &listed, bound).await {
+            // Alone in a directory of its own, removed after.
+            let dir = self.data().pick(uuid::Uuid::now_v7());
+            let ran = self.ask_in(&dir, &on, &question, bound).await;
+            let _ = std::fs::remove_dir_all(&dir);
+            let answered = ran.and_then(|(said, took_ms)| {
+                let asked = on.harness.asked(&said, on.model.as_deref()).map_err(fail("picker_failed"))?;
+                Ok((pick::read(&asked.text, &listed).map_err(fail("picker_answer"))?, asked, took_ms))
+            });
+            match answered {
                 Ok(answered) => break (on, answered),
                 Err(why) => failed.push((on.harness.key().to_string(), why)),
             }
         };
-        let fell_back: Vec<(&str, String)> =
-            failed.iter().map(|(h, r)| (h.as_str(), r.message.lines().next().unwrap_or_default().to_string())).collect();
+        let first = |r: &Refusal| r.message.lines().next().unwrap_or_default().to_string();
+        let fell_back: Vec<(&str, String)> = failed.iter().map(|(h, r)| (h.as_str(), first(r))).collect();
         let taken = pick::Taken {
             harness: on.harness.key(),
-            session: &answered.asked.session,
-            model: &answered.asked.model,
+            session: &asked.session,
+            model: &asked.model,
             account: on.account.as_deref(),
             author: format!("{}:{worker}:{}", st.harness, st.model.as_deref().unwrap_or("default")),
-            took_ms: answered.took_ms,
-            tokens_in: answered.asked.tokens_in,
-            tokens_out: answered.asked.tokens_out,
+            took_ms,
+            tokens_in: asked.tokens_in,
+            tokens_out: asked.tokens_out,
             fell_back: &fell_back,
         };
-        let (answer, cost) = pick::answer(&answered.picked, &taken, factorium_harness::quoted);
+        let (answer, cost) = pick::answer(&picked, &taken, factorium_harness::quoted);
         self.note(&st.checkout, st.number, Author::Factorium, &cost).await?;
         Ok(answer)
     }
 
-    /// Asks one fresh session on `on` `question`, alone in a directory of
-    /// its own that is removed after, and takes its answer against slimfit's
-    /// `listed`; refused when it fails, passes `bound` or answers off the form.
-    async fn ask_picker(&self, on: &Pick, question: &str, listed: &Value, bound: Duration) -> Answer<Answered> {
-        let dir = self.data().pick(uuid::Uuid::now_v7());
-        let asked = self.ask_in(&dir, on, question, bound).await;
-        let _ = std::fs::remove_dir_all(&dir);
-        let (said, took_ms) = asked?;
-        let asked = on.harness.asked(&said, on.model.as_deref()).map_err(fail("picker_failed"))?;
-        let picked = pick::read(&asked.text, listed).map_err(fail("picker_answer"))?;
-        Ok(Answered { asked, picked, took_ms })
-    }
-
-    /// What a session on `on` asked `question` in `dir` printed, and how
-    /// long it took.
+    /// What a fresh session on `on` asked `question` in `dir` printed, and
+    /// the ms it took; refused when it fails or passes `bound`.
     async fn ask_in(&self, dir: &std::path::Path, on: &Pick, question: &str, bound: Duration) -> Answer<(String, u64)> {
         let io = |e: std::io::Error| Refusal::new("io", e.to_string());
         let (q, a, user_dir) = (dir.join("question.md"), dir.join("answer.json"), dir.join("home"));
@@ -100,22 +87,12 @@ impl App {
         let path = crate::session::program_dir(&on.command, &home).into_iter();
         let path: Vec<String> = path.chain([std::env::var("PATH").unwrap_or_default()]).collect();
         let (q, a, s) = (q.to_string_lossy(), a.to_string_lossy(), secret.map(|f| f.display().to_string()));
-        let ask = Ask {
-            command: &on.command,
-            model: on.model.as_deref(),
-            home: &home,
-            path: &path.join(":"),
-            user_dir: &user_dir,
-            question: &q,
-            answer: &a,
-            secrets: s.as_deref(),
-        };
+        let (command, model, path, secrets) = (&on.command, on.model.as_deref(), &path.join(":"), s.as_deref());
+        let ask = Ask { command, model, home: &home, path, user_dir: &user_dir, question: &q, answer: &a, secrets };
         let line = on.harness.ask_line(&ask).expect("one that asks");
         let at = dir.to_path_buf();
-        let ran = tokio::task::spawn_blocking(move || {
-            factorium_host::run(&at, &line, &[], bound, Priority::Normal, &|_| {}, &|| false)
-        });
-        let ran = ran.await.map_err(|e| Refusal::new("picker_failed", e.to_string()));
+        let run = move || factorium_host::run(&at, &line, &[], bound, Priority::Normal, &|_| {}, &|| false);
+        let ran = tokio::task::spawn_blocking(run).await.map_err(|e| Refusal::new("picker_failed", e.to_string()));
         s.map(std::fs::remove_file);
         let ran = ran?;
         let said = std::fs::read_to_string(dir.join("answer.json")).unwrap_or_default();
