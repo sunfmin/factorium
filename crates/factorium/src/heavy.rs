@@ -195,7 +195,8 @@ impl App {
     pub async fn beside_ended(&self) {
         let ended = self.memory.lock().unwrap().beside.as_ref().map(|r| r.ended.clone());
         if let Some(mut ended) = ended {
-            while ended.changed().await.is_ok() {}
+            // Nothing is sent on it: it answers once its sender is dropped.
+            let _ = ended.changed().await;
         }
     }
 
