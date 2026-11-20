@@ -91,6 +91,13 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     // Of its own checkout, named in full, is one of its own.
     let own = w.app.issue_add("web", "three", "", false, &[by("web#1")]).await.unwrap();
     assert_eq!((own["blocked_by"].clone(), own["blocked_across"].clone()), (json!([1]), json!([])));
+    // An issue of its own checkout is one it waits for, for its cut or not.
+    let waits = |a: Answer| a.map(|s| (s["blocked_by"].clone(), s["blocked_across"].clone())).unwrap();
+    w.app.issue_add("factorium", "own", "", false, &[]).await.unwrap();
+    let own_cut = waits(block(2, "factorium#1@cut", false).await);
+    assert_eq!(own_cut, (json!([]), json!(["factorium#1@cut"])));
+    assert_eq!(waits(block(2, "1", false).await), (json!([1]), json!([])), "it waits for #1 closed now");
+    assert_eq!(waits(block(2, "factorium#1", true).await), (json!([]), json!([])));
 
     // A repo with no cut has none to wait for.
     w.commit(&path, "factorium.toml", "[gate]\nfast = \"true\"\n");
