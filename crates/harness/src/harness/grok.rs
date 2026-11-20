@@ -178,10 +178,12 @@ fn note(value: &serde_json::Value) -> Option<Note> {
 /// Grok asked one question headless (`grok --prompt-file`, read in grok
 /// 1.0.89): the question on stdin, its answer one JSON object. Its tools are
 /// allowed down to one and that one removed, so none is left of any
-/// version's; no web search, no subagents. Its user directory is a fresh
+/// version's, and so are `use_tool` and `search_tool`, which reach a shell
+/// past both lists (a real pick called `use_tool` for bash); no web search,
+/// no subagents. Its user directory is a fresh
 /// one (`ask_home`) holding only its login and [`isolation`].
 const HEADLESS: crate::ask::Headless = crate::ask::Headless {
-    flags: "--prompt-file /dev/stdin --output-format json --tools todo_write --disallowed-tools todo_write \
+    flags: "--prompt-file /dev/stdin --output-format json --tools todo_write --disallowed-tools todo_write,use_tool,search_tool \
             --disable-web-search --no-subagents",
     model: MODEL,
     files: asked_files,
