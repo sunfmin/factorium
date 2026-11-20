@@ -197,7 +197,7 @@ dependencies = [
 [[package]]
 name = "factum"
 version = "0.1.0"
-source = "git+https://github.com/sunfmin/factum?rev=53c078d2dae13393389a21033ddf1441e4dfe868#53c078d2dae13393389a21033ddf1441e4dfe868"
+source = "git+https://github.com/sunfmin/factum?rev=333f465666d1c423fe3b88402b1c906bc7386057#333f465666d1c423fe3b88402b1c906bc7386057"
 dependencies = [
  "factum-core",
  "factum-store",
@@ -209,7 +209,7 @@ dependencies = [
 [[package]]
 name = "factum-core"
 version = "0.1.0"
-source = "git+https://github.com/sunfmin/factum?rev=53c078d2dae13393389a21033ddf1441e4dfe868#53c078d2dae13393389a21033ddf1441e4dfe868"
+source = "git+https://github.com/sunfmin/factum?rev=333f465666d1c423fe3b88402b1c906bc7386057#333f465666d1c423fe3b88402b1c906bc7386057"
 dependencies = [
  "serde",
  "serde_json",
@@ -219,7 +219,7 @@ dependencies = [
 [[package]]
 name = "factum-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/sunfmin/factum?rev=53c078d2dae13393389a21033ddf1441e4dfe868#53c078d2dae13393389a21033ddf1441e4dfe868"
+source = "git+https://github.com/sunfmin/factum?rev=333f465666d1c423fe3b88402b1c906bc7386057#333f465666d1c423fe3b88402b1c906bc7386057"
 dependencies = [
  "factum-core",
  "factum-store",
@@ -232,7 +232,7 @@ dependencies = [
 [[package]]
 name = "factum-store"
 version = "0.1.0"
-source = "git+https://github.com/sunfmin/factum?rev=53c078d2dae13393389a21033ddf1441e4dfe868#53c078d2dae13393389a21033ddf1441e4dfe868"
+source = "git+https://github.com/sunfmin/factum?rev=333f465666d1c423fe3b88402b1c906bc7386057#333f465666d1c423fe3b88402b1c906bc7386057"
 dependencies = [
  "factum-core",
  "serde",
