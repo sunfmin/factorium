@@ -166,13 +166,10 @@ async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_prog
     w.checkout("web").await;
     // The kit names DSH's TUI by path; its launcher runs `dsh` by name.
     let tools = w.dir.join("tools");
-    std::fs::create_dir_all(&tools).unwrap();
     let ran = w.dir.join("ran");
     let tui = format!("#!/bin/sh\n{{ printf '%s\\n' \"$@\"; command -v dsh; }} > '{}'\n", ran.display());
     for (name, text) in [("dsh-tui", tui.as_str()), ("dsh", "#!/bin/sh\n")] {
-        std::fs::write(tools.join(name), text).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(tools.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::fixture::program(&tools.join(name), text);
     }
     w.app.kit_set(&[format!("dsh={}", tools.join("dsh-tui").display())]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
