@@ -1,0 +1,39 @@
+{
+  "tree": "1d0fdeefa41c12c601398a8b04d5381dca3cbd5b+d1fba762150c532c",
+  "picker": "codex:01a1f7fa-50f3-7252-87d0-a232d835deea:default",
+  "author": "claude-code:b902b872-f196-504d-aa4c-5be18f8ba32a:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:58:23: replace * with + in Job<'a>::exclusive",
+        "why": "Short exclusive commands still complete successfully, so catching the shorter timeout requires a command that runs past the mutated limit.",
+        "outcome": "unviable",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:67:23: delete field bound_at from struct Job expression in Job<'a>::of",
+        "why": "The missing deadline affects queue order only when a line move crosses its bound while competing with waiting workers.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:222:44: replace match guard rans.iter().any(|r| !r.ok) with true in App::beside",
+        "why": "This changes the result when a give-way request coincides with successful completion, an interleaving a blocked-command scenario can miss.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:230:9: replace App::beside_runs -> bool with false",
+        "why": "Heavy queue admission can still reject a second idle job, masking the missing early guard in tests that only check whether another job starts.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:67:15: delete field worker from struct Job expression in Job<'a>::of",
+        "why": "Worker-owned jobs can still run, so checking their command results alone can miss the lost worker association.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
