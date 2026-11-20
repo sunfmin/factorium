@@ -127,7 +127,7 @@ impl App {
     async fn bumps(&self, checkouts: &[Checkout]) -> Answer<Vec<Value>> {
         let mut filed = Vec::new();
         for c in checkouts {
-            let proving = format!("refs/remotes/origin/{}", c.proving);
+            let proving = c.fetched_proving();
             let pins = self.host.git(&c.path).shown(&proving, "Cargo.toml").map(|t| bump::pins(&t)).unwrap_or_default();
             if pins.is_empty() {
                 continue;

@@ -7,7 +7,7 @@ use factorium_domain::outbox::{Outcome, Sender};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, StartWatch, Watches, watch_id};
-use factorium_domain::worker::{self as w, Status, Workers};
+use factorium_domain::worker::{self as w, Status};
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -69,8 +69,8 @@ impl App {
     /// its issue was commented on since.
     async fn waits_unseen(&self, last_look: i64) -> Answer<bool> {
         for w in self.rows(tracker::workers(Some(Status::Waiting), false)).await? {
-            let heard = self.state::<Workers>(w.worker).await?.heard;
-            if w.state.since > last_look || heard.iter().any(|(at, _)| *at > last_look) {
+            let on = self.issue(&w.checkout, w.number).await?;
+            if w.state.since > last_look || on.heard_since(w.state.since).any(|n| n.at > Some(last_look)) {
                 return Ok(true);
             }
         }
@@ -173,16 +173,15 @@ impl App {
     }
 
     /// A comment on a worker's issue, passed to the worker exactly once.
-    /// Waiting for the watch, it is not typed at: its watch episode carries
-    /// the comment. Else it goes through its session's outbox: into its
-    /// brief while that is still to be typed, or typed behind any running
+    /// Waiting for the watch, it is not typed at: its watch episode reads
+    /// the comment from the issue (`Issue::heard_since`). Else it goes
+    /// through its session's outbox: into its brief while that is still to be typed, or typed behind any running
     /// turn. Answers how (`submitted`, `queued`, `brief`, `missed`, `watch`,
     /// or `none`), and why it did not reach the worker; the issue
     /// keeps the comment for the next brief either way.
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
         if live.waiting {
-            self.submit::<w::Hear>(w::Heard { worker, text: text.into() }).await?;
             return Ok(("watch", None));
         }
         let d = self.tell(&live.session, Sender::Comment, text, false).await?;

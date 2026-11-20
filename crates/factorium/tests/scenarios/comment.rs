@@ -51,6 +51,28 @@ async fn a_comment_for_a_waiting_worker_goes_to_its_watch_episode_not_its_sessio
     assert_eq!(next["episodes"][&key]["heard"], json!([]), "{next}");
 }
 
+/// A waiting worker's episode carries what the owner said since it started
+/// waiting, and nothing said before.
+#[tokio::test]
+async fn a_waiting_worker_hears_only_what_was_said_since_it_started_waiting() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    w.advance(1);
+    w.app.issue_comment("web", 1, "said while working").await.unwrap();
+    w.advance(1);
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    w.tick().await;
+    let key = format!("worker:{}", id(&wk));
+    let next = w.app.watch_next().await.unwrap();
+    assert_eq!(next["episodes"][&key]["heard"], json!([]), "{next}");
+
+    w.advance(1);
+    assert_eq!(w.app.issue_comment("web", 1, "said while waiting").await.unwrap()["delivery"], "watch");
+    assert!(w.tick().await.watch.is_some(), "the comment makes the look due");
+    let next = w.app.watch_next().await.unwrap();
+    assert_eq!(next["episodes"][&key]["heard"], json!(["said while waiting"]), "{next}");
+}
+
 /// How a comment is typed, or why not, is the outbox's (`outbox.rs`); the
 /// issue keeps it either way.
 #[tokio::test]
@@ -186,4 +208,23 @@ async fn a_comment_kept_before_authors_were_kept_still_reads() {
             { "text": "Started over: attempt 1's worktree was discarded", "by": "factorium", "at": null },
         ])
     );
+}
+
+/// A log the code before factorium#161 wrote holds a copy of the comment on
+/// the worker: it still reads, the copy is ignored, and the worker goes on.
+#[tokio::test]
+async fn a_copy_of_a_comment_older_code_kept_on_its_worker_is_ignored() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    w.advance(1);
+    w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
+    w.advance(1);
+    w.app.issue_comment("web", 1, "use the v2 API").await.unwrap();
+    w.heard_as_code_before_161_kept_it("use the v2 API");
+    w.tick().await;
+    let next = w.app.watch_next().await.unwrap();
+    let key = format!("worker:{}", id(&wk));
+    assert_eq!(next["episodes"][&key]["heard"], json!(["use the v2 API"]), "heard once: {next}");
+    w.app.watch_restart(id(&wk), "v2", false).await.unwrap();
+    w.app.worker_escalate(id(&wk), "again").await.expect("its stream still folds and takes commands");
 }

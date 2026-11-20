@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::session::Pick;
+use crate::session::{Pick, SessionEnv};
 use crate::{Answer, App, Refusal, Want, fail};
 
 impl App {
@@ -70,16 +70,16 @@ impl App {
         made.map_err(|e| Refusal::new("io", e.to_string()))?;
         let home = self.host.home();
         on.harness.ask_home(&home, on.account.as_deref(), &user_dir).map_err(fail("picker_failed"))?;
-        let secret = self.write_secrets(&on.secrets)?;
-        let path = crate::session::program_dir(&on.command, &home).into_iter();
-        let path: Vec<String> = path.chain([std::env::var("PATH").unwrap_or_default()]).collect();
-        let (q, a, s) = (q.to_string_lossy(), a.to_string_lossy(), secret.map(|f| f.display().to_string()));
-        let (command, model, path, secrets) = (&on.command, on.model.as_deref(), &path.join(":"), s.as_deref());
+        // Dropped once the ask is done, as it ends: no secrets file outlives it.
+        let session = SessionEnv::new(self, on)?;
+        let (q, a) = (q.to_string_lossy(), a.to_string_lossy());
+        let (command, model, path, secrets) =
+            (&on.command, on.model.as_deref(), session.path(), session.secrets_file());
         let ask = Ask { command, model, home: &home, path, user_dir: &user_dir, question: &q, answer: &a, secrets };
         let (at, line) = (dir.to_path_buf(), on.harness.ask_line(&ask).expect("one that asks"));
         let run = move || factorium_host::run(&at, &line, &[], bound, Priority::Normal, &|_| {}, &|| false);
         let ran = tokio::task::spawn_blocking(run).await.map_err(|e| Refusal::new("picker_failed", e.to_string()));
-        s.map(std::fs::remove_file);
+        drop(session);
         let (ran, said) = (ran?, std::fs::read_to_string(dir.join("answer.json")).unwrap_or_default());
         if !ran.ok {
             let (code, how) = match ran.timed_out {
