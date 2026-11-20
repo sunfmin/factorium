@@ -41,7 +41,7 @@ approval and an entry here.
 | 13 | **Promotion** | One at a time per checkout: the slow gate on the proving tip, then the base branch fast-forwarded to it by a push that requires the base it read. Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound. The checkout's local base follows: fast-forwarded to the promoted tip, and on every tick to origin's base as last fetched, never further — in the tree it is checked out in, if that tree is clean. One with commits of its own, or checked out over changes not committed, is never reset: it is left, and is a doctor finding naming the checkout and how far behind it is. |
 | 14 | **Cut** | A version made from the base branch when the checkout is idle, or once its oldest uncut landing has waited the cut bound less the hold bound, ahead of workers' heavy commands as a promotion is: set, push its own branch, gate, tag, publish, install. |
 | 15 | **Watch** | One resident agent session on the host. A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it. A waiting worker the watch parks behind other issues — it blocks the worker's issue on them (`issue block`) — is no finding while any of them is unmet (doctor lists it as `parked`, with what it waits for), and goes back to work by itself on the first tick that finds all of them met (§2), which ends its episode; one whose issue has nothing left to wait for stays the watch's. It acts with the operator's commands. It works by the rules of the factorium that runs: its session records which rules (their hash) it was briefed with, and a look that finds them other than the running binary's — a cut installed a version that changed them — closes that session between rounds, never in one, and starts a fresh one briefed with the new rules before the next round. |
-| 16 | **Idle work** | What a checkout declares under `[idle]` (§5): steps too slow for any gate (a long soak or load test), run in their own clone at the base's tip while the host is idle — no live worker works (each waits for the watch, or none lives), the heavy queue holds nothing, and the host has room — at most once per `every` (from the last run's start) and within `limit` for all the steps. It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick. A run that ends is recorded with its base tip and tail; past `limit` it ends red. A red run is a doctor finding, and so a watch episode, until a later run is green. One runs at a time on the host. **Tasks**: its `tasks` line, run after the steps, prints what read them and then slimfit's `next --all` answer (its rules are slimfit's: `slimfit help`). Before the run is recorded, the first task of each kind is filed as an issue of the checkout, carrying the task as slimfit gave it and the version and base tip it was read at, unless an issue filed for that kind is open, or one filed for the same task (kind and files) closed in the last 7 days. So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind. Its worker does that one task by its steps, accepts it as the task says, and lands; its judgment is accepted (slimfit#44). An answer that is no tasks makes the run red. A host may stay busy for days, so tasks have a bound: once a checkout's last run started more than `every` plus `tasks_bound` (a setting, a day by default) ago, or it never ran, its tasks line runs without an idle host, alone (not the steps), as a heavy command at background priority that yields to nothing but the hold bound; it is recorded as any run is. |
+| 16 | **Idle work** | What a checkout declares under `[idle]` (§5): steps too slow for any gate (a long soak or load test), run in their own clone at the base's tip while the host is idle — no live worker works (each waits for the watch, or none lives), the heavy queue holds nothing, and the host has room — at most once per `every` (from the last run's start) and within `limit` for all the steps. It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick. A run that ends is recorded with its base tip and tail; past `limit` it ends red. A red run is a doctor finding, and so a watch episode, until a later run is green. One runs at a time on the host. **Tasks**: its `tasks` line, run after the steps, prints what read them and then slimfit's `next --all` answer (its rules are slimfit's: `slimfit help`), and any other answer of its shape that names what read it in `by` (this repo's crates' lines, §5). Before the run is recorded, the first task of each kind is filed as an issue of the checkout, carrying the task as slimfit gave it and the version and base tip it was read at, unless an issue filed for that kind is open, or one filed for the same task (kind and files) closed in the last 7 days. So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind. Its worker does that one task by its steps, accepts it as the task says, and lands; its judgment is accepted (slimfit#44). An answer that is no tasks makes the run red. A host may stay busy for days, so tasks have a bound: once a checkout's last run started more than `every` plus `tasks_bound` (a setting, a day by default) ago, or it never ran, its tasks line runs without an idle host, alone (not the steps), as a heavy command at background priority that yields to nothing but the hold bound; it is recorded as any run is. |
 
 `doctor` is not a concept of its own: it is the findings computed from the
 database and the host's readings, each with how to fix it. It is the
@@ -233,36 +233,21 @@ The help in the binary is the manual (as in afkconvoy): every command's
 
 ## 5. Crates
 
-| Crate | Holds | Budget (source lines) |
+| Crate | Holds | Target (source lines) |
 |---|---|---|
 | `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,240 |
 | `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; accounts from mytokens. Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
 | `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, mytokens, Homebrew. | 4,000 |
 | `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,830 |
 
-`gate.sh` fails a crate over its budget. Total: 23,000. factorium#113 moved
-100 lines from the domain's budget (4,055 used) to the binary's: restarting
-a parked worker is the app's reading of issues and lines, and the binary
-stood at 3,987. factorium#124 moved 200 more the same way (the domain at
-4,087): removing a closed issue's worktree, and finding and discarding
-worktrees no open issue owns, are git and Orca effects of the app, and the
-binary stood at 4,086. factorium#137 raised the binary's to 4,340, factorium#141 to 4,370 (Total: 23,070).
-factorium#143 moved 160 more from the domain's (4,383 used): keeping the
-binary to roll back to, and going back to it, are file and exec effects of
-the app read from no database, and the binary stood at 4,479. factorium#142 moved 120 more from the domain's (the domain to 6,420, 4,498
-used; the binary to 4,650, at 4,618): when the store cannot be read, the
-watch is briefed and doctor answers through files under the data directory
-and Orca's terminal, the app's effects. factorium#147 moved 100 more from the
-domain's (the domain to 6,320, 4,662 used; the binary to 4,750, at 4,618
-before it): a worker's mutant picker is a process the app starts and
-reads, its question and answer the domain's. factorium#159 moved 30 more from the
-domain's (the domain to 6,290, 4,669 used; the binary to 4,780, at 4,748
-before it): one environment for a terminal's session and a headless ask,
-whose secrets file is removed by its owner when no shell takes it over, is
-a file effect of the app. factorium#156 moved 50 more from the domain's (the
-domain to 6,240, 4,646 used; the binary to 4,830, at 4,776 before it):
-abandoning an attempt, keeping its branch and naming it in a comment, is
-one git, Orca and tracker effect of the app.
+A crate's target is a trend, not a gate (factorium#163): `./lines.sh`,
+which `checks.sh` runs, prints each crate's lines against its target here
+and an overage, and never fails. A crate over its target, or that grew at
+each of its last five landings that changed it, is a task: the idle tasks
+line runs `./lines.sh --tasks` after slimfit's `next`, and a `crate-lines`
+issue names the crate and the files that grew most (§1.16). Its worker
+deepens the crate; a target changes only with its reason in the issue that
+changes it. fmt and clippy stay bounds.
 
 **What a repo declares**, in `factorium.toml` at its root (§3); every
 table may be left out:
@@ -342,7 +327,7 @@ depend on nothing else of factorium.
   run in the scenarios' binary, beside them rather than after
   (factorium#98 halved the suite this way).
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
-  `./checks.sh` (the line budgets of §5, fmt, clippy) then `slimfit check`
+  `./checks.sh` (the crates' lines against their targets, shown, §5; fmt, clippy) then `slimfit check`
   against the committed `.slimfit/`, in place of a plain `cargo test`, holding
   the tests' time as above; the slow gate (`./slow.sh`) is
   `./gate.sh` again, on the proving tip a promotion moves. What

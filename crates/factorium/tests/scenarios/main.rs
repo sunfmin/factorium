@@ -33,6 +33,7 @@ mod harnesses;
 mod idle;
 mod kept;
 mod line;
+mod lines;
 mod one_harness;
 mod outage;
 mod outbox;

@@ -16,6 +16,6 @@ limit = 1800
 # of what landed (`slimfit help sample`). Measured 2026-11-20 at load
 # 5-32: `slimfit next --all` 350s, `--sample 5` 1631s; the limit is ~3.6x.
 [idle]
-tasks = "slimfit --version && slimfit next --all --sample 5"
+tasks = "slimfit --version && slimfit next --all --sample 5 && ./lines.sh --tasks"
 every = 86400
 limit = 7200
