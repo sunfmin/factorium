@@ -89,26 +89,3 @@ pub fn utc(ms: i64) -> String {
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC", secs / 3600, secs / 60 % 60, secs % 60)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_outage_is_briefed_once_and_again_each_hour_and_a_new_error_is_a_new_one() {
-        let o = Outage::failed(None, "store: no such column", 1_000);
-        assert!(o.due(1_000));
-        let o = Outage { briefed: Some(1_000), ..Outage::failed(Some(o), "store: no such column", 61_000) };
-        assert_eq!((o.since, o.failures), (1_000, 2));
-        assert!(!o.due(1_000 + REPEAT - 1) && o.due(1_000 + REPEAT));
-        let other = Outage::failed(Some(o), "store: disk I/O error", 70_000);
-        assert_eq!((other.since, other.failures, other.briefed), (70_000, 1, None));
-    }
-
-    #[test]
-    fn times_read_as_utc() {
-        assert_eq!(utc(0), "1970-01-01 00:00:00 UTC");
-        assert_eq!(utc(1_795_659_780_000), "2026-11-26 02:23:00 UTC");
-        assert_eq!(utc(951_782_400_000), "2000-02-29 00:00:00 UTC");
-    }
-}

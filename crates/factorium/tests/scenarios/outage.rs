@@ -33,6 +33,7 @@ async fn a_look_that_cannot_read_the_store_briefs_the_watch_once_an_hour() {
     assert!(brief.contains("outside its store") && brief.contains("no such column"), "the error: {brief}");
     assert!(brief.contains(env!("CARGO_PKG_VERSION")), "the version: {brief}");
     assert!(brief.contains("daemon.log") && brief.contains("(1 so far)"), "{brief}");
+    assert!(brief.contains("failed since 2027-01-15 08:10:00 UTC"), "when it began: {brief}");
 
     for _ in 0..11 {
         w.advance(5);
