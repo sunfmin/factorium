@@ -41,9 +41,8 @@ impl App {
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let Some((Running { checkout, tip, at, steps, limit, tasks }, ended)) = self.beside(busy, false).await? else {
-            return Ok(None);
-        };
+        let Some((idle, ended)) = self.beside(busy, false).await? else { return Ok(None) };
+        let Running { checkout, tip, at, steps, limit, tasks } = idle;
         let rans = match ended {
             Ok(rans) => rans,
             Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),

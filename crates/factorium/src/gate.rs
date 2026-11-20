@@ -56,19 +56,17 @@ impl App {
         let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None }));
         };
-        let (what, worker, bound_at, turn) = match at {
-            At::Commit { by_hand, bound_at, .. } => (
-                heavy::LineJob::Gate(kind).of(checkout),
-                None,
-                bound_at,
-                if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) },
-            ),
+        let steps = [cmd];
+        let job = |what| Job::gate(what, &here.dir, &steps, limit);
+        let (job, turn) = match at {
+            At::Commit { by_hand, bound_at, .. } => {
+                let turn = if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) };
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), turn)
+            }
             At::Worktree { worker, number } => {
-                (format!("{} gate of {checkout}#{number}", named(kind)), Some(worker), None, Turn::Wait)
+                (job(format!("{} gate of {checkout}#{number}", named(kind))).of(Some(worker), None), Turn::Wait)
             }
         };
-        let steps = [cmd];
-        let job = Job::gate(what, worker, bound_at, &here.dir, &steps, limit);
         let Some(mut rans) = self.heavy(job, turn).await? else { return Ok(None) };
         let ran = rans.pop().expect("one step");
         if recorded {
