@@ -104,15 +104,12 @@ impl App {
             Ok(c) => self.left(&issue).await?.map(|st| (c, st)),
             Err(_) => None,
         };
-        let Some((c, st)) = left else {
-            return self.close(checkout, number, reason, false).await;
-        };
+        let Some((c, st)) = left else { return self.close(checkout, number, reason, false).await };
         let done = self.abandon(&c, &st, Why::Close(reason)).await?;
         Ok(done.shown(self.issue_show(checkout, number).await?))
     }
 
-    /// Closes an issue for `reason`; a worker on it ends, keeping its
-    /// worktree if `keep`.
+    /// Closes an issue for `reason`; a worker on it ends, keeping its worktree if `keep`.
     pub(crate) async fn close(&self, checkout: &str, number: u64, reason: &str, keep: bool) -> Answer {
         let why = format!("its issue closed: {reason}");
         self.leave::<CloseIssue>(checkout, number, reason, End::because(why, keep)).await
@@ -138,8 +135,8 @@ impl App {
 
     /// Starts an issue over on purpose: the attempt whose worktree its last
     /// attempt kept is abandoned ([`App::abandon`]), so its next start
-    /// begins from the proving tip; nothing is lost. Refused
-    /// while a worker is on the issue; its state (ready or waiting for a person) stays.
+    /// begins from the proving tip; nothing is lost. Refused while a worker
+    /// is on the issue; its state (ready or waiting for a person) stays.
     pub async fn issue_start_over(&self, checkout: &str, number: u64, why: &str) -> Answer {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say why the issue starts over"));

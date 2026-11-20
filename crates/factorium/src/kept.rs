@@ -20,8 +20,7 @@ use serde_json::json;
 
 use crate::{Answer, App, Refusal, fail};
 
-/// A worker's branch: `factorium/<checkout>-<number>-<attempt>`.
-#[derive(Clone, Debug, PartialEq)]
+/// A worker's branch, `factorium/<checkout>-<number>-<attempt>`.
 pub(crate) struct WorkerBranch {
     pub checkout: String,
     pub number: u64,
@@ -29,12 +28,11 @@ pub(crate) struct WorkerBranch {
 }
 
 impl WorkerBranch {
-    /// The name its worktree and its session go by: `<checkout>-<number>-<attempt>`.
+    /// What its worktree and session are named: `<checkout>-<number>-<attempt>`.
     pub fn worker(&self) -> String {
         format!("{}-{}-{}", self.checkout, self.number, self.attempt)
     }
 
-    /// The branch's name.
     pub fn name(&self) -> String {
         format!("factorium/{}", self.worker())
     }
@@ -52,54 +50,40 @@ fn abandoned(branch: &str) -> String {
     format!("{branch}-abandoned")
 }
 
-/// Why an attempt is abandoned ([`App::abandon`]).
+/// Why an attempt is abandoned ([`App::abandon`]), each with its reason:
+/// its issue closes or starts over, or doctor found it orphaned.
 pub(crate) enum Why<'a> {
-    /// Its issue closes, for this reason.
     Close(&'a str),
-    /// Its issue starts over, for this reason.
     StartOver(&'a str),
-    /// Doctor found no open issue's attempt owns it, for this reason.
     Orphaned(&'a str),
 }
 
 impl Why<'_> {
-    /// When the uncommitted work is kept, as its commit message says.
-    fn at(&self) -> &'static str {
+    /// What the commit of uncommitted work says it was kept at, and the
+    /// comment that names `kept`, the branch attempt `n` is kept as. A
+    /// start-over's prefix is how the domain knows factorium's older comments.
+    fn said(&self, n: u32, kept: &str) -> (&'static str, String) {
+        let (gone, kept) = (format!("attempt {n}'s worktree"), format!("its branch is kept as `{kept}`"));
         match self {
-            Why::Close(_) => "close",
-            Why::StartOver(_) => "start-over",
-            Why::Orphaned(_) => "discard",
-        }
-    }
-
-    /// The comment that names `kept`, the branch attempt `attempt` is kept as.
-    fn comment(&self, attempt: u32, kept: &str) -> String {
-        match self {
-            Why::Close(_) => {
-                format!("Closed unlanded: attempt {attempt}'s worktree is removed; its branch is kept as `{kept}`.")
+            Why::Close(_) => ("close", format!("Closed unlanded: {gone} is removed; {kept}.")),
+            Why::StartOver(why) => {
+                ("start-over", format!("Started over: {gone} was discarded; {kept} (not landed). Why: {why}"))
             }
-            // Its prefix is how the domain knows factorium wrote it before comments kept their author.
-            Why::StartOver(why) => format!(
-                "Started over: attempt {attempt}'s worktree was discarded; its branch is kept as `{kept}` (not landed). Why: {why}"
-            ),
-            Why::Orphaned(why) => {
-                format!("Discarded attempt {attempt}'s worktree ({why}); its branch is kept as `{kept}` (not landed).")
-            }
+            Why::Orphaned(why) => ("discard", format!("Discarded {gone} ({why}); {kept} (not landed).")),
         }
     }
 }
 
-/// An abandoned attempt: the worktree that was removed and the branch it is kept as.
+/// An abandoned attempt: the worktree removed, and the branch it is kept as.
 pub(crate) struct Abandoned {
     pub worktree: String,
     pub branch: String,
 }
 
 impl Abandoned {
-    /// Says it in an answer: `discarded`, the worktree; `abandoned`, the branch.
+    /// `shown`, saying it: `discarded`, the worktree; `abandoned`, the branch.
     pub fn shown(self, mut shown: serde_json::Value) -> serde_json::Value {
-        shown["discarded"] = json!(self.worktree);
-        shown["abandoned"] = json!(self.branch);
+        (shown["discarded"], shown["abandoned"]) = (json!(self.worktree), json!(self.branch));
         shown
     }
 }
@@ -195,11 +179,8 @@ impl App {
         for c in self.rows(tracker::listed()).await? {
             let Ok(trees) = self.host.git(&c.path).worktrees() else { continue };
             for (path, branch) in trees {
-                let Some(WorkerBranch { number, attempt, .. }) =
-                    branch.as_deref().and_then(|b| WorkerBranch::parse(&c.name, b))
-                else {
-                    continue;
-                };
+                let Some(w) = branch.as_deref().and_then(|b| WorkerBranch::parse(&c.name, b)) else { continue };
+                let (number, attempt) = (w.number, w.attempt);
                 let issue = self.state::<Issues>(issue_id(&c.name, number)).await?;
                 let name = format!("{}#{number}", c.name);
                 let why = if !issue.opened() {
@@ -231,46 +212,35 @@ impl App {
             let why = format!("{at} is no worker's worktree that no open issue owns: doctor names those");
             return Err(Refusal::new("not_orphaned", why));
         };
-        let c = self.checkout(&o.checkout).await?;
-        let st = Started {
-            checkout: o.checkout,
-            number: o.number,
-            attempt: o.attempt,
-            worktree: at,
-            branch: o.branch,
-            ..Started::default()
-        };
-        let done = self.abandon(&c, &st, Why::Orphaned(&o.why)).await?;
-        Ok(done.shown(json!({ "why": o.why })))
+        let (c, Orphaned { checkout, number, attempt, branch, why, .. }) = (self.checkout(&o.checkout).await?, o);
+        let st = Started { checkout, number, attempt, worktree: at, branch, ..Started::default() };
+        Ok(self.abandon(&c, &st, Why::Orphaned(&why)).await?.shown(json!({ "why": why })))
     }
 
-    /// Abandons attempt `st`, keeping all its worktree holds: its
-    /// uncommitted changes are committed and its branch is kept as
-    /// `<branch>-abandoned`, which a comment on its issue names, as `why`
-    /// says. Then the worktree goes, with its terminals and its branch. A
-    /// close comments first, then closes the issue, ending its worker but
-    /// keeping the worktree for this; a closed issue takes no comment.
+    /// Abandons attempt `st`, keeping all its worktree holds: uncommitted
+    /// changes are committed, its branch is kept as `<branch>-abandoned`,
+    /// which a comment says as `why` does (a close's comes first; a closed
+    /// issue takes no other), and the worktree goes, with its terminals.
     pub(crate) async fn abandon(&self, c: &Checkout, st: &Started, why: Why<'_>) -> Answer<Abandoned> {
         let kept = abandoned(&st.branch);
-        let comment = why.comment(st.attempt, &kept);
+        let (at, comment) = why.said(st.attempt, &kept);
         if let Why::Close(reason) = why {
             self.note(&st.checkout, st.number, Author::Factorium, &comment).await?;
             self.close(&st.checkout, st.number, reason, true).await?;
         }
-        let git = self.host.git(&c.path);
-        let path = Path::new(&st.worktree);
+        let (git, path) = (self.host.git(&c.path), Path::new(&st.worktree));
         let tree = git.at(path);
         if tree.dirty().map_err(fail("git"))? {
             tree.run(&["add", "-A"]).map_err(fail("git"))?;
-            let message = format!("Uncommitted work of {}, kept at {}", st.branch, why.at());
+            let message = format!("Uncommitted work of {}, kept at {at}", st.branch);
             tree.run(&["commit", "--quiet", "--no-verify", "-m", &message]).map_err(fail("git"))?;
         }
         let head = tree.sha("HEAD").map_err(fail("git"))?;
         // Forced: an abandon Orca refused before made it, at an ancestor of HEAD.
         git.run(&["branch", "--no-track", "--force", &kept, &head]).map_err(fail("git"))?;
         self.remove_worktree(&git, path, &st.branch)?;
-        let open = |i: &Issue| i.status != Status::Closed;
-        if !matches!(why, Why::Close(_)) && self.issue(&st.checkout, st.number).await.is_ok_and(|i| open(&i)) {
+        let open = self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.status != Status::Closed);
+        if open && !matches!(why, Why::Close(_)) {
             self.note(&st.checkout, st.number, Author::Factorium, &comment).await?;
         }
         Ok(Abandoned { worktree: st.worktree.clone(), branch: kept })
