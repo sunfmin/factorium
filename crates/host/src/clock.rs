@@ -41,15 +41,18 @@ pub struct ManualClock {
     at: tokio::sync::watch::Sender<i64>,
     /// The waits not yet ended, by when each ends: how many of each.
     waits: Arc<Mutex<BTreeMap<i64, usize>>>,
+    /// Told each time a wait begins or ends, or the clock moves.
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl ManualClock {
     pub fn new(at: i64) -> ManualClock {
-        ManualClock { at: tokio::sync::watch::Sender::new(at), waits: Default::default() }
+        ManualClock { at: tokio::sync::watch::Sender::new(at), waits: Default::default(), changed: Default::default() }
     }
 
     pub fn advance(&self, ms: i64) {
         self.at.send_modify(|t| *t += ms);
+        self.changed.notify_waiters();
     }
 
     /// How many waits are asleep: not yet ended, and not yet passed. Once
@@ -58,6 +61,14 @@ impl ManualClock {
     pub fn asleep(&self) -> usize {
         let now = self.now();
         self.waits.lock().unwrap().range(now + 1..).map(|(_, n)| n).sum()
+    }
+
+    /// Ends once [`ManualClock::asleep`] may answer otherwise than when this
+    /// was called: a wait began or ended, or the clock moved.
+    pub fn changed(&self) -> Sleep<'_> {
+        let mut told = Box::pin(self.changed.notified());
+        told.as_mut().enable();
+        told
     }
 }
 
@@ -69,7 +80,8 @@ impl Clock for ManualClock {
     fn sleep(&self, ms: u64) -> Sleep<'_> {
         let until = self.now().saturating_add(ms as i64);
         *self.waits.lock().unwrap().entry(until).or_default() += 1;
-        let gone = Gone { waits: self.waits.clone(), until };
+        self.changed.notify_waiters();
+        let gone = Gone { waits: self.waits.clone(), changed: self.changed.clone(), until };
         let mut at = self.at.subscribe();
         Box::pin(async move {
             let _gone = gone;
@@ -81,6 +93,7 @@ impl Clock for ManualClock {
 /// Takes a wait off the count when it ends or is dropped.
 struct Gone {
     waits: Arc<Mutex<BTreeMap<i64, usize>>>,
+    changed: Arc<tokio::sync::Notify>,
     until: i64,
 }
 
@@ -93,5 +106,7 @@ impl Drop for Gone {
                 waits.remove(&self.until);
             }
         }
+        drop(waits);
+        self.changed.notify_waiters();
     }
 }

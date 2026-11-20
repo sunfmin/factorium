@@ -327,9 +327,7 @@ async fn beside_what_runs_asks_in_one_second_start_one_per_settled_reading() {
         // (each asleep again, waiting or running), and answers how many of
         // them started.
         let after = async || {
-            while w.clock.asleep() != 3 {
-                tokio::task::yield_now().await;
-            }
+            w.until(async || w.clock.asleep() == 3).await;
             w.heavy().await.iter().filter(|e| !e["started_at"].is_null()).count() - 1
         };
         assert_eq!(after().await, 1, "one starts on the reading the others saw");
@@ -388,9 +386,7 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
             };
             let newer = async {
                 // Queued after the old one, so it waits behind it.
-                while w.queued().await.len() < 2 {
-                    tokio::task::yield_now().await;
-                }
+                w.until(async || w.queued().await.len() >= 2).await;
                 n.worker_exclusive(None, &w.dir, &lines[2]).await
             };
             tokio::join!(older, newer)
@@ -399,9 +395,7 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     };
     let looks = async {
         // The busy one runs, both wait: all three asleep on the clock.
-        while w.queued().await.len() < 3 || w.clock.asleep() != 3 {
-            tokio::task::yield_now().await;
-        }
+        w.until(async || w.queued().await.len() >= 3 && w.clock.asleep() == 3).await;
         // The upgrade: a settled reading with room, for one start.
         w.host.reading.lock().unwrap().cpu_busy = 10;
         w.clock.advance(30_000);

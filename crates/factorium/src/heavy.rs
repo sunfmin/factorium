@@ -68,6 +68,8 @@ pub(crate) struct Running {
     stop: Arc<AtomicBool>,
     sessions: tokio::sync::mpsc::UnboundedReceiver<u32>,
     run: tokio::task::JoinHandle<Vec<Ran>>,
+    /// Closed once its steps ended: [`App::beside_ended`] waits on it.
+    ended: tokio::sync::watch::Receiver<()>,
 }
 
 impl App {
@@ -187,6 +189,17 @@ impl App {
         }))
     }
 
+    /// Until the job beside the ticks, if one runs, has ended its steps: the
+    /// next tick's [`App::beside`] finds it ended. A scenario waits on this,
+    /// not on ticks in a loop.
+    pub async fn beside_ended(&self) {
+        let ended = self.memory.lock().unwrap().beside.as_ref().map(|r| r.ended.clone());
+        if let Some(mut ended) = ended {
+            // Nothing is sent on it: it answers once its sender is dropped.
+            let _ = ended.changed().await;
+        }
+    }
+
     /// Records that the rules this app asks under are the newest, if they are.
     pub(crate) async fn note_rules(&self) -> Answer<()> {
         self.submit::<NoteRules>(Rules { version: self.rules.clone() }).await
@@ -252,7 +265,9 @@ impl App {
         let (stop, (session, sessions)) = (Arc::new(AtomicBool::new(false)), tokio::sync::mpsc::unbounded_channel());
         let (dir, steps, env, priority) = (job.dir.to_path_buf(), job.steps.to_vec(), job.env.to_vec(), job.priority);
         let (ended, clock, limit) = (stop.clone(), self.clock.clone(), deadline.map_or(job.limit, |_| Duration::MAX));
+        let (done, ended_rx) = tokio::sync::watch::channel(());
         let run = tokio::task::spawn_blocking(move || {
+            let _done = done;
             let stop = || ended.load(Ordering::Relaxed) || deadline.is_some_and(|d| clock.now() >= d);
             let (started, mut rans) = (|s| session.send(s).unwrap_or(()), Vec::<Ran>::new());
             while rans.len() < steps.len() && rans.last().is_none_or(|r| r.ok) {
@@ -260,7 +275,7 @@ impl App {
             }
             rans
         });
-        Ok(Running { id, yields, deadline, hold_ms, why: None, stop, sessions, run })
+        Ok(Running { id, yields, deadline, hold_ms, why: None, stop, sessions, run, ended: ended_rx })
     }
 
     /// Notes the sessions `r`'s steps started in, and ends the one running

@@ -337,10 +337,7 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
     };
     let body = async {
         until_file(&first.join("started")).await;
-        let waits = async || w.heavy().await.iter().any(|e| e["what"] == line.as_str() && e["started_at"].is_null());
-        while !waits().await {
-            tokio::task::yield_now().await;
-        }
+        w.until(async || w.heavy().await.iter().any(|e| e["what"] == line.as_str() && e["started_at"].is_null())).await;
         w.tick().await;
         w.advance(20);
         w.tick().await;
