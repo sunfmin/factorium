@@ -236,3 +236,18 @@ async fn starting_over_with_the_proving_tip_unread_discards_the_worktree_and_kee
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["worktree"], json!(w.dir.join("worktrees").join("web-1-2")), "a new worktree");
 }
+
+#[tokio::test]
+async fn discarding_an_older_attempt_s_worktree_names_that_attempt_and_its_kept_branch() {
+    let w = World::new();
+    // Attempt 1 held nothing of its own: attempt 2 starts afresh, and attempt 1's worktree is left behind.
+    let old = waiting_for_human(&w, false).await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+    assert!(old.exists());
+    w.app.discard_orphaned(&old).await.unwrap();
+    let last = w.comments("web", 1).await.last().unwrap()["text"].as_str().unwrap().to_string();
+    assert!(last.starts_with("Discarded attempt 1's worktree"), "{last}");
+    assert_eq!(named_branch(&w, &last), "factorium/web-1-1-abandoned");
+}
