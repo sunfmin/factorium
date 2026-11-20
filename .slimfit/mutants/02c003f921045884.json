@@ -1,0 +1,27 @@
+{
+  "tree": "48daf9723db51b2c08c34422b257da79917f93fb+d1fba762150c532c",
+  "picker": "claude-code:4fbd65c5-7cbf-4354-949b-d0416755ad8a:claude-opus-5-5",
+  "author": "claude-code:e55cea8b-9fa4-510e-9269-99fa7b1413e4:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/pick.rs:137:33: replace / with % in answer",
+        "why": "The tests only check the start of the cost note, up to 'on ', so the seconds figure is never asserted.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/pick.rs:137:33: replace / with * in answer",
+        "why": "Same reason: no test reads the formatted seconds in the cost note, so a wrong scale would go unseen.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/pick.rs:42:58: replace && with || in App::worker_pick_mutants",
+        "why": "This guard keeps a failed harness from being chosen again; with || a failed codex is picked again, and the fallback test may only catch it by timing out.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
