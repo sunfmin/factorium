@@ -95,9 +95,7 @@ async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, 
         ran.display(),
         args.display()
     );
-    std::fs::write(&program, script).unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::fixture::program(&program, &script);
     w.app.kit_set(&[format!("{}={}", h.key(), program.display())]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
