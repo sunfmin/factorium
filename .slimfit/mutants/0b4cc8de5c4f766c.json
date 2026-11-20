@@ -1,0 +1,19 @@
+{
+  "tree": "6c01a4cefbc8aebfcd437f926caab4fccb4f0796+d1fba762150c532c",
+  "picker": "claude-code:87b4cfc7-eacc-4a03-bae2-7c8e98184905:claude-opus-5-5",
+  "author": "claude-code:54bb3443-495c-5922-9358-717ab5f3356b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/pick.rs:63:35: replace match guard from < to with true in read",
+        "why": "no test answers a '}' before a '{', so dropping the guard only panics on a slice no scenario reaches",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/pick.rs:132:33: replace / with * in answer",
+        "why": "the scenario checks only the start and end of the kept cost line, never the seconds it prints",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
