@@ -1,9 +1,12 @@
 //! Steps of the heavy-command queue: another CLI run holding it, a command
-//! whose asker went away, and moving the clock a poll on.
+//! whose asker went away, moving the clock a poll on, and a command whose
+//! processes escape its tree.
 
 use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
+
+use factum::Uuid;
 
 use super::World;
 
@@ -94,4 +97,66 @@ impl World {
         let mut runs = std::pin::pin!(cli.worker_exclusive(None, &self.dir, &line));
         tokio::select! { _ = &mut runs => panic!("it ended before its asker went"), _ = until_file(&started) => {} }
     }
+}
+
+/// A command that starts two processes outside its tree as a process group
+/// sees it: one in a process group of its own, and one whose parent exits
+/// (reparented to launchd). Each writes its pid to `dir` and sleeps a
+/// minute; the command itself holds as [`World::holds`] does.
+pub fn escaping(w: &World, dir: &Path) -> String {
+    let holds = w.holds(dir);
+    let d = dir.display();
+    format!(
+        "perl -e 'setpgrp(0, 0); open my $f, \">\", \"{d}/g.tmp\"; print $f $$; close $f; \
+         rename \"{d}/g.tmp\", \"{d}/grouped\"; exec \"sleep\", \"60\"' & \
+         ( sh -c 'echo $$ > {d}/o.tmp; mv {d}/o.tmp {d}/orphan; exec sleep 60' & ); {holds}"
+    )
+}
+
+/// What `ps` says of `pid`: its `field`, empty once it is gone.
+fn ps(pid: u32, field: &str) -> String {
+    let out = std::process::Command::new("ps").args(["-o", &format!("{field}="), "-p", &pid.to_string()]).output();
+    String::from_utf8_lossy(&out.unwrap().stdout).trim().to_string()
+}
+
+/// Whether `pid` still runs: not gone, nor a zombie waiting to be reaped.
+fn runs(pid: u32) -> bool {
+    let stat = ps(pid, "stat");
+    !stat.is_empty() && !stat.starts_with('Z')
+}
+
+/// The escaped processes, killed when dropped: a failing scenario leaves
+/// none behind.
+pub struct Escaped([u32; 2]);
+
+impl Escaped {
+    /// Those that still run.
+    pub fn left(&self) -> Vec<u32> {
+        self.0.into_iter().filter(|p| runs(*p)).collect()
+    }
+}
+
+impl Drop for Escaped {
+    fn drop(&mut self) {
+        let pids: Vec<String> = self.0.iter().map(u32::to_string).collect();
+        let _ =
+            std::process::Command::new("kill").arg("-KILL").args(&pids).stderr(std::process::Stdio::null()).status();
+    }
+}
+
+/// Once the command of [`escaping`] started both: their pids, each checked
+/// to have escaped as it means to.
+pub async fn escaped(dir: &Path) -> Escaped {
+    until_file(&dir.join("grouped")).await;
+    until_file(&dir.join("orphan")).await;
+    let pid = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap().trim().parse::<u32>().unwrap();
+    let (grouped, orphan) = (pid("grouped"), pid("orphan"));
+    assert_eq!(ps(grouped, "pgid"), grouped.to_string(), "a process group of its own");
+    assert_eq!(ps(orphan, "ppid"), "1", "its parent exited");
+    Escaped([grouped, orphan])
+}
+
+/// The id of the heavy entry doctor shows as `what`.
+pub async fn entry(w: &World, what: &str) -> Uuid {
+    w.queued_entry(what).await["id"].as_str().unwrap().parse().unwrap()
 }

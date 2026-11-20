@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-use crate::fixture::{STUCK, World, nice_is, own_nice, until_file};
+use crate::fixture::{STUCK, World, entry, escaped, escaping, nice_is, own_nice, until_file};
 
 /// A checkout `web` whose base declares `[idle]` with `steps`, `every`
 /// seconds apart and within `limit`, as last fetched; and a kit.
@@ -99,6 +99,55 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
     .await;
     assert!(started(&w.tick().await.idle), "once the queue is empty");
     ended(&w).await;
+}
+
+/// A tick while idle work runs starts none beside it, overdue as it is: its
+/// clone, which its line uses, is left as it made it.
+#[tokio::test]
+async fn a_tick_while_overdue_idle_work_runs_leaves_it_and_its_clone_be() {
+    let w = World::new();
+    let (web, answer, dir) = (w.checkout("web").await, w.dir.join("next.json"), w.dir.join("held"));
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    let line = format!(
+        "touch mark && ( {} ) >/dev/null && test -f mark && echo slimfit 0.1.16 && cat '{}'",
+        w.holds(&dir),
+        answer.display()
+    );
+    w.push_by_hand("web", "main", "factorium.toml", &format!("[idle]\ntasks = {line:?}\nevery = 60\nlimit = 60\n"));
+    w.git(&web, &["fetch", "-q", "origin"]).unwrap();
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(1);
+    assert!(started(&w.tick().await.idle));
+    until_file(&dir.join("started")).await;
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
+    std::fs::write(dir.join("release"), "").unwrap();
+    let run = ended(&w).await;
+    assert_eq!(run["green"], true, "{run}");
+}
+
+/// Idle work whose steps ended green before a command queued beside it is
+/// a run, recorded green: giving way ends only what still runs.
+#[tokio::test]
+async fn idle_work_that_ended_green_before_a_command_queued_beside_it_is_recorded_green() {
+    let w = World::new();
+    declares(&w, &["true".into()], 3600, 60).await;
+    assert!(started(&w.tick().await.idle));
+    w.app.beside_ended().await;
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let cli = w.run();
+    let wants = cli.worker_exclusive(None, &w.dir, "echo after");
+    let ticks = async {
+        w.until_queued("echo after").await;
+        let t = w.tick().await;
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        w.poll(1).await;
+        t
+    };
+    let (ran, t) = tokio::time::timeout(STUCK, async { tokio::join!(wants, ticks) }).await.expect("it ends");
+    assert_eq!(ran.unwrap()["ok"], true);
+    assert!(t.idle.iter().any(|v| v["idle"] == "web" && v["green"] == true), "{:?}", t.idle);
+    assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"]["green"], true, "{:?}", t.idle);
 }
 
 #[tokio::test]
@@ -295,17 +344,17 @@ async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
 async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
     let w = World::new();
     let dir = w.dir.join("escaping");
-    declares(&w, &["true".into(), crate::unqueue::escaping(&w, &dir)], 3600, 60).await;
+    declares(&w, &["true".into(), escaping(&w, &dir)], 3600, 60).await;
     assert!(started(&w.tick().await.idle));
-    let pids = crate::unqueue::escaped(&dir).await;
+    let pids = escaped(&dir).await;
     assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it runs on");
-    let id = crate::unqueue::entry(&w, "idle work of web").await;
+    let id = entry(&w, "idle work of web").await;
     let unqueued = w.run().unqueue(id).await.unwrap();
     assert_eq!(unqueued["ended"], true, "{unqueued}");
     assert_eq!(pids.left(), Vec::<u32>::new(), "still running");
     let t = w.tick().await;
     assert!(t.idle.iter().any(|v| v["idle"] == "web" && v["yielded"] == "unqueued"), "{:?}", t.idle);
-    assert_ne!(crate::unqueue::entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
+    assert_ne!(entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], json!(null), "an unqueued run is no run");
     // The daemon stops: the run it started again ends with it.
     w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();

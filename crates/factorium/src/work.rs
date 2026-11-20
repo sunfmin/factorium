@@ -3,13 +3,11 @@
 //! started with.
 
 use std::path::Path;
-use std::time::Duration;
 
 use factorium_domain::declared::Kind;
 use factorium_domain::issue::Author;
 use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
-use factorium_host::Priority;
 use factum::Uuid;
 use serde_json::json;
 
@@ -115,20 +113,19 @@ impl App {
     /// priority, so a time it measures (a test run, `slimfit check` or
     /// `ratchet`) is one a gate's run of the same tree agrees with.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(worker, dir, cmd, Priority::Normal).await
+        self.exclusive(worker, dir, cmd, false).await
     }
 
     /// [`App::worker_exclusive`] at background priority: for work whose
     /// time no gate compares (a mutation run), so a gate beside it gets the
     /// CPU first.
     pub async fn worker_exclusive_background(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(worker, dir, cmd, Priority::Background).await
+        self.exclusive(worker, dir, cmd, true).await
     }
 
-    async fn exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str, priority: Priority) -> Answer {
-        let limit = Duration::from_millis(self.settings().await?.ms(Time::HoldBound).max(60_000) as u64 * 4);
-        let steps = [cmd.to_string()];
-        let job = Job { what: cmd.into(), worker, bound_at: None, dir, steps: &steps, env: &[], limit, priority };
+    async fn exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str, background: bool) -> Answer {
+        let (hold_ms, steps) = (self.settings().await?.ms(Time::HoldBound), [cmd.to_string()]);
+        let job = Job::exclusive(cmd.into(), dir, &steps, hold_ms, background).of(worker, None);
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
     }

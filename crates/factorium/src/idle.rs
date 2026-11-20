@@ -9,8 +9,6 @@
 //! before it is recorded, and the record. Tasks overdue by `tasks_bound` run
 //! without an idle host, and only them: such a run yields to nothing.
 
-use std::time::Duration;
-
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
@@ -18,7 +16,6 @@ use factorium_domain::issue::Open;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::task::{self, ToFile};
 use factorium_domain::tracker;
-use factorium_host::Priority;
 use factum::Value;
 use serde_json::json;
 
@@ -44,9 +41,8 @@ impl App {
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let Some(ended) = self.beside(busy, false).await? else { return Ok(None) };
-        let idle = self.memory.lock().unwrap().idle.take();
-        let Running { checkout, tip, at, steps, limit, tasks } = idle.expect("its idle work started it");
+        let Some((idle, ended)) = self.beside(busy, false).await? else { return Ok(None) };
+        let Running { checkout, tip, at, steps, limit, tasks } = idle;
         let rans = match ended {
             Ok(rans) => rans,
             Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),
@@ -98,7 +94,7 @@ impl App {
         load: &Load,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
-        if self.memory.lock().unwrap().beside.is_some() {
+        if self.beside_runs() {
             return Ok(None);
         }
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
@@ -128,15 +124,12 @@ impl App {
             work.steps.push(format!("( {line} ) > '{}'", out.display()));
             out
         });
-        let (what, dir, steps, limit) = (idle::job(&c.name), &here.dir, &work.steps, Duration::from_secs(work.limit));
-        let job =
-            Job { what, worker: None, bound_at: None, dir, steps, env: &[], limit, priority: Priority::Background };
-        let at = self.now();
-        if self.heavy(job, Turn::Beside { yields: !overdue }).await?.is_none() {
+        let job = Job::idle(idle::job(&c.name), &here.dir, &work.steps, work.limit);
+        let (checkout, steps, limit, at) = (c.name.clone(), work.steps.clone(), work.limit, self.now());
+        let idle = Box::new(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
+        if self.heavy(job, Turn::Beside { yields: !overdue, idle }).await?.is_none() {
             return Ok(None);
         }
-        let (checkout, steps, limit) = (c.name.clone(), work.steps, work.limit);
-        self.memory.lock().unwrap().idle = Some(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))
     }
 }

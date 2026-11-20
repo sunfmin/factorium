@@ -176,9 +176,8 @@ struct Memory {
     failed: u64,
     /// The kept binary to exec in place of this one, whose ticks all failed.
     fallback: Option<PathBuf>,
-    /// The idle work running beside the ticks, and its heavy job's run.
-    idle: Option<idle::Running>,
-    beside: Option<heavy::Running>,
+    /// The idle work running beside the ticks, as its heavy job's run.
+    beside: Option<heavy::Beside>,
 }
 
 /// The host's clock, as the engine reads it.
