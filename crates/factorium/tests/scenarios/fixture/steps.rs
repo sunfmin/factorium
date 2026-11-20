@@ -78,6 +78,11 @@ pub struct Picker {
 }
 
 impl Picker {
+    /// What its own user directory held, one name a line.
+    pub fn user_dir(&self) -> String {
+        std::fs::read_to_string(self.dir.join("user_dir")).unwrap_or_default()
+    }
+
     /// What it read on stdin, its arguments (one a line) and its environment.
     pub fn asked(&self) -> (String, String, String) {
         let read = |f: &str| std::fs::read_to_string(self.dir.join(f)).unwrap_or_default();
@@ -103,7 +108,7 @@ impl World {
         std::fs::write(dir.join("said"), harness.asked_stand_in(answered).unwrap()).unwrap();
         let d = dir.display();
         let script = format!(
-            "#!/bin/sh\ncat > '{d}/asked'\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
+            "#!/bin/sh\ncat > '{d}/asked'\nls -A \"$CODEX_HOME$GROK_HOME\" > '{d}/user_dir' 2>/dev/null\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
         );
         let program = dir.join("program");
         super::program(&program, &script);

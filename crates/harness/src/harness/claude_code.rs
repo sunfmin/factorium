@@ -245,13 +245,14 @@ struct Typed {
 const HEADLESS: Headless = Headless {
     flags: "-p --tools '' --setting-sources '' --strict-mcp-config --output-format json",
     model: MODEL,
+    files: crate::ask::no_files,
     read: asked,
     stand_in: asked_stand_in,
 };
 
 /// What `claude -p --output-format json` printed: its answer in `result`,
 /// unless `is_error`; the tokens of each model it used in `modelUsage`.
-fn asked(out: &str) -> Result<Asked, String> {
+fn asked(out: &str, _model: Option<&str>) -> Result<Asked, String> {
     let said: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
     let text = said["result"].as_str().unwrap_or_default().to_string();
     if said["is_error"].as_bool() != Some(false) {

@@ -173,8 +173,7 @@ command!(LimitAccount, "account.limited", Kits, AccountNote, |_p| kit_id(), |s, 
 mod tests {
     use super::*;
 
-    /// Only one harness can be asked headless today, so no scenario tells the
-    /// other harness from the worker's: this does.
+    /// Which other harness is first, and that the pin does not choose it.
     #[test]
     fn a_picker_runs_on_the_kit_s_other_harness_that_asks_else_on_the_worker_s() {
         let entry = |h: &str| Entry { harness: h.into(), command: h.into(), model: None };

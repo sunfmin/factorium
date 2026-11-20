@@ -5,6 +5,7 @@
 //! the issue; a picker that fails, passes its bound or answers off the form
 //! is refused, and nothing is kept of it.
 
+use factorium::host::Host;
 use factorium_harness::{Asked, Harness};
 use serde_json::{Value, json};
 
@@ -127,4 +128,81 @@ async fn a_kit_with_no_harness_that_can_be_asked_refuses_to_pick() {
     let wk = w.working("pi=pi", "t").await;
     w.slimfit(GOAL, LISTING);
     refused(w.app.worker_pick_mutants(id(&wk)).await, "no_harness");
+}
+
+const PICKS: &str = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
+
+/// A checkout `web` whose kit is the stand-in Claude Code picker, answering
+/// [`PICKS`], then a stand-in picker of `other` on `model`, which runs `then`
+/// and answers `picks` as that harness does; the host user logged in to
+/// `other`; a worker on Claude Code that changed `a.rs`.
+async fn beside(other: Harness, model: &str, then: &str, picks: &str) -> (World, Value, crate::fixture::Picker) {
+    let w = World::new();
+    w.checkout("web").await;
+    w.slimfit(GOAL, LISTING);
+    let claude = w.picker(Harness::ClaudeCode, "", &answered(PICKS));
+    let theirs = Asked { session: "t-1".into(), model: model.into(), text: picks.into(), tokens_in: 900, tokens_out: 40 };
+    let picker = w.picker(other, then, &theirs);
+    let login = w.host.home().join(format!(".{}", other.key())).join("auth.json");
+    std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+    std::fs::write(&login, "{}").unwrap();
+    let kit = [
+        format!("claude-code={}@claude-opus-5-5", claude.program.display()),
+        format!("{}={}@{model}", other.key(), picker.program.display()),
+    ];
+    w.app.kit_set(&kit).await.unwrap();
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = crate::fixture::worker(&w.app).await;
+    w.commit(&worktree(&wk), "a.rs", "fn a(x: u8) -> bool { x == 1 }\n");
+    (w, wk, picker)
+}
+
+#[tokio::test]
+async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_names_it_and_its_model() {
+    let cases = [(Harness::Codex, "gpt-6.2-sol", "CODEX_HOME"), (Harness::Grok, "grok-4.7-build", "GROK_HOME")];
+    crate::fixture::each(&cases, |(other, model, user_dir)| async move {
+        let (w, wk, picker) = beside(*other, model, "", PICKS).await;
+        assert_eq!(wk["harness"], "claude-code");
+        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+
+        let picker_id = format!("{}:t-1:{model}", other.key());
+        assert_eq!(answer["picker"], picker_id, "{answer}");
+        assert_eq!((answer["harness"].as_str(), answer["model"].as_str()), (Some(other.key()), Some(*model)));
+        assert_eq!(answer["author"], format!("claude-code:{}:claude-opus-5-5", id(&wk)));
+        assert_eq!(answer["fell_back"], json!([]));
+        assert_eq!(answer["tokens"], json!({ "in": 900, "out": 40 }));
+
+        // Asked on stdin, in a user directory of its own holding its login
+        // and nothing of the host's, with nothing of the worker's session.
+        let (asked, _, env) = picker.asked();
+        assert!(asked.starts_with(GOAL) && asked.contains(LISTING), "{asked}");
+        let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=')).map(|(n, _)| n).collect();
+        let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", user_dir];
+        assert!(names.iter().all(|n| theirs.contains(n)), "{names:?}");
+        let held: Vec<String> = picker.user_dir().lines().map(String::from).collect();
+        let expected: Vec<&str> = if *other == Harness::Grok { vec!["auth.json", "config.toml"] } else { vec!["auth.json"] };
+        assert_eq!(held, expected);
+
+        let kept = kept(&w).await;
+        assert!(kept[0]["text"].as_str().unwrap().starts_with(&format!("pick-mutants: {picker_id} on ")), "{kept:?}");
+    });
+}
+
+#[tokio::test]
+async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_and_the_record_says_so() {
+    let cases = [("exit 3", PICKS), ("", "You have hit your usage limit.")];
+    crate::fixture::each(&cases, |(then, said)| async move {
+        let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said).await;
+        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+
+        assert_eq!(answer["picker"], "claude-code:s-1:claude-opus-5-5", "{answer}");
+        let fell = answer["fell_back"].as_array().unwrap();
+        assert_eq!(fell.len(), 1, "{answer}");
+        assert_eq!(fell[0]["harness"], "codex");
+        assert!(!fell[0]["why"].as_str().unwrap().is_empty(), "{answer}");
+        let kept = kept(&w).await;
+        let text = kept[0]["text"].as_str().unwrap();
+        assert!(text.contains("; the codex picker failed first, so claude-code picked: "), "{text}");
+    });
 }

@@ -100,6 +100,8 @@ pub struct Taken<'a> {
     pub took_ms: u64,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// The pickers that failed before it, in turn: harness and why.
+    pub fell_back: &'a [(&'a str, String)],
 }
 
 /// The worker's answer — what was picked, by whom, what it took, and the
@@ -111,6 +113,8 @@ pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, 
     let ratchet = format!("factorium worker exclusive -- slimfit ratchet {ids}");
     let mut said = json!({ "picker": picker, "author": t.author, "harness": t.harness, "model": t.model,
         "account": t.account, "took_ms": t.took_ms, "tokens": { "in": t.tokens_in, "out": t.tokens_out } });
+    let failed: Vec<Value> = t.fell_back.iter().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
+    said["fell_back"] = failed.into();
     let what = match picked {
         Picked::Picks(picks) => {
             let names: Vec<String> = picks.iter().map(|(n, _)| quote(n)).collect();
@@ -130,7 +134,10 @@ pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, 
     };
     let on = t.account.unwrap_or("the host's own login");
     let secs = t.took_ms as f64 / 1000.0;
-    let cost =
+    let mut cost =
         format!("pick-mutants: {picker} on {on}, {secs:.1}s, {} tokens in, {} out; {what}", t.tokens_in, t.tokens_out);
+    for (harness, why) in t.fell_back {
+        cost.push_str(&format!("; the {harness} picker failed first, so {} picked: {why}", t.harness));
+    }
     (said, cost)
 }
