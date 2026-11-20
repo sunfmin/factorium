@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 10211,
-      "test_lines": 7692,
-      "tests": 259,
+      "prod_lines": 9913,
+      "test_lines": 7506,
+      "tests": 255,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 5831,
+      "covered_lines": 5648,
       "uncovered_lines": 107
     }
   },
@@ -40,7 +40,14 @@
       "reason": "the fast gate now runs slimfit check on every landing (factorium#121), and the same tree measured 204.1s, 206.1s, 208.9s, 216.8s at 1-min load 25-50 on 18 cores, load-corrected (slimfit 0.1.15), against a 213.8s limit: one landing in four would go red on the host's load, not its code. gate.sh's CPU bound (231-233s of 310s) is the time guard (SPEC 6). factorium#121"
     }
   ],
-  "kept": [],
+  "kept": [
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::one_harness::of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks",
+      "hash": "8e2b10fbdf4749a0",
+      "reason": "No assertion maps: this test checks which of several session files in a worktree speaks (start order, end order, both read orders), probed once at 60 min; admission::silence_counts_from_the_end_of_the_last_turn checks the silent bound's timing (30 min working, 31 min silent with its why) on one session. The shared lines are World::working and the session write; folding the 30/31 timeline into silent_with's single 60-min probe changes what each case checks."
+    }
+  ],
   "kept_files": [
     {
       "suite": "rust",
@@ -57,6 +64,14 @@
       "commits_90d": 27,
       "commits_total": 27,
       "reason": "deepened by factorium#91 (docs/adr/0001): model() lives here beside App::open on purpose, so each new domain command adds one line here; churn since (#113, #119, #128) is those lines plus #119's HostClock adapter beside Engine::new, no new concept"
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/daemon.rs",
+      "prod_lines": 255,
+      "commits_90d": 40,
+      "commits_total": 40,
+      "reason": "The tick is the composition root: pass() orders every step that moves without a command (idle, lines, bumps, worker health, one admitted start, resume, watch look, swap), and each step's rules already live behind deeper modules (line.rs via lines(), load.rs, swap.rs, issues.rs blockers, domain admission/bump/worker). Its interface is small: tick/run/stop/daemon_start, and scenarios test through tick() only. Churn is features adding one step each, which belong in the pass's order here; daemon.rs was already deepened by factorium#93 (lines) and #134 (swap). Moving bumps/next_issue/resume_parked out would only relocate one-call private helpers, not add depth."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c"
