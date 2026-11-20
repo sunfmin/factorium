@@ -51,6 +51,12 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         let (w, wk, picker) = changed(*first, "", picks).await;
         let on = if first.is_some() { "pi" } else { "claude-code" };
         assert_eq!(wk["harness"], on);
+        // The worker's own harness runs on an account: so does its picker, its secret by a file.
+        let account = if first.is_some() { "the host's own login" } else { "team" };
+        let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-it's"}});
+        if first.is_none() {
+            w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
+        }
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
         // Run on Claude Code: the other harness, or the worker's own anew.
@@ -70,13 +76,15 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         assert!(asked.contains("+fn a(x: u8) -> bool { x == 1 }") && asked.contains(LISTING), "{asked}");
         assert!(args.lines().any(|a| a == "-p"), "{args}");
         let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=')).map(|(n, _)| n).collect();
-        let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD"];
+        let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", "CLAUDE_CODE_OAUTH_TOKEN"];
+        assert_eq!(env.contains("CLAUDE_CODE_OAUTH_TOKEN=sk-it's\n"), first.is_none(), "{env}");
+        assert!(!args.contains("sk-"), "{args}");
         assert!(names.iter().all(|n| theirs.contains(n)), "only its home and PATH: {names:?}");
 
         let kept = kept(&w).await;
         assert_eq!(kept.len(), 1, "{kept:?}");
         let text = kept[0]["text"].as_str().unwrap();
-        assert!(text.starts_with(&format!("pick-mutants: {picker_id} on the host's own login, ")), "{text}");
+        assert!(text.starts_with(&format!("pick-mutants: {picker_id} on {account}, ")), "{text}");
         let secs = answer["took_ms"].as_u64().unwrap() as f64 / 1000.0;
         assert!(text.ends_with(&format!(", {secs:.1}s, 1200 tokens in, 80 out; 1 picked")), "{text}");
     });
@@ -101,6 +109,7 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
         (String::new(), format!(r#"{{"picks": [{}]}}"#, six.join(",")), "picker_answer"),
         (String::new(), r#"{"picks": [], "none": "two\nlines"}"#.into(), "picker_answer"),
         (String::new(), "I would pick the comparison.".into(), "picker_answer"),
+        (String::new(), format!(r#"{{"picks": [{{"name": "{KILLS}", "why": " "}}]}}"#), "picker_answer"),
         (String::new(), "} I would pick { nothing".into(), "picker_answer"),
     ];
     crate::fixture::each(&cases, |(then, text, code)| async move {

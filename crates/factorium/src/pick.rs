@@ -35,9 +35,9 @@ impl App {
 
         let dir = self.data().pick(uuid::Uuid::now_v7());
         let (question, answer) = (dir.join("question.md"), dir.join("answer.json"));
-        let io = |e: std::io::Error| Refusal::new("io", e.to_string());
-        std::fs::create_dir_all(&dir).map_err(io)?;
-        std::fs::write(&question, pick::question(&goal, &diff, &listing)).map_err(io)?;
+        let asked = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(&question, pick::question(&goal, &diff, &listing)));
+        asked.map_err(|e| Refusal::new("io", e.to_string()))?;
         let secret = self.write_secrets(&on.secrets)?;
         let path = crate::session::program_dir(&on.command, &self.host.home()).into_iter();
         let path: Vec<String> = path.chain([std::env::var("PATH").unwrap_or_default()]).collect();
