@@ -1,0 +1,6 @@
+{
+  "tree": "f0e1150bdb12b43b5d29080ad7a4cde033485c2a+d1fba762150c532c",
+  "picker": "codex:01a1fd81-d93a-7a11-8911-4d74b5b5808c:default",
+  "author": "claude-code:4908d59c-14f8-5531-b0a1-741a0530eddf:opus",
+  "none": "The scenarios exercise each ownership check independently and require specific orphan findings after failed starts, so every buildable candidate would fail those assertions."
+}
