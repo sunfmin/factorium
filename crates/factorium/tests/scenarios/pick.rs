@@ -120,7 +120,7 @@ async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_no
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = crate::fixture::worker(&w.app).await;
-        w.commit(&worktree(&wk), "tests/a.rs", "#[test]\nfn a() {}\n");
+        w.commit(&worktree(&wk), "a_test.rs", "#[test]\nfn a() {}\n");
         w.commit(&worktree(&wk), "slimfit.toml", "[check]\n");
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
