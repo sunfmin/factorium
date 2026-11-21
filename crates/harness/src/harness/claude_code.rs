@@ -7,9 +7,9 @@
 
 use serde::{Deserialize, Deserializer};
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::ask::{Asked, Headless};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
@@ -230,13 +230,37 @@ fn note(cwd: &str, entry: &Entry, named: bool) -> Option<Note> {
     }
 }
 
-/// One session line, read only as far as a typed prompt needs.
+/// One session line, read only as far as a typed prompt needs: a prompt's
+/// `message`, or the `attachment` text typed during a turn is taken as.
 #[derive(Deserialize)]
 struct Typed {
     #[serde(rename = "type")]
     kind: String,
     timestamp: String,
-    message: Said,
+    message: Option<Said>,
+    attachment: Option<Queued>,
+}
+
+impl Typed {
+    /// The text this line says the session took from its user: a prompt of
+    /// its own (a tool's result is a `user` line too, but its content is no
+    /// string), or text queued into the running turn and read by it.
+    fn took(&self) -> Option<&str> {
+        match self.kind.as_str() {
+            "user" => self.message.as_ref()?.content.as_str(),
+            "attachment" => self.attachment.as_ref().filter(|a| a.kind == "queued_command")?.prompt.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// An attachment to a turn; a `queued_command` holds the text typed during it
+/// that the turn read (Claude Code 2.1.330).
+#[derive(Deserialize)]
+struct Queued {
+    #[serde(rename = "type")]
+    kind: String,
+    prompt: Option<String>,
 }
 
 /// Claude Code asked one question headless (`claude -p`, read in Claude Code
@@ -253,7 +277,8 @@ const HEADLESS: Headless = Headless {
 /// What `claude -p --output-format json` printed: its answer in `result`,
 /// unless `is_error`; the tokens of each model it used in `modelUsage`.
 fn asked(out: &str, _model: Option<&str>) -> Result<Asked, String> {
-    let said: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
+    let said: serde_json::Value =
+        serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
     let text = said["result"].as_str().unwrap_or_default().to_string();
     if said["is_error"].as_bool() != Some(false) {
         return Err(format!("claude-code answered an error: {}", if text.is_empty() { out.trim() } else { &text }));
@@ -367,7 +392,10 @@ impl Kind for ClaudeCode {
             ("timestamp", iso.clone().into()),
             ("cwd", cwd.into()),
             ("isSidechain", false.into()),
-            ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
+            (
+                "message",
+                session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())]),
+            ),
         ]);
         let mut body = format!("{user}\n");
         if !open {
@@ -376,23 +404,26 @@ impl Kind for ClaudeCode {
                 ("timestamp", iso.into()),
                 ("cwd", cwd.into()),
                 ("isSidechain", false.into()),
-                ("message", serde_json::json!({ "id": "msg_factorium", "role": "assistant", "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 7, "output_tokens": 11} })),
+                (
+                    "message",
+                    serde_json::json!({ "id": "msg_factorium", "role": "assistant", "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 7, "output_tokens": 11} }),
+                ),
             ]);
             body.push_str(&format!("{end}\n"));
         }
         body
     }
 
-    /// Whether the session file `text` took `said` as the user's prompt, at or
-    /// after `since`. Text typed while a turn runs is written first as a
-    /// `queue-operation` and becomes a `user` line only once a turn reads it;
-    /// a tool's result is a `user` line too, but its content is no string.
     const SPENT: Option<super::ReadSpent> = Some(spent);
 
+    /// Whether the session file `text` took `said` from its user, at or after
+    /// `since`. Text typed while a turn runs is written first as a
+    /// `queue-operation`, held, and is taken once a turn reads it: the running
+    /// turn, as a `queued_command` attachment of it, or the next, as its
+    /// `user` prompt.
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {
         Some(text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
-            t.kind == "user"
-                && t.message.content.as_str().map(str::trim) == Some(said.trim())
+            t.took().map(str::trim) == Some(said.trim())
                 && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
         }))
     }

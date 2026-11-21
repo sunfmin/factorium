@@ -8,9 +8,9 @@
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::ask::Asked;
 use crate::harness::{Call, Harness};
 use crate::line::Line;
@@ -205,7 +205,10 @@ fn asked_files() -> Result<crate::ask::Files, String> {
 fn asked(out: &str, _model: Option<&str>) -> Result<Asked, String> {
     let said: serde_json::Value =
         serde_json::from_str(out.trim()).map_err(|e| format!("grok answered no JSON ({e}): {out}"))?;
-    let text = said["text"].as_str().filter(|t| !t.trim().is_empty()).ok_or_else(|| format!("grok answered nothing: {out}"))?;
+    let text = said["text"]
+        .as_str()
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| format!("grok answered nothing: {out}"))?;
     let session = said["sessionId"].as_str().filter(|s| !s.is_empty()).ok_or("grok named no sessionId")?;
     let models = said["modelUsage"].as_object().cloned().unwrap_or_default();
     let sum = |field: &str| models.values().map(|m| m[field].as_u64().unwrap_or(0)).sum::<u64>();
@@ -334,7 +337,11 @@ impl Kind for Grok {
         if !open {
             body.push_str(&format!(
                 "{}\n",
-                session::object(vec![("ts", iso.into()), ("type", "turn_ended".into()), ("outcome", "completed".into())])
+                session::object(vec![
+                    ("ts", iso.into()),
+                    ("type", "turn_ended".into()),
+                    ("outcome", "completed".into())
+                ])
             ));
         }
         body

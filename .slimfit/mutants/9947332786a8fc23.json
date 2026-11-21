@@ -1,0 +1,15 @@
+{
+  "tree": "2940adbba0e2c52fb9d6a8a00a1b0a0d58ed0783+d1fba762150c532c",
+  "picker": "codex:01a1fbab-6a19-7c51-9aed-3bc70f47a2ee:default",
+  "author": "claude-code:7c1783b8-006e-5625-a908-8e414c5b8e98:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/harness/src/harness/claude_code.rs:250:13: delete match arm \"user\" in Typed::took",
+        "why": "The new scenario only exercises queued attachments, so dropping ordinary user prompts could go undetected.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
