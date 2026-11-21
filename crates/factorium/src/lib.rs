@@ -14,6 +14,7 @@ mod kept;
 mod life;
 mod line;
 mod load;
+mod lock;
 mod outage;
 mod owner;
 mod pick;
