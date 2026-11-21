@@ -223,9 +223,11 @@ fn wk_brief(w: &World, wk: &serde_json::Value) -> String {
 
 #[tokio::test]
 async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_arguments() {
-    for (key, program, stock) in
-        [("grok", "/opt/grok/bin/grok", "--always-approve"), ("kimi", "/opt/kimi/kimi", "--auto")]
-    {
+    for (key, program, stock) in [
+        ("grok", "/opt/grok/bin/grok", "--always-approve"),
+        ("kimi", "/opt/kimi/kimi", "--auto"),
+        ("agy", "/opt/agy/agy", "--dangerously-skip-permissions"),
+    ] {
         let w = World::new();
         w.checkout("web").await;
         let kit = w.app.kit_set(&[format!("{key}={program}")]).await.unwrap();
@@ -573,4 +575,120 @@ async fn a_pi_session_s_home_links_the_host_user_s_pi_login_it_finds_and_no_othe
     let kept = w.data().kept("pi");
     assert_eq!(std::fs::read_link(kept.join("auth.json")).unwrap(), agent.join("auth.json"));
     assert!(kept.join("models.json").symlink_metadata().is_err(), "the host user has none to link");
+}
+
+/// Runs `command`, one of agy's hooks, as agy runs a hook (agy 1.5.14):
+/// `sh -c`, with `HOME` the session's kept home and the variables `env`, the
+/// call `payload` on stdin; answers its exit code and what it printed.
+fn agy_hook(command: &str, home: &std::path::Path, env: &[(&str, String)], payload: &str) -> (Option<i32>, String) {
+    use std::io::Write;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", command])
+        .env("HOME", home)
+        .env_remove("ORCA_PANE_KEY")
+        .env_remove("ORCA_AGENT_PANE")
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The guard an agy worker's kept hooks run before a call, run as agy runs a
+/// hook, by the built binary, on a call as agy describes it: a refusal is
+/// agy's deny, printed, its reason whole; a call let by prints nothing; a
+/// guard that cannot be run denies the call too. Each exits 0: agy reads
+/// what is printed.
+#[tokio::test]
+async fn an_agy_worker_s_kept_hooks_have_the_real_guard_deny_its_push_as_agy_reads_a_denial() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    let home = w.data().kept("agy");
+    let hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(".gemini/config/hooks.json")).unwrap()).unwrap();
+    let before = hooks["factorium"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+    assert_eq!(hooks["factorium"]["PreToolUse"][0]["matcher"], "*", "every tool's call");
+    let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard agy"));
+    let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let guard = guard.expect("a guard before each call").replace(&exe, env!("CARGO_BIN_EXE_factorium"));
+    let env = [("FACTORIUM_WORKER", id(&wk).to_string())];
+    let call = |name: &str, line: &str| {
+        serde_json::json!({"conversationId": "c", "hookEventName": "PreToolUse", "cwd": wk["worktree"],
+            "toolCall": {"id": "call_1", "name": name, "args": {"CommandLine": line, "WaitMsBeforeAsync": 5000}}})
+        .to_string()
+    };
+    let denied = |said: &str| -> String {
+        let value: serde_json::Value = serde_json::from_str(said).unwrap_or_else(|e| panic!("{e}: {said}"));
+        assert_eq!(value["decision"], "deny", "{said}");
+        value["reason"].as_str().unwrap().to_string()
+    };
+
+    let (code, said) = agy_hook(&guard, &home, &env, &call("run_command", "git push origin HEAD"));
+    assert_eq!(code, Some(0), "{said}");
+    assert!(denied(&said).contains("a worker does not push"), "{said}");
+    let (code, said) = agy_hook(&guard, &home, &env, &call("run_command", "git status --short"));
+    assert_eq!((code, said.as_str()), (Some(0), ""), "let by: nothing printed");
+    assert_eq!(agy_hook(&guard, &home, &env, &call("view_file", "git push")).1, "", "only the shell tool runs a line");
+    let (_, said) = agy_hook(&guard, &home, &env, r#"{"toolCall":{"name":"run_command"}}"#);
+    assert!(denied(&said).contains("cannot read this tool call"), "{said}");
+    // A reason holding a quote, a backslash and a line break stays one JSON string.
+    let (_, said) = agy_hook(
+        &guard,
+        &home,
+        &env,
+        "{\"toolCall\":{\"name\":\"run_command\",\"args\":{\"CommandLine\":\"git push \\\"a\\\\b\\\"\\ngit status\"}}}",
+    );
+    assert!(denied(&said).contains("a worker does not push"), "{said}");
+
+    let gone = guard.replace(env!("CARGO_BIN_EXE_factorium"), "/no/such/factorium");
+    let (code, said) = agy_hook(&gone, &home, &env, &call("run_command", "git status"));
+    assert_eq!(code, Some(0), "{said}");
+    assert!(!denied(&said).is_empty(), "a guard that cannot run denies: {said}");
+}
+
+/// Orca's report in an agy worker's kept hooks: Orca's own hook for agy, run
+/// with the host user's home whatever the session's is, where Orca installed
+/// it and started the session; else what agy reads from a quiet hook, and
+/// nothing at all before a call, which agy would take for a denial. The
+/// commands its tools run get the host user's home back from the kept
+/// `.zshenv`.
+#[tokio::test]
+async fn an_agy_worker_s_kept_hooks_report_to_orca_with_the_host_user_s_home() {
+    let w = World::new();
+    let user = w.host.home();
+    let orca = user.join(".orca/agent-hooks/antigravity-hook.sh");
+    std::fs::create_dir_all(orca.parent().unwrap()).unwrap();
+    crate::fixture::program(
+        &orca,
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s %s\\n' \"$ORCA_ANTIGRAVITY_EVENT\" \"$HOME\"\n",
+    );
+    w.working("agy=agy", "t").await;
+    let home = w.data().kept("agy");
+    let hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(".gemini/config/hooks.json")).unwrap()).unwrap();
+    let report = |event: &str| {
+        let entry = &hooks["factorium"][event][0];
+        let hooks = entry["hooks"].as_array().map_or(vec![entry.clone()], Clone::clone);
+        let reports = hooks.iter().filter_map(|h| h["command"].as_str()).filter(|c| c.contains("antigravity-hook.sh"));
+        reports.map(String::from).collect::<Vec<_>>()
+    };
+    let pane = [("ORCA_PANE_KEY", "p".to_string())];
+    for (event, quiet) in
+        [("PreInvocation", "{}\n"), ("Stop", "{\"decision\":\"\"}\n"), ("PreToolUse", ""), ("PostToolUse", "{}\n")]
+    {
+        let [command] = &report(event)[..] else { panic!("{event}: one report: {hooks}") };
+        let said = agy_hook(command, &home, &pane, "{}");
+        assert_eq!(said, (Some(0), format!("{event} {}\n", user.display())), "{event}");
+        assert_eq!(agy_hook(command, &home, &[], "{}"), (Some(0), quiet.to_string()), "{event}: no Orca pane");
+    }
+    let zshenv = std::fs::read_to_string(home.join(".zshenv")).unwrap();
+    let shell = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("{zshenv}\nprintf '%s' \"$HOME\"")])
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&shell.stdout), user.to_string_lossy());
 }

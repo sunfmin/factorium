@@ -172,7 +172,8 @@ fn written(root: &std::path::Path) -> std::path::PathBuf {
 /// real session files on this host): Claude Code writes a line per part of
 /// a message, each with the whole message's usage, so a message counts
 /// once; Codex's `token_count` events carry running totals, so the last
-/// counts; pi's assistant messages each carry their own.
+/// counts; pi's assistant messages each carry their own; so do agy's answers, cache
+/// reads beside input.
 #[test]
 fn a_session_s_tokens_are_read_as_its_harness_writes_them() {
     use serde_json::json;
@@ -210,6 +211,17 @@ fn a_session_s_tokens_are_read_as_its_harness_writes_them() {
                     "usage": {"input": 10, "output": 5, "cacheRead": 0, "cacheWrite": 0}}}),
             ],
             (15 + 7744 + 100 + 1 + 10, 11 + 16 + 5),
+        ),
+        (
+            "agy",
+            [
+                json!({"type": "PLANNER_RESPONSE", "status": "DONE", "created_at": "2027-01-15T08:00:01Z", "input_tokens": 2166,
+                    "cache_read_tokens": 5272, "output_tokens": 204, "tool_calls": [{"name": "run_command", "args": "{}"}]}),
+                json!({"type": "GENERIC", "status": "DONE", "created_at": "2027-01-15T08:00:02Z", "content": "Command exited with code 0."}),
+                json!({"type": "PLANNER_RESPONSE", "status": "DONE", "created_at": "2027-01-15T08:00:03Z", "input_tokens": 9155,
+                    "cache_read_tokens": 0, "output_tokens": 23, "content": "OK"}),
+            ],
+            (15 + 2166 + 5272 + 9155, 11 + 204 + 23),
         ),
     ];
     for (key, lines, want) in cases {
@@ -255,5 +267,42 @@ fn a_file_that_only_names_the_worktree_spends_nothing_of_its_session() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("decoy.jsonl"), decoy.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
     assert_eq!(claude.spent(&home, "/w", "/briefs/w-1-1.md"), Some((15, 11)));
+    let _ = std::fs::remove_dir_all(&kept);
+}
+
+/// agy keeps every worktree's conversations in one `brain`: a transcript is
+/// the session's handed the brief its first brief pointer names. A user's
+/// input opens its turn; an answer that calls a tool, and the tool's result,
+/// leave it open; one that calls none ends it. `transcript_full.jsonl`, beside
+/// it, is not read (shapes from agy 1.5.14; 1_800_000_000 is 2027-01-15T08:00:00Z).
+#[test]
+fn an_agy_turn_is_read_from_the_transcript_its_brief_opened() {
+    use serde_json::json;
+    let agy = Harness::read("agy").unwrap();
+    let kept = scratch("agy-turn");
+    let home = agy.home(&kept, None, &kept);
+    let brief = "/briefs/web-1-1.md";
+    agy.write_session(&home, "/worktree", brief, true, 1_800_000_000).unwrap();
+    assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_000 }));
+    let file = written(&kept);
+    let append = |line: serde_json::Value| {
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, format!("{text}{line}\n")).unwrap();
+    };
+    let at = |second: u32| format!("2027-01-15T08:00:{second:02}Z");
+    append(json!({"type": "GENERIC", "status": "DONE", "created_at": at(2), "content": "Command exited with code 0."}));
+    assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_000 }), "a tool's result");
+    append(json!({"type": "PLANNER_RESPONSE", "status": "DONE", "created_at": at(3), "content": "Done."}));
+    let closed = Some(Turn::Closed { since: 1_800_000_003, started: Some(1_800_000_000) });
+    assert_eq!(agy.turn(&home, "/worktree", brief), closed);
+    append(json!({"type": "USER_INPUT", "status": "DONE", "created_at": at(10),
+        "content": "<USER_REQUEST>\ngo on\n</USER_REQUEST>"}));
+    assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_010 }), "a later prompt");
+
+    assert_eq!(agy.turn(&home, "/worktree", "/briefs/web-1-1"), None, "a brief whose path begins it");
+    assert_eq!(agy.turn(&home, "/worktree", "/briefs/web-2-1.md"), None, "another worktree's brief");
+    std::fs::rename(&file, file.with_file_name("transcript_full.jsonl")).unwrap();
+    assert_eq!(agy.turn(&home, "/worktree", brief), None, "only the full transcript says it");
+    assert_eq!(agy.spent(&home, "/worktree", brief), None);
     let _ = std::fs::remove_dir_all(&kept);
 }

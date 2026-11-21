@@ -261,13 +261,13 @@ impl App {
     /// `stop` and launchd send), then ends in order: the tick in progress
     /// finishes, idle work ends, the pid file goes. One daemon runs per
     /// database: it holds a lock on the pid file for its life, and another
-    /// is refused while it does, whatever the file says.
-    pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
+    /// is refused while it does, whatever the file says. `handed` is the
+    /// descriptor the daemon this process replaced handed it (`handed_lock`).
+    pub async fn run(&self, stop: &std::sync::atomic::AtomicBool, handed: Option<i32>) -> Answer {
         let pid = self.data().pid();
         let me = std::process::id().to_string();
         // Held already if this process ran a newly installed binary as the
         // same pid: the lock came through the exec.
-        let handed = std::env::var(LOCK_FD).ok().and_then(|fd| fd.parse().ok());
         let inherited = handed.and_then(|fd| crate::host::procs::inherited(fd, &pid)).filter(|f| f.try_lock().is_ok());
         let held = match inherited.map_or_else(|| lock::take(&pid, &me), Ok) {
             Ok(held) => held,
@@ -368,4 +368,12 @@ impl App {
         answer["watch_closed"] = json!(self.close_watch_session().await?);
         Ok(answer)
     }
+}
+
+/// The descriptor of the pid file whose lock the daemon this process
+/// replaced (`exec`) handed it, as its environment names it. Read by the
+/// process edge alone: every process a daemon starts inherits the variable,
+/// a test run among them, and in one the descriptor is a file of its own.
+pub fn handed_lock() -> Option<i32> {
+    std::env::var(LOCK_FD).ok()?.parse().ok()
 }

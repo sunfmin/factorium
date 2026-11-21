@@ -1,0 +1,27 @@
+{
+  "tree": "e2e19d2871a47d994a7c303e167fbe6b8a1d84b2+d1fba762150c532c",
+  "picker": "codex:01a1fe38-e4b2-7511-96ab-d10c5f223a2d:default",
+  "author": "claude-code:51c61274-f23a-5715-a0d5-b4b82ae9ea03:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/harness/src/harness/agy.rs:142:5: replace planner -> bool with true",
+        "why": "The generic event has no token counts and is followed by a real final answer, so the assertions can miss an early turn closure.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/harness/src/harness/agy.rs:196:9: replace <impl Kind for Agy>::guards -> Option<Vec<String>> with Some(vec![])",
+        "why": "The hook tests read the generated JSON directly, so they can pass even if guard discovery returns an empty list.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/harness/src/harness/agy.rs:297:9: replace <impl Kind for Agy>::prompted -> Option<bool> with Some(true)",
+        "why": "The shown tests do not check whether a follow-up is reported as received before agy records it.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

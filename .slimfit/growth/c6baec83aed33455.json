@@ -1,0 +1,10 @@
+{
+  "tree": "0e40563ee5e69cf2381346ceab2f592f50e3c490+d1fba762150c532c",
+  "lines": 215,
+  "serves": "factorium#199",
+  "considered": "Reusing session::brief_match (it reads user/role-typed lines, not agy USER_INPUT wrapped in <USER_REQUEST>), super::tool_call (snake_case tool_name/tool_input, not agy camelCase toolCall.args.CommandLine), line::guard_asked (exit-code refusal; agy reads its PreToolUse refusal from stdout JSON, and {} from a hook denies), and session::names_cwd_or_brief for could_record (dropped: the exact brief match decides, as kimi and grok return true).",
+  "reviewer": "codex:01a1fe38-e935-7231-9a5f-75f9c6c1f79f:default",
+  "author": "claude-code:51c61274-f23a-5715-a0d5-b4b82ae9ea03:opus",
+  "cut": "In crates/harness/src/harness/agy.rs, reuse Line::flag for the interactive brief, deserialize missing tool args as Value::Null to remove the Option handling, and use find_map to compare the first brief pointer while its JSON row is borrowed. In crates/harness/tests/session.rs, reuse the agy stand-in for the prompt and open and closed response rows, keeping the timestamp changes and the assertions for reopening, brief matching, and ignoring the full transcript.",
+  "answer": "Made each: briefed uses Line::flag(-i); ToolCall.args is Value with serde default (Null), matched directly; recorded_turn uses find_map over USER_INPUT rows; the agy turn test now starts from write_session and appends rows, keeping reopening, brief-prefix, other-brief and transcript_full assertions (and adds a GENERIC tool-result row that must leave the turn open). Also cut could_record to true. The rest is the new harness module the issue asks for."
+}
