@@ -32,6 +32,8 @@ const POLL: u64 = 500;
 pub(crate) struct Job<'a> {
     what: String,
     worker: Option<Uuid>,
+    /// Asked by a program of the owner's that is not a worker.
+    program: bool,
     /// When the line move it is for passes its bound, ms: past then, it
     /// goes ahead of workers' waiting entries.
     bound_at: Option<i64>,
@@ -62,13 +64,24 @@ impl<'a> Job<'a> {
     pub(crate) fn idle(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
         Job::new(what, dir, steps, Duration::from_secs(limit), Priority::Background)
     }
+    /// The job of a program of the owner's that is not a worker: it yields as a worker's does.
+    pub(crate) fn of_program(self) -> Self {
+        Job { program: true, ..self }
+    }
     /// The job for `worker`, or for a line move due by `bound_at`.
     pub(crate) fn of(self, worker: Option<Uuid>, bound_at: Option<i64>) -> Self {
         Job { worker, bound_at, ..self }
     }
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
-        Job { what, worker: None, bound_at: None, dir, steps, env: Vec::new(), limit, priority }
+        Job { what, worker: None, program: false, bound_at: None, dir, steps, env: Vec::new(), limit, priority }
     }
+}
+
+/// Who runs a command by hand: a worker (`worker exclusive`; `None` outside a worker's session),
+/// or a program of the owner's that is not a worker (`heavy run`), whose entry yields as a worker's.
+pub(crate) enum Asker {
+    Worker(Option<Uuid>),
+    Program,
 }
 
 /// How a job takes its turn.
@@ -102,6 +115,32 @@ pub(crate) struct Running {
 }
 
 impl App {
+    /// Runs a program of the owner's command `cmd` in `dir` through the queue, as a worker's
+    /// `worker exclusive` runs: at a gate's priority, or `background`'s.
+    pub async fn heavy_run(&self, dir: &Path, cmd: &str, background: bool) -> Answer {
+        self.exclusive(Asker::Program, dir, cmd, background).await
+    }
+
+    /// The queue's depth: how many entries run and how many wait, and each entry, oldest first.
+    pub async fn heavy_depth(&self) -> Answer {
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let (running, waiting) = (q.running().count(), q.waiting().count());
+        Ok(serde_json::json!({ "running": running, "waiting": waiting, "entries": q.entries }))
+    }
+
+    /// Runs `cmd` in `dir` by hand for `asker`, waiting for its turn: within four hold bounds, at
+    /// a gate's priority or `background`'s. Answers how it ran.
+    pub(crate) async fn exclusive(&self, asker: Asker, dir: &Path, cmd: &str, background: bool) -> Answer {
+        let (hold_ms, steps) = (self.settings().await?.ms(Time::HoldBound), [cmd.to_string()]);
+        let job = Job::exclusive(cmd.into(), dir, &steps, hold_ms, background);
+        let job = match asker {
+            Asker::Worker(worker) => job.of(worker, None),
+            Asker::Program => job.of_program(),
+        };
+        let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
+        Ok(serde_json::json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
+    }
+
     /// Runs `job` when its turn comes: how each step ran, up to the first that failed. `None`:
     /// [`Turn::Once`] or [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
     /// once it started: a tick's [`App::beside`] answers how it ran, with its idle work.
@@ -257,8 +296,8 @@ impl App {
             self.submit::<EndHeavy>(End { id: e.id }).await?;
         }
         if !q.holds(id) {
-            let (what, worker, bound_at) = (job.what.clone(), job.worker, job.bound_at);
-            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, bound_at }).await?;
+            let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
+            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at }).await?;
         }
         let settings = self.settings().await?;
         // Stamped before the host is read: a start after it is not in it.

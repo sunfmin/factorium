@@ -1,6 +1,7 @@
 //! The heavy-command queue: one host-wide line of the commands that load
-//! the machine — every gate run, and what a worker runs through
-//! `factorium worker exclusive`. The oldest waiting starts when the host
+//! the machine — every gate run, what a worker runs through
+//! `factorium worker exclusive`, and what a program of the owner's that is
+//! not a worker runs through `factorium heavy run`. The oldest waiting starts when the host
 //! has room, or when nothing runs, so it never starves; one start per
 //! reading settled after the last start; and one that holds others up past the hold bound is ended. A
 //! line move past its bound goes ahead of workers' waiting entries. The
@@ -54,6 +55,10 @@ pub struct Entry {
     /// The process that waits for it, to forget it when that dies.
     pub pid: u32,
     pub worker: Option<Uuid>,
+    /// Queued by a program of the owner's that is not a worker (`heavy
+    /// run`): it yields to a line move past its bound as a worker's does.
+    #[serde(default)]
+    pub program: bool,
     pub queued_at: i64,
     pub started_at: Option<i64>,
     /// When the line move it is for falls due however busy its checkout is
@@ -95,9 +100,9 @@ impl Queued for Entry {
         self.started_at
     }
 
-    // A line move past its bound goes ahead of workers' entries.
+    // A line move past its bound goes ahead of workers' and programs' entries.
     fn yields(&self) -> bool {
-        self.worker.is_some()
+        self.worker.is_some() || self.program
     }
 
     fn bound_at(&self) -> Option<i64> {
@@ -190,6 +195,8 @@ pub enum HeavyEvent {
         what: String,
         pid: u32,
         worker: Option<Uuid>,
+        #[serde(default)]
+        program: bool,
         at: i64,
         #[serde(default)]
         bound_at: Option<i64>,
@@ -221,11 +228,12 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, at, bound_at } => s.entries.push(Entry {
+            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at } => s.entries.push(Entry {
                 id,
                 what,
                 pid,
                 worker,
+                program,
                 queued_at: at,
                 started_at: None,
                 bound_at,
@@ -250,6 +258,9 @@ pub struct Enqueue {
     pub what: String,
     pub pid: u32,
     pub worker: Option<Uuid>,
+    /// Queued by a program of the owner's that is not a worker.
+    #[serde(default)]
+    pub program: bool,
     /// When the line move it is for passes its bound, ms.
     #[serde(default)]
     pub bound_at: Option<i64>,
@@ -264,6 +275,7 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         what: p.what.clone(),
         pid: p.pid,
         worker: p.worker,
+        program: p.program,
         at: now.0,
         bound_at: p.bound_at,
     }])
@@ -334,3 +346,25 @@ command!(NoteRules, "heavy.rules", Heavy, Rules, |_p| queue_id(), |s, p, _now| {
         Vec::new()
     })
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(n: u128, queued_at: i64) -> Entry {
+        Entry { id: Uuid::from_u128(n), what: n.to_string(), queued_at, ..Entry::default() }
+    }
+
+    #[test]
+    fn a_line_move_past_its_bound_goes_ahead_of_a_programs_entry_as_of_a_workers() {
+        let line = Entry { bound_at: Some(5), ..entry(3, 2) };
+        for asker in [Entry { program: true, ..entry(1, 1) }, Entry { worker: Some(Uuid::from_u128(9)), ..entry(1, 1) }]
+        {
+            let q = Queue { entries: vec![asker, line.clone()], ..Queue::default() };
+            assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(line.id));
+        }
+        // A cut, say, neither a worker's nor a program's: it keeps its place.
+        let q = Queue { entries: vec![entry(1, 1), line.clone()], ..Queue::default() };
+        assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(Uuid::from_u128(1)));
+    }
+}

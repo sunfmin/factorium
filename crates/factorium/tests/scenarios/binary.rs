@@ -395,6 +395,24 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
 }
 
 #[test]
+fn a_program_runs_a_heavy_command_with_its_exit_code_and_reads_the_queues_depth() {
+    let dir = Dir::new();
+    let out = bin(&dir).args(["heavy", "run", "--", "sh", "-c", "echo $1; exit 3", "-", "a b"]).output().unwrap();
+    let ran: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(3), "{ran}");
+    assert_eq!(ran["tail"], "a b", "its words as given: {ran}");
+    let nice = crate::fixture::nice_is("-gt", crate::fixture::own_nice());
+    let (ok, ran) = run(&dir, &["heavy", "run", "--background", "--", "sh", "-c", &nice]);
+    assert!(ok && ran["ok"] == true, "at the priority it stated: {ran}");
+    let (ok, depth) = run(&dir, &["heavy", "depth"]);
+    assert!(ok, "{depth}");
+    assert_eq!((&depth["running"], &depth["waiting"], &depth["entries"]), (&json!(0), &json!(0), &json!([])));
+    let (ok, answer) = run_with(&dir, &[("FACTORIUM_WORKER", WORKER)], &["heavy", "depth"]);
+    assert!(!ok);
+    assert_eq!(answer["error"]["code"], "guarded", "a worker runs `worker exclusive`: {answer}");
+}
+
+#[test]
 fn exclusive_runs_its_words_as_given() {
     let dir = Dir::new();
     let (ok, ran) = run(&dir, &["worker", "exclusive", "--", "printf", "%s|", "", "a b", "it's", "x=1"]);

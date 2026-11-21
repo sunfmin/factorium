@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use clap::{CommandFactory, FromArgMatches};
-use cli::{Cli, Top, WorkerCmd};
+use cli::{Cli, HeavyCmd, Top, WorkerCmd};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, Refusal, default_db};
 use serde_json::json;
@@ -56,7 +56,7 @@ fn main() -> ExitCode {
         eprintln!("factorium refuses this: {why}");
         return ExitCode::from(code);
     }
-    let exclusive = matches!(cli.command, Top::Worker(WorkerCmd::Exclusive { .. }));
+    let exclusive = matches!(cli.command, Top::Worker(WorkerCmd::Exclusive { .. }) | Top::Heavy(HeavyCmd::Run { .. }));
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a tokio runtime");
     let caller = Caller::here();
     let answer = caller.may_run(matches.subcommand_name().unwrap_or(""));
