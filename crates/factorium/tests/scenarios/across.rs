@@ -116,3 +116,39 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     let twice = w.app.issue_add("factorium", "twice", "", false, &[by("web#1"), by("web#1")]).await.unwrap();
     assert_eq!(twice["blocked_across"], json!(["web#1"]));
 }
+
+/// A worker files the follow-up its issue asks for (factorium#169): on
+/// another checkout, waiting from the start for its own issue's cut. Its
+/// issue keeps "filed …", the filed one names the issue and worker.
+#[tokio::test]
+async fn a_worker_files_a_follow_up_on_another_checkout_that_waits_for_a_cut() {
+    let w = World::new();
+    two_checkouts(&w).await;
+    w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
+    w.app.issue_add("web", "busy", "", false, &[]).await.unwrap();
+    assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
+    assert_eq!(started(&w.tick().await).as_deref(), Some("web#2"));
+    let worker = crate::fixture::id(&w.worker_on("web", 1).await);
+    let filed = w.app.worker_file(worker, "factorium", "follow-up", "what web#1 left", &[by("web#1@cut")]).await;
+    let filed = filed.unwrap();
+    assert_eq!((filed["checkout"].clone(), filed["number"].clone()), (json!("factorium"), json!(1)));
+    assert_eq!(
+        (filed["body"].clone(), filed["blocked_across"].clone()),
+        (json!("what web#1 left"), json!(["web#1@cut"]))
+    );
+    let by_worker = json!(format!("worker {worker}"));
+    let said = |c: &[serde_json::Value]| c.iter().map(|c| (c["text"].clone(), c["by"].clone())).collect::<Vec<_>>();
+    let from = json!(format!("filed by worker {worker}, working web#1"));
+    assert_eq!(said(&w.comments("factorium", 1).await), [(from, by_worker.clone())]);
+    assert_eq!(said(&w.comments("web", 1).await), [(json!("filed factorium#1"), by_worker)]);
+    refused(w.app.worker_file(worker, "factorium", " ", "", &[]).await, "no_title");
+    refused(w.app.worker_file(worker, "nowhere", "x", "", &[]).await, "no_checkout");
+
+    assert_eq!(started(&w.tick().await), None, "it waits for web#1's cut");
+    let t = w.lands("web", 1, "a").await.tick;
+    assert_eq!(started(&t), None, "landed is not cut");
+    w.run().promote("web").await.unwrap();
+    assert_eq!(started(&w.tick().await), None, "promoted is not cut");
+    assert_eq!(w.run().cut("web").await.unwrap()["installed"], "web");
+    assert_eq!(started(&w.tick().await).as_deref(), Some("factorium#1"));
+}
