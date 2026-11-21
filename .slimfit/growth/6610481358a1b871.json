@@ -1,0 +1,9 @@
+{
+  "tree": "4b5bf314ff95fbee3a16628ef15034909cedad31+d1fba762150c532c",
+  "lines": 64,
+  "serves": "factorium#214",
+  "considered": "daemon_pid (reused for the live pid), service_loaded (reused for the fix), lock::take (not reused: it takes and writes the lock), the Daemons aggregate (not used for the tick: a quiet tick records no event, and the store would grow a row per tick)",
+  "reviewer": "claude-code:a54363f5-1a8c-40f0-aa76-77ef558e26ae:claude-opus-5-5",
+  "author": "claude-code:c155f35f-697b-5123-9e4f-8202f5d60024:opus",
+  "as_is": "Every added line carries a distinct need with no existing equivalent in the code checked: the tick file, written by `note_ticked` and removed on stop (`Data::ticked`), the non-taking lock probe (`lock::held`), the pure `daemon::down` rule with its bound, the `no_daemon` finding with its launchd-dependent fix, the `doctor_here` insertion, and the one stderr line in main; `daemon_pid` and `service_loaded` are already reused, the new scenario helper serves three calls, and the domain test packs its six cases into one function, so nothing repeats existing code or is left behind."
+}

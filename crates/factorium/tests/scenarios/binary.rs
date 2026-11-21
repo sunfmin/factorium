@@ -786,6 +786,10 @@ fn no_daemon_running_is_doctor_s_first_finding_and_commands_say_so() {
 
     let mut daemon = ticking(&dir);
     until_tick(&dir, &mut daemon, 2);
+    let tick = dir.0.join("data/factorium/daemon.tick");
+    let ticked: u128 = std::fs::read_to_string(&tick).unwrap().trim().parse().unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    assert!(now - ticked < 60_000, "the daemon writes when it ticked: {ticked}, now {now}");
     let (_, doctor) = run(&dir, &["doctor"]);
     assert!(!crate::fixture::finding_keys(&doctor).contains(&"daemon:none".to_string()), "{doctor}");
     assert_eq!(issue_add_says(&dir, "b"), "", "a running daemon: no warning");
@@ -803,4 +807,10 @@ fn no_daemon_running_is_doctor_s_first_finding_and_commands_say_so() {
     let (ok, stopped) = run(&dir, &["stop"]);
     assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
     ended_in_order(&dir, daemon);
+
+    // A live pid that holds no lock (a pid reused since): no daemon.
+    std::fs::write(dir.0.join("data/factorium/daemon.pid"), std::process::id().to_string()).unwrap();
+    std::fs::write(&tick, now.to_string()).unwrap();
+    let (_, doctor) = run(&dir, &["doctor"]);
+    assert!(first(&doctor)["what"].as_str().unwrap().contains("does not hold its lock"), "{doctor}");
 }
