@@ -228,6 +228,54 @@ async fn a_cut_installs_once_brew_update_sees_its_version() {
     assert!(!doctor.to_string().contains("cutting v0.1.0 failed"), "no CutFailed: {doctor}");
 }
 
+/// Another brew held the formula's lock as the cut installed, and freed it
+/// seconds later (factorium#173).
+#[tokio::test]
+async fn a_cut_waits_for_a_homebrew_lock_another_brew_holds() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().locked = 1;
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.1.0");
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 2, "tried again once freed");
+    assert_eq!(brew_waits(&w), ["sleep 2"], "it backs off before trying again");
+    assert!(t.lines.iter().all(|l| l["failed"].is_null()), "no CutFailed: {:?}", t.lines);
+}
+
+#[tokio::test]
+async fn a_cut_whose_version_the_lock_holder_installs_is_made() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    let mut brew = w.host.brew.lock().unwrap();
+    (brew.locked, brew.holder_installs) = (1, true);
+    drop(brew);
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.1.0");
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 1, "the holder installed it");
+    assert!(brew_waits(&w).is_empty(), "nothing left to wait for");
+    assert!(t.lines.iter().all(|l| l["failed"].is_null()), "no CutFailed: {:?}", t.lines);
+}
+
+#[tokio::test]
+async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    let mut brew = w.host.brew.lock().unwrap();
+    brew.locked = u32::MAX;
+    brew.ps = "  101 /usr/sbin/sshd\n 4242 /h/homebrew/Library/Homebrew/vendor/ruby/bin/ruby brew.rb upgrade sunfmin/tap/web\n".into();
+    drop(brew);
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("has already locked") && why.contains("still locked after 90s"), "{why}");
+    assert!(why.contains("held by 4242 ") && why.contains("upgrade sunfmin/tap/web"), "it names the holder: {why}");
+    assert!(!why.contains("sshd"), "only brew's processes on the formula: {why}");
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 7);
+    assert_eq!(cut["installed"], json!(null));
+}
+
 #[tokio::test]
 async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     let w = World::new();

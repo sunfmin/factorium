@@ -260,6 +260,12 @@ pub struct FakeBrew {
     pub behind: u32,
     /// Install and upgrade succeed and change nothing (Homebrew does not link).
     pub stuck: bool,
+    /// How many more installs and upgrades find the formula locked by another brew.
+    pub locked: u32,
+    /// The other brew installs the tap's version while it holds the lock.
+    pub holder_installs: bool,
+    /// What `ps -Ao pid=,command=` prints.
+    pub ps: String,
 }
 
 impl FakeBrew {
@@ -288,6 +294,19 @@ impl FakeBrew {
                 None => text(false, String::new()),
             },
             ["upgrade", _] if !self.installed.contains_key(&formula) => text(false, String::new()),
+            ["install" | "upgrade", _] if self.locked > 0 => {
+                self.locked -= 1;
+                if let Some(v) = self.tap.get(&formula).filter(|_| self.holder_installs).cloned() {
+                    self.installed.insert(formula.clone(), v.clone());
+                    link(root, &formula, &v);
+                }
+                let cellar = root.join("brew/Cellar").join(&formula);
+                let err = format!(
+                    "Error: A `brew upgrade {formula}` process has already locked {}.\nPlease wait for it to finish or terminate it to continue.",
+                    cellar.display()
+                );
+                Said { ok: false, out: String::new(), err }
+            }
             ["install" | "upgrade", _] => {
                 if let Some(v) = self.tap.get(&formula).filter(|_| !self.stuck) {
                     self.installed.insert(formula.clone(), v.clone());
@@ -371,6 +390,7 @@ impl Programs for FakeHost {
                 let out = self.slimfit.lock().unwrap().get(args[0]).cloned();
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
+            "ps" => Said { ok: true, out: self.brew.lock().unwrap().ps.clone(), err: String::new() },
             "sleep" => {
                 if let Some(then) = self.while_sleeping.lock().unwrap().take() {
                     then();
