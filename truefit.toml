@@ -47,7 +47,17 @@ normalise = [
   { pattern = '"(handle|id)":"[^"]*"', replace = '"$1":"<id>"' },
   { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
   { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
+  # Orca's id of a refused prompt, for a retry factorium never makes.
+  { pattern = ' Terminal prompt request ID: [^"]*', replace = "" },
 ]
+# What factorium handles after a step took effect (fakes::ORCA_FAULTS): a
+# message given to a session's outbox that Orca will not type (it stays
+# not typed, and whoever said it hears so); a worktree Orca will not remove
+# after an abandon forced its branch (the close is refused, the worktree
+# and the branch stay). A terminal Orca will not open in a worktree it
+# holds, or will not close, it cannot be made to refuse on a host: no
+# fault stands for either.
+faults = ["send-refused", "remove-refused"]
 
 # What factorium makes of Orca's answers about what it does not hold.
 [[standin.case]]
@@ -80,6 +90,34 @@ stdin = """
 {"orca": "remove", "args": ["{worktree}"]}
 {"scratch": "truefit-worktree-and-terminal"}
 {"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
+# A terminal Orca will not type at: the real one closed first.
+[[standin.case]]
+name = "send-refused"
+fault = "send-refused"
+stdin = """
+{"scratch": "truefit-send-refused"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-send-refused", "truefit-send-refused", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "cat"], "keep": {"terminal": "/ok"}}
+{"orca": "ready", "args": ["{terminal}"]}
+{"orca": "close", "args": ["{terminal}"], "only": "real"}
+{"orca": "send", "args": ["{terminal}", "typed"]}
+{"orca": "deliver", "args": ["{terminal}", "typed"]}
+{"orca": "press", "args": ["{terminal}", "\\u001b"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"scratch": "truefit-send-refused"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
+# A worktree Orca will not remove: the real one a directory it does not hold.
+[[standin.case]]
+name = "remove-refused"
+fault = "remove-refused"
+stdin = """
+{"run": ["mkdir", "{dir}/held"], "read": "ok"}
+{"orca": "remove", "args": ["{dir}/held"]}
 """
 
 # live_orca's checks: a tell to a Claude Code busy in a call that never

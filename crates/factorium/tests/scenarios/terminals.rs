@@ -52,7 +52,7 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into()]).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    *w.host.orca.refuse_send.lock().unwrap() = true;
+    w.host.orca.fault("send-refused", true);
     assert!(w.app.tick().await.is_err());
     let rows = w.app.workers(true).await.unwrap();
     let rows = rows.as_array().unwrap();

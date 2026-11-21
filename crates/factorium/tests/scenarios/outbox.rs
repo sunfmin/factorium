@@ -162,25 +162,25 @@ async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red
         let w = World::new();
         let wk = w.working(CLAUDE, "t").await;
         kind.prepare(&w, &wk).await;
-        *w.host.orca.refuse_send.lock().unwrap() = true;
+        w.host.orca.fault("send-refused", true);
         let said = kind.say(&w, &wk, false).await;
         let m = last(&w, &wk).await;
         assert_eq!(m["outcome"]["outcome"], "not_typed", "{kind:?}");
-        assert!(m["outcome"]["why"].as_str().unwrap().contains("terminal_send_failed"), "{kind:?}: {m}");
+        assert!(m["outcome"]["why"].as_str().unwrap().contains("terminal_not_writable"), "{kind:?}: {m}");
         match kind {
             Kind::Tell | Kind::Restart => crate::fixture::refused(said, "orca"),
             Kind::Comment => {
                 let said = said.unwrap();
                 assert_eq!(said["delivery"], "none");
-                assert!(said["undelivered"].as_str().unwrap().contains("terminal_send_failed"), "{said}");
+                assert!(said["undelivered"].as_str().unwrap().contains("terminal_not_writable"), "{said}");
             }
             Kind::Red => {
                 let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
-                assert!(why.contains("did not reach it") && why.contains("terminal_send_failed"), "{why}");
+                assert!(why.contains("did not reach it") && why.contains("terminal_not_writable"), "{why}");
             }
         }
         // Not typed, it is not tried again: whoever said it heard so.
-        *w.host.orca.refuse_send.lock().unwrap() = false;
+        w.host.orca.fault("send-refused", false);
         let n = w.terminal(wk["terminal"].as_str().unwrap()).sent.len();
         w.advance(1);
         w.tick().await;
