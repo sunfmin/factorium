@@ -116,6 +116,23 @@ pub(crate) fn guard_asked(program: &str, harness: &'static str, refused: u8) -> 
         .quoted_only()
 }
 
+/// The guard hook for a harness that reads its hook's refusal from what the
+/// hook prints: `refusal`, a `printf` format whose one `%s` is the reason,
+/// made one JSON string. A call the guard lets by prints nothing; one it
+/// refuses, or a guard that cannot be asked, prints the refusal. It always
+/// exits 0, so the harness reads what it printed.
+pub(crate) fn guard_printing(program: &str, harness: &'static str, refusal: &'static str) -> String {
+    guarded(Line::new().fixed("said=$("), program, harness)
+        .fixed(
+            " 2>&1 >/dev/null) && exit 0; \
+             said=$(printf '%s' \"${said:-factorium guard: it could not be asked}\" | tr '\\n\\r\\t' '   ' \
+             | tr -d '\\000-\\037' | sed -e 's/\\\\/\\\\\\\\/g' -e 's/\"/\\\\\"/g'); printf '",
+        )
+        .fixed(refusal)
+        .fixed("\\n' \"${said:-factorium guard: it refused}\"; exit 0")
+        .quoted_only()
+}
+
 fn guarded(line: Line, program: &str, harness: &'static str) -> Line {
     line.word(program).fixed(" guard ").fixed(harness)
 }

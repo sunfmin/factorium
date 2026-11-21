@@ -134,8 +134,10 @@ harnesses! { $
     Dsh in dsh,
     Kimi in kimi,
     Grok in grok,
+    Agy in agy,
 }
 
+mod agy;
 mod claude_code;
 mod codex;
 mod dsh;
