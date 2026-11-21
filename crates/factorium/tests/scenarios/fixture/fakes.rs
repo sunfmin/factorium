@@ -402,7 +402,7 @@ pub struct FakeHost {
     pub slimfit: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
-    /// The labels of the agents launchd has loaded.
+    /// The agents launchd has loaded, as `<domain>/<uid>/<label>`.
     pub service: Mutex<Vec<String>>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
@@ -442,9 +442,16 @@ impl FakeHost {
         }
     }
 
-    /// Whether launchd has factorium's agent loaded.
+    /// Whether launchd has factorium's agent loaded in this user's domain.
     pub fn loaded(&self) -> bool {
-        self.service.lock().unwrap().iter().any(|l| l == "com.github.sunfmin.factorium")
+        let target = self.service_target("user");
+        self.service.lock().unwrap().contains(&target)
+    }
+
+    /// factorium's agent's name in this user's `domain` (`user`, `gui`).
+    pub fn service_target(&self, domain: &str) -> String {
+        use std::os::unix::fs::MetadataExt;
+        format!("{domain}/{}/com.github.sunfmin.factorium", std::fs::metadata(&self.root).unwrap().uid())
     }
 
     /// The `brew` commands run, oldest first.
@@ -486,22 +493,23 @@ impl Programs for FakeHost {
                 Said { ok: true, ..Default::default() }
             }
             "launchctl" => {
-                // As launchd: this user's GUI domain, an agent by the label
-                // its file names.
+                // As launchd: this user's domains, an agent by the label its
+                // file names; `user/<uid>` takes only a Background job.
                 use std::os::unix::fs::MetadataExt;
-                let domain = format!("gui/{}/", std::fs::metadata(&self.root).unwrap().uid());
-                let label = |t: &str| t.strip_prefix(&domain).map(str::to_string);
+                let uid = std::fs::metadata(&self.root).unwrap().uid();
                 let mut loaded = self.service.lock().unwrap();
                 let ok = match args {
-                    ["print", t] => label(t).is_some_and(|l| loaded.contains(&l)),
-                    ["bootstrap", d, file] if format!("{d}/") == domain => match label_of(file) {
-                        Some(l) if !loaded.contains(&l) => {
-                            loaded.push(l);
-                            true
+                    ["print", t] => loaded.iter().any(|x| x == t),
+                    ["bootstrap", d, file] if *d == format!("user/{uid}") && background(file) => {
+                        match label_of(file).map(|l| format!("{d}/{l}")) {
+                            Some(t) if !loaded.contains(&t) => {
+                                loaded.push(t);
+                                true
+                            }
+                            _ => false,
                         }
-                        _ => false,
-                    },
-                    ["bootout", t] => match label(t).and_then(|l| loaded.iter().position(|x| *x == l)) {
+                    }
+                    ["bootout", t] => match loaded.iter().position(|x| x == t) {
                         Some(i) => {
                             loaded.remove(i);
                             true
@@ -519,6 +527,12 @@ impl Programs for FakeHost {
     fn found(&self, program: &str) -> bool {
         !self.missing.lock().unwrap().iter().any(|m| m == program)
     }
+}
+
+/// Whether the agent's file at `file` is a job of the Background session.
+fn background(file: &str) -> bool {
+    let plist = std::fs::read_to_string(file).unwrap_or_default();
+    plist.contains("<key>LimitLoadToSessionType</key>\n\t<string>Background</string>")
 }
 
 /// The label a launchd agent's file at `file` names.
