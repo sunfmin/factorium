@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::shell::Programs;
 
 /// Seconds to wait before each try of `brew update` and upgrade: a tap
-/// pushed seconds ago may not show yet. 90s in all.
+/// pushed seconds ago may not show yet, or another brew holds the
+/// formula's lock. 90s in all.
 const TAP_WAITS: [u64; 7] = [0, 2, 4, 8, 16, 30, 30];
 
 /// Homebrew, reached through the programs the host runs.
@@ -19,7 +20,8 @@ impl Brew<'_> {
 
     /// Installs or upgrades `formula` to `version` (a tag such as `v0.1.1`);
     /// answers what brew printed, or why Homebrew has not that version once
-    /// done.
+    /// done. Another brew holding the formula's lock is waited for: once it
+    /// frees, the version installed is what counts, whoever installed it.
     pub fn upgrade(&self, formula: &str, version: &str) -> Result<String, String> {
         let upgrade = || {
             let _ = self.brew(&["update", "--quiet"]);
@@ -33,18 +35,43 @@ impl Brew<'_> {
         // `brew update` may see the tap seconds before its new formula; then
         // the upgrade has nothing to do and succeeds. Wait, backing off, up
         // to a bound before it fails.
-        let mut waited = 0;
+        let (mut waited, mut locked) = (0, None);
         for wait in TAP_WAITS {
             if wait > 0 {
                 self.0.run("sleep", &[&wait.to_string()]);
                 waited += wait;
             }
-            let said = upgrade()?;
+            let said = match upgrade() {
+                Err(e) if e.contains("has already locked") => {
+                    locked = Some(e);
+                    String::new()
+                }
+                said => {
+                    locked = None;
+                    said?
+                }
+            };
             if names(&has(), version) {
                 return Ok(said);
             }
         }
-        Err(stale(formula, version, &has(), waited))
+        match locked {
+            Some(e) => Err(format!("{e} (still locked after {waited}s{})", self.holder(formula))),
+            None => Err(stale(formula, version, &has(), waited)),
+        }
+    }
+
+    /// `; held by <pid command>` for each brew process `ps` finds on
+    /// `formula`: nothing when it finds none.
+    fn holder(&self, formula: &str) -> String {
+        let name = formula.rsplit('/').next().unwrap_or(formula);
+        let ps = self.0.run("ps", &["-Ao", "pid=,command="]);
+        ps.out
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.contains("brew") && l.split_whitespace().any(|w| w.rsplit('/').next() == Some(name)))
+            .map(|l| format!("; held by {l}"))
+            .collect()
     }
 
     /// The program `name` that `formula`, as Homebrew links it now, has, if it has one.
