@@ -311,10 +311,11 @@ async fn a_failed_cut_whose_version_got_installed_anyway_is_cleared() {
     assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
     assert!(finding().await, "it still fails: {:?}", w.findings().await);
     // The other brew installs it and frees the lock.
-    let mut brew = w.host.brew.lock().unwrap();
-    brew.locked = 0;
-    brew.installed.insert("web".into(), "0.1.0".into());
-    drop(brew);
+    {
+        let mut brew = w.host.brew.lock().unwrap();
+        brew.locked = 0;
+        brew.installed.insert("web".into(), "0.1.0".into());
+    }
     let upgrades = || w.host.brewed().iter().filter(|b| *b == "upgrade web").count();
     let before = upgrades();
     let t = w.tick().await;
