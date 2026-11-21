@@ -6,12 +6,20 @@
 # answer. `./gate.sh` runs `truefit contract`; a real run is
 # `truefit contract --real <name>`.
 #
-# A real run touches nothing of the host's own: each case runs in its own
-# scratch repo, worktree, terminal or launchd label, named by the run's
-# nonce. What no case can run that way is left out, and said where:
+# A real run touches nothing of the host's own: each case runs in a scratch
+# repo, worktree, terminal or launchd label of its own. What no case can run
+# that way is left out, and said where:
 #
-# - Orca: `repo add` of a scratch repo stays in Orca's list (hidden, at the
-#   case's end: Orca has no `repo rm`).
+# - Orca: the Orca cases share one scratch repo per host, kept from run to
+#   run (`factorium-truefit` under factorium's state directory, standin's
+#   `{scratch}`): registered once, by the first real run, and hidden. Each
+#   case resets it at its start and its end (`{"scratch": branch}`: the
+#   case's worktree and its terminals removed, its branch deleted), and
+#   names what Orca keeps (worktree, branch, terminal title) by the case,
+#   never by the run. Two real runs of one case at once on one host would
+#   reset each other's. A case that needs a fresh project of its own
+#   removes it at its end (`orca project setup-delete --setup <repo id>
+#   --force --json`), never leaves it hidden.
 # - Homebrew: `update`, and `install` / `upgrade` of a formula that exists,
 #   change the host's Homebrew; only answers about one no tap has, and
 #   reads of factorium's own install, run.
@@ -38,8 +46,7 @@ normalise = [
   # Orca's handles and ids, and where it keeps a worktree.
   { pattern = '"(handle|id)":"[^"]*"', replace = '"$1":"<id>"' },
   { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
-  { pattern = '"ok":"[^"]*/factorium-truefit-[0-9-]+"', replace = '"ok":"<worktree>"' },
-  { pattern = '[0-9]+-[0-9]{13}', replace = "<nonce>" },
+  { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
 ]
 
 # What factorium makes of Orca's answers about what it does not hold.
@@ -60,13 +67,9 @@ stdin = """
 [[standin.case]]
 name = "worktree-and-terminal"
 stdin = """
-{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "only": "real"}
-{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "only": "fake"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], "read": "ok"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "real"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "fake"}
-{"orca": "worktree", "args": ["{dir}/factorium-truefit-{nonce}", "factorium-truefit-{nonce}", "truefit-{nonce}", "{sha}"], "keep": {"worktree": "/ok"}}
-{"orca": "open", "args": ["{worktree}", "truefit {nonce}", "cat"], "keep": {"terminal": "/ok"}}
+{"scratch": "truefit-worktree-and-terminal"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-worktree-and-terminal", "truefit-worktree-and-terminal", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "cat"], "keep": {"terminal": "/ok"}}
 {"orca": "ready", "args": ["{terminal}"]}
 {"orca": "screen", "args": ["{terminal}"]}
 {"orca": "listed", "args": ["{terminal}"]}
@@ -75,7 +78,8 @@ stdin = """
 {"orca": "screen", "args": ["{terminal}"]}
 {"orca": "listed", "args": ["{terminal}"]}
 {"orca": "remove", "args": ["{worktree}"]}
-{"run": ["orca", "repo", "hide", "--repo", "path:{dir}/factorium-truefit-{nonce}", "--json"], "only": "real"}
+{"scratch": "truefit-worktree-and-terminal"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 
 # live_orca's checks: a tell to a Claude Code busy in a call that never
@@ -92,20 +96,16 @@ version = ["sh", "-c", "echo \"orca $(orca --version), claude $(claude --version
 normalise = [
   { pattern = '"(handle|id)":"[^"]*"', replace = '"$1":"<id>"' },
   { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
-  { pattern = '"ok":"[^"]*/factorium-truefit-[0-9-]+"', replace = '"ok":"<worktree>"' },
-  { pattern = '[0-9]+-[0-9]{13}', replace = "<nonce>" },
+  { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
 ]
 
 [[standin.case]]
 name = "busy-tell"
 stdin = """
-{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "read": "ok"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], "read": "ok"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "real"}
-{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "fake"}
-{"orca": "worktree", "args": ["{dir}/factorium-truefit-{nonce}", "factorium-truefit-{nonce}", "truefit-{nonce}", "{sha}"], "keep": {"worktree": "/ok"}}
+{"scratch": "truefit-busy-tell"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-busy-tell", "truefit-busy-tell", "{sha}"], "keep": {"worktree": "/ok"}}
 {"run": ["mkfifo", "{worktree}/never"], "only": "real"}
-{"orca": "open", "args": ["{worktree}", "truefit {nonce}", "claude --dangerously-skip-permissions --model haiku"], "keep": {"terminal": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "claude --dangerously-skip-permissions --model haiku"], "keep": {"terminal": "/ok"}}
 # A scratch folder: the real one asks whether to trust it, and is answered as a person does.
 {"run": ["sleep", "5"], "only": "real"}
 {"run": ["orca", "terminal", "send", "--terminal", "{terminal}", "--text", "\\u001b[B", "--json"], "only": "real"}
@@ -118,11 +118,12 @@ stdin = """
 {"orca": "deliver", "args": ["{terminal}", "Call the Bash tool once, in the foreground (run_in_background false, no timeout change), with the command: cat never. Do not run it in the background."], "only": "real"}
 {"run": ["sleep", "3"], "only": "real"}
 {"world": {"busy": "{terminal}", "unobserved": true}}
-{"orca": "deliver", "args": ["{terminal}", "Plain tell {nonce}: reply QUEUED-SEEN."]}
-{"orca": "deliver", "args": ["{terminal}", "Told now {nonce}: reply NOW-SEEN and nothing else.", "\\u001b"]}
+{"orca": "deliver", "args": ["{terminal}", "Plain tell: reply QUEUED-SEEN."]}
+{"orca": "deliver", "args": ["{terminal}", "Told now: reply NOW-SEEN and nothing else.", "\\u001b"]}
 {"orca": "close", "args": ["{terminal}"]}
 {"orca": "remove", "args": ["{worktree}"]}
-{"run": ["orca", "repo", "hide", "--repo", "path:{dir}/factorium-truefit-{nonce}", "--json"], "only": "real"}
+{"scratch": "truefit-busy-tell"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 
 [[standin]]

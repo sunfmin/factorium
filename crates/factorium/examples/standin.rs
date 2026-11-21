@@ -23,7 +23,15 @@
 //!   unprinted: how each side is brought to the same state.
 //! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
 //!   whole trimmed stdout) as `{name}` in later steps, beside `{dir}` (the
-//!   working directory), `{uid}` and `{nonce}` (unique to the run).
+//!   working directory), `{uid}`, `{nonce}` (unique to the run) and
+//!   `{scratch}`: the one scratch repo the Orca cases share, kept from run
+//!   to run so that Orca, which has no `repo rm`, holds one per host. The
+//!   real side keeps it under factorium's state directory, the fake side in
+//!   the case's directory.
+//! - `{"scratch": branch}`: makes `{scratch}` if it is not there (a git repo
+//!   of one commit), keeps its head as `{sha}`, and resets it: the worktrees
+//!   on `branch` removed through Orca, and the branch deleted. Unprinted; a
+//!   case runs it at its start and its end.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -31,7 +39,7 @@ mod fakes;
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use factorium::host::{ManualClock, Orca, Programs, Reading, Said, System, Term};
@@ -136,6 +144,32 @@ fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
     }
 }
 
+/// Makes the scratch repo at `repo` if it is not there and removes, through
+/// Orca, its worktrees on `branch`, and the branch: its head.
+fn scratch(side: &Side, repo: &str, branch: &str) -> String {
+    let git = |args: &[&str]| side.run("git", &[&["-C", repo], args].concat());
+    if !Path::new(repo).join(".git").exists() {
+        std::fs::create_dir_all(repo).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"],
+        ] {
+            let said = git(args);
+            assert!(said.ok, "git {args:?} in {repo}: {}", said.err);
+        }
+    }
+    let on = format!("branch refs/heads/{branch}");
+    let listed = git(&["worktree", "list", "--porcelain"]).out;
+    for entry in listed.split("\n\n").filter(|e| e.lines().any(|l| l == on)) {
+        if let Some(path) = entry.lines().find_map(|l| l.strip_prefix("worktree ")) {
+            let _ = Orca(side).remove(path.as_ref());
+        }
+    }
+    git(&["worktree", "prune"]);
+    git(&["branch", "-q", "-D", branch]);
+    git(&["rev-parse", "HEAD"]).out.trim().to_string()
+}
+
 /// `s` with each `{name}` it holds as kept.
 fn fill(s: &str, kept: &BTreeMap<String, String>) -> String {
     kept.iter().fold(s.to_string(), |s, (k, v)| s.replace(&format!("{{{k}}}"), v))
@@ -154,11 +188,20 @@ fn main() {
     }));
     let uid = std::fs::metadata(&dir).map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap();
     let nonce = format!("{}-{}", std::process::id(), std::time::UNIX_EPOCH.elapsed().unwrap().as_millis());
-    let mut kept: BTreeMap<String, String> =
-        [("dir", dir.display().to_string()), ("uid", uid.to_string()), ("nonce", nonce)]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+    let scratch_repo = match fake {
+        true => dir.clone(),
+        false => factorium::default_db(|k| std::env::var_os(k)).parent().unwrap().to_path_buf(),
+    }
+    .join("factorium-truefit");
+    let mut kept: BTreeMap<String, String> = [
+        ("dir", dir.display().to_string()),
+        ("uid", uid.to_string()),
+        ("nonce", nonce),
+        ("scratch", scratch_repo.display().to_string()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
     for line in std::io::stdin().lock().lines() {
         let line = line.unwrap();
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
@@ -172,7 +215,11 @@ fn main() {
         let strings = |v: &Value| -> Vec<String> {
             v.as_array().into_iter().flatten().map(|a| a.as_str().unwrap_or_default().to_string()).collect()
         };
-        let (printed, answer, text) = if let Some(to) = step.get("world") {
+        let (printed, answer, text) = if let Some(branch) = step["scratch"].as_str() {
+            let sha = scratch(&side, &kept["scratch"], branch);
+            kept.insert("sha".into(), sha);
+            continue;
+        } else if let Some(to) = step.get("world") {
             if let Some(fake) = &side.0 {
                 set(fake, to);
             }
