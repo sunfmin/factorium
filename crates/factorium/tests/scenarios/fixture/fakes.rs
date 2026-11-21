@@ -266,6 +266,8 @@ pub struct FakeBrew {
     pub holder_installs: bool,
     /// What `ps -Ao pid=,command=` prints.
     pub ps: String,
+    /// What installs and upgrades fail with, if they fail as no lock does.
+    pub refuses: Option<String>,
 }
 
 impl FakeBrew {
@@ -294,6 +296,9 @@ impl FakeBrew {
                 None => text(false, String::new()),
             },
             ["upgrade", _] if !self.installed.contains_key(&formula) => text(false, String::new()),
+            ["install" | "upgrade", _] if self.refuses.is_some() => {
+                Said { ok: false, out: String::new(), err: self.refuses.clone().unwrap() }
+            }
             ["install" | "upgrade", _] if self.locked > 0 => {
                 self.locked -= 1;
                 if let Some(v) = self.tap.get(&formula).filter(|_| self.holder_installs).cloned() {

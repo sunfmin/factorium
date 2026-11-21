@@ -266,16 +266,31 @@ async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder() {
     {
         let mut brew = w.host.brew.lock().unwrap();
         brew.locked = u32::MAX;
-        brew.ps = "  101 /usr/sbin/sshd\n 4242 /h/homebrew/Library/Homebrew/vendor/ruby/bin/ruby brew.rb upgrade sunfmin/tap/web\n".into();
+        brew.ps = "  101 /usr/sbin/sshd\n 4242 /h/homebrew/Library/Homebrew/vendor/ruby/bin/ruby brew.rb upgrade sunfmin/tap/web\n 300 vim web\n 301 /h/homebrew/bin/brew upgrade api\n".into();
     }
     let t = cut_one(&w).await;
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
     let why = cut["failed"].as_str().expect("the cut fails");
     assert!(why.contains("has already locked") && why.contains("still locked after 90s"), "{why}");
     assert!(why.contains("held by 4242 ") && why.contains("upgrade sunfmin/tap/web"), "it names the holder: {why}");
-    assert!(!why.contains("sshd"), "only brew's processes on the formula: {why}");
+    for other in ["sshd", "vim", "api"] {
+        assert!(!why.contains(other), "only brew's processes on the formula: {why}");
+    }
     assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 7);
     assert_eq!(cut["installed"], json!(null));
+}
+
+#[tokio::test]
+async fn a_cut_whose_upgrade_fails_other_than_by_a_lock_fails_at_once() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().refuses = Some("Error: web: SHA256 mismatch".into());
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("SHA256 mismatch"), "{why}");
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 1, "not waited for as a lock");
+    assert!(brew_waits(&w).is_empty());
 }
 
 #[tokio::test]
