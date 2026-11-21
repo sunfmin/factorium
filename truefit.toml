@@ -424,10 +424,9 @@ red = 'r.state.red'
 # An issue's worktrees and attempts (SPEC §2 steps 3 and 6), model-checked
 # by TLC: models/Worktrees.tla, under the gate's config, in full (every
 # state it reaches). Its properties each fail on a broken variant
-# (`models/worktrees.sh broken`). Two configs the code does not yet hold
-# are findings, not in the gate (`models/worktrees.sh finding`): a CLI
-# command racing a tick's start (WorktreesRace.cfg), and the daemon dying
-# mid-start (WorktreesDeath.cfg).
+# (`models/worktrees.sh broken`). A config the code does not yet hold is a
+# finding, not in the gate (`models/worktrees.sh finding`): a CLI command
+# racing a tick's start (WorktreesRace.cfg).
 [[model]]
 name = "worktrees"
 spec = "models/Worktrees.tla"
@@ -441,6 +440,8 @@ covers = [
   { action = "Record", file = "crates/factorium/src/life.rs", function = "App::open_worker, App::begin (StartWorker)" },
   { action = "Undo", file = "crates/factorium/src/life.rs", function = "App::undo_start, App::finish" },
   { action = "Undo", file = "crates/factorium/src/kept.rs", function = "App::release_worker, tip, holds_own" },
+  { action = "Free", file = "crates/factorium/src/daemon.rs", function = "App::daemon_start" },
+  { action = "Free", file = "crates/factorium/src/life.rs", function = "App::free_unstarted" },
   { action = "Ends", file = "crates/factorium/src/issues.rs", function = "App::issue_wait_for_human, App::leave" },
   { action = "Ends", file = "crates/factorium/src/watch.rs", function = "App::restart (its session gone)" },
   { action = "Ready", file = "crates/factorium/src/issues.rs", function = "App::issue_ready" },

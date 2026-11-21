@@ -228,7 +228,8 @@ impl App {
     }
 
     /// The daemon starts: the programs it needs are looked for on its PATH
-    /// once, and what is missing is recorded for doctor, not met tick by tick.
+    /// once, and what is missing is recorded for doctor, not met tick by
+    /// tick; a start it died in the middle of is undone.
     pub async fn daemon_start(&self) -> Answer {
         let kit = self.state::<Kits>(kit_id()).await?;
         let mut needed = vec!["git".to_string(), "orca".to_string()];
@@ -244,7 +245,8 @@ impl App {
         // Waiters of older binaries no longer start once this one runs.
         self.note_rules().await?;
         self.adopt_queued().await?;
-        Ok(json!({ "path": path, "missing": missing }))
+        let freed = self.free_unstarted().await?;
+        Ok(json!({ "path": path, "missing": missing, "freed": freed }))
     }
 
     /// `factorium run`: ticks until `stop` is set (on SIGTERM or SIGINT, as
