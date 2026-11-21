@@ -345,3 +345,30 @@ async fn a_worktree_s_life_from_start_to_close_is_a_behaviour_of_its_model() {
     t.step(&w, "land").await;
     assert!(!worktree(&third).exists(), "landed, it goes");
 }
+
+#[tokio::test]
+async fn a_start_under_way_is_no_doctor_finding() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    // doctor, as another process, while the start opens its session: its worktree is made, its worker not yet recorded.
+    let found = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), std::sync::Arc::downgrade(&w.host), found.clone());
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        let (db, host) = (db.clone(), host.upgrade().unwrap());
+        let doctor = std::thread::spawn(move || {
+            let app = factorium::App::open(&db, "owner", host).unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(app.doctor()).unwrap()
+        });
+        into.lock().unwrap().push(doctor.join().unwrap());
+    }));
+    w.tick().await.started.unwrap();
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    let found = found.lock().unwrap();
+    assert!(!found.is_empty(), "doctor ran during the start");
+    for d in found.iter() {
+        assert!(keyed(d, "worktree:").is_empty(), "{d}");
+    }
+}
