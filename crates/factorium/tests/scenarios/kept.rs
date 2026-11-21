@@ -469,13 +469,15 @@ async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issu
         }
         let closed =
             crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await }).unwrap();
-        into.lock().unwrap().push(closed.map_err(|r| r.code));
+        into.lock().unwrap().push(closed.map_err(|r| (r.code, r.message)));
     }));
     w.tick().await.started.expect("the start goes on");
     *w.host.orca.while_opening.lock().unwrap() = None;
     let during = during.lock().unwrap().clone();
     assert_eq!(during.len(), 1, "a close ran during the start");
-    assert_eq!(during[0].as_ref().err().map(String::as_str), Some("claimed"), "refused: {during:?}");
+    let (code, why) = during[0].as_ref().expect_err("refused");
+    assert_eq!(code, "claimed");
+    assert!(why.starts_with("start is under way on it (process "), "it names the start: {why}");
     let wk = worker(&w.app).await;
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("ready"), "{wk}");
     w.app.issue_close("web", 1, "no").await.unwrap();
