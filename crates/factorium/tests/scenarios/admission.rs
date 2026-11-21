@@ -189,9 +189,11 @@ async fn a_heavy_command_waiting_past_the_queue_wait_bound_holds_admission() {
         w.host.reading.lock().unwrap().cpu_busy = 95;
         let mut next = std::pin::pin!(waiter.worker_exclusive(None, &w.dir, "echo next"));
         tokio::select! { _ = &mut next => panic!("it started beside a busy host"), () = w.until_queued("echo next") => {} }
+        // Waiting up to the bound is no backlog.
+        w.clock.advance(300_000);
         let t = w.tick().await;
-        assert!(t.started.is_some(), "waiting a moment is no backlog: {:?}", t.held);
-        w.clock.advance(301_000);
+        assert!(t.started.is_some(), "waiting the bound is no backlog: {:?}", t.held);
+        w.clock.advance(1_000);
         let t = w.tick().await;
         let why = t.held.as_deref().unwrap_or_default().to_string();
         assert!(t.started.is_none() && why.starts_with("queue: `echo next` has waited 301s"), "{why}");
