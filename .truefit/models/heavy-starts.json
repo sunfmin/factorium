@@ -1,0 +1,10 @@
+{
+  "commit": "a31c466943984f149ab2d6eff90091a715de5238",
+  "date": "2026-11-21",
+  "inputs": "2ab225d920a0a87cdab25e7d0e01e8f8165cfb30e4b0ec879df0eb803ddbc298",
+  "result": "passes",
+  "traces": {
+    "accept": [],
+    "reject": []
+  }
+}
