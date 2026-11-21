@@ -7,6 +7,7 @@
 
 use factorium_domain::issue::{Because, CloseIssue, ReleaseIssue, Take, TakeIssue};
 use factorium_domain::outbox::Outcome;
+use factorium_domain::tracker;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_domain::worker_id;
 use factum::Uuid;
@@ -123,8 +124,16 @@ impl App {
                 self.submit::<w::EndWorker>(w::Because { worker, why: why.clone() }).await?
             }
         }
+        self.leave_issue(worker, st, &end).await?;
+        Ok(unclosed)
+    }
+
+    /// The rest of a worker's end, once it is recorded landed or ended:
+    /// its issue closes, or is free again; then its worktree goes, unless
+    /// kept or holding work of its own.
+    async fn leave_issue(&self, worker: Uuid, st: &Started, end: &End) -> Answer<()> {
         let (checkout, number) = (st.checkout.clone(), st.number);
-        let keep = match &end {
+        let keep = match end {
             End::Landed(commit) => {
                 let reason = format!("landed as {commit}");
                 self.submit::<CloseIssue>(Because { checkout, number, reason }).await?;
@@ -139,8 +148,23 @@ impl App {
                 *keep
             }
         };
-        self.release_worker(st, !keep).await?;
-        Ok(unclosed)
+        self.release_worker(st, !keep).await
+    }
+
+    /// Each open issue a worker that landed holds still, closed: a daemon
+    /// that died between recording the landing and closing its issue left
+    /// it so, and no tick lands the worker again (factorium#192). The rest
+    /// of its end, in [`App::finish`]'s order. Answers the issues closed.
+    pub(crate) async fn close_landed(&self) -> Answer<Vec<serde_json::Value>> {
+        let mut closed = Vec::new();
+        for issue in self.rows(tracker::held()).await? {
+            let Some(worker) = issue.holder.worker else { continue };
+            let wk = self.state::<Workers>(worker).await?;
+            let (Status::Ended, Some(st), Some(commit)) = (wk.status, wk.started, wk.landed) else { continue };
+            self.leave_issue(worker, &st, &End::Landed(commit.clone())).await?;
+            closed.push(json!({ "closed": format!("{}#{}", issue.checkout, issue.number), "commit": commit }));
+        }
+        Ok(closed)
     }
 
     async fn open_worker(

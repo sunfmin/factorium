@@ -119,6 +119,12 @@ pub fn issues(checkout: Option<&str>, closed: bool) -> Rows<IssueRow> {
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
+/// The open issues a worker holds, by checkout and number.
+pub fn held() -> Rows<IssueRow> {
+    let q = Query::table(ISSUES).filter("status", Op::Ne, IssueStatus::Closed).filter("taken", Op::Eq, true);
+    Rows::of(q.order_by("checkout", false).order_by("number", false))
+}
+
 /// The ready issues no worker holds, by checkout and number.
 pub fn untaken() -> Rows<IssueRow> {
     let q = Query::table(ISSUES).filter("status", Op::Eq, IssueStatus::Ready).filter("taken", Op::Eq, false);
