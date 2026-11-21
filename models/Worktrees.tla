@@ -123,7 +123,7 @@ Remove(S, t) == [S EXCEPT !.disk[t] = FALSE, !.dirty[t] = {}, !.hasbr[t] = FALSE
 
 \* The issue's claim (ClaimIssue, TakeIssue): free, p takes it; held,
 \* p is refused. (Broken, `unclaimed`: no process claims it.)
-Free(S) == S.claim = "" \/ Bug = "unclaimed"
+Free(S) == S.claim = ""
 Claim(S, p) == [S EXCEPT !.claim = IF Bug = "unclaimed" THEN "" ELSE p]
 \* p is done (UnclaimIssue): idle, its claim freed if it holds it still.
 Done(S, p) == [S EXCEPT !.pc[p] = Idle, !.claim = IF @ = p THEN "" ELSE @]
@@ -220,7 +220,7 @@ OverF(S) == [Claim(S, "over") EXCEPT !.pc.over = [at |-> "commit", a |-> 0, t |-
 CloseG(S) == S.pc.close.at = "idle" /\ Free(S) /\ S.status # "closed"
 Left(S) == IF LastTree(S) # 0 /\ S.disk[LastTree(S)] THEN LastTree(S) ELSE 0
 Shut(S) == [S EXCEPT !.status = "closed", !.taken = 0, !.live = [a \in Attempts |-> FALSE], !.claim = ""]
-CloseF(S) == IF Left(S) = 0 THEN Done(Shut(S), "close")
+CloseF(S) == IF Left(S) = 0 THEN Shut(S)
              ELSE [Claim(S, "close") EXCEPT !.pc.close = [at |-> "close", a |-> 0, t |-> Left(S)]]
 \* abandon's first steps for a close: its comment, then the close (a worker
 \* on it ends, keeping its worktree).

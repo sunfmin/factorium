@@ -163,7 +163,6 @@ impl App {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say why the issue starts over"));
         }
-        self.issue(checkout, number).await?;
         self.claimed(checkout, number, Claimant::StartOver, async {
             let (c, issue) = (self.checkout(checkout).await?, self.issue(checkout, number).await?);
             let Some(st) = self.kept_now(&c, &issue).await? else {

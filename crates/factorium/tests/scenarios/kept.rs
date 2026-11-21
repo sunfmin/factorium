@@ -433,7 +433,8 @@ async fn a_tick_during_a_start_over_starts_no_worker_in_the_worktree_it_removes(
     let during = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (db, host, into) = (w.db.clone(), w.host.clone(), during.clone());
     *w.host.orca.while_removing.lock().unwrap() = Some(Box::new(move |_: &str| {
-        let started = crate::fixture::another(&db, &host, |app| async move { app.tick().await.map(|t| t.started) });
+        let started =
+            crate::fixture::another(&db, &host, |app| async move { app.tick().await.map(|t| t.started) }).unwrap();
         into.lock().unwrap().push(started.map_err(|r| r.to_string()));
     }));
     w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
@@ -466,7 +467,8 @@ async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issu
         if !into.lock().unwrap().is_empty() {
             return;
         }
-        let closed = crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await });
+        let closed =
+            crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await }).unwrap();
         into.lock().unwrap().push(closed.map_err(|r| r.code));
     }));
     w.tick().await.started.expect("the start goes on");
@@ -492,10 +494,8 @@ async fn a_claim_whose_process_died_is_cleared_by_the_next_tick() {
     w.app.issue_ready("web", 1).await.unwrap();
     *w.host.orca.while_removing.lock().unwrap() = Some(Box::new(|_: &str| panic!("the start-over's process dies")));
     let (db, host) = (w.db.clone(), w.host.clone());
-    let died = std::thread::spawn(move || {
-        crate::fixture::another(&db, &host, |app| async move { app.issue_start_over("web", 1, "x").await })
-    });
-    assert!(died.join().is_err(), "it died");
+    let died = crate::fixture::another(&db, &host, |app| async move { app.issue_start_over("web", 1, "x").await });
+    assert!(died.is_err(), "it died");
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["claim"]["by"], json!("start_over"));
     assert_eq!(w.tick().await.started, None, "claimed, it does not start");
     *w.host.gone.lock().unwrap() = true;

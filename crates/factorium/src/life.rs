@@ -48,27 +48,24 @@ impl App {
         let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
         let pid = std::process::id();
         self.submit::<TakeIssue>(Taking { checkout: checkout.into(), number, worker, pid }).await?;
-        let started = self.taken(&c, &issue, attempt, worker, &pick, tip).await;
+        let started = async {
+            let (st, typed) = match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
+                Ok(opened) => opened,
+                Err(r) => {
+                    self.submit::<ReleaseIssue>(Take { checkout: checkout.into(), number, worker }).await?;
+                    return Err(r);
+                }
+            };
+            let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
+            match self.begin(worker, &st, typed).await {
+                Ok(()) => Ok(shown),
+                Err((why, r)) => Err(self.undo_start(worker, &st, why, r).await),
+            }
+        }
+        .await;
         let claim = Claim { by: Claimant::Start, pid };
         self.unclaim(Claiming { checkout: checkout.into(), number, claim }).await?;
         started
-    }
-
-    /// A start, once it took the issue: its worker opened and recorded, or undone.
-    async fn taken(&self, c: &Checkout, issue: &Issue, attempt: u32, worker: Uuid, pick: &Pick, tip: String) -> Answer {
-        let (checkout, number) = (c.name.clone(), issue.number);
-        let (st, typed) = match self.open_worker(c, issue, attempt, worker, pick, tip).await {
-            Ok(opened) => opened,
-            Err(r) => {
-                self.submit::<ReleaseIssue>(Take { checkout, number, worker }).await?;
-                return Err(r);
-            }
-        };
-        let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
-        match self.begin(worker, &st, typed).await {
-            Ok(()) => Ok(shown),
-            Err((why, r)) => Err(self.undo_start(worker, &st, why, r).await),
-        }
     }
 
     /// Records a worker whose session opened as started, and hands it its

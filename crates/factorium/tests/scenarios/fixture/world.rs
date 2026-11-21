@@ -364,8 +364,9 @@ impl World {
 }
 
 /// Runs `f` on another App on database `db` and `host`, as another
-/// process would, on a thread of its own; answers what it answers.
-pub fn another<T, F, Fut>(db: &Path, host: &Arc<FakeHost>, f: F) -> T
+/// process would, on a thread of its own; answers what it answers, or
+/// how it died.
+pub fn another<T, F, Fut>(db: &Path, host: &Arc<FakeHost>, f: F) -> std::thread::Result<T>
 where
     T: Send + 'static,
     F: FnOnce(App) -> Fut + Send + 'static,
@@ -377,5 +378,5 @@ where
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(f(app))
     });
-    run.join().unwrap()
+    run.join()
 }
