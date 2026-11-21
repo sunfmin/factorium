@@ -79,7 +79,12 @@ watch's look and the operator's view.
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
-   a row goes to the watch. A red that does not reach the session's prompt
+   a row goes to the watch. A branch that does not merge onto the proving
+   tip is not the second red when the red before was one onto an older
+   tip, which the branch now holds: proving moved since the worker merged
+   what it was told (factorium#171). It is told as for a first red, with
+   what landed since that tip and the files that conflict; past
+   `moved_reds_max` of these in a row, it counts. A red that does not reach the session's prompt
    (no turn starts and none runs) goes to the watch at once.
 6. Green: the issue closes, the worker ends, its worktree is removed
    unless it holds work that is nowhere else: the one test that also
@@ -397,7 +402,11 @@ here or dropped on purpose, listed in `docs/dropped.md` with why.
 2. **Every checkout has a proving branch**: one path. A repo with no slow
    gate promotes as soon as it lands.
 3. **A landing red twice in a row goes to the watch**; no second worker in
-   a new worktree.
+   a new worktree. A merge red on a proving tip that moved since the last
+   red's tip, which the branch holds, is not the second: the worker did
+   what the first asked, and in one day eight watch rounds only said
+   "merge the new tip" (factorium#171). `moved_reds_max` bounds how many
+   in a row are let off.
 4. **No Flux.** Scenarios and mutation hold the rules; afkconvoy's fast gate
    spent 65 of its 138 seconds in Flux.
 5. **factorium is the one writer of a managed repo's base.** A repo

@@ -139,6 +139,100 @@ async fn a_branch_that_does_not_merge_is_red() {
     assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
 }
 
+/// Merges the proving tip into the worker's branch at `tree`, its own side
+/// winning where they conflict: what a worker told to merge it does.
+fn merge_proving(w: &World, tree: &std::path::Path) {
+    w.git(tree, &["fetch", "-q", "origin"]).unwrap();
+    w.git(tree, &["merge", "-q", "--no-edit", "-X", "ours", "origin/proving"]).unwrap();
+}
+
+/// A worker on `web` whose branch does not merge onto proving: it and the
+/// proving tip both changed README. Its landing is red once.
+async fn red_on_moved_proving(w: &World) -> serde_json::Value {
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    w.commit(&tree, "README", "mine\n");
+    w.push_by_hand("web", "proving", "README", "theirs 1\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
+    assert_eq!(worker(&w.app).await["status"], "working");
+    wk
+}
+
+#[tokio::test]
+async fn a_branch_that_merged_the_red_tip_and_conflicts_on_a_newer_one_is_told_again_not_sent_to_the_watch() {
+    let w = World::new();
+    let wk = red_on_moved_proving(&w).await;
+    let tree = worktree(&wk);
+    merge_proving(&w, &tree);
+    // Another landing moves proving before this one's second try.
+    w.push_by_hand("web", "proving", "README", "theirs 2\n");
+
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    let red = t.landed[0]["red"].as_str().unwrap();
+    assert!(red.contains("does not merge") && red.contains("Proving moved since"), "{red}");
+    assert!(red.contains("write README") && red.contains("conflicts in: README"), "what landed, what conflicts: {red}");
+    assert_eq!(worker(&w.app).await["status"], "working", "told as for a first red");
+    let told = w.terminal(wk["terminal"].as_str().unwrap()).sent;
+    assert!(told.last().unwrap().contains("Proving moved since"), "{told:?}");
+    assert!(findings(&w.app.doctor().await.unwrap()).is_empty(), "no watch round");
+
+    // It merges that tip too, and lands.
+    merge_proving(&w, &tree);
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+#[tokio::test]
+async fn a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_to_the_watch() {
+    // The same tip: nothing merged, proving did not move.
+    let w = World::new();
+    let wk = red_on_moved_proving(&w).await;
+    w.commit(&worktree(&wk), "other", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    assert!(waiting["why"].as_str().unwrap().starts_with("red twice"));
+
+    // Proving moved, but the branch never merged the red's tip.
+    let w = World::new();
+    let wk = red_on_moved_proving(&w).await;
+    w.push_by_hand("web", "proving", "README", "theirs 2\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    assert_eq!(worker(&w.app).await["status"], "waiting", "the branch does not hold the red's tip");
+
+    // The red's tip merged, then the gate is red: it counts.
+    let w = World::new();
+    let wk = red_on_moved_proving(&w).await;
+    let tree = worktree(&wk);
+    merge_proving(&w, &tree);
+    w.commit(&tree, "RED", "x");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"), "{:?}", t.landed);
+    assert_eq!(worker(&w.app).await["status"], "waiting", "a gate red after a merge red");
+}
+
+#[tokio::test]
+async fn past_moved_reds_max_of_them_in_a_row_it_goes_to_the_watch() {
+    let w = World::new();
+    w.app.settings_set(Some("moved_reds_max"), Some(2)).await.unwrap();
+    let wk = red_on_moved_proving(&w).await;
+    let tree = worktree(&wk);
+    for n in 2..=4 {
+        merge_proving(&w, &tree);
+        w.push_by_hand("web", "proving", "README", &format!("theirs {n}\n"));
+        w.app.worker_done(id(&wk)).await.unwrap();
+        w.tick().await;
+        let status = worker(&w.app).await["status"].clone();
+        assert_eq!(status, if n < 4 { "working" } else { "waiting" }, "red {n}");
+    }
+}
+
 #[tokio::test]
 async fn blocked_issues_and_ones_waiting_for_a_human_wait_and_the_oldest_ready_one_starts_first() {
     let w = World::new();

@@ -15,6 +15,7 @@ use factorium_domain::doctor::Stuck;
 use factorium_domain::line::{self, Due, Lines, Move};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
+use factorium_domain::settings::Setting;
 use factorium_domain::worker::{self as w, Workers};
 use factorium_host::{Git, Lag};
 use factum::Uuid;
@@ -137,17 +138,33 @@ impl App {
         let merged = match here.merge_from(Path::new(&c.path), &st.branch, &message) {
             Ok(sha) => sha,
             Err(e) => {
+                // Proving moved since the last red's tip, which the branch now holds (#171).
+                let moved = wk
+                    .red_tip
+                    .as_deref()
+                    .filter(|p1| *p1 != tip && git.is_ancestor(p1, &tip) && git.is_ancestor(p1, &st.branch));
+                let since = match moved.map(|p1| (p1, git.landings(p1, &tip))) {
+                    Some((p1, Ok(landed))) => format!(" Proving moved since {p1}: {}.", landed.join("; ")),
+                    _ => String::new(),
+                };
                 let why = format!(
-                    "your branch does not merge onto the proving tip {tip}: {e}. Merge or rebase onto it and resolve."
+                    "your branch does not merge onto the proving tip {tip}: {e}.{since} Merge or rebase onto it and resolve."
                 );
-                return self.red(worker, why).await.map(Ok);
+                let red = w::Red {
+                    worker,
+                    why,
+                    tip: Some(tip.clone()),
+                    moved: moved.is_some(),
+                    moved_max: self.settings().await?.get(Setting::MovedRedsMax) as u32,
+                };
+                return self.red(red).await.map(Ok);
             }
         };
         let at = At::Commit { rev: &merged, by_hand: false, bound_at: None };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(Err(QUEUED.into())) };
         if !gated.green {
             let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
-            return self.red(worker, why).await.map(Ok);
+            return self.red(w::Red { worker, why, tip: None, moved: false, moved_max: 0 }).await.map(Ok);
         }
         if let Err(e) = here.push_requiring(&merged, &c.proving, Some(&tip)) {
             // The tip moved since it was read: land again on the new tip.
@@ -163,8 +180,9 @@ impl App {
         Ok(Ok(json!({ "landed": format!("{}#{}", c.name, st.number), "commit": merged })))
     }
 
-    async fn red(&self, worker: Uuid, why: String) -> Answer<Value> {
-        self.submit::<w::RedLanding>(w::Because { worker, why: why.clone() }).await?;
+    async fn red(&self, red: w::Red) -> Answer<Value> {
+        let (worker, why) = (red.worker, red.why.clone());
+        self.submit::<w::RedLanding>(red).await?;
         let wk = self.state::<Workers>(worker).await?;
         // A red that does not reach it sends it to the watch at once, not after its silence.
         if let Some(live) = self.live_or_none(worker, Want::Working).await? {
