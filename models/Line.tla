@@ -206,6 +206,17 @@ LandClose(d) ==
     /\ UNCHANGED <<proving, base, fast, slow, status, asks, dones, unpromoted, uncut,
                    promoted, red, cuts, promotion, cutting, lock, deaths, lost, failing>>
 
+\* App::close_landed (factorium#192): a tick closes an open issue whose
+\* worker ended landed, so a daemon that died between GreenLanding and
+\* CloseIssue leaves it closed by the next tick.
+LandSweep(d) ==
+    /\ ~Busy(d) /\ Bug # "unswept"
+    /\ \E w \in Workers :
+        /\ status[w] = "landed" /\ w \notin closed
+        /\ closed' = closed \cup {w}
+    /\ UNCHANGED <<proving, base, fast, slow, status, asks, dones, unpromoted, uncut,
+                   promoted, red, cuts, landing, promotion, cutting, lock, deaths, lost, failing>>
+
 -----------------------------------------------------------------------------
 (* A promotion (App::promote_tip), the daemon's or `factorium promote`'s.  *)
 
@@ -327,7 +338,7 @@ Die(p) ==
 
 \* What a daemon does next, as its tick goes on.
 Daemon(d) ==
-    \/ LandRead(d) \/ LandGate(d) \/ LandPush(d) \/ LandRecord(d) \/ LandEnd(d) \/ LandClose(d)
+    \/ LandRead(d) \/ LandGate(d) \/ LandPush(d) \/ LandRecord(d) \/ LandEnd(d) \/ LandClose(d) \/ LandSweep(d)
     \/ PromRead(d) \/ PromGate(d) \/ PromPush(d) \/ PromRecord(d)
     \/ CutRead(d) \/ CutMake(d)
 
@@ -396,6 +407,7 @@ BrokenVariants == [
     no_lock        |-> "OneAtATime",        \* a second promotion beside the running one (#72)
     cut_proving    |-> "CutFromBase",       \* a cut of the proving tip
     landed_refused |-> "LandedCloses",      \* line.landed refuses a commit landed already
-    red_untold     |-> "LandingMoves"       \* a red landing is not recorded: gated again
+    red_untold     |-> "LandingMoves",      \* a red landing is not recorded: gated again
+    unswept        |-> "LandedCloses"       \* no tick closes an issue its landed worker holds
 ]
 =============================================================================

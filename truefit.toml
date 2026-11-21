@@ -333,7 +333,7 @@ rules = 'r.state.rules'
 now = 'r.now \div 500'
 
 # A checkout's line (SPEC §1.12-1.14, §2), model-checked by TLC:
-# models/Line.tla under two configs, each the smallest that still shows its
+# models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
 # its trace (`models/line.sh trace`).
@@ -380,6 +380,18 @@ covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
   { action = "LandedCloses", file = "crates/domain/src/line.rs", function = "RecordLanding" },
+]
+
+# The code's two steps for a worker's end, between which a daemon may die:
+# the next tick closes the issue its landed worker holds.
+[[model]]
+name = "line-end"
+spec = "models/Line.tla"
+config = "models/LineEnd.cfg"
+limit = 60
+commit = "0f6ce74b1da900b78019d5f4f3d60b25bf3bc1c4"
+covers = [
+  { action = "LandSweep", file = "crates/factorium/src/life.rs", function = "App::close_landed" },
 ]
 
 # A scenario's run, as the line records it (crates/factorium/tests/

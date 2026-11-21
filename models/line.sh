@@ -12,8 +12,7 @@
 #       config that checks its property: each must fail on that property.
 #   models/line.sh finding
 #       Checks what the code breaks: two daemons that raced their start
-#       land at once (LineTwoFinding.cfg); a daemon that dies between a
-#       worker's end and its issue's close leaves it open (LineEnd.cfg).
+#       land at once (LineTwoFinding.cfg).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -27,12 +26,11 @@ case "${1:-}" in
     truefit model line-run --trace "$file" | jq '.trace | del(.output)'
     ;;
   broken)
-    broken models/Line.tla models/LineTwo.cfg models/Line.cfg models/LineLive.cfg
+    broken models/Line.tla models/LineTwo.cfg models/Line.cfg models/LineEnd.cfg models/LineLive.cfg
     ;;
   finding)
     expect "$(check models/Line.tla models/LineTwoFinding.cfg none)" OneAtATime "the code (models/LineTwoFinding.cfg)"
-    expect "$(check models/Line.tla models/LineEnd.cfg none)" LandedCloses "the code (models/LineEnd.cfg)"
     ;;
   *)
-    sed -n '2,16p' "$0"; exit 2 ;;
+    sed -n '2,15p' "$0"; exit 2 ;;
 esac
