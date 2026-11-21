@@ -341,7 +341,7 @@ name = "line"
 spec = "models/Line.tla"
 config = "models/Line.cfg"
 limit = 60
-commit = "4edd11b"
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
 covers = [
   { action = "Done", file = "crates/domain/src/worker.rs", function = "AskLanding" },
   { action = "LandRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::carry, App::land (fetch, fresh, merge_from)" },
@@ -374,7 +374,7 @@ name = "line-live"
 spec = "models/Line.tla"
 config = "models/LineLive.cfg"
 limit = 60
-commit = "4edd11b"
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
 covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
@@ -389,7 +389,7 @@ name = "line-run"
 spec = "models/Line.tla"
 config = "models/LineRun.cfg"
 limit = 60
-commit = "4edd11b"
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
 covers = [
   { action = "Next", file = "crates/factorium/src/line.rs", function = "App::land, App::promote_tip, App::cut_base" },
 ]
