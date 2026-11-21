@@ -62,20 +62,16 @@ impl Brew<'_> {
     }
 
     /// `; held by <pid command>` for each brew process `ps` finds on
-    /// `formula`, or nothing when it finds none.
+    /// `formula`: nothing when it finds none.
     fn holder(&self, formula: &str) -> String {
         let name = formula.rsplit('/').next().unwrap_or(formula);
         let ps = self.0.run("ps", &["-Ao", "pid=,command="]);
-        let held: Vec<&str> = ps
-            .out
+        ps.out
             .lines()
             .map(str::trim)
             .filter(|l| l.contains("brew") && l.split_whitespace().any(|w| w.rsplit('/').next() == Some(name)))
-            .collect();
-        match held.is_empty() {
-            true => String::new(),
-            false => format!("; held by {}", held.join("; ")),
-        }
+            .map(|l| format!("; held by {l}"))
+            .collect()
     }
 
     /// The program `name` that `formula`, as Homebrew links it now, has, if it has one.
