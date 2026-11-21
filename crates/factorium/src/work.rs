@@ -1,11 +1,11 @@
-//! A worker's own commands: `factorium worker gate|done|escalate|comment|exclusive`.
+//! A worker's own commands: `factorium worker gate|done|escalate|comment|file|exclusive`.
 //! The worker is named by `FACTORIUM_WORKER`, which its session was
 //! started with.
 
 use std::path::Path;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::issue::Author;
+use factorium_domain::issue::{Author, Blocker};
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
 use serde_json::json;
@@ -106,6 +106,30 @@ impl App {
         let st = self.live(worker, Want::Any).await?.started;
         self.note(&st.checkout, st.number, Author::Worker(worker), text).await?;
         Ok(json!({ "commented": true, "checkout": st.checkout, "number": st.number }))
+    }
+
+    /// Files an issue the worker's issue asks for, as `issue add` does (on
+    /// any checkout on the list, waiting from the start for `blocked_by`),
+    /// never waiting for a person: a decision only the owner makes is
+    /// escalated. Each side keeps the record, as the worker's comment: the
+    /// filed issue names the issue and worker that filed it, the worker's
+    /// issue the issue it filed. Answers the filed issue.
+    pub async fn worker_file(
+        &self,
+        worker: Uuid,
+        checkout: &str,
+        title: &str,
+        body: &str,
+        blocked_by: &[Blocker],
+    ) -> Answer {
+        let st = self.live(worker, Want::Any).await?.started;
+        let filed = self.issue_add(checkout, title, body, false, blocked_by).await?;
+        let number = filed["number"].as_u64().expect("an issue shown has its number");
+        let by = Author::Worker(worker);
+        let from = format!("filed by worker {worker}, working {}#{}", st.checkout, st.number);
+        self.note(checkout, number, by.clone(), &from).await?;
+        self.note(&st.checkout, st.number, by, &format!("filed {checkout}#{number}")).await?;
+        self.issue_show(checkout, number).await
     }
 
     /// Runs a command through the heavy-command queue at a gate's

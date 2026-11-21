@@ -22,6 +22,13 @@ Your brief (the file you were handed) says what the issue is.
   the owner asked you to put in a comment), run
   `factorium worker comment --text "…"` (or pipe it on stdin). It changes
   nothing else and calls no one; go on working.
+- When your issue asks you to file follow-up issues, run
+  `factorium worker file <checkout> <title> --body-file <f>
+  [--blocked-by <[checkout#]N[@cut]>]…` for each: it files the issue (on
+  any checkout on the list, waiting for its blockers from the start),
+  answers its number, and keeps "filed <checkout>#<n>" on your issue. You
+  do not close, ready or block other issues; one that needs the owner's
+  decision is escalated, not filed.
 - If you cannot go on without a decision or something you lack, run
   `factorium worker escalate "what you need"` and stop. The watch answers.
   What you escalate and what the watch tells you are kept as comments on
@@ -30,4 +37,5 @@ Your brief (the file you were handed) says what the issue is.
 - A comment the owner adds to your issue reaches you at once, typed in
   this terminal as `factorium (a comment on your issue): …` (or in your
   brief, if it came before you were handed it). Take it into your work.
-- You may run only `factorium worker …` commands of factorium.
+- You may run only `factorium worker …` commands of factorium (`worker
+  file` among them).

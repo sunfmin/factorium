@@ -72,7 +72,12 @@ watch's look and the operator's view.
    likes, then `factorium worker done`. What it wants kept (a measurement)
    it records with `factorium worker comment`, a comment on its issue by
    it that changes nothing else and goes to no one: not the watch, which
-   is for decisions (`worker escalate`).
+   is for decisions (`worker escalate`). A follow-up its issue asks for
+   it files with `factorium worker file <checkout> <title> --body-file <f>
+   [--blocked-by …]`, as `issue add` files one (never waiting for a
+   person), and both keep the record as its comments: its issue says
+   "filed <checkout>#<n>", the filed one which issue and worker filed it.
+   It changes no other issue.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. A red that does not reach the session's prompt
    (no turn starts and none runs) goes to the watch at once.

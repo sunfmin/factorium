@@ -257,6 +257,20 @@ pub enum WorkerCmd {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Files an issue your issue asks for (a follow-up), as `issue add`
+    /// does, on any checkout on the list; your issue keeps the record
+    /// ("filed <checkout>#<n>") and the filed one names you. Answers it.
+    /// An issue that needs the owner's decision is escalated instead.
+    File {
+        checkout: String,
+        title: String,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long)]
+        body_file: PathBuf,
+        /// An issue it waits for, repeat for each, as for `issue add`.
+        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        blocked_by: Vec<Blocker>,
+    },
     /// Has a second agent, a fresh session factorium starts, pick your
     /// change's mutants from slimfit's candidates, given slimfit's goal
     /// (`slimfit help picker`) and your diff. Answers the picks, or why
@@ -394,6 +408,10 @@ impl Top {
                         None => body_text(None, Some(PathBuf::from("-")))?.unwrap_or_default(),
                     };
                     app.worker_comment(worker_id()?, &text).await
+                }
+                WorkerCmd::File { checkout, title, body_file, blocked_by } => {
+                    let body = body_text(None, Some(body_file))?.unwrap_or_default();
+                    app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by).await
                 }
                 WorkerCmd::Exclusive { background, command } => {
                     let (dir, line) = (here()?, line(&command));
