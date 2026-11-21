@@ -24,6 +24,8 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
     w.app.kit_set(&["pi=pi".into(), CLAUDE.into()]).await.unwrap();
     account(&w, "a");
     account(&w, "guild");
+    // Pinned to the account's harness, the checkout starts it.
+    w.app.kit_pin("web", Some("claude-code")).await.unwrap();
     let role = w.host.home().join("lore/roles/reviewer");
     std::fs::create_dir_all(role.join(SKILLS).join("review")).unwrap();
     std::fs::write(role.join(RULES), "You are the reviewer.\n").unwrap();
@@ -76,10 +78,49 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
     assert_eq!((first["ended"].clone(), first["account"].clone()), (json!(true), json!("guild")), "{spent}");
 
     // An issue naming no role starts in the worker's own directory, on the kit's first.
+    w.app.kit_pin("web", None).await.unwrap();
     w.app.issue_add("web", "Plain", "", false, &[]).await.unwrap();
     w.tick().await;
     let plain = w.worker_on("web", 2).await;
     assert_eq!((plain["harness"].clone(), plain["account"].clone()), (json!("pi"), json!(null)), "{plain}");
     let line = w.terminal(plain["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("role/issues"), "{line}");
+}
+
+#[tokio::test]
+async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&["codex=codex".into(), CLAUDE.into()]).await.unwrap();
+    let night = w.host.home().join(".agent-accounts/night");
+    std::fs::create_dir_all(&night).unwrap();
+    std::fs::write(night.join("auth.json"), "{}").unwrap();
+    let fields = json!({"fields": {"HARNESS": "codex", "MACHINE": crate::accounts::this_machine()}});
+    w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields.to_string());
+    account(&w, "guild");
+    let on_night = On { role: None, account: Some("night".into()) };
+    w.app.issue_add_on("web", "On the night account", "", false, &[], on_night).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    assert_eq!((wk["harness"].clone(), wk["account"].clone()), (json!("codex"), json!("night")));
+    w.set_screen(
+        wk["terminal"].as_str().unwrap(),
+        &["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."],
+    );
+    // Its issue is ready again, and alone it holds admission, saying why.
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["ended"], "quota");
+    assert!(t.held.as_deref().unwrap().contains("account night is used up"), "{t:?}");
+
+    // A role with no skills, and no account: it starts, ahead of the waiting one.
+    let role = w.host.home().join("roles/plain");
+    std::fs::create_dir_all(&role).unwrap();
+    let on_role = On { role: Some(role.to_string_lossy().into_owned()), account: None };
+    let shown = w.app.issue_add_on("web", "A role alone", "", false, &[], on_role).await.unwrap();
+    assert_eq!((shown["role"].clone(), shown["account"].clone()), (json!(role.to_string_lossy()), json!(null)));
+    let t = w.tick().await;
+    assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#2")), "{t:?}");
+    assert_eq!(w.worker_on("web", 2).await["account"], "guild", "the kit's choice: night is used up");
+    let skills = w.data().root().join("role/issues/web-2-1").join(SKILLS);
+    assert!(skills.is_dir() && std::fs::read_dir(&skills).unwrap().count() == 0, "no skills of its own");
 }

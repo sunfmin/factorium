@@ -236,3 +236,24 @@ fn a_session_s_tokens_are_read_as_its_harness_writes_them() {
         let _ = std::fs::remove_dir_all(&kept);
     }
 }
+
+/// A session file that names the worktree's path without recording its
+/// turn (another worktree's, beneath it) spends nothing of the session's.
+#[test]
+fn a_file_that_only_names_the_worktree_spends_nothing_of_its_session() {
+    use serde_json::json;
+    let claude = Harness::read("claude-code").unwrap();
+    let kept = scratch("spent-decoy");
+    let home = claude.home(&kept, None, &kept);
+    claude.write_session(&home, "/w", "/briefs/w-1-1.md", false, 1_800_000_000).unwrap();
+    let decoy = [
+        json!({"type": "user", "cwd": "/w/sub", "isSidechain": false, "timestamp": "2027-01-15T08:00:00Z",
+            "message": {"role": "user", "content": "something else"}}),
+        json!({"type": "assistant", "cwd": "/w/sub", "message": {"id": "d", "usage": {"input_tokens": 1000, "output_tokens": 1000}}}),
+    ];
+    let dir = kept.join(".claude/projects/elsewhere");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("decoy.jsonl"), decoy.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+    assert_eq!(claude.spent(&home, "/w", "/briefs/w-1-1.md"), Some((15, 11)));
+    let _ = std::fs::remove_dir_all(&kept);
+}
