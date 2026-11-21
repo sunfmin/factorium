@@ -505,16 +505,15 @@ fn ticking(dir: &Dir) -> std::process::Child {
     bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap()
 }
 
-/// Until the daemon [`ticking`] on `dir` starts its tick number `ticks`.
+/// Until the daemon [`ticking`] on `dir` starts its tick number `ticks`,
+/// however long a loaded host takes it there: no deadline, as a starved
+/// daemon at background priority is slow, not stuck (factorium#183). One
+/// that ends first fails it at once; a hang is the runner's to name.
 fn until_tick(dir: &Dir, daemon: &mut std::process::Child, ticks: usize) {
     let calls = dir.0.join("stubs/ps.calls");
-    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
     while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
-        if gone.is_some() || std::time::Instant::now() > deadline {
-            let _ = daemon.kill();
-            panic!("the daemon did not keep ticking: {gone:?}");
-        }
+        assert!(gone.is_none(), "the daemon did not keep ticking: {gone:?}");
         std::thread::sleep(crate::fixture::LOOK);
     }
 }
@@ -532,19 +531,9 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
     ended_in_order(dir, daemon)
 }
 
-/// Waits (a bounded while) for a daemon sent SIGTERM or SIGINT: it exits 0,
-/// as a normal return from main, and its pid file is gone.
-fn ended_in_order(dir: &Dir, mut daemon: std::process::Child) -> std::process::Output {
-    let deadline = std::time::Instant::now() + crate::fixture::STUCK;
-    while daemon.try_wait().unwrap().is_none() {
-        if std::time::Instant::now() > deadline {
-            let _ = daemon.kill();
-            panic!("the daemon did not end after its signal");
-        }
-        // The real binary on the system clock: its signal handling and exit
-        // take real time, which no scenario clock moves.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+/// Waits, as [`until_tick`] does, for a daemon sent SIGTERM or SIGINT: it
+/// exits 0, as a normal return from main, and its pid file is gone.
+fn ended_in_order(dir: &Dir, daemon: std::process::Child) -> std::process::Output {
     let out = daemon.wait_with_output().unwrap();
     assert!(out.status.success(), "{:?}: {}", out.status, String::from_utf8_lossy(&out.stderr));
     let pid = dir.0.join("data/factorium/daemon.pid");
