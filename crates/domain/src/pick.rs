@@ -47,6 +47,34 @@ pub fn question(goal: &str, diff: &str, listing: &str) -> String {
     )
 }
 
+/// Why none is picked when slimfit lists no candidates: no picker is asked.
+pub const UNLISTED: &str = "slimfit lists no candidates";
+
+/// slimfit's `check --mutants`, as it answered (`ok`, what it printed):
+/// its listing, or `None` when it lists no candidate — an empty one, or
+/// its refusal that the tool listed no mutants of the change (slimfit#77);
+/// else why it is not a listing.
+pub fn listing(ok: bool, out: &str) -> Result<Option<Value>, String> {
+    let said: Value = serde_json::from_str(out).map_err(|e| format!("{e}: {out}"))?;
+    let unlisted = |e: &Value| e["fault"].as_str().is_some_and(|f| f.contains("listed no mutants of the change"));
+    let faults = said["error"].as_array().filter(|f| !f.is_empty());
+    match ok {
+        true if names(&said).is_empty() => Ok(None),
+        true => Ok(Some(said)),
+        false if faults.is_some_and(|f| f.iter().all(unlisted)) => Ok(None),
+        false => Err(out.trim().to_string()),
+    }
+}
+
+/// The worker's answer when slimfit lists no candidates — none, why, no
+/// picker, `author` and the ratchet that follows — and the line its issue
+/// keeps.
+pub fn unlisted(author: &str) -> (Value, String) {
+    let next = "factorium worker exclusive -- slimfit ratchet; commit .slimfit/ with the change";
+    let said = json!({ "none": UNLISTED, "picker": null, "author": author, "next": next });
+    (said, format!("pick-mutants: no picker asked; {UNLISTED}"))
+}
+
 /// The candidates' names in slimfit's `listing` (`{"candidates": {suite:
 /// [{"name", …}]}}`).
 fn names(listing: &Value) -> Vec<&str> {

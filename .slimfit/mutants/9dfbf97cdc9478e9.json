@@ -1,0 +1,6 @@
+{
+  "tree": "ef40248bfdf181a80c87294bf745ac2a95ede24f+d1fba762150c532c",
+  "picker": "codex:01a1fca9-9605-7723-9668-2dee284bd1d4:default",
+  "author": "claude-code:f90376e8-9422-5619-8000-795a4ee673d7:opus",
+  "none": "The scenarios distinguish a populated listing, an empty listing, the no-mutants refusal, and an unrelated refusal, and check the no-picker response, author ID, and issue note."
+}
