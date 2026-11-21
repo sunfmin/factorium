@@ -178,8 +178,8 @@ impl Queue {
     /// The place `what`, asked by `worker` (or a program), takes at `now`: that of its entry
     /// that left unstarted at most `keep` ms before, if one did; else none, and it queues at the back.
     pub fn place(&self, what: &str, worker: Option<Uuid>, program: bool, now: i64, keep: i64) -> Option<i64> {
-        let yields = worker.is_some() || program;
-        let kept = self.left.iter().filter(|l| yields && l.of(what, worker, program) && now - l.left_at <= keep);
+        // Only a worker's or a program's is kept: none other matches.
+        let kept = self.left.iter().filter(|l| l.of(what, worker, program) && now - l.left_at <= keep);
         kept.map(|l| l.queued_at).min()
     }
 
@@ -377,13 +377,9 @@ pub struct End {
 }
 
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(match s.entries.iter().find(|e| e.id == p.id) {
-        Some(e) => {
-            let kept_at = (p.keeps && e.started_at.is_none() && e.yields()).then_some(now.0);
-            vec![HeavyEvent::HeavyEnded { id: p.id, kept_at }]
-        }
-        None => Vec::new(),
-    })
+    // Whether its place is kept (unstarted, a worker's or a program's) is evolve's.
+    let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at: p.keeps.then_some(now.0) };
+    Ok::<_, factum_core::Rejection>(if s.holds(p.id) { vec![ended] } else { Vec::new() })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -461,5 +457,20 @@ mod tests {
         Heavy::evolve(&mut q, HeavyEvent::HeavyStarted { id: Uuid::from_u128(3), at: 41 });
         Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(3), kept_at: Some(42) });
         assert!(q.left.is_empty(), "{:?}", q.left);
+    }
+
+    #[test]
+    fn a_kept_place_older_than_a_day_goes_once_another_leaves() {
+        let (me, other) = (Some(Uuid::from_u128(7)), Some(Uuid::from_u128(8)));
+        let mut q = Queue::default();
+        let day = 86_400_000;
+        Heavy::evolve(&mut q, queued(1, "check", me, 10, None));
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(1), kept_at: Some(day) });
+        Heavy::evolve(&mut q, queued(2, "gate", other, 2 * day - 1, None));
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(2), kept_at: Some(2 * day) });
+        assert_eq!(q.left.len(), 2, "a day old, it is kept");
+        Heavy::evolve(&mut q, queued(3, "test", other, 2 * day, None));
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(3), kept_at: Some(2 * day + 1) });
+        assert_eq!(q.left.iter().map(|l| l.what.as_str()).collect::<Vec<_>>(), ["gate", "test"], "past a day, it went");
     }
 }
