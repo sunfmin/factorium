@@ -29,12 +29,13 @@ pub struct ToFile {
 /// The issues to file from what the tasks line `said` at `tip`: the lines
 /// before its JSON name what read the tasks (`slimfit --version`), then come
 /// answers listing `tasks`: `slimfit next --all`'s, and any other's that
-/// names itself in `by` (`./lines.sh --tasks`, SPEC §5). `issues` are the
-/// checkout's, open and closed; `now` is in ms.
+/// names itself in `by` (`./lines.sh --tasks`, SPEC §5; `truefit next
+/// --all`), each maybe after lines of its own (`truefit --version`).
+/// `issues` are the checkout's, open and closed; `now` is in ms.
 pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<ToFile>, String> {
     let at = said.find("\n{").map_or(0, |i| i + 1);
     let (by, json) = said.split_at(at);
-    let answers: Vec<Value> = serde_json::Deserializer::from_str(json).into_iter().map_while(Result::ok).collect();
+    let answers = answers(json);
     let mut tasks = Vec::new();
     for a in &answers {
         let listed = a["tasks"].as_array().ok_or("the tasks line printed an answer listing no `tasks`")?;
@@ -75,4 +76,17 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<
         filed.push(ToFile { title: format!("{from} {}: {summary}", task.kind), body, task });
     }
     Ok(filed)
+}
+
+/// The JSON answers in `json`, past any line between them that is no JSON:
+/// each answer starts a line with `{`.
+fn answers(json: &str) -> Vec<Value> {
+    let (mut answers, mut rest) = (Vec::new(), Some(json));
+    while let Some(json) = rest {
+        let mut read = serde_json::Deserializer::from_str(json).into_iter::<Value>();
+        answers.extend(read.by_ref().map_while(Result::ok));
+        let at = read.byte_offset();
+        rest = json[at..].find("\n{").map(|i| &json[at + i + 1..]);
+    }
+    answers
 }

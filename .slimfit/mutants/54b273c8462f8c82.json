@@ -1,0 +1,6 @@
+{
+  "tree": "0700073bbb782173f68033957bf2ee8f266292b1+d1fba762150c532c",
+  "picker": "codex:01a1fdd0-a13d-7032-8a3f-04669e27e1e1:default",
+  "author": "claude-code:36065f4d-358b-5e72-8b95-92c1c51c858a:opus",
+  "none": "The changed idle scenario checks that tasks after the version banner are filed, and the only likely survivor restarts one byte earlier at a newline the JSON parser already skips."
+}

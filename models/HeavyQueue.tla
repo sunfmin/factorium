@@ -12,7 +12,9 @@
 (* idle work that asks once and runs beside the ticks. Each waiter's own   *)
 (* steps (looking at its running entry, answering) are steps of their own, *)
 (* between which any other process may act. The owner's `unqueue` takes   *)
-(* any entry off.                                                          *)
+(* any entry off. A worker's or a program's entry that leaves unstarted   *)
+(* (its waiter refused and failing to exec, or gone) keeps its place for   *)
+(* the keep bound: its asker asking again takes it (factorium#193).        *)
 (*                                                                         *)
 (* Time: `now` is the time of the last step, in the config's units. A     *)
 (* step happens at any time from `now` to `now + MaxStep`, up to Horizon.  *)
@@ -34,6 +36,7 @@ CONSTANTS
     BoundLag,   \* how long after its arrival a line move falls due (0: none has a bound)
     Kinds,      \* the waiters asking: "wait" (a CLI run), "beside" (idle work)
     Unqueues,   \* whether the owner unqueues
+    Keep,       \* heavy_keep (0: no waiter gives up nor asks again)
     Bug         \* "none", or a broken variant
 
 None == -1
@@ -56,8 +59,11 @@ VARIABLES
 vars == <<q, last_start, rules, now, waiter, last>>
 
 Phases == {"none", "waits", "runs", "done"}
+\* `left_at`, `place`: when its entry left unstarted with its place kept
+\* (heavy::Left), and that place (its queued_at); None: none kept.
 NoWaiter == [kind |-> "wait", rules |-> 0, yields |-> FALSE, bound |-> None,
-             phase |-> "none", stop |-> "", answer |-> "", unqueued |-> ""]
+             phase |-> "none", stop |-> "", answer |-> "", unqueued |-> "",
+             left_at |-> None, place |-> None]
 
 TypeOK ==
     /\ \A i \in Ids : q[i].in \/ q[i] = Absent
@@ -137,6 +143,11 @@ Did(act, i, t) == last' = [act |-> act, i |-> i, t |-> t, room |-> FALSE, read |
 Off(i) == q' = [q EXCEPT ![i] = Absent]
 \* A waiter that answered: only its answer, and whether it was unqueued, are kept.
 Ended(w, answer) == [NoWaiter EXCEPT !.phase = "done", !.answer = answer, !.unqueued = w.unqueued]
+\* A waiter whose waiting entry i leaves at t, its place kept for its asker
+\* if a worker's or a program's (EndHeavy's `keeps`): it answered.
+Left(i, answer, t) ==
+    LET w == Ended(waiter[i], answer) IN
+    IF q[i].yields THEN [w EXCEPT !.left_at = t, !.place = q[i].queued_at] ELSE w
 
 Entry(t, yields, bound) == [Absent EXCEPT !.in = TRUE, !.queued_at = t,
                                 !.yields = yields, !.bound_at = bound]
@@ -186,7 +197,8 @@ Unqueued(i) ==
 \* found room or not. Started, it runs. Told to wait, a waiter asks again
 \* next poll; idle work leaves the queue. Refused as stale, a waiter execs
 \* the installed binary, whose rules are the newest, keeping its entry, or
-\* fails to and leaves it; idle work leaves it (the daemon execs after).
+\* fails to and leaves it, its place kept; idle work leaves it (the daemon
+\* execs after).
 Ask(i) ==
     /\ waiter[i].phase = "waits" /\ q[i].in
     /\ \E t \in Times, room \in BOOLEAN : \E read \in Max(0, t - ReadLag)..t :
@@ -208,8 +220,34 @@ Ask(i) ==
                        THEN q' = [q EXCEPT ![i].queued_at = t] ELSE UNCHANGED q
                     /\ Waiter(i, "rules", MaxRules)
                  \/ /\ Off(i)
-                    /\ waiter' = [waiter EXCEPT ![i] = Ended(waiter[i], "stale")]
+                    /\ waiter' = [waiter EXCEPT ![i] = Left(i, "stale", t)]
     /\ UNCHANGED rules
+
+\* A waiter gives up (killed, as a harness ends a command past its timeout):
+\* another's take_turn forgets its waiting entry, its place kept.
+GivesUp(i) ==
+    /\ Keep > 0
+    /\ waiter[i].phase = "waits" /\ waiter[i].kind = "wait"
+    /\ q[i].in /\ q[i].started_at = None
+    /\ \E t \in Times :
+        /\ now' = t /\ Did("gaveup", i, t)
+        /\ waiter' = [waiter EXCEPT ![i] = Left(i, "gaveup", t)]
+    /\ Off(i)
+    /\ UNCHANGED <<last_start, rules>>
+
+\* Its asker asks for the same command again, as a new waiter under the
+\* newest rules, within the keep bound of its entry leaving: queued
+\* (heavy.queue, Queue::place) in the place that entry had. Broken
+\* (`rejoins_at_back`), at the back.
+Rejoin(i) ==
+    /\ waiter[i].phase = "done" /\ waiter[i].left_at # None
+    /\ \E t \in Times :
+        /\ t - waiter[i].left_at <= Keep
+        /\ now' = t /\ Did("rejoin", i, t)
+        /\ q' = [q EXCEPT ![i] = Entry(IF Bug = "rejoins_at_back" THEN t ELSE waiter[i].place, TRUE, None)]
+        /\ waiter' = [waiter EXCEPT ![i] = [NoWaiter EXCEPT
+              !.rules = MaxRules, !.yields = TRUE, !.phase = "waits", !.place = waiter[i].place]]
+    /\ UNCHANGED <<last_start, rules>>
 
 \* heavy.runs: the running i's step runs in a session, noted on its entry.
 NoteRun(i) ==
@@ -277,6 +315,7 @@ Next ==
     \/ NoteRules
     \/ \E i \in Ids : Unqueued(i) \/ Ask(i) \/ NoteRun(i)
                       \/ Look(i) \/ Done(i) \/ Unqueue(i)
+                      \/ GivesUp(i) \/ Rejoin(i)
 
 Spec == Init /\ [][Next]_vars
 
@@ -360,6 +399,13 @@ StaleRefused ==
         /\ q'[Who].started_at = None
         /\ waiter'[Who].phase = "waits" => q'[Who] = q[Who] ]_vars
 
+\* An entry asked again keeps the place it had: rejoined, it is queued
+\* before every waiting entry queued after its first ask.
+KeptPlace ==
+    [][ last'.act = "rejoin" =>
+        \A j \in Waiting \ {Who} :
+            q[j].queued_at > waiter[Who].place => q'[Who].queued_at < q[j].queued_at ]_vars
+
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
 BrokenVariants == [
@@ -374,6 +420,7 @@ BrokenVariants == [
     answer_ran       |-> "UnqueuedRunAnswers", \* run_held does not look whether it is held
     requeues         |-> "UnqueuedAnswers",    \* take_turn queues an unqueued waiter again (#186)
     no_stale         |-> "StaleRefused", \* heavy.start takes any rules
-    stale_requeues   |-> "StaleRefused"  \* the exec'd waiter queues anew, at the back
+    stale_requeues   |-> "StaleRefused", \* the exec'd waiter queues anew, at the back
+    rejoins_at_back  |-> "KeptPlace"     \* asked again, it queues at the back (#193)
 ]
 =============================================================================

@@ -1,0 +1,27 @@
+{
+  "tree": "332b5cc5096b430cfbe0aae9853427c76d5ea73c+d1fba762150c532c",
+  "picker": "codex:01a1fd89-760d-77c2-a0e1-8bd4e50fb43c:default",
+  "author": "claude-code:5b6377e2-9723-569b-b9f5-2d77705e914a:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/swap.rs:55:9: replace crate::App::exe -> Option<PathBuf> with None",
+        "why": "The restart scenario verifies stale refusals and queue order after retrying, so it can pass without ever resolving the installed executable.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:290:42: replace - with / in <impl Aggregate for Heavy>::evolve",
+        "why": "Dividing the timestamps can leave old places in the queue state while the separate lookup expiry check still denies expired claims.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:115:38: replace * with +",
+        "why": "This cuts the pruning threshold from one day to about 87 seconds, beyond the elapsed time exercised by the immediate retries in the diff.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
