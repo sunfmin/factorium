@@ -167,7 +167,7 @@ worker run only `factorium worker …` and lets only the watch run
 | Group | Who | Commands |
 |---|---|---|
 | `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
-| `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `exclusive [--background] -- <cmd>` |
+| `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `review-growth`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
 Every message to a session — a brief, a landing's red, a round, `watch
@@ -362,7 +362,13 @@ depend on nothing else of factorium.
   that holds only its login. One that fails hands the pick to the next
   harness of the kit, the worker's own last, and the record names each
   that failed and why; when none is left the worker gets the last refusal,
-  never a pick (factorium#154).
+  never a pick (factorium#154). The second agent that judges a change's growth
+  ([`slimfit help reviewer`](https://github.com/sunfmin/slimfit/blob/main/src/help/reviewer.md)):
+  `factorium worker review-growth` asks one the same way, with the same
+  fallback and bound, given only slimfit's goal and the diff; it answers
+  `as_is` with why or `cut` with what, and the `slimfit ratchet` that
+  writes the growth record naming it (`harness:session:model`) and the
+  issue it serves; its time and tokens go on the issue (factorium#174).
 
 ## 7. From afkconvoy
 
