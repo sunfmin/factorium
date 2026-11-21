@@ -1,0 +1,33 @@
+{
+  "tree": "32fa4bff43dd7d40f2a7f978ceeef4754f3850aa+d1fba762150c532c",
+  "picker": "codex:01a1fd9c-641f-7fe2-8071-165403c5ecc8:default",
+  "author": "claude-code:1fd9557a-68df-5f12-8e8a-ed35513261a2:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/admission.rs:54:38: replace > with >= in admit",
+        "why": "The scenario checks a fresh waiter and a 301-second wait, leaving admission at exactly 300 seconds untested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/load.rs:52:9: replace Load::room -> Reading with Default::default()",
+        "why": "Waiters now use Load::queue, and the shown doctor assertion checks the admission reading, so zeroing the separate room reading may go unnoticed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/procs.rs:106:69: replace == with != in alive",
+        "why": "The queue scenario does not exercise the kernel error branch, where this mutation would classify a missing PID as alive.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/procs.rs:106:19: replace || with && in alive",
+        "why": "The fixture supplies a fake host, so the scenario may miss that a successful kernel probe now also depends on the previous errno.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

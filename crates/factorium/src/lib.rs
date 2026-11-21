@@ -14,6 +14,7 @@ mod kept;
 mod life;
 mod line;
 mod load;
+mod lock;
 mod outage;
 mod owner;
 mod pick;
@@ -172,6 +173,8 @@ struct Memory {
     asked: std::collections::BTreeSet<Uuid>,
     /// The binary this process runs, and the Homebrew link to its formula.
     running: Option<(PathBuf, PathBuf)>,
+    /// The binary this process runs (canonical), noted before an upgrade could move what its path names.
+    exe: Option<PathBuf>,
     /// The binary a rollback went back from: a link that names it is not swapped to.
     refused: Option<PathBuf>,
     /// Whether a tick of this process went well; how many failed before one did.

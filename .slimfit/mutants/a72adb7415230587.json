@@ -1,0 +1,6 @@
+{
+  "tree": "43e24575e9c7de2e2219a0d6b753c1a583c37221+d1fba762150c532c",
+  "picker": "codex:01a1fdcf-e310-7ab1-8272-e43e06e310e2:default",
+  "author": "claude-code:3a0fa52e-2bac-5168-b65c-1e40bf8fb98f:opus",
+  "none": "The restart test requires removal of the matching worktree, so it catches the inverted comparison, and the whole-body replacements do not type-check for the Result return type."
+}

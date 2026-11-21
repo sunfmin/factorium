@@ -30,6 +30,8 @@ pub enum Time {
     HeldFor,
     TickEvery,
     HeavySettle,
+    HeavyKeep,
+    QueueWaitBound,
     PickBound,
 }
 
@@ -72,7 +74,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 22] = [
+const ALL: [Setting; 24] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -94,6 +96,8 @@ const ALL: [Setting; 22] = [
     S::Time(T::HeldFor),
     S::Time(T::TickEvery),
     S::Time(T::HeavySettle),
+    S::Time(T::HeavyKeep),
+    S::Time(T::QueueWaitBound),
     S::Time(T::PickBound),
 ];
 
@@ -134,6 +138,8 @@ impl Setting {
             S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),
             S::Time(T::TickEvery) => ("tick_every", 10, Seconds, "the daemon ticks this often"),
             S::Time(T::HeavySettle) => ("heavy_settle", 30, Seconds, "a heavy command starts beside another only on a reading taken this long after the last start"),
+            S::Time(T::HeavyKeep) => ("heavy_keep", 600, Seconds, "a worker's or a program's heavy command that left the queue unstarted (refused, or its waiter gone) keeps its place this long: asked again, it takes it"),
+            S::Time(T::QueueWaitBound) => ("queue_wait_bound", 300, Seconds, "admission starts no worker while a heavy command has waited its turn this long"),
             S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this"),
         }
     }

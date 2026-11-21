@@ -2,14 +2,16 @@
 //! and ends it. A start takes the issue, opens the worker's session in its
 //! worktree ([`crate::kept`]), records it started and hands it its brief; a
 //! start that fails after its session opened is undone: what it opened is
-//! closed and its issue is free again. Every end, whatever its cause, runs
-//! in one order ([`App::finish`]).
+//! closed and its issue is free again; one the daemon died in the middle of
+//! is undone when it starts again ([`App::free_unstarted`]). Every end,
+//! whatever its cause, runs in one order ([`App::finish`]).
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::issue::{
     Because, Claim, Claimant, Claiming, CloseIssue, Issue, ReleaseIssue, Take, TakeIssue, Taking,
 };
 use factorium_domain::outbox::Outcome;
+use factorium_domain::tracker;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_domain::worker_id;
 use factum::Uuid;
@@ -66,6 +68,43 @@ impl App {
         let claim = Claim { by: Claimant::Start, pid };
         self.unclaim(Claiming { checkout: checkout.into(), number, claim }).await?;
         started
+    }
+
+    /// Frees each issue taken by a worker never recorded started: the
+    /// daemon, the one process that starts workers, died in the middle of
+    /// its start (factorium#190), so it runs as the daemon starts, with no
+    /// start under way. As [`App::undo_start`] does, its issue is free again
+    /// and the worktree Orca made for it goes, unless it holds work of its
+    /// own (held, doctor names it). Answers what it freed.
+    pub(crate) async fn free_unstarted(&self) -> Answer<Vec<serde_json::Value>> {
+        let mut freed = Vec::new();
+        for row in self.rows(tracker::held()).await? {
+            let Some(worker) = row.holder.worker else { continue };
+            if self.state::<Workers>(worker).await?.started.is_some() {
+                continue;
+            }
+            let (checkout, number) = (row.checkout, row.number);
+            let attempt = self.issue(&checkout, number).await?.attempts;
+            self.submit::<ReleaseIssue>(Take { checkout: checkout.clone(), number, worker }).await?;
+            // Its start's claim (factorium#189) was the dead daemon's: it goes too.
+            if let Some(claim) = self.issue(&checkout, number).await?.claim.filter(|c| c.by == Claimant::Start) {
+                self.unclaim(Claiming { checkout: checkout.clone(), number, claim }).await?;
+            }
+            let branch = WorkerBranch { checkout: checkout.clone(), number, attempt }.name();
+            let c = self.checkout(&checkout).await?;
+            let made = self.host.git(&c.path).worktrees().unwrap_or_default();
+            let made = made.into_iter().find(|(_, b)| b.as_deref() == Some(branch.as_str()));
+            if let Some((path, _)) = &made {
+                let worktree = path.to_string_lossy().into_owned();
+                let st =
+                    Started { checkout: checkout.clone(), number, attempt, worktree, branch, ..Started::default() };
+                self.release_worker(&st, true).await?;
+            }
+            freed.push(
+                json!({ "issue": format!("{checkout}#{number}"), "worker": worker, "worktree": made.map(|(p, _)| p) }),
+            );
+        }
+        Ok(freed)
     }
 
     /// Records a worker whose session opened as started, and hands it its
@@ -134,8 +173,16 @@ impl App {
                 self.submit::<w::EndWorker>(w::Because { worker, why: why.clone() }).await?
             }
         }
+        self.leave_issue(worker, st, &end).await?;
+        Ok(unclosed)
+    }
+
+    /// The rest of a worker's end, once it is recorded landed or ended:
+    /// its issue closes, or is free again; then its worktree goes, unless
+    /// kept or holding work of its own.
+    async fn leave_issue(&self, worker: Uuid, st: &Started, end: &End) -> Answer<()> {
         let (checkout, number) = (st.checkout.clone(), st.number);
-        let keep = match &end {
+        let keep = match end {
             End::Landed(commit) => {
                 let reason = format!("landed as {commit}");
                 self.submit::<CloseIssue>(Because { checkout, number, reason }).await?;
@@ -150,8 +197,23 @@ impl App {
                 *keep
             }
         };
-        self.release_worker(st, !keep).await?;
-        Ok(unclosed)
+        self.release_worker(st, !keep).await
+    }
+
+    /// Each open issue a worker that landed holds still, closed: a daemon
+    /// that died between recording the landing and closing its issue left
+    /// it so, and no tick lands the worker again (factorium#192). The rest
+    /// of its end, in [`App::finish`]'s order. Answers the issues closed.
+    pub(crate) async fn close_landed(&self) -> Answer<Vec<serde_json::Value>> {
+        let mut closed = Vec::new();
+        for issue in self.rows(tracker::held()).await? {
+            let Some(worker) = issue.holder.worker else { continue };
+            let wk = self.state::<Workers>(worker).await?;
+            let (Status::Ended, Some(st), Some(commit)) = (wk.status, wk.started, wk.landed) else { continue };
+            self.leave_issue(worker, &st, &End::Landed(commit.clone())).await?;
+            closed.push(json!({ "closed": format!("{}#{}", issue.checkout, issue.number), "commit": commit }));
+        }
+        Ok(closed)
     }
 
     async fn open_worker(

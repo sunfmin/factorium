@@ -95,10 +95,51 @@ fn session_of(pid: u32) -> Option<u32> {
     u32::try_from(sid).ok()
 }
 
+/// Whether `pid` lives (a zombie not yet reaped counts): asked of the kernel
+/// with `kill(pid, 0)`, not by starting `kill`, as each waiting heavy
+/// command asks it of every entry twice a second (factorium#194).
+#[allow(unsafe_code)]
 pub fn alive(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: signal 0 only checks that the process exists; none is sent.
+    let answered = unsafe { libc::kill(pid, 0) };
+    answered == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Whether `file` stays open in a program this process runs (`exec`s, or
+/// starts), as a lock it holds must through an exec; files open closing in
+/// them by default. Answers its descriptor.
+#[allow(unsafe_code)]
+pub fn kept_across_exec(file: &std::fs::File, kept: bool) -> std::io::Result<i32> {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    let flags = if kept { 0 } else { libc::FD_CLOEXEC };
+    // SAFETY: fcntl sets the flags of a descriptor `file` owns.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags) } == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(fd)
+}
+
+/// The file at `path` this process was handed open as descriptor `fd` by
+/// the image it replaced (`kept_across_exec`), if `fd` is open on that very
+/// file: then it is this process's to own, and closes in programs it runs.
+#[allow(unsafe_code)]
+pub fn inherited(fd: i32, path: &std::path::Path) -> Option<std::fs::File> {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let at = std::fs::metadata(path).ok()?;
+    // SAFETY: fstat writes only into `st`, which it is handed. A descriptor
+    // not open leaves it zeroed, which no file's device and inode are.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    unsafe { libc::fstat(fd, &raw mut st) };
+    if u64::try_from(st.st_dev).ok()? != at.dev() || st.st_ino != at.ino() {
+        return None;
+    }
+    // SAFETY: `fd` is open on `path`'s file, which nothing else in this
+    // process opened as it: it came through the exec, and is owned here.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    kept_across_exec(&file, false).ok()?;
+    Some(file)
 }

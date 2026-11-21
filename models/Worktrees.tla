@@ -16,8 +16,9 @@
 (* tick's start; the landing, its line), and the CLI commands start-over, *)
 (* close and discard, each its own process. Each step a process takes is  *)
 (* one action, named as the code names it; any process may die between   *)
-(* two of its steps (`Dies` names where), and comes back idle. All of     *)
-(* them interleave, and a worker's own steps (its changes and commits,    *)
+(* two of its steps (`Dies` names where), and comes back idle: the       *)
+(* daemon, dead, first frees a start it died in (Free). All of them       *)
+(* interleave, and a worker's own steps (its changes and commits,         *)
 (* failing) with everything.                                              *)
 (*                                                                         *)
 (* A start and the commands that abandon a worktree hold the issue's      *)
@@ -123,7 +124,7 @@ Remove(S, t) == [S EXCEPT !.disk[t] = FALSE, !.dirty[t] = {}, !.hasbr[t] = FALSE
 
 \* The issue's claim (ClaimIssue, TakeIssue): free, p takes it; held,
 \* p is refused. (Broken, `unclaimed`: no process claims it.)
-Free(S) == S.claim = ""
+Unclaimed(S) == S.claim = ""
 Claim(S, p) == [S EXCEPT !.claim = IF Bug = "unclaimed" THEN "" ELSE p]
 \* p is done (UnclaimIssue): idle, its claim freed if it holds it still.
 Done(S, p) == [S EXCEPT !.pc[p] = Idle, !.claim = IF @ = p THEN "" ELSE @]
@@ -133,7 +134,7 @@ Done(S, p) == [S EXCEPT !.pc[p] = Idle, !.claim = IF @ = p THEN "" ELSE @]
 
 \* The tick takes the issue: the proving tip is fetched first (unread, the
 \* start refuses and takes nothing), then TakeIssue counts an attempt.
-TakeG(S) == /\ S.pc.daemon.at = "idle" /\ Free(S)
+TakeG(S) == /\ S.pc.daemon.at = "idle" /\ Unclaimed(S)
             /\ S.status = "ready" /\ S.taken = 0 /\ S.attempts < A
             /\ (S.tipok \/ Bug = "start_unknown")
 TakeF(S) == LET a == S.attempts + 1 IN
@@ -163,6 +164,19 @@ UndoRm(S) == ~HoldsOwn(S, S.pc.daemon.t, S.tipok)
 UndoF(S) == LET t == S.pc.daemon.t
                 S1 == IF UndoRm(S) THEN Remove(S, t) ELSE S
             IN Done([S1 EXCEPT !.taken = 0], "daemon")
+
+\* The daemon starts again after it died (daemon.rs daemon_start, life.rs
+\* free_unstarted): no start is under way, so an issue taken by an attempt
+\* never recorded started is free again, and the worktree that attempt
+\* made, if it made one, goes as undo_start's does: unless it holds work of
+\* its own, against the tip read now; the start's claim, the dead
+\* daemon's, goes with it.
+FreeG(S) == S.pc.daemon.at = "dead"
+Unstarted(S) == S.taken # 0 /\ S.started[S.taken] = 0 /\ Bug # "no_free"
+FreeRm(S) == Unstarted(S) /\ S.disk[S.taken] /\ ~HoldsOwn(S, S.taken, S.tipok)
+FreeF(S) == LET S1 == IF FreeRm(S) THEN Remove(S, S.taken) ELSE S IN
+            [S1 EXCEPT !.taken = IF Unstarted(S) THEN 0 ELSE @, !.pc.daemon = Idle,
+                       !.claim = IF @ = "daemon" THEN "" ELSE @]
 
 -----------------------------------------------------------------------------
 (* A worker's own steps, in the worktree its attempt works in.             *)
@@ -208,7 +222,7 @@ ReleaseF(S) == LET S1 == IF ReleaseRm(S) THEN Remove(S, S.pc.land.t) ELSE S IN
 \* read now, unread meaning held) is abandoned. (Under its claim no start
 \* changes what it read, so the claim and the read are one step.)
 OverG(S) == LET lt == LastTree(S) IN
-            /\ S.pc.over.at = "idle" /\ Free(S)
+            /\ S.pc.over.at = "idle" /\ Unclaimed(S)
             /\ (S.taken = 0 \/ Bug = "start_over_live")
             /\ lt # 0 /\ S.disk[lt] /\ HoldsOwn(S, lt, S.tipok)
 OverF(S) == [Claim(S, "over") EXCEPT !.pc.over = [at |-> "commit", a |-> 0, t |-> LastTree(S)]]
@@ -217,7 +231,7 @@ OverF(S) == [Claim(S, "over") EXCEPT !.pc.over = [at |-> "commit", a |-> 0, t |-
 \* disk (left), if any, is abandoned once the issue closes. With none, it
 \* just closes (a worker on it ends, its worktree released: there is none
 \* on disk). Closed, the issue holds no claim: it takes no start.
-CloseG(S) == S.pc.close.at = "idle" /\ Free(S) /\ S.status # "closed"
+CloseG(S) == S.pc.close.at = "idle" /\ Unclaimed(S) /\ S.status # "closed"
 Left(S) == IF LastTree(S) # 0 /\ S.disk[LastTree(S)] THEN LastTree(S) ELSE 0
 Shut(S) == [S EXCEPT !.status = "closed", !.taken = 0, !.live = [a \in Attempts |-> FALSE], !.claim = ""]
 CloseF(S) == IF Left(S) = 0 THEN Shut(S)
@@ -230,7 +244,7 @@ ShutF(S) == [Shut(S) EXCEPT !.pc.close.at = IF Bug = "close_no_keep" THEN "remov
 \* `discard <worktree>`: one doctor finds that no open issue owns, found
 \* again under the claim of its issue, if open.
 DiscardG(S, t) == /\ S.pc.discard.at = "idle" /\ Orphaned(S, t)
-                  /\ (S.status = "closed" \/ Free(S))
+                  /\ (S.status = "closed" \/ Unclaimed(S))
 DiscardF(S, t) == LET S1 == IF S.status = "closed" THEN S ELSE Claim(S, "discard") IN
                   [S1 EXCEPT !.pc.discard = [at |-> "commit", a |-> 0, t |-> t]]
 
@@ -261,6 +275,7 @@ Take == TakeG(s) /\ Did(TakeF(s), "take", "daemon", 0, s.tipok, FALSE)
 Decide == DecideG(s) /\ Plain(DecideF(s), "decide", "daemon", DecideF(s).pc.daemon.t)
 Record == RecordG(s) /\ Plain(RecordF(s), "record", "daemon", s.pc.daemon.t)
 Undo == RecordG(s) /\ Did(UndoF(s), "undo", "daemon", s.pc.daemon.t, s.tipok, UndoRm(s))
+Free == FreeG(s) /\ Did(FreeF(s), "free", "daemon", s.taken, s.tipok, FreeRm(s))
 Edit(a) == EditG(s, a) /\ Plain(EditF(s, a), "edit", "worker", Tree(s, a))
 Commit(a) == CommitG(s, a) /\ Plain(CommitF(s, a), "commit", "worker", Tree(s, a))
 Fail(a) == FailG(s, a) /\ Plain(FailF(s, a), "fail", "worker", Tree(s, a))
@@ -286,14 +301,15 @@ Clear == ClearG(s) /\ Plain([s EXCEPT !.claim = ""], "clear", "daemon", 0)
 Tip == Plain([s EXCEPT !.tipok = ~@], "tip", "", 0)
 
 \* A process dies where `Dies` allows, and comes back idle: the daemon
-\* (its start and its landing alike), or a CLI command.
+\* (its start and its landing alike), dead until it starts again (Free),
+\* or a CLI command.
 Die ==
     \/ /\ s.pc.daemon.at \in Dies \/ s.pc.land.at \in Dies
-       /\ Plain([s EXCEPT !.pc.daemon = Idle, !.pc.land = Idle], "die", "daemon", 0)
+       /\ Plain([s EXCEPT !.pc.daemon = [Idle EXCEPT !.at = "dead"], !.pc.land = Idle], "die", "daemon", 0)
     \/ \E p \in CLIs : s.pc[p].at \in Dies /\ Plain([s EXCEPT !.pc[p] = Idle], "die", p, 0)
 
 Next ==
-    \/ Take \/ Decide \/ Record \/ Undo \/ Release \/ Ready
+    \/ Take \/ Decide \/ Record \/ Undo \/ Free \/ Release \/ Ready
     \/ Over \/ Close \/ ShutStep \/ Tip \/ Die \/ Clear
     \/ \E a \in Attempts : Edit(a) \/ Commit(a) \/ Fail(a) \/ Ends(a) \/ Land(a)
     \/ \E t \in Trees : Discard(t)
@@ -383,6 +399,7 @@ BrokenVariants == [
     start_unknown     |-> "HeldWhenUnknown",        \* a start takes the issue with the tip unread
     start_over_live   |-> "NoStartOverUnderWorker", \* start-over not refused under a worker
     unclaimed         |-> "NoStartOverUnderWorker", \* no claim: a start runs between a command's read and act (#189)
-    closed_unfound    |-> "DoctorFinds"             \* doctor passes over a closed issue's worktree
+    closed_unfound    |-> "DoctorFinds",            \* doctor passes over a closed issue's worktree
+    no_free           |-> "DoctorFinds"             \* a daemon starting again frees no start it died in (#190)
 ]
 =============================================================================

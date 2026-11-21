@@ -1,0 +1,10 @@
+{
+  "tree": "37c17512d02c1fb69e6d9cfd7689a62fb51ccddc+d1fba762150c532c",
+  "lines": 61,
+  "serves": "factorium#191",
+  "considered": "line.rs's promotion lock (Running::take), moved to lock::take and used by both the promotion and the daemon; App::daemon_pid, kept for stop and the service; the pid file check-then-write in App::run, deleted",
+  "reviewer": "codex:01a1fdab-cb21-7ef2-b0cd-200495ab7206:default",
+  "author": "claude-code:1a876b7d-25ac-589d-9ade-303cc8dc7d6e:opus",
+  "cut": "In crates/factorium/src/lock.rs, return std::fs::File directly from take and delete Held and its accessor. In crates/factorium/src/daemon.rs, filter the inherited File with File::try_lock and pass the File directly to exec. In crates/factorium/src/line.rs, resolve the empty-lock fallback before formatting the promotion refusal once.",
+  "answer": "Made all three: lock::take answers the File (Held and its accessor gone); the inherited File is filtered by try_lock and exec takes &File; the promotion refusal resolves the empty-lock fallback, then formats once. The rest is the exec hand-off (keeping the lock held through the daemon's exec of a new binary) the issue needs."
+}

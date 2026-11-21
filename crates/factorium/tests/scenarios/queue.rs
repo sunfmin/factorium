@@ -281,6 +281,23 @@ async fn promote_by_hand_while_the_daemons_promotion_runs_is_refused_and_leaves_
 }
 
 #[tokio::test]
+async fn a_promotion_whose_lock_is_held_and_says_nothing_yet_is_refused_as_another() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    // Locked by one that has not yet written what it is.
+    let lock = w.data().promotion_lock("web");
+    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    let held = std::fs::File::create(&lock).unwrap();
+    held.try_lock().unwrap();
+    w.done(&worker(&w.app).await, "a.txt", "a\n").await;
+    // Landed; the daemon's promotion is refused as well.
+    let t = w.tick().await;
+    assert!(!t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    let refused = w.run().promote("web").await.unwrap();
+    assert_eq!(refused, json!({ "promoted": null, "why": "a promotion of web runs: another promotion" }));
+}
+
+#[tokio::test]
 async fn the_daemon_starts_no_promotion_while_promote_by_hand_runs() {
     let w = World::new();
     // #2 keeps working all along: the daemon promotes only once the bound passed.
@@ -370,11 +387,11 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     // No room beside what runs: both wait.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let (b, o, n) = (w.run(), w.run().under_rules("1.0.0"), w.run().under_rules("1.0.1"));
-    // The old one runs as Homebrew's 0.0.9; Homebrew links a newer one since.
-    let link = w.running_as(&o, "factorium");
+    // The old one was started from Homebrew's 0.0.9; Homebrew links a newer one since: refused,
+    // the waiter finds the link from the binary it noted as it began to wait (factorium#193).
+    let (bin, link) = w.installed("factorium");
+    o.started_from(&bin);
     w.links_newer("factorium", OPENS_ONCE);
-    // As the waiter finds its link once refused: after the upgrade.
-    o.runs_as(&w.dir.join("brew/Cellar/factorium/0.0.9/bin/factorium").canonicalize().unwrap());
     let runs = async {
         let held = b.worker_exclusive(None, &w.dir, &lines[0]);
         let waits = async {

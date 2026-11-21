@@ -166,6 +166,52 @@ async fn load_the_heavy_queue_granted_does_not_hold_admission_and_load_outside_i
     assert_eq!(doctor["reading"]["cpu_busy"], 95, "doctor reads as admission does: {doctor}");
 }
 
+/// Seen 2026-11-21 (factorium#194): one entry ran, twelve waited, and
+/// admission went on starting workers. The queue starts beside what runs
+/// only while the host has room, so it held the host's reading near the
+/// busy limit; admission's reading leaves out the running slot, so it read
+/// room each time the host dipped under it, and every new worker's heavy
+/// commands only waited behind the rest (guild#29 72 minutes).
+#[tokio::test]
+async fn a_heavy_command_waiting_past_the_queue_wait_bound_holds_admission() {
+    let w = World::new();
+    ready(&w).await;
+    let cores = std::thread::available_parallelism().unwrap().get() as f64;
+    // The running slot's load, under the `worker exclusive` that holds it (this process).
+    let slot = Proc { pid: 77, ppid: std::process::id(), cpu: 90.0 * cores, ..Default::default() };
+    let dir = w.dir.join("slot");
+    let line = &w.holds(&dir);
+    let (holder, waiter) = (w.run(), w.run());
+    let body = async {
+        until_file(&dir.join("started")).await;
+        *w.host.procs.lock().unwrap() = vec![slot.clone()];
+        // No room beside it: the next one waits.
+        w.host.reading.lock().unwrap().cpu_busy = 95;
+        let mut next = std::pin::pin!(waiter.worker_exclusive(None, &w.dir, "echo next"));
+        tokio::select! { _ = &mut next => panic!("it started beside a busy host"), () = w.until_queued("echo next") => {} }
+        // Waiting up to the bound is no backlog.
+        w.clock.advance(300_000);
+        let t = w.tick().await;
+        assert!(t.started.is_some(), "waiting the bound is no backlog: {:?}", t.held);
+        w.clock.advance(1_000);
+        let t = w.tick().await;
+        let why = t.held.as_deref().unwrap_or_default().to_string();
+        assert!(t.started.is_none() && why.starts_with("queue: `echo next` has waited 301s"), "{why}");
+        // The slot ends; the waiting one runs; admission opens again.
+        std::fs::write(dir.join("release"), "").unwrap();
+        w.gone(line).await;
+        // The waiter asks again a poll on: with nothing running, it starts.
+        let ran = async { tokio::join!(next, w.poll(1)).0 };
+        assert_eq!(ran.await.unwrap()["ok"], true);
+        *w.host.procs.lock().unwrap() = vec![];
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        assert!(w.tick().await.started.is_some(), "nothing waits: admission opens");
+    };
+    let ran = async { tokio::join!(holder.worker_exclusive(None, &dir, line), body) };
+    let (held, ()) = tokio::time::timeout(STUCK, ran).await.expect("both commands end");
+    assert_eq!(held.unwrap()["ok"], true);
+}
+
 #[tokio::test]
 async fn a_worker_s_hot_clock_survives_a_restart_and_stops_once_it_is_back_within_its_share() {
     let w = World::new();
@@ -273,7 +319,7 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     let w = World::new();
     let all = w.app.settings_set(None, None).await.unwrap();
     let all = all.as_array().unwrap();
-    assert_eq!(all.len(), 22, "every setting is listed");
+    assert_eq!(all.len(), 24, "every setting is listed");
     let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
     assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
     let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();

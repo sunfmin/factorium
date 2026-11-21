@@ -1,11 +1,12 @@
 //! Admission as factorium asks it: the host's room (neutral:
 //! [`crate::neutral::admission`]), and for a worker, the workers under
-//! their share of the CPU.
+//! their share of the CPU and the heavy queue keeping up.
 
 use serde::{Deserialize, Serialize};
 
+use crate::heavy::Queue;
 use crate::neutral::admission::{self as neutral, Limits};
-use crate::settings::{Setting, Settings};
+use crate::settings::{Setting, Settings, Time};
 
 /// What the host read, as the rules see it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -36,14 +37,28 @@ pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
     neutral::room(&r.host(), &limits(s))
 }
 
-/// Whether one more worker may start: room, and the workers under their
-/// share of the CPU.
-pub fn admit(r: &Reading, s: &Settings) -> Result<(), String> {
+/// Whether one more worker may start at `now`: room, the workers under
+/// their share of the CPU, and no heavy command of `queue` waiting past the
+/// queue wait bound. The reading leaves out what runs in started slots, the
+/// queue's to bound, and the queue starts beside them only while the host
+/// has room, so it holds the host near the busy limit; a command waiting
+/// that long is the load the reading cannot show, and another worker's
+/// would only wait behind it (factorium#194).
+pub fn admit(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Result<(), String> {
     room(r, s)?;
     if r.workers_cpu > s.get(Setting::WorkersCpuShare) {
         return Err(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get(Setting::WorkersCpuShare)));
     }
-    Ok(())
+    let bound = s.ms(Time::QueueWaitBound);
+    match queue.oldest() {
+        Some(e) if now - e.queued_at > bound => {
+            // A command line can run long (a ratchet's `--considered`): its head names it.
+            let what: String = e.what.chars().take(60).collect();
+            let waited = (now - e.queued_at) / 1000;
+            Err(format!("queue: `{what}` has waited {waited}s for its turn, over {}s", bound / 1000))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Whether the disk is under its floor: the time to reclaim `target/`.
