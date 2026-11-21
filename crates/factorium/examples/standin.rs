@@ -23,7 +23,10 @@
 //!   unprinted: how each side is brought to the same state.
 //! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
 //!   whole trimmed stdout) as `{name}` in later steps, beside `{dir}` (the
-//!   working directory), `{uid}` and `{nonce}` (unique to the run).
+//!   working directory), `{uid}`, `{nonce}` (unique to the run) and
+//!   `{scratch}`: the Orca cases' one repo per host (truefit.toml).
+//! - `{"scratch": branch}`: makes `{scratch}` if need be, keeps its head as
+//!   `{sha}`, and removes its worktrees on `branch` and the branch.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -136,6 +139,26 @@ fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
     }
 }
 
+/// The scratch repo at `repo`, made if need be, without `branch` or its
+/// worktrees (removed through Orca): its head.
+fn scratch(side: &Side, repo: &str, branch: &str) -> String {
+    side.run("git", &["init", "-q", "-b", "main", repo]);
+    let git = |args: &[&str]| side.run("git", &[&["-C", repo], args].concat());
+    if !git(&["rev-parse", "HEAD"]).ok {
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"]);
+    }
+    let on = format!("branch refs/heads/{branch}");
+    let listed = git(&["worktree", "list", "--porcelain"]).out;
+    for entry in listed.split("\n\n").filter(|e| e.lines().any(|l| l == on)) {
+        if let Some(path) = entry.lines().find_map(|l| l.strip_prefix("worktree ")) {
+            let _ = Orca(side).remove(path.as_ref());
+        }
+    }
+    git(&["worktree", "prune"]);
+    git(&["branch", "-q", "-D", branch]);
+    git(&["rev-parse", "HEAD"]).out.trim().to_string()
+}
+
 /// `s` with each `{name}` it holds as kept.
 fn fill(s: &str, kept: &BTreeMap<String, String>) -> String {
     kept.iter().fold(s.to_string(), |s, (k, v)| s.replace(&format!("{{{k}}}"), v))
@@ -159,6 +182,9 @@ fn main() {
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();
+    let state =
+        if fake { dir.clone() } else { factorium::default_db(|k| std::env::var_os(k)).parent().unwrap().into() };
+    kept.insert("scratch".into(), state.join("factorium-truefit").display().to_string());
     for line in std::io::stdin().lock().lines() {
         let line = line.unwrap();
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
@@ -172,7 +198,11 @@ fn main() {
         let strings = |v: &Value| -> Vec<String> {
             v.as_array().into_iter().flatten().map(|a| a.as_str().unwrap_or_default().to_string()).collect()
         };
-        let (printed, answer, text) = if let Some(to) = step.get("world") {
+        let (printed, answer, text) = if let Some(branch) = step["scratch"].as_str() {
+            let sha = scratch(&side, &kept["scratch"], branch);
+            kept.insert("sha".into(), sha);
+            continue;
+        } else if let Some(to) = step.get("world") {
             if let Some(fake) = &side.0 {
                 set(fake, to);
             }
