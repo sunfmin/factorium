@@ -6,7 +6,10 @@
 //! reading settled after the last start; and one that holds others up past the hold bound is ended. A
 //! line move past its bound goes ahead of workers' waiting entries. The
 //! rules are those of the newest version that asked: a binary older than it
-//! is refused, however long it has waited (factorium#106).
+//! is refused, however long it has waited (factorium#106). A worker's or a
+//! program's entry that left the queue unstarted (its waiter refused, or
+//! gone) keeps its place for the keep bound: the same asker asking the same
+//! command again takes it (factorium#193).
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
 
@@ -81,7 +84,35 @@ pub struct Queue {
     /// The newest rules that asked: older ones may not start.
     #[serde(default)]
     pub rules: String,
+    /// The places of entries that left unstarted, kept for their askers.
+    #[serde(default)]
+    pub left: Vec<Left>,
 }
+
+/// The place of a worker's or a program's entry that left the queue
+/// unstarted, not taken off by the owner: its asker asking the same command
+/// again within the keep bound takes it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Left {
+    pub what: String,
+    pub worker: Option<Uuid>,
+    pub program: bool,
+    /// The place it had: when it was queued (or the place it took), ms.
+    pub queued_at: i64,
+    /// When it left, ms.
+    pub left_at: i64,
+}
+
+impl Left {
+    /// Whether it is the place of `what` asked by `worker` (or a program).
+    fn of(&self, what: &str, worker: Option<Uuid>, program: bool) -> bool {
+        self.what == what && self.worker == worker && self.program == program
+    }
+}
+
+/// How long a left entry's place is kept at most, whatever the keep bound:
+/// so the kept places stay few. A day, ms.
+const LEFT_KEPT_MAX: i64 = 24 * 3600 * 1000;
 
 impl Queued for Entry {
     fn id(&self) -> Uuid {
@@ -144,6 +175,14 @@ impl Queue {
         queue::may_start(&self.entries, starts, id, room, read_at, now)
     }
 
+    /// The place `what`, asked by `worker` (or a program), takes at `now`: that of its entry
+    /// that left unstarted at most `keep` ms before, if one did; else none, and it queues at the back.
+    pub fn place(&self, what: &str, worker: Option<Uuid>, program: bool, now: i64, keep: i64) -> Option<i64> {
+        let yields = worker.is_some() || program;
+        let kept = self.left.iter().filter(|l| yields && l.of(what, worker, program) && now - l.left_at <= keep);
+        kept.map(|l| l.queued_at).min()
+    }
+
     /// Whether `id` is queued, waiting or running.
     pub fn holds(&self, id: Uuid) -> bool {
         self.entries.iter().any(|e| e.id == id)
@@ -200,6 +239,10 @@ pub enum HeavyEvent {
         at: i64,
         #[serde(default)]
         bound_at: Option<i64>,
+        /// The place it took, kept from its asker's entry that left
+        /// unstarted: its `queued_at`, not `at`.
+        #[serde(default)]
+        place: Option<i64>,
     },
     HeavyStarted {
         id: Uuid,
@@ -207,6 +250,10 @@ pub enum HeavyEvent {
     },
     HeavyEnded {
         id: Uuid,
+        /// When it left unstarted with its place kept for its asker, ms;
+        /// none: its place goes.
+        #[serde(default)]
+        kept_at: Option<i64>,
     },
     /// A started entry's step runs in session `session`.
     HeavyRuns {
@@ -228,22 +275,30 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at } => s.entries.push(Entry {
-                id,
-                what,
-                pid,
-                worker,
-                program,
-                queued_at: at,
-                started_at: None,
-                bound_at,
-                session: None,
-            }),
+            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at, place } => {
+                s.left.retain(|l| !l.of(&what, worker, program));
+                let queued_at = place.unwrap_or(at);
+                let session = None;
+                s.entries.push(Entry { id, what, pid, worker, program, queued_at, started_at: None, bound_at, session })
+            }
             HeavyEvent::HeavyStarted { id, at } => {
                 s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.started_at = Some(at));
                 s.last_start = at;
             }
-            HeavyEvent::HeavyEnded { id } => s.entries.retain(|e| e.id != id),
+            HeavyEvent::HeavyEnded { id, kept_at } => {
+                if let Some(at) = kept_at {
+                    s.left.retain(|l| at - l.left_at <= LEFT_KEPT_MAX);
+                    let left = s.entries.iter().find(|e| e.id == id && e.started_at.is_none() && e.yields());
+                    s.left.extend(left.map(|e| Left {
+                        what: e.what.clone(),
+                        worker: e.worker,
+                        program: e.program,
+                        queued_at: e.queued_at,
+                        left_at: at,
+                    }));
+                }
+                s.entries.retain(|e| e.id != id)
+            }
             HeavyEvent::HeavyRuns { id, session } => {
                 s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.session = Some(session))
             }
@@ -264,6 +319,10 @@ pub struct Enqueue {
     /// When the line move it is for passes its bound, ms.
     #[serde(default)]
     pub bound_at: Option<i64>,
+    /// How long the place of its asker's entry that left unstarted is kept
+    /// for it, ms: `heavy_keep`.
+    #[serde(default)]
+    pub keep: i64,
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
@@ -278,6 +337,7 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         program: p.program,
         at: now.0,
         bound_at: p.bound_at,
+        place: s.place(&p.what, p.worker, p.program, now.0, p.keep),
     }])
 });
 
@@ -309,13 +369,32 @@ command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct End {
     pub id: Uuid,
+    /// Whether its place is kept for its asker, if it leaves unstarted: its
+    /// waiter was refused or is gone, and asked again takes it. The owner's
+    /// unqueue, or one no longer due, does not keep it.
+    #[serde(default)]
+    pub keeps: bool,
+}
+
+impl End {
+    /// `id` off the queue, its place gone.
+    pub fn off(id: Uuid) -> End {
+        End { id, keeps: false }
+    }
+
+    /// `id` off the queue, its place kept for its asker if it never started.
+    pub fn keeping(id: Uuid) -> End {
+        End { id, keeps: true }
+    }
 }
 
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(if s.entries.iter().any(|e| e.id == p.id) {
-        vec![HeavyEvent::HeavyEnded { id: p.id }]
-    } else {
-        Vec::new()
+    Ok::<_, factum_core::Rejection>(match s.entries.iter().find(|e| e.id == p.id) {
+        Some(e) => {
+            let kept_at = (p.keeps && e.started_at.is_none() && e.yields()).then_some(now.0);
+            vec![HeavyEvent::HeavyEnded { id: p.id, kept_at }]
+        }
+        None => Vec::new(),
     })
 });
 
@@ -366,5 +445,33 @@ mod tests {
         // A cut, say, neither a worker's nor a program's: it keeps its place.
         let q = Queue { entries: vec![entry(1, 1), line.clone()], ..Queue::default() };
         assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(Uuid::from_u128(1)));
+    }
+
+    fn queued(n: u128, what: &str, worker: Option<Uuid>, at: i64, place: Option<i64>) -> HeavyEvent {
+        let (id, what) = (Uuid::from_u128(n), what.to_string());
+        HeavyEvent::HeavyQueued { id, what, pid: 1, worker, program: false, at, bound_at: None, place }
+    }
+
+    #[test]
+    fn an_entry_that_left_unstarted_keeps_its_place_for_its_asker_alone_within_the_keep_bound() {
+        let (me, other) = (Some(Uuid::from_u128(7)), Some(Uuid::from_u128(8)));
+        let mut q = Queue::default();
+        Heavy::evolve(&mut q, queued(1, "check", me, 10, None));
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(1), kept_at: Some(20) });
+        assert_eq!(q.place("check", me, false, 30, 10), Some(10), "asked again within the bound");
+        assert_eq!(q.place("check", me, false, 31, 10), None, "past it");
+        assert_eq!(q.place("check", other, false, 30, 10), None, "another worker's");
+        assert_eq!(q.place("gate", me, false, 30, 10), None, "another command");
+        assert_eq!(q.place("check", None, false, 30, 10), None, "neither a worker's nor a program's");
+        // Taken, it is gone.
+        Heavy::evolve(&mut q, queued(2, "check", me, 30, Some(10)));
+        assert_eq!(q.entries[0].queued_at, 10, "it takes the place it had");
+        assert!(q.left.is_empty());
+        // Ended with its place gone (the owner's unqueue), or once started, none is kept.
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(2), kept_at: None });
+        Heavy::evolve(&mut q, queued(3, "check", me, 40, None));
+        Heavy::evolve(&mut q, HeavyEvent::HeavyStarted { id: Uuid::from_u128(3), at: 41 });
+        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(3), kept_at: Some(42) });
+        assert!(q.left.is_empty(), "{:?}", q.left);
     }
 }

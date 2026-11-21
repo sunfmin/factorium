@@ -41,6 +41,7 @@ mod outbox;
 mod parked;
 mod path;
 mod pick;
+mod place;
 mod priority;
 mod program;
 mod queue;

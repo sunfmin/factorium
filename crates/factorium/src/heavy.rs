@@ -145,6 +145,12 @@ impl App {
     /// [`Turn::Once`] or [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
     /// once it started: a tick's [`App::beside`] answers how it ran, with its idle work.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
+        // A waiter's own binary, known before it waits: a cut that upgrades Homebrew
+        // meanwhile makes the path it runs from name the new one, or nothing (the old
+        // keg gone), and refused as stale it would then find nothing to exec (factorium#193).
+        if matches!(turn, Turn::Wait) {
+            let _ = self.linked();
+        }
         // `queued`: its entry was queued before this ask, so one the queue
         // no longer holds was unqueued.
         let (id, mut queued) = match &turn {
@@ -165,7 +171,7 @@ impl App {
                 Err(r) if r.code == "stale" => match &turn {
                     Turn::Wait => {
                         let r = self.as_installed(id, r);
-                        self.submit::<EndHeavy>(End { id }).await?;
+                        self.submit::<EndHeavy>(End::keeping(id)).await?;
                         return Err(r);
                     }
                     // The daemon execs the installed binary after this tick.
@@ -180,7 +186,7 @@ impl App {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
                 }
-                (false, Turn::Beside { .. }) => return self.submit::<EndHeavy>(End { id }).await.map(|()| None),
+                (false, Turn::Beside { .. }) => return self.submit::<EndHeavy>(End::off(id)).await.map(|()| None),
             }
         }
         if let Turn::Beside { yields, idle } = turn {
@@ -194,7 +200,7 @@ impl App {
         }
         let ran = self.run_held(id, &job).await;
         self.memory.lock().unwrap().queued.remove(&id);
-        self.submit::<EndHeavy>(End { id }).await?;
+        self.submit::<EndHeavy>(End::off(id)).await?;
         ran.map(Some)
     }
 
@@ -212,7 +218,7 @@ impl App {
             gone
         };
         for id in gone {
-            self.submit::<EndHeavy>(End { id }).await?;
+            self.submit::<EndHeavy>(End::off(id)).await?;
         }
         Ok(done)
     }
@@ -257,7 +263,7 @@ impl App {
         }
         let Beside(r, idle) = b;
         let (id, why, rans) = (r.id, r.why, self.ran(r).await);
-        self.submit::<EndHeavy>(End { id }).await?;
+        self.submit::<EndHeavy>(End::off(id)).await?;
         let rans = rans?;
         Ok(Some((
             idle,
@@ -289,8 +295,10 @@ impl App {
         self.submit::<NoteRules>(Rules { version: self.rules.clone() }).await
     }
 
-    /// Queues `id` if it is not, and asks once to start it. Entries of
-    /// processes that died are forgotten first. One `queued` before that
+    /// Queues `id` if it is not, and asks once to start it: in the place its
+    /// asker's entry for the same command had, if that left unstarted within
+    /// the keep bound. Entries of processes that died are forgotten first,
+    /// their places kept for their askers. One `queued` before that
     /// the queue no longer holds was unqueued: refused as `unqueued`, not
     /// queued again.
     async fn take_turn(&self, id: Uuid, job: &Job<'_>, queued: bool) -> Answer<bool> {
@@ -300,16 +308,17 @@ impl App {
         }
         let pid = std::process::id();
         for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
-            self.submit::<EndHeavy>(End { id: e.id }).await?;
+            self.submit::<EndHeavy>(End::keeping(e.id)).await?;
         }
         if !q.holds(id) && queued {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
         }
+        let settings = self.settings().await?;
         if !q.holds(id) {
             let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
-            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at }).await?;
+            let keep = settings.ms(Time::HeavyKeep);
+            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep }).await?;
         }
-        let settings = self.settings().await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::read(&*self.host, q).room(), &settings);
