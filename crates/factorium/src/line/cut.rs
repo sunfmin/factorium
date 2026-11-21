@@ -88,8 +88,11 @@ impl App {
                 return Ok(None);
             }
         }
-        let record = line::Cut { checkout: c.name.clone(), version: version.into(), commit: tagged.clone(), failed: None };
+        let record =
+            line::Cut { checkout: c.name.clone(), version: version.into(), commit: tagged.clone(), failed: None };
         self.submit::<line::RecordCut>(record).await?;
-        Ok(Some(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": cut.formula, "read_back": true })))
+        Ok(Some(
+            json!({ "cut": c.name, "version": version, "commit": tagged, "installed": cut.formula, "read_back": true }),
+        ))
     }
 }

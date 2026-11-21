@@ -319,7 +319,10 @@ async fn a_failed_cut_whose_version_got_installed_anyway_is_cleared() {
     let before = upgrades();
     let t = w.tick().await;
     let read = t.lines.iter().find(|l| l["cut"] == "web").expect("the failure is read back");
-    assert_eq!((&read["version"], &read["read_back"], &read["installed"]), (&json!("v0.1.0"), &json!(true), &json!("web")));
+    assert_eq!(
+        (&read["version"], &read["read_back"], &read["installed"]),
+        (&json!("v0.1.0"), &json!(true), &json!("web"))
+    );
     assert_eq!(upgrades(), before, "no new cut, no new install");
     assert!(!finding().await, "{:?}", w.findings().await);
     let t = w.tick().await;
