@@ -1,0 +1,8 @@
+# A crate whose change slimfit lists the mutants of (truefit.toml, slimfit).
+[[suite]]
+name = "rust"
+preset = "rust"
+root = "."
+
+[check]
+target = "main"

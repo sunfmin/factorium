@@ -65,19 +65,19 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     assert!(file.starts_with(w.dir.join("home/Library/LaunchAgents")), "{}", file.display());
     let plist = std::fs::read_to_string(&file).unwrap();
     assert!(plist.contains(&format!("<string>{}</string>", w.db.display())), "its database: {plist}");
-    assert!(*w.host.service.lock().unwrap(), "loaded");
+    assert!(w.host.loaded(), "loaded");
 
     // Installed again: the loaded one is replaced.
     w.app.service_install().unwrap();
-    assert!(*w.host.service.lock().unwrap());
+    assert!(w.host.loaded());
 
     let stopped = w.app.stop().await.unwrap();
     assert_eq!(stopped["service"], "com.github.sunfmin.factorium", "{stopped}");
-    assert!(!*w.host.service.lock().unwrap(), "launchd will not start it again");
+    assert!(!w.host.loaded(), "launchd will not start it again");
 
     w.app.service_install().unwrap();
     w.app.service_remove().unwrap();
-    assert!(!file.exists() && !*w.host.service.lock().unwrap());
+    assert!(!file.exists() && !w.host.loaded());
 }
 
 #[test]

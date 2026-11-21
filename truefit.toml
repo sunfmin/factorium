@@ -1,0 +1,223 @@
+# factorium's ties to the programs it drives (truefit ADR 0001). The
+# scenarios stand in for Orca, Homebrew, mytokens, slimfit and launchd in
+# process (crates/factorium/tests/scenarios/fixture/fakes.rs); `standin`
+# (crates/factorium/examples/standin.rs) runs those very fakes, or the real
+# programs, through one driver, and prints what factorium reads of each
+# answer. `./gate.sh` runs `truefit contract`; a real run is
+# `truefit contract --real <name>`.
+#
+# A real run touches nothing of the host's own: each case runs in its own
+# scratch repo, worktree, terminal or launchd label, named by the run's
+# nonce. What no case can run that way is left out, and said where:
+#
+# - Orca: `repo add` of a scratch repo stays in Orca's list (hidden, at the
+#   case's end: Orca has no `repo rm`).
+# - Homebrew: `update`, and `install` / `upgrade` of a formula that exists,
+#   change the host's Homebrew; only answers about one no tap has, and
+#   reads of factorium's own install, run.
+# - mytokens: `list`, and `get` of a secret that exists: mytokens has no
+#   scratch vault, so either reads the host's own tokens. `get` of a
+#   secret nobody has runs (on a mytokens server it also tells the owner
+#   through Bark).
+# - launchd: only a scratch agent, `/usr/bin/true`, never run at load.
+
+[contract]
+# The command that runs the scenarios' fakes: each fake is a program of
+# FakeHost::run there, and each has a [[standin]] below.
+standins = ["crates/factorium/tests/contract/standin"]
+fresh_days = 30
+
+[[standin]]
+name = "orca"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "Orca's app running, `orca` on PATH"
+ready = ["orca", "status", "--json"]
+version = ["orca", "--version"]
+normalise = [
+  # Orca's handles and ids, and where it keeps a worktree.
+  { pattern = '"(handle|id)":"[^"]*"', replace = '"$1":"<id>"' },
+  { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
+  { pattern = '"ok":"[^"]*/factorium-truefit-[0-9-]+"', replace = '"ok":"<worktree>"' },
+  { pattern = '[0-9]+-[0-9]{13}', replace = "<nonce>" },
+]
+
+# What factorium makes of Orca's answers about what it does not hold.
+[[standin.case]]
+name = "unknown"
+stdin = """
+{"orca": "screen", "args": ["truefit-no-such-terminal"]}
+{"orca": "close", "args": ["truefit-no-such-terminal"]}
+{"orca": "ready", "args": ["truefit-no-such-terminal"]}
+{"orca": "press", "args": ["truefit-no-such-terminal", "\\u001b"]}
+{"orca": "remove", "args": ["{dir}/no-such-worktree"]}
+{"run": ["orca", "repo", "show", "--repo", "path:{dir}", "--json"], "read": ["/ok", "/error/code"]}
+{"run": ["orca", "terminal", "create", "--worktree", "path:{dir}", "--title", "t", "--command", "true", "--json"], "read": ["/ok", "/error/code"]}
+"""
+
+# A worker's life in Orca: its worktree made, its terminal opened, read,
+# typed at, listed, closed, and the worktree removed.
+[[standin.case]]
+name = "worktree-and-terminal"
+stdin = """
+{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "only": "real"}
+{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "only": "fake"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], "read": "ok"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "real"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "fake"}
+{"orca": "worktree", "args": ["{dir}/factorium-truefit-{nonce}", "factorium-truefit-{nonce}", "truefit-{nonce}", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit {nonce}", "cat"], "keep": {"terminal": "/ok"}}
+{"orca": "ready", "args": ["{terminal}"]}
+{"orca": "screen", "args": ["{terminal}"]}
+{"orca": "listed", "args": ["{terminal}"]}
+{"orca": "send", "args": ["{terminal}", "typed"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "screen", "args": ["{terminal}"]}
+{"orca": "listed", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"run": ["orca", "repo", "hide", "--repo", "path:{dir}/factorium-truefit-{nonce}", "--json"], "only": "real"}
+"""
+
+# live_orca's checks: a tell to a Claude Code busy in a call that never
+# returns only queues; one sent with its interrupt key is read now, as
+# the session shows, though Orca sees no turn start. Its own
+# stand-in, as its real run needs Claude Code logged in, and spends a turn.
+[[standin]]
+name = "orca-claude"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "Orca's app running, `orca` on PATH, and Claude Code logged in (`claude` on PATH)"
+ready = ["sh", "-c", "orca status --json >/dev/null && claude --version"]
+version = ["sh", "-c", "echo \"orca $(orca --version), claude $(claude --version)\""]
+normalise = [
+  { pattern = '"(handle|id)":"[^"]*"', replace = '"$1":"<id>"' },
+  { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
+  { pattern = '"ok":"[^"]*/factorium-truefit-[0-9-]+"', replace = '"ok":"<worktree>"' },
+  { pattern = '[0-9]+-[0-9]{13}', replace = "<nonce>" },
+]
+
+[[standin.case]]
+name = "busy-tell"
+stdin = """
+{"run": ["git", "init", "-q", "-b", "main", "{dir}/factorium-truefit-{nonce}"], "read": "ok"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], "read": "ok"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "real"}
+{"run": ["git", "-C", "{dir}/factorium-truefit-{nonce}", "rev-parse", "HEAD"], "keep": {"sha": ""}, "only": "fake"}
+{"orca": "worktree", "args": ["{dir}/factorium-truefit-{nonce}", "factorium-truefit-{nonce}", "truefit-{nonce}", "{sha}"], "keep": {"worktree": "/ok"}}
+{"run": ["mkfifo", "{worktree}/never"], "only": "real"}
+{"orca": "open", "args": ["{worktree}", "truefit {nonce}", "claude --dangerously-skip-permissions --model haiku"], "keep": {"terminal": "/ok"}}
+# A scratch folder: the real one asks whether to trust it, and is answered as a person does.
+{"run": ["sleep", "5"], "only": "real"}
+{"run": ["orca", "terminal", "send", "--terminal", "{terminal}", "--text", "\\u001b[B", "--json"], "only": "real"}
+{"run": ["orca", "terminal", "send", "--terminal", "{terminal}", "--enter", "--json"], "only": "real"}
+{"orca": "ready", "args": ["{terminal}"]}
+# Busy: in the real one, a call that never returns (Claude Code 2.1.330
+# moves one to the background after 20s, so the tells go well before);
+# in the fake, as a scenario sets it. Orca sees no turn that starts right
+# after an interrupt (live_orca took the session's own file for it).
+{"orca": "deliver", "args": ["{terminal}", "Call the Bash tool once, in the foreground (run_in_background false, no timeout change), with the command: cat never. Do not run it in the background."], "only": "real"}
+{"run": ["sleep", "3"], "only": "real"}
+{"world": {"busy": "{terminal}", "unobserved": true}}
+{"orca": "deliver", "args": ["{terminal}", "Plain tell {nonce}: reply QUEUED-SEEN."]}
+{"orca": "deliver", "args": ["{terminal}", "Told now {nonce}: reply NOW-SEEN and nothing else.", "\\u001b"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"run": ["orca", "repo", "hide", "--repo", "path:{dir}/factorium-truefit-{nonce}", "--json"], "only": "real"}
+"""
+
+[[standin]]
+name = "brew"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "Homebrew, with factorium installed from it"
+ready = ["brew", "list", "--versions", "factorium"]
+version = ["brew", "--version"]
+normalise = [
+  { pattern = '"out":"[^"]*/opt/', replace = '"out":"<prefix>/opt/' },
+  { pattern = 'factorium [0-9][^\\"]*', replace = "factorium <version>" },
+]
+
+[[standin.case]]
+name = "no-such-formula"
+env = { HOMEBREW_NO_AUTO_UPDATE = "1", HOMEBREW_NO_ENV_HINTS = "1" }
+stdin = """
+{"run": ["brew", "list", "--formula", "factorium-truefit-none"]}
+{"run": ["brew", "list", "--versions", "factorium-truefit-none"], "read": "out"}
+{"run": ["brew", "upgrade", "factorium-truefit-none"]}
+{"run": ["brew", "install", "factorium-truefit-none"]}
+"""
+
+# factorium as Homebrew installed it: what `Brew::upgrade` and `Brew::bin` read.
+[[standin.case]]
+name = "installed"
+env = { HOMEBREW_NO_AUTO_UPDATE = "1", HOMEBREW_NO_ENV_HINTS = "1" }
+stdin = """
+{"world": {"installed": {"factorium": "0.1.0"}}}
+{"run": ["brew", "list", "--formula", "factorium"]}
+{"run": ["brew", "list", "--versions", "factorium"], "read": "out"}
+{"run": ["brew", "--prefix", "factorium"], "read": "out"}
+"""
+
+[[standin]]
+name = "mytokens"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "mytokens on PATH"
+# The app's version: mytokens is a link into it, and has no --version.
+version = ["sh", "-c", 'b=$(readlink "$(command -v mytokens)"); echo "MyTokens $(defaults read "${b%/MacOS/*}/Info" CFBundleShortVersionString)"']
+
+[[standin.case]]
+name = "no-such-secret"
+stdin = """
+{"run": ["mytokens", "get", "factorium-truefit-none", "--json"], "read": "out"}
+"""
+
+[[standin]]
+name = "slimfit"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "slimfit on PATH, and cargo-mutants (its mutants list)"
+version = ["slimfit", "--version"]
+
+# `worker pick-mutants`: the picker's goal, and a change's candidates, of
+# which factorium reads the names.
+[[standin.case]]
+name = "pick"
+dir = "crates/factorium/tests/contract/slimfit-change"
+stdin = """
+{"world": {"slimfit": {"help": "The goal.", "check": "{\\"candidates\\": {\\"rust\\": [{\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with true\\"}, {\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with false\\"}, {\\"name\\": \\"src/lib.rs:4:29: replace == with != in a\\"}]}}"}}}
+{"run": ["git", "init", "-q", "-b", "main"], "read": "ok"}
+{"run": ["git", "add", "-A"], "read": "ok"}
+{"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"], "read": "ok"}
+{"run": ["git", "checkout", "-q", "-b", "change"], "read": "ok"}
+{"run": ["sh", "-c", "echo 'pub fn a(x: u8) -> bool { x == 1 }' >> src/lib.rs"], "read": "ok"}
+{"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "change"], "read": "ok"}
+{"run": ["slimfit", "help", "picker"]}
+{"run": ["slimfit", "check", "--repo", "{dir}", "--mutants"], "read": ["/candidates/*/*/name"]}
+"""
+
+[[standin]]
+name = "launchctl"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "macOS's launchctl, in a GUI login session"
+normalise = [
+  { pattern = 'gui/[0-9]+', replace = "gui/<uid>" },
+  { pattern = '[0-9]+-[0-9]{13}', replace = "<nonce>" },
+]
+version = ["sw_vers", "-productVersion"]
+
+# `service install`, `stop` and `remove`, on a scratch agent's label.
+[[standin.case]]
+name = "agent"
+dir = "crates/factorium/tests/contract/launchd-agent"
+stdin = """
+{"run": ["sed", "-i", "", "s/{label}/com.github.sunfmin.factorium.truefit-{nonce}/", "agent.plist"], "read": "ok"}
+{"run": ["launchctl", "print", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
+{"run": ["launchctl", "bootstrap", "gui/{uid}", "{dir}/agent.plist"]}
+{"run": ["launchctl", "bootstrap", "gui/{uid}", "{dir}/agent.plist"]}
+{"run": ["launchctl", "print", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
+{"run": ["launchctl", "bootout", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
+{"run": ["launchctl", "print", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
+{"run": ["launchctl", "bootout", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
+"""
