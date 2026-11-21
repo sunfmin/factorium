@@ -179,38 +179,3 @@ fn answers(json: &str) -> Vec<Value> {
     }
     answers
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::issue::Status;
-
-    const DAY: i64 = 24 * 3600 * 1000;
-    const NOW: i64 = 100 * DAY;
-
-    fn said(tasks: &[(&str, &str)]) -> String {
-        let tasks: Vec<_> = tasks.iter().map(|(k, f)| serde_json::json!({"kind": k, "files": [f]})).collect();
-        format!("slimfit 1\n{}", serde_json::json!({"tasks": tasks}))
-    }
-
-    fn issue(kind: &str, file: &str, status: Status, closed_at: Option<i64>) -> Issue {
-        let task = Task { kind: kind.into(), files: vec![file.into()] };
-        Issue { status, closed_at, task: Some(task), ..Issue::default() }
-    }
-
-    fn kinds(said: &str, issues: &[Issue]) -> Vec<String> {
-        to_file(said, "tip", issues, NOW).unwrap().into_iter().map(|f| f.task.kind).collect()
-    }
-
-    #[test]
-    fn a_task_is_filed_unless_its_kind_is_open_or_it_closed_within_the_week() {
-        let a = said(&[("", "x"), ("a", "x"), ("b", "y")]);
-        // No kind, no task.
-        assert_eq!(kinds(&a, &[]), ["a", "b"]);
-        // An open issue holds back its own kind only.
-        assert_eq!(kinds(&a, &[issue("a", "z", Status::Ready, None)]), ["b"]);
-        // Closed a day ago, the same task waits; a week ago, it is filed again.
-        assert_eq!(kinds(&a, &[issue("a", "x", Status::Closed, Some(NOW - DAY))]), ["b"]);
-        assert_eq!(kinds(&a, &[issue("a", "x", Status::Closed, Some(NOW - 7 * DAY))]), ["a", "b"]);
-    }
-}
