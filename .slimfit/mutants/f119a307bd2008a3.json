@@ -1,0 +1,15 @@
+{
+  "tree": "131038ee005e8458d06b07500ddeb8fcb23f0de1+d1fba762150c532c",
+  "picker": "codex:01a1fd3b-56a5-7b62-8640-7dd1099f6cdd:default",
+  "author": "claude-code:a738d8d0-5aab-5aa9-bbef-096289516ff6:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/line/cut.rs:65:9: replace App::proves_formula -> Result<(), String> with Ok(())",
+        "why": "The read-back test checks the installed version but never makes the installed binary fail to open the database.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

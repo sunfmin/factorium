@@ -56,3 +56,32 @@ async fn the_hold_bound_ends_a_running_entrys_whole_process_tree() {
     assert_eq!(pids.left(), Vec::<u32>::new(), "still running");
     assert_eq!(after.unwrap()["ok"], true, "the waiting command runs once the held one is ended");
 }
+
+/// factorium#186: a CLI run's waiting entry unqueued while its process
+/// lives: at its next ask its waiter answers `unqueued`, and does not queue
+/// it again (it was sent to the back).
+#[tokio::test]
+async fn unqueue_of_a_waiting_entry_whose_waiter_lives_answers_unqueued_and_queues_it_not_again() {
+    let w = World::new();
+    let ran = w
+        .while_busy(async {
+            let cli = w.run();
+            let mut waiter = std::pin::pin!(cli.worker_exclusive(None, &w.dir, "echo waiting"));
+            let queued = w.until_queued("echo waiting");
+            tokio::select! { _ = &mut waiter => panic!("it ran beside the busy command"), _ = queued => {} }
+            let id = w.queued_entry("echo waiting").await["id"].as_str().unwrap().parse().unwrap();
+            let unqueued = w.run().unqueue(id).await.unwrap();
+            assert_eq!(unqueued["ended"], false, "{unqueued}");
+            // Its next ask, a poll on (the busy command's waiter and it
+            // sleep): it answers, or queues it again.
+            let again = async {
+                w.poll(2).await;
+                w.until_queued("echo waiting").await;
+            };
+            tokio::select! { ran = &mut waiter => ran, _ = again => panic!("its waiter queued it again") }
+        })
+        .await;
+    let refused = ran.expect_err("an unqueued command is no answer of its own");
+    assert_eq!(refused.code, "unqueued");
+    assert!(refused.message.contains("unqueued"), "{}", refused.message);
+}

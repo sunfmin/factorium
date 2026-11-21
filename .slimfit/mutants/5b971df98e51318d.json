@@ -1,0 +1,6 @@
+{
+  "tree": "0b618732436170edf37a9ce155793ebb26f979fa+d1fba762150c532c",
+  "picker": "codex:01a1fd54-92f4-7133-86e2-8cd765f7cc2e:default",
+  "author": "claude-code:c2f01836-e29b-519a-97d6-399e4086b55a:opus",
+  "none": "The new scenario exercises both fresh enqueue and refusal after unqueue, so it should catch both guard mutations. The remaining candidates use constructors or conversions unavailable on the Result alias."
+}
