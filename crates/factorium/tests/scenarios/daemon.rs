@@ -67,12 +67,24 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     assert!(plist.contains(&format!("<string>{}</string>", w.db.display())), "its database: {plist}");
     assert!(w.host.loaded(), "loaded");
 
-    // Installed again: the loaded one is replaced.
+    // Installed again: the loaded one is replaced, and one a desktop login
+    // loaded into the GUI domain goes.
+    let gui = w.host.service_target("gui");
+    w.host.service.lock().unwrap().push(gui.clone());
     w.app.service_install().unwrap();
     assert!(w.host.loaded());
+    assert!(!w.host.service.lock().unwrap().contains(&gui), "no second daemon in gui/<uid>");
 
     let stopped = w.app.stop().await.unwrap();
     assert_eq!(stopped["service"], "com.github.sunfmin.factorium", "{stopped}");
+    // Loaded, stopped and installed in this user's own domain.
+    let ran = w.host.ran.lock().unwrap().clone();
+    let user = w.host.service_target("user");
+    let domain = user.rsplit_once('/').unwrap().0.to_string();
+    for (call, named) in [("print", &user), ("bootout", &user), ("bootstrap", &domain)] {
+        let line = format!("launchctl {call} {named}");
+        assert!(ran.iter().any(|r| r.starts_with(&line)), "{line}: {ran:?}");
+    }
     assert!(!w.host.loaded(), "launchd will not start it again");
 
     w.app.service_install().unwrap();

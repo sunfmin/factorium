@@ -4,7 +4,10 @@
   The daemon as a launchd agent. `factorium service install` fills in the
   binary (Homebrew's opt path, which outlives upgrades), the PATH it runs
   with (the installing shell's), the database and the log, writes it to
-  ~/Library/LaunchAgents and loads it. launchd starts it at login and again
+  ~/Library/LaunchAgents and loads it into this user's own domain,
+  `user/<uid>`, as a job of the Background session: launchd keeps that domain
+  with no desktop login, so a desktop session ending does not stop it, and a
+  desktop login loads no second copy into `gui/<uid>`. launchd starts it again
   whenever it exits; `factorium stop` unloads it.
 -->
 <plist version="1.0">
@@ -23,6 +26,8 @@
 		<key>FACTORIUM_DB</key>
 		<string>{db}</string>
 	</dict>
+	<key>LimitLoadToSessionType</key>
+	<string>Background</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>

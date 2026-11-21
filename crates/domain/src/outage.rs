@@ -53,7 +53,7 @@ impl Outage {
              factorium {version} cannot read its store, so no episode, round or `factorium` command works now. \
              Without them: read {data}/daemon.log, the data directory {data}, and Homebrew's factorium \
              (`brew list --versions factorium`: the versions it keeps; `brew info factorium`). The service runs \
-             what Homebrew links, once restarted (`launchctl kickstart -k gui/$(id -u)/com.github.sunfmin.factorium`). Tell the owner what you found. \
+             what Homebrew links, once restarted (`launchctl kickstart -k user/$(id -u)/com.github.sunfmin.factorium`). Tell the owner what you found. \
              This comes again each hour while it lasts.",
             utc(self.since),
             self.failures,

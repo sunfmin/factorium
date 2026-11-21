@@ -391,6 +391,7 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     assert_eq!(get("ProgramArguments.1"), "run");
     assert_eq!(get("KeepAlive"), "true", "restarted when it exits");
     assert_eq!(get("RunAtLoad"), "true");
+    assert_eq!(get("LimitLoadToSessionType"), "Background", "a job of user/<uid>, which no desktop session ends");
     assert_eq!(get("EnvironmentVariables.PATH"), format!("{}:/usr/bin", bin.display()), "declared, as found");
     let db = dir.0.join("data/factorium/factorium.db");
     assert_eq!(get("EnvironmentVariables.FACTORIUM_DB"), db.to_str().unwrap());

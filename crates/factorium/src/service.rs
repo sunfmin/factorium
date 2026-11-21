@@ -21,12 +21,19 @@ impl App {
         self.host.home().join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
     }
 
-    /// launchd's name of the agent: this user's GUI domain and the label.
-    fn service_target(&self) -> String {
+    /// One of this user's launchd domains, `user/<uid>` or `gui/<uid>`.
+    /// The agent is a job of `user/<uid>`, which launchd keeps with no
+    /// desktop login; `gui/<uid>` lasts only while a desktop session does.
+    fn service_domain(&self, kind: &str) -> String {
         use std::os::unix::fs::MetadataExt;
         // The data directory is this user's: factorium made it.
         let uid = std::fs::metadata(self.data().root()).map(|m| m.uid()).unwrap_or(0);
-        format!("gui/{uid}/{LABEL}")
+        format!("{kind}/{uid}")
+    }
+
+    /// launchd's name of the agent: this user's own domain and the label.
+    fn service_target(&self) -> String {
+        format!("{}/{LABEL}", self.service_domain("user"))
     }
 
     /// The agent's target, if launchd has it loaded.
@@ -79,7 +86,13 @@ impl App {
         if let Some(target) = self.service_loaded() {
             self.service_stop(&target)?;
         }
-        let domain = self.service_target().rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+        // One loaded in the GUI domain, as factorium once installed it, goes:
+        // it would run a second daemon while a desktop session lasts.
+        let gui = format!("{}/{LABEL}", self.service_domain("gui"));
+        if self.host.programs().run("launchctl", &["print", &gui]).ok {
+            self.service_stop(&gui)?;
+        }
+        let domain = self.service_domain("user");
         let args = ["bootstrap", &domain, &file.to_string_lossy()];
         self.host.programs().run("launchctl", &args).result("launchctl", &args).map_err(crate::fail("launchctl"))?;
         Ok(json!({ "installed": file, "service": LABEL }))
