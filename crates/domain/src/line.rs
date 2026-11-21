@@ -78,9 +78,12 @@ pub struct Landed {
     pub commit: String,
 }
 
+// A commit the line holds landed already, and is recorded once: a daemon
+// that died after recording it lands it again (models/Line.tla, factorium#188).
 command!(RecordLanding, "line.landed", Lines, Landed, |p| line_id(&p.checkout), |s, p, now| {
-    if s.unpromoted.iter().any(|l| l.commit == p.commit) {
-        return no("landed_already", format!("{} landed already", p.commit));
+    let held = s.unpromoted.iter().chain(&s.uncut).any(|l| l.commit == p.commit);
+    if held || s.promoted.as_deref() == Some(p.commit.as_str()) {
+        return Ok(Vec::new());
     }
     Ok(vec![LineEvent::Landed { number: p.number, commit: p.commit.clone(), at: now.0 }])
 });

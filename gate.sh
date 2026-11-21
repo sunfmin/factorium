@@ -14,7 +14,12 @@ slimfit check
 # (truefit.toml): the stand-ins alone, never the real programs.
 truefit contract
 
-# The heavy queue's model (models/HeavyQueue.tla) holds its properties, and
-# allows the scenario run kept as its trace (`models/heavy.sh` for the rest).
+# The models (truefit.toml: the heavy queue, models/HeavyQueue.tla; an
+# issue's worktrees, models/Worktrees.tla; a checkout's line,
+# models/Line.tla) hold their properties, and allow the scenario runs kept
+# as their traces (`models/heavy.sh`, `models/worktrees.sh`,
+# `models/line.sh` for the rest).
 truefit model
 truefit model heavy-run --trace models/heavy-run.jsonl
+truefit model worktrees-run --trace models/worktrees-run.jsonl
+truefit model line-run --trace models/line-run.jsonl
