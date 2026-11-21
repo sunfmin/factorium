@@ -257,7 +257,7 @@ impl Kind for Pi {
         body
     }
 
-    const SPENT: Option<fn(&str) -> (u64, u64)> = Some(spent);
+    const SPENT: Option<super::ReadSpent> = Some(spent);
 
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
         None

@@ -90,11 +90,15 @@ trait Kind {
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String;
     /// The tokens a session file's `text` says its session spent, as (given,
     /// written), the given counting cached ones. `None`: its files do not say.
-    const SPENT: Option<fn(text: &str) -> (u64, u64)>;
+    const SPENT: Option<ReadSpent>;
     /// Whether the session file `text` took `said` as a prompt at or after
     /// `since` (epoch seconds). `None`: its session files do not say.
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool>;
 }
+
+/// What reads the tokens a session file's text says it spent, as (given,
+/// written).
+type ReadSpent = fn(text: &str) -> (u64, u64);
 
 /// Lists every harness once, as `Variant in module`, the module's [`Kind`]
 /// being its type of the variant's name: makes `Harness`, `ALL`, and

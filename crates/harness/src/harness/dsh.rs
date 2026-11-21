@@ -194,7 +194,7 @@ impl Kind for Dsh {
         body
     }
 
-    const SPENT: Option<fn(&str) -> (u64, u64)> = None;
+    const SPENT: Option<super::ReadSpent> = None;
 
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
         None

@@ -387,7 +387,7 @@ impl Kind for ClaudeCode {
     /// after `since`. Text typed while a turn runs is written first as a
     /// `queue-operation` and becomes a `user` line only once a turn reads it;
     /// a tool's result is a `user` line too, but its content is no string.
-    const SPENT: Option<fn(&str) -> (u64, u64)> = Some(spent);
+    const SPENT: Option<super::ReadSpent> = Some(spent);
 
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {
         Some(text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
