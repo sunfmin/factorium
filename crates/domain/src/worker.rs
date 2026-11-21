@@ -1,7 +1,8 @@
 //! A worker: one harness session working one issue in its own worktree.
 //! It works until it asks to land (`done`); a red landing sends it back to
 //! work, and a second red in a row, an escalation, or a failure waits for
-//! the watch. A green landing, or the watch, ends it.
+//! the watch. A branch that does not merge because proving moved again
+//! since the last red is not the second (factorium#171). A green landing, or the watch, ends it.
 
 use factum_core::{Aggregate, Rejection, Uuid};
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,14 @@ pub struct Worker {
     pub status: Status,
     /// Red landings since its last green or the watch's word.
     pub reds: u32,
+    /// The proving tip its last red did not merge onto; `None`: its last
+    /// red was not that, or there was none.
+    #[serde(default)]
+    pub red_tip: Option<String>,
+    /// Reds in a row that did not count: each did not merge onto a proving
+    /// tip that moved since the one before, which its branch holds.
+    #[serde(default)]
+    pub moved_reds: u32,
     /// Why it waits, or why it ended.
     pub why: Option<String>,
     /// When its status last changed, in ms.
@@ -95,6 +104,13 @@ pub enum WorkerEvent {
     LandingRed {
         why: String,
         at: i64,
+        /// The proving tip its branch did not merge onto; `None`: it merged,
+        /// and the gate was red.
+        #[serde(default)]
+        tip: Option<String>,
+        /// It does not count: proving moved since the last red.
+        #[serde(default)]
+        moved: bool,
     },
     /// Written before the outbox (#47), which now records what reached
     /// its session; read and ignored.
@@ -185,7 +201,7 @@ impl WorkerEvent {
         let (status, why, since) = match self {
             WorkerEvent::WorkerStarted(st) => (Status::Working, None, st.at),
             WorkerEvent::LandingAsked { at } => (Status::Landing, None, *at),
-            WorkerEvent::LandingRed { why, at } => (Status::Working, Some(why.clone()), *at),
+            WorkerEvent::LandingRed { why, at, .. } => (Status::Working, Some(why.clone()), *at),
             WorkerEvent::WorkerLanded { at, .. } => (Status::Ended, Some("landed".into()), *at),
             WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
             WorkerEvent::WorkerResumed { at } => (Status::Working, None, *at),
@@ -209,10 +225,19 @@ impl Aggregate for Workers {
         }
         match event {
             WorkerEvent::WorkerStarted(started) => s.started = Some(*started),
-            WorkerEvent::LandingRed { .. } => s.reds += 1,
+            WorkerEvent::LandingRed { tip, moved, .. } => {
+                s.red_tip = tip;
+                if moved {
+                    s.moved_reds += 1;
+                } else {
+                    (s.reds, s.moved_reds) = (s.reds + 1, 0);
+                }
+            }
             WorkerEvent::WorkerLanded { commit, .. } => s.landed = Some(commit),
             WorkerEvent::WorkerWaits { .. } => (s.over_since, s.quiet) = (None, None),
-            WorkerEvent::WorkerResumed { .. } => (s.reds, s.quiet, s.parked) = (0, None, false),
+            WorkerEvent::WorkerResumed { .. } => {
+                (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false)
+            }
             WorkerEvent::WorkerParked => s.parked = true,
             WorkerEvent::WorkerUnparked => s.parked = false,
             WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
@@ -275,20 +300,43 @@ pub struct Because {
     pub why: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Red {
+    pub worker: Uuid,
+    pub why: String,
+    /// The proving tip its branch did not merge onto; `None`: the gate was red.
+    pub tip: Option<String>,
+    /// Proving moved since the last red's tip, which its branch holds.
+    pub moved: bool,
+    /// At most this many reds in a row are let off as moved (`moved_reds_max`).
+    pub moved_max: u32,
+}
+
+impl Red {
+    /// Whether this red does not count: its branch does not merge onto a
+    /// tip newer than the last red's, which it holds, and the last red was
+    /// one onto a tip too; within `moved_max` of these in a row.
+    fn moved(&self, s: &Worker) -> bool {
+        self.tip.is_some() && s.red_tip.is_some() && self.moved && s.moved_reds < self.moved_max
+    }
+}
+
 command!(
     /// A red landing: back to work, or, the second in a row, to the watch.
+    /// One that does not merge because proving moved again is not the second.
     RedLanding,
     "worker.red",
     Workers,
-    Because,
+    Red,
     |p| p.worker,
     |s, p, now| {
         live(s)?;
         if s.status != Status::Landing {
             return no("not_landing", "the worker is not landing");
         }
-        let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0 }];
-        if s.reds + 1 >= 2 {
+        let moved = p.moved(s);
+        let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0, tip: p.tip.clone(), moved }];
+        if !moved && s.reds + 1 >= 2 {
             events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
         }
         Ok(events)

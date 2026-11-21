@@ -273,7 +273,7 @@ async fn settings_list_each_with_its_unit_refuse_an_unknown_name_and_bound_in_th
     let w = World::new();
     let all = w.app.settings_set(None, None).await.unwrap();
     let all = all.as_array().unwrap();
-    assert_eq!(all.len(), 21, "every setting is listed");
+    assert_eq!(all.len(), 22, "every setting is listed");
     let held = all.iter().find(|s| s["name"] == "held_for").unwrap();
     assert_eq!((&held["unit"], &held["default"], &held["value"]), (&json!("seconds"), &json!(1800), &json!(1800)));
     let cpu = all.iter().find(|s| s["name"] == "cpu_busy_max").unwrap();

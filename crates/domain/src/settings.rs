@@ -44,6 +44,7 @@ pub enum Setting {
     WorkerMemoryGib,
     WorkerProcsMax,
     TickFailuresMax,
+    MovedRedsMax,
     Time(Time),
 }
 
@@ -71,7 +72,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 21] = [
+const ALL: [Setting; 22] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -80,6 +81,7 @@ const ALL: [Setting; 21] = [
     S::WorkerMemoryGib,
     S::WorkerProcsMax,
     S::TickFailuresMax,
+    S::MovedRedsMax,
     S::Time(T::HotFor),
     S::Time(T::SilentBound),
     S::Time(T::HoldBound),
@@ -119,6 +121,7 @@ impl Setting {
             S::WorkerMemoryGib => ("worker_memory_gib", 16, Gib, "one worker past this resident memory is hot"),
             S::WorkerProcsMax => ("worker_procs_max", 400, Count, "one worker past this many processes is hot"),
             S::TickFailuresMax => ("tick_failures_max", 3, Count, "this many ticks failing in a row go to the watch"),
+            S::MovedRedsMax => ("moved_reds_max", 4, Count, "a landing that does not merge because proving moved again counts as a first red at most this many times in a row"),
             S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
             S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done, or hung with its turn open, goes to the watch"),
             S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),

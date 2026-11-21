@@ -38,7 +38,11 @@ impl World {
     /// it, by hand, from a clone of their own; answers that clone.
     pub fn push_by_hand(&self, name: &str, branch: &str, file: &str, text: &str) -> PathBuf {
         let (remote, clone) = (self.dir.join("remotes").join(format!("{name}.git")), self.dir.join("by-hand"));
-        self.git(&self.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+        if clone.exists() {
+            self.git(&clone, &["fetch", "-q", "origin"]).unwrap();
+        } else {
+            self.git(&self.dir, &["clone", "-q", &remote.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+        }
         self.git(&clone, &["checkout", "-q", "-B", branch, &format!("origin/{branch}")]).unwrap();
         self.commit(&clone, file, text);
         self.git(&clone, &["push", "-q", "origin", branch]).unwrap();

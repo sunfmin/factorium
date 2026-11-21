@@ -1,0 +1,15 @@
+{
+  "tree": "5ea6e1a1596abd80c4c3031c52058b1f41249b9a+d1fba762150c532c",
+  "picker": "codex:01a1fbeb-fcb8-76a2-8bc9-5c75cce2260b:default",
+  "author": "claude-code:91350b74-0140-501a-934a-575e952a0b23:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/worker.rs:238:13: delete match arm WorkerEvent::WorkerResumed{..} in <impl Aggregate for Workers>::evolve",
+        "why": "The shown scenarios stop at escalation or landing, so they may miss a resumed worker carrying its old red count and proving tip into its next landing.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

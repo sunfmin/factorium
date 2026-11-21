@@ -178,10 +178,12 @@ impl Git {
         let merged = self
             .run(&["fetch", "--quiet", &from.to_string_lossy(), &refspec])
             .and_then(|_| self.run(&["merge", "--no-ff", "--no-edit", "-m", message, branch]));
-        if merged.is_err() {
+        if let Err(e) = merged {
+            let conflicts = self.run(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
             let _ = self.run(&["merge", "--abort"]);
+            let files: Vec<_> = conflicts.lines().collect();
+            return Err(if files.is_empty() { e } else { format!("{e}; conflicts in: {}", files.join(", ")) });
         }
-        merged?;
         self.sha("HEAD")
     }
 
