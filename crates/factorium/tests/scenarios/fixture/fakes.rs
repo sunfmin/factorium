@@ -347,6 +347,35 @@ pub struct FakeHost {
 }
 
 impl FakeHost {
+    /// The machine of the world at `root`, its home made, its clock and its
+    /// reading as given, nothing else on it yet.
+    pub fn at(root: &Path, clock: Arc<ManualClock>, reading: Reading) -> FakeHost {
+        make_home(root);
+        let (orca, brew, procs, reading_procs) = Default::default();
+        let (tokens, slimfit, missing, service, ran, while_sleeping) = Default::default();
+        let reading = Mutex::new(reading);
+        FakeHost {
+            orca,
+            brew,
+            reading,
+            procs,
+            reading_procs,
+            tokens,
+            slimfit,
+            missing,
+            service,
+            ran,
+            while_sleeping,
+            clock,
+            root: root.to_path_buf(),
+        }
+    }
+
+    /// Whether launchd has factorium's agent loaded.
+    pub fn loaded(&self) -> bool {
+        self.service.lock().unwrap().iter().any(|l| l == "com.github.sunfmin.factorium")
+    }
+
     /// The `brew` commands run, oldest first.
     pub fn brewed(&self) -> Vec<String> {
         self.ran.lock().unwrap().iter().filter_map(|r| r.strip_prefix("brew ")).map(str::to_string).collect()
@@ -423,13 +452,6 @@ fn label_of(file: &str) -> Option<String> {
     let (_, after) = plist.split_once("<key>Label</key>")?;
     let (_, rest) = after.split_once("<string>")?;
     rest.split_once("</string>").map(|(l, _)| l.to_string())
-}
-
-impl FakeHost {
-    /// Whether launchd has factorium's agent loaded.
-    pub fn loaded(&self) -> bool {
-        self.service.lock().unwrap().iter().any(|l| l == "com.github.sunfmin.factorium")
-    }
 }
 
 impl Host for FakeHost {

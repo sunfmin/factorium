@@ -31,11 +31,11 @@ mod fakes;
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use factorium::host::{ManualClock, Orca, Programs, Reading, Said, System, Term};
-use fakes::{FakeHost, FakeOrca};
+use fakes::FakeHost;
 use serde_json::{Value, json};
 
 /// What the scenarios stand in for: the rest is real on both sides.
@@ -50,25 +50,6 @@ impl Programs for Side {
             Some(fake) if FAKED.contains(&program) => fake.run(program, args),
             _ => System.run(program, args),
         }
-    }
-}
-
-fn world(root: &Path) -> FakeHost {
-    fakes::make_home(root);
-    FakeHost {
-        orca: FakeOrca::default(),
-        brew: Mutex::default(),
-        reading: Mutex::new(Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 }),
-        procs: Mutex::default(),
-        reading_procs: Mutex::default(),
-        tokens: Mutex::default(),
-        slimfit: Mutex::default(),
-        missing: Mutex::default(),
-        service: Mutex::default(),
-        ran: Mutex::default(),
-        while_sleeping: Mutex::default(),
-        clock: Arc::new(ManualClock::new(0)),
-        root: root.to_path_buf(),
     }
 }
 
@@ -167,7 +148,10 @@ fn main() {
         _ => panic!("usage: standin fake|real < steps"),
     };
     let dir: PathBuf = std::env::current_dir().unwrap();
-    let side = Side(fake.then(|| world(&dir)));
+    let side = Side(fake.then(|| {
+        let reading = Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 };
+        FakeHost::at(&dir, Arc::new(ManualClock::new(0)), reading)
+    }));
     let uid = std::fs::metadata(&dir).map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap();
     let nonce = format!("{}-{}", std::process::id(), std::time::UNIX_EPOCH.elapsed().unwrap().as_millis());
     let mut kept: BTreeMap<String, String> =
@@ -188,34 +172,28 @@ fn main() {
         let strings = |v: &Value| -> Vec<String> {
             v.as_array().into_iter().flatten().map(|a| a.as_str().unwrap_or_default().to_string()).collect()
         };
-        let printed = if let Some(to) = step.get("world") {
+        let (printed, answer, text) = if let Some(to) = step.get("world") {
             if let Some(fake) = &side.0 {
                 set(fake, to);
             }
             continue;
         } else if let Some(method) = step["orca"].as_str() {
             let answer = orca(&Orca(&side), method, &strings(&step["args"]));
-            for (name, pointer) in step["keep"].as_object().into_iter().flatten() {
-                let v = answer.pointer(pointer.as_str().unwrap_or_default()).and_then(Value::as_str);
-                kept.insert(name.clone(), v.unwrap_or_default().to_string());
-            }
-            json!({ "orca": method, "made": answer })
+            (json!({ "orca": method, "made": answer }), answer, String::new())
         } else {
             let run = strings(&step["run"]);
             let args: Vec<&str> = run[1..].iter().map(String::as_str).collect();
             let said = side.run(&run[0], &args);
-            for (name, pointer) in step["keep"].as_object().into_iter().flatten() {
-                let pointer = pointer.as_str().unwrap_or_default();
-                let v = if pointer.is_empty() {
-                    said.out.trim().to_string()
-                } else {
-                    let out: Value = serde_json::from_str(&said.out).unwrap_or(Value::Null);
-                    out.pointer(pointer).and_then(Value::as_str).unwrap_or_default().to_string()
-                };
-                kept.insert(name.clone(), v);
-            }
-            json!({ "run": run, "said": read(&said, &step["read"]) })
+            let out = serde_json::from_str(&said.out).unwrap_or(Value::Null);
+            (json!({ "run": run, "said": read(&said, &step["read"]) }), out, said.out.trim().to_string())
         };
+        // A pointer `""` keeps a program's whole trimmed stdout.
+        for (name, pointer) in step["keep"].as_object().into_iter().flatten() {
+            let pointer = pointer.as_str().unwrap_or_default();
+            let v =
+                if pointer.is_empty() { Some(text.as_str()) } else { answer.pointer(pointer).and_then(Value::as_str) };
+            kept.insert(name.clone(), v.unwrap_or_default().to_string());
+        }
         if only.is_none() {
             println!("{printed}");
         }
