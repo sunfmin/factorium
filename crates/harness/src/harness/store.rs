@@ -85,6 +85,14 @@ impl Harness {
         each!(self, |K| prompted::<K>(home.path(), cwd, brief, said, since))
     }
 
+    /// The tokens the session of the worktree `cwd` handed `brief` spent, as
+    /// (given, written), read under its `home`: the sum over each of its
+    /// session files that records its turn. `None`: this harness's session
+    /// files do not say, or none is there.
+    pub fn spent(self, home: &Home, cwd: &str, brief: &str) -> Option<(u64, u64)> {
+        each!(self, |K| spent::<K>(home.path(), cwd, brief))
+    }
+
     /// The stand-in session: writes the session file this harness would in
     /// `cwd` for the session handed `brief`, where `turn` reads it, with its
     /// turn left open when `open`, written at `at` (epoch seconds), under its
@@ -117,6 +125,20 @@ fn prompted<K: Kind>(root: &Path, cwd: &str, brief: &str, said: &str, since: u64
     let mut texts =
         files.iter().filter(since_then).filter_map(|f| read(f)).filter(|text| K::could_record(cwd, text, brief));
     Some(texts.any(|text| K::prompted(&text, said, since) == Some(true)))
+}
+
+fn spent<K: Kind>(root: &Path, cwd: &str, brief: &str) -> Option<(u64, u64)> {
+    let read_spent = K::SPENT?;
+    let texts: Vec<String> = K::layout(cwd)
+        .sessions(root, cwd)
+        .iter()
+        .filter_map(|f| read(f))
+        .filter(|text| K::could_record(cwd, text, brief) && K::recorded_turn(cwd, text, brief).is_some())
+        .collect();
+    if texts.is_empty() {
+        return None;
+    }
+    Some(texts.iter().map(|t| read_spent(t)).fold((0, 0), |(i, o), (si, so)| (i + si, o + so)))
 }
 
 fn write_session<K: Kind>(root: &Path, cwd: &str, brief: &str, open: bool, at: u64) -> std::io::Result<()> {

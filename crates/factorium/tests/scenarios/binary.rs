@@ -180,6 +180,16 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run_with(&dir, &worker, &["issue", "list"]);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "guarded");
+    let (ok, answer) = run_with(&dir, &worker, &["issue", "add", "web", "x"]);
+    assert!(!ok);
+    assert_eq!(answer["error"]["code"], "guarded", "{answer}");
+    // `worker file` reaches the app, its body read from the file it names.
+    let body = dir.0.join("body.md");
+    std::fs::write(&body, "what web#1 left").unwrap();
+    let file = ["worker", "file", "web", "x", "--body-file", body.to_str().unwrap(), "--blocked-by", "web#1@cut"];
+    let (ok, answer) = run_with(&dir, &worker, &file);
+    assert!(!ok);
+    assert_eq!(answer["error"]["code"], "no_worker", "{answer}");
     for command in ["done", "pick-mutants"] {
         let (ok, answer) = run_with(&dir, &worker, &["worker", command]);
         assert!(!ok);
@@ -244,6 +254,9 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     let as_role = |line: &str, role: Option<(&str, &str)>| by_tool("Bash", line, role);
     let hook = |line: &str, worker: bool| as_role(line, worker.then_some(("FACTORIUM_WORKER", WORKER)));
     assert_eq!(hook("factorium worker gate", true), Some(0));
+    // A worker files a follow-up its issue asks for, but not as the owner does (factorium#169).
+    assert_eq!(hook("factorium worker file web follow-up --body-file f --blocked-by web#1@cut", true), Some(0));
+    assert_eq!(hook("factorium issue add web follow-up --body-file f", true), Some(2));
     assert_eq!(hook("cd x && factorium issue close web 1", true), Some(2));
     assert_eq!(hook("git push origin HEAD", true), Some(2));
     // Only what runs as a command counts: a word that names factorium is no command.

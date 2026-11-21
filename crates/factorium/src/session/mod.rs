@@ -113,6 +113,15 @@ impl App {
         })
     }
 
+    /// What worker session `st` spent, as its session files say now; `None`:
+    /// its harness's files do not say, or none is there.
+    pub(crate) fn spent(&self, st: &w::Started) -> Option<w::Tokens> {
+        let harness = Harness::read(&st.harness)?;
+        let home = self.session_home(harness, st.account.as_deref());
+        let (input, output) = harness.spent(&home, &st.worktree, &st.brief)?;
+        Some(w::Tokens { input, output })
+    }
+
     /// The turn a session's files say it is in.
     fn turn(&self, s: &Session) -> Option<Turn> {
         s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief)

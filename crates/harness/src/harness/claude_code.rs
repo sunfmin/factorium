@@ -404,12 +404,14 @@ impl Kind for ClaudeCode {
                 ("timestamp", iso.into()),
                 ("cwd", cwd.into()),
                 ("isSidechain", false.into()),
-                ("message", session::object(vec![("role", "assistant".into()), ("stop_reason", "end_turn".into())])),
+                ("message", serde_json::json!({ "id": "msg_factorium", "role": "assistant", "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 7, "output_tokens": 11} })),
             ]);
             body.push_str(&format!("{end}\n"));
         }
         body
     }
+
+    const SPENT: Option<super::ReadSpent> = Some(spent);
 
     /// Whether the session file `text` took `said` from its user, at or after
     /// `since`. Text typed while a turn runs is written first as a
@@ -422,4 +424,23 @@ impl Kind for ClaudeCode {
                 && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
         }))
     }
+}
+
+/// The tokens a session file spent: each assistant message's `usage` once,
+/// by its id (it writes a line per part of a message, each with the
+/// message's usage), its cached input counted as input.
+fn spent(text: &str) -> (u64, u64) {
+    let mut by_id = std::collections::BTreeMap::new();
+    for (line, value) in json_lines(text).enumerate() {
+        let message = &value["message"];
+        let usage = &message["usage"];
+        if value["type"] != "assistant" || !usage.is_object() {
+            continue;
+        }
+        let n = |field: &str| usage[field].as_u64().unwrap_or(0);
+        let given = n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens");
+        let id = message["id"].as_str().map_or_else(|| line.to_string(), str::to_string);
+        by_id.insert(id, (given, n("output_tokens")));
+    }
+    by_id.values().fold((0, 0), |(i, o), (gi, go)| (i + gi, o + go))
 }

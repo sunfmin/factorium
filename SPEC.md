@@ -28,11 +28,11 @@ approval and an entry here.
 |---|---|---|
 | 1 | **Host** | The one machine and its one user account. One daemon (`factorium run`) and one SQLite database hold everything factorium knows of it. |
 | 2 | **Checkout** | A repo on the host's checkout list: its path, base branch, proving branch, and what the repo declares (§4). |
-| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed. |
+| 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed. It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written. An account is one of §1.7, refused at `issue add` unless this host can use it. What an issue took, `issue show` answers as `spent` (§4). |
 | 4 | **Worker** | One harness session working one issue in its own worktree, branched from the proving tip. It ends with `factorium worker done`, `factorium worker escalate`, or by failing. |
 | 5 | **Harness** | A coding agent program factorium starts: Claude Code, Codex, pi, DSH, Kimi Code, Grok. How each starts, where it keeps its session and which lines start and end a turn are its own module's to say. The session file is the turn. |
 | 6 | **Kit** | The harnesses this host can start now, in priority order, with their models. A worker starts on the first eligible one. |
-| 7 | **Account** | An engine subscription, kept in mytokens (`agent-account-<name>`): its usage windows and the limits it met. A worker starts on the account of its harness with the most left. A worker whose screen says its account is used up ends and its issue starts again; the account rests an hour, a fixed bound, not a setting. |
+| 7 | **Account** | An engine subscription, kept in mytokens (`agent-account-<name>`): its usage windows and the limits it met. A worker starts on the account its issue names, on the kit's first entry of that account's harness whatever the kit's order (refused when a pin names another harness); else on the account of its harness with the most left. While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can. A worker whose screen says its account is used up ends and its issue starts again; the account rests an hour, a fixed bound, not a setting. |
 | 8 | **Admission** | Whether one more worker may start now, from the host's readings alone: CPU busy share (less what runs in started heavy slots, the queue's to bound), free memory, the disk floor, factorium's own share caps, and the accounts' windows. No concurrency number. |
 | 9 | **Heavy command** | A command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run. One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start (so the load a start brings is read before the next), and ends one that holds others up past the hold bound. A run is ended whole, by one path whoever ends it (the hold bound, its limit, `unqueue`): each step runs in a session of its own, noted on its entry, so a process that left its process group or its parent is ended too (only one that starts a session of its own leaves it) — TERM, then KILL after a short grace; an unqueued run's waiter answers `unqueued`. Gates first, and a time a gate compares measured at the gate's priority: a gate (fast or slow, a worker's or the line's) and a worker's `worker exclusive` (a program's `heavy run`) run at the priority factorium runs at, so a baseline a worker records (`slimfit ratchet`) is measured as the gate measures it; heavy work whose time no gate compares — a cut, idle work, a worker's `worker exclusive --background` (a mutation run), a program's `heavy run --background` — runs at background priority, its whole process tree (on macOS Darwin's background band, and a nice of 10 more), so the CPU goes to a gate before it. A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it. The rules are those of the newest version that asked (the daemon asks as it starts): a waiter of an older binary is refused, and execs the installed one, keeping its place. |
 | 10 | **Hot worker** | A worker whose processes take more than their share of CPU, memory, disk written, disk held or process creation, or that stalled holding build locks. Its evidence is taken at once; it is a finding for the watch. |
@@ -72,7 +72,12 @@ watch's look and the operator's view.
    likes, then `factorium worker done`. What it wants kept (a measurement)
    it records with `factorium worker comment`, a comment on its issue by
    it that changes nothing else and goes to no one: not the watch, which
-   is for decisions (`worker escalate`).
+   is for decisions (`worker escalate`). A follow-up its issue asks for
+   it files with `factorium worker file <checkout> <title> --body-file <f>
+   [--blocked-by …]`, as `issue add` files one (never waiting for a
+   person), and both keep the record as its comments: its issue says
+   "filed <checkout>#<n>", the filed one which issue and worker filed it.
+   It changes no other issue.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. A red that does not reach the session's prompt
    (no turn starts and none runs) goes to the watch at once.
@@ -185,7 +190,7 @@ Comments factorium writes itself (start-over's) are typed at no one.
 
 An issue's comments are the one record of what is said about it, each
 with who wrote it (`owner`, `worker <id>`, `watch`, `factorium`) and when;
-`issue show` answers them. A worker's `escalate` text, and the text of
+`issue show` answers them, and `spent`, what the issue took, for whoever settles its cost (Guild): each attempt's time from its start to its end (a live one's, to now), in ms, and the tokens its session spent, given (cached ones counted) and written, read from the session files that record its turn: as it ends, and kept, since its harness may clear them (a live one's, as they say now); with their sums. Claude Code's files say (each assistant message's `usage` once, by its id), Codex's (its last `token_count`) and pi's (each assistant message's `usage`); DSH's, Kimi Code's and Grok's are not read, their tokens `null`. A picker's (`worker pick-mutants`) is not among them: its cost is its own comment (§6). A worker's `escalate` text, and the text of
 `watch tell` and `watch restart`, become comments when they are typed,
 delivered or not. Each reaches the worker at most once: the line `tell` or
 `restart` types is its delivery, nothing types it again, and a worker's
@@ -362,7 +367,7 @@ and slow, recorded by tree; the proving branch and promotion; the fleet
 cuts its own versions; the watch, its look, episodes, rounds and report;
 guards, not identities; the help is the manual.
 
-Not in factorium: teams, roles, workflows, stages, verdicts, rework,
+Not in factorium: teams, roles kept by factorium (an issue may name a role directory, §1.3, and that is all), workflows, stages, verdicts, rework,
 consults, patrols, intake and flow labels; GitHub in every form (tracker,
 pull requests, checks, branch protection, quota, Discussions); the
 daybook; the panel; batched rounds and the pairing tree; several hosts

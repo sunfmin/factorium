@@ -149,3 +149,111 @@ fn a_pi_turn_ends_at_a_reply_that_stops_or_errs_not_at_a_tool_call() {
     );
     let _ = std::fs::remove_dir_all(&kept);
 }
+
+/// The one session file a stand-in wrote under `root`.
+fn written(root: &std::path::Path) -> std::path::PathBuf {
+    let mut found = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p)
+            } else if p.extension().is_some_and(|x| x == "jsonl") {
+                found.push(p)
+            }
+        }
+    }
+    assert_eq!(found.len(), 1, "{found:?}");
+    found.pop().unwrap()
+}
+
+/// What a session spent, read as each harness writes it (shapes taken from
+/// real session files on this host): Claude Code writes a line per part of
+/// a message, each with the whole message's usage, so a message counts
+/// once; Codex's `token_count` events carry running totals, so the last
+/// counts; pi's assistant messages each carry their own.
+#[test]
+fn a_session_s_tokens_are_read_as_its_harness_writes_them() {
+    use serde_json::json;
+    let line = |v: serde_json::Value| format!("{v}\n");
+    let cases = [
+        (
+            "claude-code",
+            [
+                json!({"type": "assistant", "message": {"id": "m1", "role": "assistant", "content": [{"type": "thinking"}],
+                    "usage": {"input_tokens": 2, "cache_creation_input_tokens": 860, "cache_read_input_tokens": 40062, "output_tokens": 151}}}),
+                json!({"type": "assistant", "message": {"id": "m1", "role": "assistant", "content": [{"type": "tool_use"}],
+                    "usage": {"input_tokens": 2, "cache_creation_input_tokens": 860, "cache_read_input_tokens": 40062, "output_tokens": 151}}}),
+                json!({"type": "user", "message": {"role": "user", "content": "go on"}}),
+            ],
+            (15 + 2 + 860 + 40062, 11 + 151),
+        ),
+        (
+            "codex",
+            [
+                json!({"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage":
+                    {"input_tokens": 24655, "cached_input_tokens": 13440, "output_tokens": 12}}}}),
+                json!({"type": "event_msg", "payload": {"type": "token_count", "info": null}}),
+                json!({"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage":
+                    {"input_tokens": 30000, "cached_input_tokens": 20000, "output_tokens": 40}}}}),
+            ],
+            (30000, 40),
+        ),
+        (
+            "pi",
+            [
+                json!({"type": "message", "message": {"role": "assistant", "stopReason": "toolUse",
+                    "usage": {"input": 7744, "output": 16, "cacheRead": 100, "cacheWrite": 1, "totalTokens": 7861}}}),
+                json!({"type": "message", "message": {"role": "user"}}),
+                json!({"type": "message", "message": {"role": "assistant", "stopReason": "stop",
+                    "usage": {"input": 10, "output": 5, "cacheRead": 0, "cacheWrite": 0}}}),
+            ],
+            (15 + 7744 + 100 + 1 + 10, 11 + 16 + 5),
+        ),
+    ];
+    for (key, lines, want) in cases {
+        let h = Harness::read(key).unwrap();
+        let kept = scratch(&format!("spent-{key}"));
+        let home = h.home(&kept, None, &kept);
+        assert_eq!(h.spent(&home, "/w", "/briefs/w-1-1.md"), None, "{key}: no session, nothing said");
+        // A stand-in's ended turn spent 15 given and 11 written; the real lines follow it.
+        h.write_session(&home, "/w", "/briefs/w-1-1.md", false, 1_800_000_000).unwrap();
+        let file = written(&kept);
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.extend(lines.into_iter().map(line));
+        std::fs::write(&file, text).unwrap();
+        assert_eq!(h.spent(&home, "/w", "/briefs/w-1-1.md"), Some(want), "{key}");
+        assert_eq!(h.spent(&home, "/other", "/briefs/other-1-1.md"), None, "{key}: another session's are not its");
+        let _ = std::fs::remove_dir_all(&kept);
+    }
+    for key in ["dsh", "kimi", "grok"] {
+        let h = Harness::read(key).unwrap();
+        let kept = scratch(&format!("spent-{key}"));
+        let home = h.home(&kept, None, &kept);
+        h.write_session(&home, "/w", "/briefs/w-1-1.md", false, 1_800_000_000).unwrap();
+        assert_eq!(h.spent(&home, "/w", "/briefs/w-1-1.md"), None, "{key}: its files are not read for tokens");
+        let _ = std::fs::remove_dir_all(&kept);
+    }
+}
+
+/// A session file that names the worktree's path without recording its
+/// turn (another worktree's, beneath it) spends nothing of the session's.
+#[test]
+fn a_file_that_only_names_the_worktree_spends_nothing_of_its_session() {
+    use serde_json::json;
+    let claude = Harness::read("claude-code").unwrap();
+    let kept = scratch("spent-decoy");
+    let home = claude.home(&kept, None, &kept);
+    claude.write_session(&home, "/w", "/briefs/w-1-1.md", false, 1_800_000_000).unwrap();
+    let decoy = [
+        json!({"type": "user", "cwd": "/w/sub", "isSidechain": false, "timestamp": "2027-01-15T08:00:00Z",
+            "message": {"role": "user", "content": "something else"}}),
+        json!({"type": "assistant", "cwd": "/w/sub", "message": {"id": "d", "usage": {"input_tokens": 1000, "output_tokens": 1000}}}),
+    ];
+    let dir = kept.join(".claude/projects/elsewhere");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("decoy.jsonl"), decoy.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+    assert_eq!(claude.spent(&home, "/w", "/briefs/w-1-1.md"), Some((15, 11)));
+    let _ = std::fs::remove_dir_all(&kept);
+}

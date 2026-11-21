@@ -16,7 +16,7 @@ use crate::harness::Login;
 
 /// What the name of every account's mytokens secret starts with; the rest is
 /// the account's name.
-const PREFIX: &str = "agent-account-";
+pub const PREFIX: &str = "agent-account-";
 /// The directory under the user's home that holds each account's own home,
 /// one directory per account named as the account is: the same on every
 /// machine and for every program, so that a login a person made once is

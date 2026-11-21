@@ -156,6 +156,16 @@ pub enum IssueCmd {
         /// until a cut of that checkout holds its landing (and installs it).
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         blocked_by: Vec<Blocker>,
+        /// The role its worker plays: a directory, by its absolute path,
+        /// whose rules (CLAUDE.md) and skills (.claude/skills) its worker
+        /// starts with beside factorium's worker rules. Read, never written.
+        #[arg(long, value_name = "DIR")]
+        role: Option<String>,
+        /// The engine account its worker starts on (mytokens
+        /// `agent-account-<NAME>`), on the kit's entry of that account's
+        /// harness. While it is used up its issue waits.
+        #[arg(long, value_name = "NAME")]
+        account: Option<String>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -164,7 +174,11 @@ pub enum IssueCmd {
         closed: bool,
     },
     /// Answers one issue, with its comments: what the owner, its workers,
-    /// the watch and factorium said about it, each with who and when (ms).
+    /// the watch and factorium said about it, each with who and when (ms);
+    /// the role and account it names; and `spent`, what it took: each
+    /// attempt's time from start to end (a live one's, to now) in ms, and the
+    /// tokens its session spent (`null`: its harness's files do not say),
+    /// with their sums.
     Show { checkout: String, number: u64 },
     /// Changes an issue's title or body.
     Edit {
@@ -257,6 +271,20 @@ pub enum WorkerCmd {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Files an issue your issue asks for (a follow-up), as `issue add`
+    /// does, on any checkout on the list; your issue keeps the record
+    /// ("filed <checkout>#<n>") and the filed one names you. Answers it.
+    /// An issue that needs the owner's decision is escalated instead.
+    File {
+        checkout: String,
+        title: String,
+        /// Reads the body from this file; `-` reads stdin.
+        #[arg(long)]
+        body_file: PathBuf,
+        /// An issue it waits for, repeat for each, as for `issue add`.
+        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        blocked_by: Vec<Blocker>,
+    },
     /// Has a second agent, a fresh session factorium starts, pick your
     /// change's mutants from slimfit's candidates, given slimfit's goal
     /// (`slimfit help picker`) and your diff. Answers the picks, or why
@@ -343,9 +371,10 @@ impl Top {
                 CheckoutCmd::List => app.checkout_list().await,
             },
             Top::Issue(i) => match i {
-                IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by } => {
+                IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by, role, account } => {
                     let body = body_text(body, body_file)?.unwrap_or_default();
-                    app.issue_add(&checkout, &title, &body, waiting_for_human, &blocked_by).await
+                    let on = factorium_domain::issue::On { role, account };
+                    app.issue_add_on(&checkout, &title, &body, waiting_for_human, &blocked_by, on).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
@@ -394,6 +423,10 @@ impl Top {
                         None => body_text(None, Some(PathBuf::from("-")))?.unwrap_or_default(),
                     };
                     app.worker_comment(worker_id()?, &text).await
+                }
+                WorkerCmd::File { checkout, title, body_file, blocked_by } => {
+                    let body = body_text(None, Some(body_file))?.unwrap_or_default();
+                    app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by).await
                 }
                 WorkerCmd::Exclusive { background, command } => {
                     let (dir, line) = (here()?, line(&command));

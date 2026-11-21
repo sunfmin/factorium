@@ -251,14 +251,28 @@ impl Kind for Pi {
                 session::object(vec![
                     ("type", "message".into()),
                     ("timestamp", iso.into()),
-                    ("message", session::object(vec![("role", "assistant".into()), ("stopReason", "stop".into()),]),),
+                    ("message", serde_json::json!({ "role": "assistant", "stopReason": "stop", "usage": { "input": 3, "cacheRead": 7, "cacheWrite": 5, "output": 11 } })),
                 ])
             ));
         }
         body
     }
 
+    const SPENT: Option<super::ReadSpent> = Some(spent);
+
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
         None
     }
+}
+
+/// The tokens a session file spent: each assistant message's `usage`, its
+/// cache reads and writes counted as input.
+fn spent(text: &str) -> (u64, u64) {
+    let usages = json_lines(text)
+        .filter(|v| v["type"] == "message" && v["message"]["role"] == "assistant")
+        .map(|v| v["message"]["usage"].clone());
+    usages.fold((0, 0), |(i, o), u| {
+        let n = |field: &str| u[field].as_u64().unwrap_or(0);
+        (i + n("input") + n("cacheRead") + n("cacheWrite"), o + n("output"))
+    })
 }

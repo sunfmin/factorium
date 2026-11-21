@@ -50,6 +50,12 @@ impl Data {
         self.0.join("role").join("worker")
     }
 
+    /// Where the session `name` of a worker whose issue names a role starts:
+    /// the worker's rules and that role's, and the role's skills.
+    pub fn issue_role(&self, name: &str) -> PathBuf {
+        self.0.join("role").join("issues").join(name)
+    }
+
     /// The watch's home.
     pub fn watch(&self) -> PathBuf {
         self.0.join("watch")
