@@ -101,9 +101,6 @@ fn session_of(pid: u32) -> Option<u32> {
 #[allow(unsafe_code)]
 pub fn alive(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
-    if pid <= 0 {
-        return false;
-    }
     // SAFETY: signal 0 only checks that the process exists; none is sent.
     let answered = unsafe { libc::kill(pid, 0) };
     answered == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
