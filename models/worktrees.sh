@@ -17,27 +17,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-# check <config> <bug>: `truefit model` on the model under <config> with
-# Bug = <bug>, in a scratch directory; prints its report.
-check() {
-  dir=$(mktemp -d)
-  cp models/Worktrees.tla "$dir/"
-  sed "s/Bug = \"none\"/Bug = \"$2\"/" "$1" > "$dir/c.cfg"
-  printf '[[model]]\nname = "v"\nspec = "Worktrees.tla"\nconfig = "c.cfg"\nlimit = 120\ncommit = "%s"\ncovers = [{ action = "Next", file = "Worktrees.tla", function = "Next" }]\n' \
-    "$(git rev-parse HEAD)" > "$dir/truefit.toml"
-  (cd "$dir" && git init -q && truefit model || true)
-  rm -rf "$dir"
-}
-
-# expect <report> <property> <what>: the report fails on <property>.
-expect() {
-  error=$(printf '%s' "$1" | jq -r '.models[0].error // ""')
-  steps=$(printf '%s' "$1" | jq -r '[.models[0].behaviour[]?.action | sub(" line .*"; "")] | join(" > ")')
-  case "$error" in
-    *" $2 is violated."*) echo "fails  $3: $error ($steps)" ;;
-    *) echo "PASSES $3: $(printf '%s' "$1" | jq -c '.models[0] | {result, error}')"; return 1 ;;
-  esac
-}
+. models/tlc.sh
 
 case "${1:-}" in
   trace)
@@ -47,17 +27,12 @@ case "${1:-}" in
     truefit model worktrees-run --trace "$file" | jq '.trace | del(.output)'
     ;;
   broken)
-    failed=0
-    for v in $(sed -n '/^BrokenVariants/,/^]/s/^ *\([a-z_]*\) *|-> "\([A-Za-z]*\)".*/\1:\2/p' models/Worktrees.tla); do
-      bug=${v%%:*} property=${v#*:}
-      expect "$(check models/Worktrees.cfg "$bug")" "$property" "$bug" || failed=1
-    done
-    exit $failed
+    broken models/Worktrees.tla models/Worktrees.cfg
     ;;
   finding)
     failed=0
-    expect "$(check models/WorktreesRace.cfg none)" NoStartOverUnderWorker "the code, racing (WorktreesRace.cfg)" || failed=1
-    expect "$(check models/WorktreesDeath.cfg none)" DoctorFinds "the code, dying mid-start (WorktreesDeath.cfg)" || failed=1
+    expect "$(check models/Worktrees.tla models/WorktreesRace.cfg none)" NoStartOverUnderWorker "the code, racing (WorktreesRace.cfg)" || failed=1
+    expect "$(check models/Worktrees.tla models/WorktreesDeath.cfg none)" DoctorFinds "the code, dying mid-start (WorktreesDeath.cfg)" || failed=1
     exit $failed
     ;;
   *)
