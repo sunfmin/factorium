@@ -570,3 +570,21 @@ async fn a_claim_whose_process_died_is_cleared_by_the_next_tick() {
     assert_eq!(started["worktree"], json!(tree), "in the worktree the start-over never removed");
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["claim"], json!(null));
 }
+
+#[tokio::test]
+async fn a_daemon_that_died_mid_start_whose_worktree_is_gone_frees_its_issue_with_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    a_daemon_dies_mid_start(&w, || {});
+    let tree = w.dir.join("worktrees").join("web-1-1");
+    w.git(&w.dir.join("repos").join("web"), &["worktree", "remove", "--force", &tree.to_string_lossy()]).unwrap();
+
+    let restarted = w.run();
+    let freed = restarted.daemon_start().await.unwrap()["freed"].clone();
+    assert_eq!(freed[0]["issue"], "web#1", "{freed}");
+    assert_eq!(freed[0]["worktree"], json!(null), "no worktree left to release: {freed}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
+    assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
+}
