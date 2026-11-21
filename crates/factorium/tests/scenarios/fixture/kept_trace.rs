@@ -1,4 +1,4 @@
-//! An issue's worktrees, as a trace of their model (models/Worktrees.tla;
+//! An issue's worktrees, as a trace of their mode (models/Worktrees.tla;
 //! `models/worktrees.sh trace` checks one with `truefit model worktrees-run
 //! --trace`): after each step a scenario takes (a whole tick, command or
 //! worker's step), issue `web`#1 as the database holds it, and each tree's
@@ -109,4 +109,14 @@ fn tokens<'a>(names: impl Iterator<Item = &'a str>) -> Vec<u64> {
 fn files(w: &World, dir: &Path, rev: &str) -> Vec<u64> {
     let listed = w.git(dir, &["ls-tree", "-r", "--name-only", rev]).unwrap_or_default();
     tokens(listed.lines())
+}
+
+/// Writes the run's trace where [`TRACE`] names, if it does: as the run
+/// ends, passed or failed, so a failed one keeps the step it failed at.
+impl Drop for KeptTrace {
+    fn drop(&mut self) {
+        if let Ok(path) = std::env::var(TRACE) {
+            let _ = std::fs::write(path, self.lines.iter().map(|l| format!("{l}\n")).collect::<String>());
+        }
+    }
 }

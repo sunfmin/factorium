@@ -343,6 +343,5 @@ async fn a_worktree_s_life_from_start_to_close_is_a_behaviour_of_its_model() {
     w.app.worker_done(id(&third)).await.unwrap();
     w.tick().await;
     t.step(&w, "land").await;
-    t.keep();
     assert!(!worktree(&third).exists(), "landed, it goes");
 }
