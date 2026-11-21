@@ -25,6 +25,8 @@ use crate::{Answer, App, LineClone, Refusal};
 pub struct Tick {
     pub seen: Vec<Value>,
     pub landed: Vec<Value>,
+    /// Issues closed whose worker landed: the close a dead daemon left undone.
+    pub closed: Vec<Value>,
     pub lines: Vec<Value>,
     /// Idle work that ended, yielded or started.
     pub idle: Vec<Value>,
@@ -76,6 +78,7 @@ impl App {
         let settings = self.settings().await?;
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
+        t.closed = self.close_landed().await?;
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
