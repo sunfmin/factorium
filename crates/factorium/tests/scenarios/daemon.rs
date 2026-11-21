@@ -106,6 +106,54 @@ async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
     assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
 }
 
+/// The pid file, locked as a daemon locks it while it runs, saying `said`.
+fn held_saying(pid: &std::path::Path, said: &str) -> std::fs::File {
+    let f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(pid).unwrap();
+    f.try_lock().unwrap();
+    std::fs::write(pid, said).unwrap();
+    f
+}
+
+#[tokio::test]
+async fn a_second_daemon_is_refused_while_the_first_holds_the_lock_whatever_its_file_says() {
+    let w = World::new();
+    let pid = w.data().pid();
+    // Its pid not yet written, or a pid no process has (macOS gives at most 99998).
+    for said in ["", "999999"] {
+        let held = held_saying(&pid, said);
+        let e = w.app.run(&AtomicBool::new(true)).await.unwrap_err();
+        assert_eq!(e.code, "running", "{said:?}: {e}");
+        assert!(e.message.starts_with("a daemon runs already, a daemon holds "), "{said:?}: {e}");
+        assert_eq!(std::fs::read_to_string(&pid).unwrap(), said, "the refused one leaves its file");
+        drop(held);
+    }
+    // Once the holder ends, however it ends, the next one runs.
+    assert_eq!(w.app.run(&AtomicBool::new(true)).await.unwrap(), json!({ "stopped": true, "ticks": 0 }));
+    assert!(!pid.exists());
+}
+
+#[tokio::test]
+async fn two_daemons_started_together_one_runs_the_other_is_refused() {
+    let w = World::new();
+    w.app.settings_set(Some("tick_every"), Some(600)).await.unwrap();
+    let stop = AtomicBool::new(false);
+    let second = async {
+        // The first ticked, and waits for its next tick, holding its lock.
+        w.until(async || w.clock.asleep() == 1).await;
+        let refused = w.app.run(&AtomicBool::new(true)).await;
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        w.advance(10);
+        refused
+    };
+    let (first, second) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop), second) })
+        .await
+        .expect("the first one stops");
+    let e = second.unwrap_err();
+    assert_eq!(e.code, "running");
+    assert_eq!(e.message, format!("a daemon runs already, as pid {}", std::process::id()));
+    assert_eq!(first.unwrap()["stopped"], true);
+}
+
 #[tokio::test]
 async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     let w = World::new();

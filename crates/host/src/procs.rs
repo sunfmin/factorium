@@ -102,3 +102,51 @@ pub fn alive(pid: u32) -> bool {
         .status()
         .is_ok_and(|s| s.success())
 }
+
+/// Keeps `file` open in the program this process `exec`s, so a lock it
+/// holds stays held through the exec: answers the descriptor it has there.
+/// `close_on_exec(file)` undoes it.
+#[allow(unsafe_code)]
+pub fn keep_across_exec(file: &std::fs::File) -> std::io::Result<i32> {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    // SAFETY: fcntl reads and sets the flags of a descriptor `file` owns.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    // SAFETY: as above.
+    if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(fd)
+}
+
+/// Closes `file` in any program this process runs, as files open by default.
+#[allow(unsafe_code)]
+pub fn close_on_exec(file: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    // SAFETY: fcntl sets the flags of a descriptor `file` owns.
+    unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+}
+
+/// The file at `path` this process was handed open as descriptor `fd` by
+/// the image it replaced (`keep_across_exec`), if `fd` is open on that very
+/// file: then it is this process's to own, and closes in programs it runs.
+#[allow(unsafe_code)]
+pub fn inherited(fd: i32, path: &std::path::Path) -> Option<std::fs::File> {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let at = std::fs::metadata(path).ok()?;
+    // SAFETY: fstat writes only into `st`, which it is handed.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: as above; a descriptor not open answers -1.
+    if unsafe { libc::fstat(fd, &raw mut st) } == -1 {
+        return None;
+    }
+    if u64::try_from(st.st_dev).ok()? != at.dev() || st.st_ino != at.ino() {
+        return None;
+    }
+    // SAFETY: `fd` is open on `path`'s file, which nothing else in this
+    // process opened as it: it came through the exec, and is owned here.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    close_on_exec(&file);
+    Some(file)
+}
