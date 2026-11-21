@@ -1,0 +1,6 @@
+{
+  "tree": "c88834d8935b8989ea857f7816e48245a208cd50+d1fba762150c532c",
+  "picker": "codex:01a1fdb4-2a11-7892-a717-a976ea2ddadb:default",
+  "author": "claude-code:3a0fa52e-2bac-5168-b65c-1e40bf8fb98f:opus",
+  "none": "The scenarios exercise the worktree match and the orphan checks during and after a start, and the listed whole-body replacements do not type-check."
+}
