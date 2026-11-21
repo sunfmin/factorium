@@ -398,3 +398,12 @@ here or dropped on purpose, listed in `docs/dropped.md` with why.
 5. **factorium is the one writer of a managed repo's base.** A repo
    factorium manages has its base moved only by promotion; anything else
    that moves the base turns promotion red.
+6. **A landing waits for no review** (factorium#167). It lands on the fast
+   gate alone and reaches only proving, which is promoted after the slow
+   gate; verdicts and rework stay out of factorium (§7). Review comes after
+   landing, from outside: Guild's warden, and control's job on a proving
+   branch, file what they find as new issues. What would reopen it: a
+   landing that harms before review can catch it (secrets, data loss,
+   something externally visible) — then a finding that holds promotion
+   (`factorium hold`), not an approval on every landing; or measured
+   evidence that findings after landing cost more than review before it.
