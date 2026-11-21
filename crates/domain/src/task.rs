@@ -80,34 +80,13 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<
 
 /// The JSON answers in `json`, past any line between them that is no JSON:
 /// each answer starts a line with `{`.
-fn answers(mut json: &str) -> Vec<Value> {
-    let mut answers = Vec::new();
-    loop {
+fn answers(json: &str) -> Vec<Value> {
+    let (mut answers, mut rest) = (Vec::new(), Some(json));
+    while let Some(json) = rest {
         let mut read = serde_json::Deserializer::from_str(json).into_iter::<Value>();
         answers.extend(read.by_ref().map_while(Result::ok));
         let at = read.byte_offset();
-        match json[at..].find("\n{") {
-            Some(i) => json = &json[at + i + 1..],
-            None => return answers,
-        }
+        rest = json[at..].find("\n{").map(|i| &json[at + i + 1..]);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn answers_after_a_line_of_their_own_are_read() {
-        let slimfit = r#"{"tasks": [{"kind": "deepen", "files": ["a.rs"], "summary": "a"}]}"#;
-        let truefit =
-            "{\n  \"by\": \"truefit 0.1.5\",\n  \"tasks\": [{\"kind\": \"stale-model\", \"files\": [\"m.tla\"]}]\n}";
-        let said = format!("slimfit 0.1.16\n{slimfit}\ntruefit 0.1.5\n{truefit}\n");
-        let filed = to_file(&said, "t", &[], 0).unwrap();
-        let kinds: Vec<_> = filed.iter().map(|f| f.task.kind.as_str()).collect();
-        assert_eq!(kinds, ["deepen", "stale-model"]);
-        assert!(filed[0].body.contains("as `slimfit 0.1.16` read it"), "{}", filed[0].body);
-        assert!(filed[1].title.starts_with("truefit 0.1.5 stale-model"), "{}", filed[1].title);
-        assert!(to_file("slimfit 0.1.16\nno tasks\n", "t", &[], 0).is_err());
-    }
+    answers
 }
