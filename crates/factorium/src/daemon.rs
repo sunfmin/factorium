@@ -339,29 +339,24 @@ impl App {
     /// Why no daemon runs on this database, if none does: its pid file names
     /// no live process holding its lock, or that one has not ticked lately.
     pub async fn daemon_down(&self) -> Option<String> {
-        let pid = self.data().pid();
-        let said = std::fs::read_to_string(&pid).ok();
-        let n = said.and_then(|s| s.trim().parse::<u32>().ok()).filter(|n| *n != 0);
-        let alive = n.is_some_and(|n| self.host.alive(n));
+        let pid = self.daemon_pid();
         // The lock is tried only on a live pid: a daemon starting takes it
         // before it writes its own, and is never refused for this look.
-        let locked = alive && lock::held(&pid);
+        let locked = pid.is_some() && lock::held(&self.data().pid());
         let ticked = std::fs::read_to_string(self.data().ticked()).ok().and_then(|t| t.trim().parse().ok());
         let every = self.settings().await.unwrap_or_default().ms(Time::TickEvery);
-        daemon::down(&daemon::Probe { pid: n, alive, locked, ticked }, every, self.now())
+        daemon::down(&daemon::Probe { pid, locked, ticked }, every, self.now())
     }
 
     /// `factorium doctor` as the owner runs it: [`Self::doctor`], with no
-    /// daemon running as its first finding. The watch's look leaves that
-    /// out: the daemon runs it.
+    /// daemon running as its first finding, unless the store cannot be read
+    /// (that is its one finding). The watch's look leaves it out: the daemon runs it.
     pub async fn doctor_here(&self) -> Answer {
         let mut answer = self.doctor().await?;
-        if let Some(why) = self.daemon_down().await {
+        if let (None, Some(why)) = (answer.get("unreadable"), self.daemon_down().await) {
             let log = self.data().log().display().to_string();
             let found = doctor::no_daemon(&why, self.service_loaded().as_deref(), &log);
-            if let Some(f) = answer["findings"].as_array_mut() {
-                f.insert(0, json!(found));
-            }
+            answer["findings"].as_array_mut().map(|f| f.insert(0, json!(found)));
         }
         Ok(answer)
     }
