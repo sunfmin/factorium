@@ -5,7 +5,7 @@ use factum_core::{Aggregate, Rejection, Upcast, Uuid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::task::Task;
+use crate::idle::Task;
 use crate::{command, issue_id, named, no};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

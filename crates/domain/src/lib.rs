@@ -24,7 +24,6 @@ pub mod outbox;
 pub mod pick;
 pub mod review;
 pub mod settings;
-pub mod task;
 pub mod tracker;
 pub mod watch;
 pub mod worker;

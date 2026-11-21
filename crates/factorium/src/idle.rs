@@ -11,10 +11,9 @@
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::idle::{self, Idles, RecordIdle, Run, host_idle, idle_id};
+use factorium_domain::idle::{self, Idles, RecordIdle, Run, ToFile, host_idle, idle_id};
 use factorium_domain::issue::Open;
 use factorium_domain::settings::{Settings, Time};
-use factorium_domain::task::{self, ToFile};
 use factorium_domain::tracker;
 use factum::Value;
 use serde_json::json;
@@ -73,7 +72,7 @@ impl App {
         for row in self.rows(tracker::issues(Some(checkout), true)).await? {
             issues.push(self.issue(checkout, row.number).await?);
         }
-        let found = match task::to_file(&said, tip, &issues, self.now()) {
+        let found = match idle::to_file(&said, tip, &issues, self.now()) {
             Ok(found) => found,
             Err(why) => return Ok(Err(why)),
         };
