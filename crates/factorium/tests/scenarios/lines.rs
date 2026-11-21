@@ -20,7 +20,7 @@ fn repo() -> (PathBuf, PathBuf) {
     for script in ["gate.sh", "checks.sh", "lines.sh"] {
         std::fs::copy(root.join(script), dir.join(script)).unwrap();
     }
-    for stub in ["cargo", "slimfit"] {
+    for stub in ["cargo", "slimfit", "truefit"] {
         std::fs::write(stubs.join(stub), "#!/bin/sh\nexit 0\n").unwrap();
     }
     std::fs::write(
