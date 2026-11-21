@@ -1,0 +1,201 @@
+//! The scenario world's stand-ins as one command, so truefit runs each
+//! contract case (`truefit.toml`) against the stand-in and the real program
+//! the same way. `standin fake` answers from the scenarios' own fakes
+//! (`tests/scenarios/fixture/fakes.rs`, the very code, in a world rooted at
+//! the case's directory); `standin real` runs the real programs.
+//!
+//! It reads its steps from stdin, one JSON object a line (`#` lines and
+//! blank ones skipped), and prints, a line each, what factorium reads of
+//! each answer:
+//!
+//! - `{"run": [program, args…], "read": …}`: runs the program as factorium
+//!   does. `read` is what is printed of the answer: `"ok"` (the default,
+//!   whether it succeeded), `"out"` (that and its stdout), or a list of
+//!   JSON pointers into its stdout, `*` standing for each item of an array
+//!   or object. Programs the scenarios stand in for (orca, brew, mytokens,
+//!   slimfit, launchctl, sleep) go to the fake; any other runs for real on
+//!   both sides (git, to make a case's repo).
+//! - `{"orca": method, "args": […]}`: calls factorium's own reader of Orca
+//!   (`factorium::host::Orca`) and prints what it made of the answers.
+//! - `{"world": {…}}`: sets what a scenario sets of the fake's world
+//!   (`tokens`, `slimfit`, `installed`, `tap`, `busy` and `unobserved`); `real` skips it.
+//! - `"only": "fake" | "real"` on any step runs it on that side alone,
+//!   unprinted: how each side is brought to the same state.
+//! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
+//!   whole trimmed stdout) as `{name}` in later steps, beside `{dir}` (the
+//!   working directory), `{uid}` and `{nonce}` (unique to the run).
+
+#[allow(dead_code)]
+#[path = "../tests/scenarios/fixture/fakes.rs"]
+mod fakes;
+
+use std::collections::BTreeMap;
+use std::io::BufRead;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use factorium::host::{ManualClock, Orca, Programs, Reading, Said, System, Term};
+use fakes::FakeHost;
+use serde_json::{Value, json};
+
+/// What the scenarios stand in for: the rest is real on both sides.
+const FAKED: [&str; 6] = ["orca", "brew", "mytokens", "slimfit", "launchctl", "sleep"];
+
+/// The programs a side runs: the fake's world, or the machine.
+struct Side(Option<FakeHost>);
+
+impl Programs for Side {
+    fn run(&self, program: &str, args: &[&str]) -> Said {
+        match &self.0 {
+            Some(fake) if FAKED.contains(&program) => fake.run(program, args),
+            _ => System.run(program, args),
+        }
+    }
+}
+
+/// Sets what a scenario sets of the fake's world.
+fn set(fake: &FakeHost, to: &Value) {
+    let strings = |v: &Value| -> BTreeMap<String, String> {
+        let pairs = v.as_object().into_iter().flatten();
+        pairs.map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect()
+    };
+    fake.tokens.lock().unwrap().extend(strings(&to["tokens"]));
+    fake.slimfit.lock().unwrap().extend(strings(&to["slimfit"]));
+    let mut brew = fake.brew.lock().unwrap();
+    brew.installed.extend(strings(&to["installed"]));
+    brew.tap.extend(strings(&to["tap"]));
+    if let Some(handle) = to["busy"].as_str() {
+        let mut terminals = fake.orca.terminals.lock().unwrap();
+        let term = terminals.get_mut(handle).expect("a terminal to be busy");
+        (term.busy, term.unobserved) = (true, to["unobserved"] == true);
+    }
+}
+
+/// The values at `pointer` in `v`, `*` standing for each item.
+fn at<'a>(v: &'a Value, pointer: &str) -> Vec<&'a Value> {
+    let mut here = vec![v];
+    for part in pointer.split('/').skip(1) {
+        here = here
+            .into_iter()
+            .flat_map(|v| match (part, v) {
+                ("*", Value::Array(a)) => a.iter().collect(),
+                ("*", Value::Object(o)) => o.values().collect(),
+                (p, v) => v.pointer(&format!("/{p}")).into_iter().collect::<Vec<_>>(),
+            })
+            .collect();
+    }
+    here
+}
+
+/// What factorium reads of an answer, as `read` names it.
+fn read(said: &Said, how: &Value) -> Value {
+    match how {
+        Value::Array(pointers) => {
+            let out: Value = serde_json::from_str(&said.out).unwrap_or(Value::Null);
+            let read = pointers.iter().filter_map(Value::as_str).map(|p| {
+                let found: Vec<&Value> = at(&out, p);
+                (p.to_string(), json!(found))
+            });
+            json!({ "ok": said.ok, "read": read.collect::<serde_json::Map<_, _>>() })
+        }
+        Value::String(s) if s == "out" => json!({ "ok": said.ok, "out": said.out }),
+        _ => json!({ "ok": said.ok }),
+    }
+}
+
+/// An Orca reader's result as printed: its value, or why it failed.
+fn made<T: Into<Value>>(r: Result<T, String>) -> Value {
+    r.map_or_else(|why| json!({ "err": why }), |v| json!({ "ok": v.into() }))
+}
+
+/// What factorium's Orca reader makes of the answers to `method`.
+fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
+    let arg = |i: usize| a.get(i).map(String::as_str).unwrap_or_default();
+    let unit = |r: Result<(), String>| made(r.map(|()| true));
+    match method {
+        "worktree" => made(orca.worktree(arg(0).as_ref(), arg(1), arg(2), arg(3)).map(|p| p.display().to_string())),
+        "remove" => unit(orca.remove(arg(0).as_ref())),
+        "open" => made(orca.open(arg(0).as_ref(), arg(1), arg(2))),
+        "ready" => unit(orca.ready(arg(0))),
+        "send" => unit(orca.send(arg(0), arg(1))),
+        "press" => unit(orca.press(arg(0), arg(1))),
+        "close" => unit(orca.close(arg(0))),
+        "deliver" => made(orca.deliver(arg(0), arg(1), a.get(2).map(String::as_str)).map(|d| format!("{d:?}"))),
+        // Which of the three it is: the rows are the harness's, not Orca's.
+        "screen" => json!(match orca.screen(arg(0)) {
+            Term::Running(_) => "running".to_string(),
+            Term::Exited => "exited".to_string(),
+            Term::Unreadable(why) => format!("unreadable: {why}"),
+        }),
+        // The title Orca lists the terminal under, if it lists it: Orca
+        // lists the host's other terminals too, which no case reads.
+        "listed" => made(orca.terminals().map(|t| {
+            t.into_iter().find(|(h, _)| h == arg(0)).map(|(_, title)| title).map_or(Value::Null, Value::from)
+        })),
+        _ => panic!("no Orca reader {method}"),
+    }
+}
+
+/// `s` with each `{name}` it holds as kept.
+fn fill(s: &str, kept: &BTreeMap<String, String>) -> String {
+    kept.iter().fold(s.to_string(), |s, (k, v)| s.replace(&format!("{{{k}}}"), v))
+}
+
+fn main() {
+    let fake = match std::env::args().nth(1).as_deref() {
+        Some("fake") => true,
+        Some("real") => false,
+        _ => panic!("usage: standin fake|real < steps"),
+    };
+    let dir: PathBuf = std::env::current_dir().unwrap();
+    let side = Side(fake.then(|| {
+        let reading = Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 };
+        FakeHost::at(&dir, Arc::new(ManualClock::new(0)), reading)
+    }));
+    let uid = std::fs::metadata(&dir).map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap();
+    let nonce = format!("{}-{}", std::process::id(), std::time::UNIX_EPOCH.elapsed().unwrap().as_millis());
+    let mut kept: BTreeMap<String, String> =
+        [("dir", dir.display().to_string()), ("uid", uid.to_string()), ("nonce", nonce)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+    for line in std::io::stdin().lock().lines() {
+        let line = line.unwrap();
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let step: Value = serde_json::from_str(&fill(&line, &kept)).unwrap_or_else(|e| panic!("{e}: {line}"));
+        let only = step["only"].as_str();
+        if only.is_some_and(|o| o != if fake { "fake" } else { "real" }) {
+            continue;
+        }
+        let strings = |v: &Value| -> Vec<String> {
+            v.as_array().into_iter().flatten().map(|a| a.as_str().unwrap_or_default().to_string()).collect()
+        };
+        let (printed, answer, text) = if let Some(to) = step.get("world") {
+            if let Some(fake) = &side.0 {
+                set(fake, to);
+            }
+            continue;
+        } else if let Some(method) = step["orca"].as_str() {
+            let answer = orca(&Orca(&side), method, &strings(&step["args"]));
+            (json!({ "orca": method, "made": answer }), answer, String::new())
+        } else {
+            let run = strings(&step["run"]);
+            let args: Vec<&str> = run[1..].iter().map(String::as_str).collect();
+            let said = side.run(&run[0], &args);
+            let out = serde_json::from_str(&said.out).unwrap_or(Value::Null);
+            (json!({ "run": run, "said": read(&said, &step["read"]) }), out, said.out.trim().to_string())
+        };
+        // A pointer `""` keeps a program's whole trimmed stdout.
+        for (name, pointer) in step["keep"].as_object().into_iter().flatten() {
+            let pointer = pointer.as_str().unwrap_or_default();
+            let v =
+                if pointer.is_empty() { Some(text.as_str()) } else { answer.pointer(pointer).and_then(Value::as_str) };
+            kept.insert(name.clone(), v.unwrap_or_default().to_string());
+        }
+        if only.is_none() {
+            println!("{printed}");
+        }
+    }
+}

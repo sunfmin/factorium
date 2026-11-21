@@ -1,0 +1,10 @@
+{
+  "tree": "f717858f47bc398248e2aed63a2e97b7272fe3ed+d1fba762150c532c",
+  "lines": 150,
+  "serves": "factorium#172: the scenario world's stand-ins are checked against their real programs by truefit contracts",
+  "considered": "the scenarios' own fakes (fakes.rs) run by the driver rather than a second copy; FakeHost's construction shared with World::on; Orca's reader (host::Orca) reused for what factorium makes of Orca's answers; live_orca.rs deleted",
+  "reviewer": "claude-code-subagent:ab29cffbfa4c2aa98:claude-opus-5-5",
+  "author": "claude-code:factorium-172-1:claude-opus-5-5",
+  "cut": "share one FakeHost constructor between World::on and standin; merge the two impl FakeHost blocks; write the keep loop once",
+  "answer": "made all three: FakeHost::at in fakes.rs, one impl block, one keep loop after the step's answer"
+}

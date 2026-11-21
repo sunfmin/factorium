@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 10789,
-      "test_lines": 8544,
-      "tests": 288,
+      "prod_lines": 10917,
+      "test_lines": 8437,
+      "tests": 281,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 6233,
+      "covered_lines": 6217,
       "uncovered_lines": 107
     }
   },
@@ -78,7 +78,7 @@
   "measured": {
     "rust": {
       "uncovered_lines": 114,
-      "test_seconds": 236.992
+      "test_seconds": 224.101
     }
   }
 }

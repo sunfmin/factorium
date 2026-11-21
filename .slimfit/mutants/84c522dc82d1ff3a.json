@@ -1,0 +1,6 @@
+{
+  "tree": "f717858f47bc398248e2aed63a2e97b7272fe3ed+d1fba762150c532c",
+  "picker": "claude-code-subagent:a5a70adc6eeab92be:claude-opus-5-5",
+  "author": "claude-code:factorium-172-1:claude-opus-5-5",
+  "none": "The change touches only test fixtures (fakes.rs), an example binary (examples/standin.rs), the gate script, a TOML file and docs, with no library source in the crate, so there are no candidates and nothing worth running."
+}

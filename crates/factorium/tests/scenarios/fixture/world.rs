@@ -10,7 +10,7 @@ use factorium::{Answer, App, Data, Tick};
 use factum::Uuid;
 use serde_json::Value;
 
-use super::fakes::{FakeHost, FakeOrca, git_of, make_home};
+use super::fakes::{FakeHost, git_of, make_home};
 use super::{Terminal, worker};
 
 pub const GIB: u64 = 1 << 30;
@@ -106,28 +106,9 @@ impl World {
         open_files_enough();
         let dir = std::env::temp_dir().join("factorium-scenarios").join(Uuid::now_v7().to_string());
         std::fs::create_dir_all(dir.join("repos")).unwrap();
-        make_home(&dir);
         let clock = Arc::new(ManualClock::new(1_800_000_000_000));
-        let host = Arc::new(FakeHost {
-            orca: FakeOrca::default(),
-            brew: Mutex::default(),
-            reading: Mutex::new(Reading {
-                cpu_busy: 10,
-                memory_free: 60,
-                disk_free: 500 * GIB,
-                disk_total: 1000 * GIB,
-            }),
-            procs: Mutex::default(),
-            reading_procs: Mutex::default(),
-            tokens: Mutex::default(),
-            slimfit: Mutex::default(),
-            ran: Mutex::default(),
-            missing: Mutex::default(),
-            service: Mutex::default(),
-            while_sleeping: Mutex::default(),
-            clock: clock.clone(),
-            root: dir.clone(),
-        });
+        let reading = Reading { cpu_busy: 10, memory_free: 60, disk_free: 500 * GIB, disk_total: 1000 * GIB };
+        let host = Arc::new(FakeHost::at(&dir, clock.clone(), reading));
         let db = dir.join("data").join(name);
         let app = App::open(&db, "owner", host.clone()).unwrap();
         World { dir, db, clock, host, app }

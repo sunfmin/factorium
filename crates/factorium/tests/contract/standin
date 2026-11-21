@@ -1,0 +1,9 @@
+#!/bin/sh
+# The scenario world's stand-ins as a command, for truefit (truefit.toml):
+# builds `standin` (crates/factorium/examples/standin.rs, which runs the
+# scenarios' fakes, tests/scenarios/fixture/fakes.rs) and runs it in the
+# case's directory.
+set -eu
+repo="$(cd "$(dirname "$0")/../../../.." && pwd)"
+cargo build --quiet --manifest-path "$repo/Cargo.toml" -p factorium --example standin
+exec "$repo/target/debug/examples/standin" "$@"

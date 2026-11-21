@@ -312,6 +312,10 @@ impl FakeBrew {
                 );
                 Said { ok: false, out: String::new(), err }
             }
+            // No tap has it, as `brew update` last saw them.
+            ["install", _] if !self.tap.contains_key(&formula) && !self.installed.contains_key(&formula) => {
+                text(false, String::new())
+            }
             ["install" | "upgrade", _] => {
                 if let Some(v) = self.tap.get(&formula).filter(|_| !self.stuck) {
                     self.installed.insert(formula.clone(), v.clone());
@@ -355,8 +359,8 @@ pub struct FakeHost {
     pub slimfit: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
-    /// Whether launchd has the service loaded.
-    pub service: Mutex<bool>,
+    /// The labels of the agents launchd has loaded.
+    pub service: Mutex<Vec<String>>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
     /// Runs, once, on the next `sleep`: what happens while the app waits.
@@ -367,6 +371,35 @@ pub struct FakeHost {
 }
 
 impl FakeHost {
+    /// The machine of the world at `root`, its home made, its clock and its
+    /// reading as given, nothing else on it yet.
+    pub fn at(root: &Path, clock: Arc<ManualClock>, reading: Reading) -> FakeHost {
+        make_home(root);
+        let (orca, brew, procs, reading_procs) = Default::default();
+        let (tokens, slimfit, missing, service, ran, while_sleeping) = Default::default();
+        let reading = Mutex::new(reading);
+        FakeHost {
+            orca,
+            brew,
+            reading,
+            procs,
+            reading_procs,
+            tokens,
+            slimfit,
+            missing,
+            service,
+            ran,
+            while_sleeping,
+            clock,
+            root: root.to_path_buf(),
+        }
+    }
+
+    /// Whether launchd has factorium's agent loaded.
+    pub fn loaded(&self) -> bool {
+        self.service.lock().unwrap().iter().any(|l| l == "com.github.sunfmin.factorium")
+    }
+
     /// The `brew` commands run, oldest first.
     pub fn brewed(&self) -> Vec<String> {
         self.ran.lock().unwrap().iter().filter_map(|r| r.strip_prefix("brew ")).map(str::to_string).collect()
@@ -403,15 +436,28 @@ impl Programs for FakeHost {
                 Said { ok: true, ..Default::default() }
             }
             "launchctl" => {
-                // As launchd: this user's GUI domain, the agent by its label.
+                // As launchd: this user's GUI domain, an agent by the label
+                // its file names.
                 use std::os::unix::fs::MetadataExt;
-                let domain = format!("gui/{}", std::fs::metadata(&self.root).unwrap().uid());
-                let target = format!("{domain}/com.github.sunfmin.factorium");
+                let domain = format!("gui/{}/", std::fs::metadata(&self.root).unwrap().uid());
+                let label = |t: &str| t.strip_prefix(&domain).map(str::to_string);
                 let mut loaded = self.service.lock().unwrap();
                 let ok = match args {
-                    ["print", t] if *t == target => *loaded,
-                    ["bootstrap", d, _] if *d == domain => !std::mem::replace(&mut *loaded, true),
-                    ["bootout", t] if *t == target => std::mem::replace(&mut *loaded, false),
+                    ["print", t] => label(t).is_some_and(|l| loaded.contains(&l)),
+                    ["bootstrap", d, file] if format!("{d}/") == domain => match label_of(file) {
+                        Some(l) if !loaded.contains(&l) => {
+                            loaded.push(l);
+                            true
+                        }
+                        _ => false,
+                    },
+                    ["bootout", t] => match label(t).and_then(|l| loaded.iter().position(|x| *x == l)) {
+                        Some(i) => {
+                            loaded.remove(i);
+                            true
+                        }
+                        None => false,
+                    },
                     _ => false,
                 };
                 Said { ok, out: String::new(), err: if ok { String::new() } else { "Input/output error".into() } }
@@ -423,6 +469,14 @@ impl Programs for FakeHost {
     fn found(&self, program: &str) -> bool {
         !self.missing.lock().unwrap().iter().any(|m| m == program)
     }
+}
+
+/// The label a launchd agent's file at `file` names.
+fn label_of(file: &str) -> Option<String> {
+    let plist = std::fs::read_to_string(file).ok()?;
+    let (_, after) = plist.split_once("<key>Label</key>")?;
+    let (_, rest) = after.split_once("<string>")?;
+    rest.split_once("</string>").map(|(l, _)| l.to_string())
 }
 
 impl Host for FakeHost {

@@ -297,11 +297,16 @@ depend on nothing else of factorium.
   CLI command is one method of it, and the daemon's tick is one too.
   Every scenario drives `App` as the CLI does and reads only what the CLI
   could print. No crate has tests of its own beneath it.
-- **What is faked, and how.** Orca, Homebrew and mytokens: the programs
-  themselves. The app runs them through one port (run a program, get its
-  answer), and a scenario stands in there with answers shaped as the real
-  programs gave them — Orca's keeping terminals and what was sent to them —
-  so what the app makes of their answers runs in every scenario.
+- **What is faked, and how.** Orca, Homebrew, mytokens, slimfit and
+  launchd: the programs themselves. The app runs them through one port
+  (run a program, get its answer), and a scenario stands in there with
+  answers shaped as the real programs gave them — Orca's keeping terminals
+  and what was sent to them — so what the app makes of their answers runs
+  in every scenario. Each stand-in is held to its real program by a truefit
+  contract (`truefit.toml`): the cases of what the app reads of it, run
+  through one driver against the scenarios' own fakes in the fast gate
+  (`truefit contract`) and against the real program by hand (`truefit
+  contract --real <name>`), the last agreeing run kept in `.truefit/`.
   Harnesses: a stand-in session that writes the session file each harness
   describes, line by line, from its own module, so no second copy of a
   format exists. Host readings and the clock: in-process stand-ins the
@@ -339,7 +344,7 @@ depend on nothing else of factorium.
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
   `./checks.sh` (the crates' lines against their targets, shown, §5; fmt, clippy) then `slimfit check`
   against the committed `.slimfit/`, in place of a plain `cargo test`, holding
-  the tests' time as above; the slow gate (`./slow.sh`) is
+  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`) is
   `./gate.sh` again, on the proving tip a promotion moves. What
   `slimfit check` holds, a change's record of its mutants among it, is
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
