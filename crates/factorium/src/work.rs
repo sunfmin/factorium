@@ -6,13 +6,12 @@ use std::path::Path;
 
 use factorium_domain::declared::Kind;
 use factorium_domain::issue::Author;
-use factorium_domain::settings::Time;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
 use serde_json::json;
 
 use crate::gate::At;
-use crate::heavy::{Job, Turn};
+use crate::heavy::Asker;
 use crate::session::Session;
 use crate::{Answer, App, Refusal, fail};
 
@@ -113,20 +112,13 @@ impl App {
     /// priority, so a time it measures (a test run, `slimfit check` or
     /// `ratchet`) is one a gate's run of the same tree agrees with.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(worker, dir, cmd, false).await
+        self.exclusive(Asker::Worker(worker), dir, cmd, false).await
     }
 
     /// [`App::worker_exclusive`] at background priority: for work whose
     /// time no gate compares (a mutation run), so a gate beside it gets the
     /// CPU first.
     pub async fn worker_exclusive_background(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(worker, dir, cmd, true).await
-    }
-
-    async fn exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str, background: bool) -> Answer {
-        let (hold_ms, steps) = (self.settings().await?.ms(Time::HoldBound), [cmd.to_string()]);
-        let job = Job::exclusive(cmd.into(), dir, &steps, hold_ms, background).of(worker, None);
-        let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
-        Ok(json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
+        self.exclusive(Asker::Worker(worker), dir, cmd, true).await
     }
 }

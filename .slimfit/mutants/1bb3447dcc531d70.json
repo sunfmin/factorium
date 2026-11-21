@@ -1,0 +1,6 @@
+{
+  "tree": "95573d53dc616b429df9e143056d42fbb618b6ca+d1fba762150c532c",
+  "picker": "codex:01a1fb8c-4af6-7981-ae82-559f35ad694b:default",
+  "author": "claude-code:06c2485a-d312-5a94-86f1-cf18f8a70850:opus",
+  "none": "The buildable candidates either break command execution or produce behavior the shown tests explicitly check, including queue entry tags, depth, and overdue line-move precedence."
+}

@@ -42,6 +42,7 @@ mod parked;
 mod path;
 mod pick;
 mod priority;
+mod program;
 mod queue;
 mod stall;
 mod terminals;
