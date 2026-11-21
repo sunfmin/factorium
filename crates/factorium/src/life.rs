@@ -6,7 +6,10 @@
 //! is undone when it starts again ([`App::free_unstarted`]). Every end,
 //! whatever its cause, runs in one order ([`App::finish`]).
 
-use factorium_domain::issue::{Because, CloseIssue, ReleaseIssue, Take, TakeIssue};
+use factorium_domain::checkout::Checkout;
+use factorium_domain::issue::{
+    Because, Claim, Claimant, Claiming, CloseIssue, Issue, ReleaseIssue, Take, TakeIssue, Taking,
+};
 use factorium_domain::outbox::Outcome;
 use factorium_domain::tracker;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
@@ -34,7 +37,9 @@ impl End {
 }
 
 impl App {
-    /// Starts a worker on issue `number` of `checkout`.
+    /// Starts a worker on issue `number` of `checkout`. Its take claims the
+    /// issue ([`TakeIssue`]) until the start is recorded or undone, so no
+    /// command that abandons a worktree acts on it meanwhile (factorium#189).
     pub(crate) async fn start_worker(&self, checkout: &str, number: u64) -> Answer {
         let c = self.checkout(checkout).await?;
         let issue = self.issue(checkout, number).await?;
@@ -43,20 +48,26 @@ impl App {
         let worker = worker_id(checkout, number, attempt);
         // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.
         let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
-        let take = Take { checkout: checkout.into(), number, worker };
-        self.submit::<TakeIssue>(take.clone()).await?;
-        let (st, typed) = match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
-            Ok(opened) => opened,
-            Err(r) => {
-                self.submit::<ReleaseIssue>(take).await?;
-                return Err(r);
+        let pid = std::process::id();
+        self.submit::<TakeIssue>(Taking { checkout: checkout.into(), number, worker, pid }).await?;
+        let started = async {
+            let (st, typed) = match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
+                Ok(opened) => opened,
+                Err(r) => {
+                    self.submit::<ReleaseIssue>(Take { checkout: checkout.into(), number, worker }).await?;
+                    return Err(r);
+                }
+            };
+            let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
+            match self.begin(worker, &st, typed).await {
+                Ok(()) => Ok(shown),
+                Err((why, r)) => Err(self.undo_start(worker, &st, why, r).await),
             }
-        };
-        let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
-        match self.begin(worker, &st, typed).await {
-            Ok(()) => Ok(shown),
-            Err((why, r)) => Err(self.undo_start(worker, &st, why, r).await),
         }
+        .await;
+        let claim = Claim { by: Claimant::Start, pid };
+        self.unclaim(Claiming { checkout: checkout.into(), number, claim }).await?;
+        started
     }
 
     /// Frees each issue taken by a worker never recorded started: the
@@ -75,6 +86,10 @@ impl App {
             let (checkout, number) = (row.checkout, row.number);
             let attempt = self.issue(&checkout, number).await?.attempts;
             self.submit::<ReleaseIssue>(Take { checkout: checkout.clone(), number, worker }).await?;
+            // Its start's claim (factorium#189) was the dead daemon's: it goes too.
+            if let Some(claim) = self.issue(&checkout, number).await?.claim.filter(|c| c.by == Claimant::Start) {
+                self.unclaim(Claiming { checkout: checkout.clone(), number, claim }).await?;
+            }
             let branch = WorkerBranch { checkout: checkout.clone(), number, attempt }.name();
             let c = self.checkout(&checkout).await?;
             let made = self.host.git(&c.path).worktrees().unwrap_or_default();
@@ -203,10 +218,10 @@ impl App {
 
     async fn open_worker(
         &self,
-        c: &factorium_domain::checkout::Checkout,
-        issue: &factorium_domain::issue::Issue,
+        c: &Checkout,
+        issue: &Issue,
         attempt: u32,
-        worker: factum::Uuid,
+        worker: Uuid,
         pick: &Pick,
         tip: String,
     ) -> Answer<(Started, Option<String>)> {

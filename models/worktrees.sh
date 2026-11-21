@@ -11,9 +11,6 @@
 #   models/worktrees.sh broken
 #       Checks each broken variant (BrokenVariants in the model) under the
 #       gate's config: each must fail on its property.
-#   models/worktrees.sh finding
-#       Checks the config whose behaviours the code does not yet handle
-#       (WorktreesRace.cfg): it must fail.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -29,11 +26,6 @@ case "${1:-}" in
   broken)
     broken models/Worktrees.tla models/Worktrees.cfg
     ;;
-  finding)
-    failed=0
-    expect "$(check models/Worktrees.tla models/WorktreesRace.cfg none)" NoStartOverUnderWorker "the code, racing (WorktreesRace.cfg)" || failed=1
-    exit $failed
-    ;;
   *)
-    sed -n '2,17p' "$0"; exit 2 ;;
+    sed -n '2,13p' "$0"; exit 2 ;;
 esac

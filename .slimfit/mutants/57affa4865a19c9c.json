@@ -1,0 +1,15 @@
+{
+  "tree": "d911252352a0f5781a388ba8f44e962ca07d1db4+d1fba762150c532c",
+  "picker": "codex:01a1fdd0-6fad-7b92-b764-157b7e662853:default",
+  "author": "claude-code:2e933e04-5ef3-56f8-9e9e-260ef9689b1c:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/issue.rs:540:9: replace <impl std::fmt::Display for Claim>::fmt -> std::fmt::Result with Ok(Default::default())",
+        "why": "The contention test checks the refusal code, so an empty message could hide the claimant and its PID without failing the test.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}

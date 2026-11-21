@@ -85,6 +85,9 @@ pub struct FakeOrca {
     /// While set, this runs with the worktree when a terminal is asked to
     /// open there, before Orca answers.
     pub while_opening: Mutex<Option<Closing>>,
+    /// While set, this runs with the worktree when one is asked to be
+    /// removed, before Orca removes it.
+    pub while_removing: Mutex<Option<Closing>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -121,6 +124,13 @@ impl FakeOrca {
             if let Some(mut during) = during {
                 during(flag(args, "--worktree"));
                 *self.while_opening.lock().unwrap() = Some(during);
+            }
+        }
+        if args[..2] == ["worktree", "rm"] {
+            let during = self.while_removing.lock().unwrap().take();
+            if let Some(mut during) = during {
+                during(flag(args, "--worktree"));
+                *self.while_removing.lock().unwrap() = Some(during);
             }
         }
         let mut held = self.held.lock().unwrap();
@@ -381,6 +391,9 @@ pub struct FakeHost {
     pub ran: Mutex<Vec<String>>,
     /// Runs, once, on the next `sleep`: what happens while the app waits.
     pub while_sleeping: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// While set, this process reads as gone too: what a later process sees
+    /// of one of its runs that died.
+    pub gone: Mutex<bool>,
     /// The app's one clock: only the scenario moves it.
     pub clock: Arc<ManualClock>,
     pub(super) root: PathBuf,
@@ -392,7 +405,7 @@ impl FakeHost {
     pub fn at(root: &Path, clock: Arc<ManualClock>, reading: Reading) -> FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
-        let (tokens, slimfit, missing, service, ran, while_sleeping) = Default::default();
+        let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -406,6 +419,7 @@ impl FakeHost {
             service,
             ran,
             while_sleeping,
+            gone,
             clock,
             root: root.to_path_buf(),
         }
@@ -512,7 +526,7 @@ impl Host for FakeHost {
         self.procs.lock().unwrap().clone()
     }
     fn alive(&self, pid: u32) -> bool {
-        pid == std::process::id()
+        pid == std::process::id() && !*self.gone.lock().unwrap()
     }
     fn home(&self) -> PathBuf {
         home(&self.root)

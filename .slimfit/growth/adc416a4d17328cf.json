@@ -1,0 +1,10 @@
+{
+  "tree": "736bf29cd2f3cc5c2a83677a38618ea30d518fae+d1fba762150c532c",
+  "lines": 115,
+  "serves": "factorium#189",
+  "considered": "Reusing TakeIssue/ReleaseIssue and issue.worker as the claim (a start in progress is not distinguishable from a working worker, and close must run under a working one); a lock file outside the database (not atomic with TakeIssue's read); the heavy queue's dead-pid clearing (heavy.rs), whose host.alive check the claim reuses",
+  "reviewer": "codex:01a1fdb5-cf7d-7602-91fa-72f687cd82ae:default",
+  "author": "claude-code:2e933e04-5ef3-56f8-9e9e-260ef9689b1c:opus",
+  "cut": "In crates/factorium/src/issues.rs, delete the preflight issue read in issue_start_over because claimed reads the same issue before acquiring the claim. In crates/factorium/src/life.rs, keep the existing startup body in a local async block so it can reuse the checkout, issue number, and release payload while start_worker still unclaims after the block returns. In models/Worktrees.tla, drop the unclaimed exception in Free because Claim already leaves the claim empty for that variant, and use Shut directly in CloseF's no-worktree branch because CloseG already requires the close process to be idle and Shut clears the claim. In crates/factorium/tests/scenarios/fixture/world.rs and crates/factorium/tests/scenarios/kept.rs, return the existing thread's join result from another so the process-death test can assert the panic without spawning a second thread.",
+  "answer": "Made all four cuts: the preflight read is gone; start_worker's body is a local async block (no taken fn); Free has no unclaimed exception and CloseF uses Shut; another returns the join result and the death test uses it directly. The rest is the claim itself (domain commands, the CLI helper, the tick's skip and clear) and its three scenarios."
+}

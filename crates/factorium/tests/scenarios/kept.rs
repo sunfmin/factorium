@@ -483,3 +483,90 @@ async fn a_daemon_that_died_mid_start_leaves_its_held_worktree_to_doctor() {
     std::fs::rename(&away, &at).unwrap();
     assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
 }
+
+/// factorium#189, behaviour 1: a tick, as another process, between
+/// start-over's read (no worker, a kept worktree) and its act (the
+/// worktree's removal). The claim start-over holds keeps the tick from
+/// taking the issue, so no worker resumes the worktree it removes; the
+/// next tick starts afresh, and the work is on the kept branch.
+#[tokio::test]
+async fn a_tick_during_a_start_over_starts_no_worker_in_the_worktree_it_removes() {
+    let w = World::new();
+    let tree = waiting_for_human(&w, true).await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    let during = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), w.host.clone(), during.clone());
+    *w.host.orca.while_removing.lock().unwrap() = Some(Box::new(move |_: &str| {
+        let started =
+            crate::fixture::another(&db, &host, |app| async move { app.tick().await.map(|t| t.started) }).unwrap();
+        into.lock().unwrap().push(started.map_err(|r| r.to_string()));
+    }));
+    w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
+    *w.host.orca.while_removing.lock().unwrap() = None;
+    let during = during.lock().unwrap().clone();
+    assert!(!during.is_empty(), "a tick ran during the start-over");
+    assert!(during.iter().all(|t| matches!(t, Ok(None))), "it started no worker: {during:?}");
+    assert!(!tree.exists(), "start-over removed it");
+    let next = w.tick().await.started.expect("the next tick starts");
+    assert_ne!(next["worktree"], json!(tree), "afresh, not in the removed worktree");
+    assert!(PathBuf::from(next["worktree"].as_str().unwrap()).exists());
+    let repo = w.dir.join("repos").join("web");
+    assert!(w.git(&repo, &["show", "factorium/web-1-1-abandoned:kept.txt"]).is_ok(), "the work is kept");
+}
+
+/// factorium#189, behaviour 2: `issue close`, as another process, while a
+/// tick's start opens its worker's session (its worktree made, its worker
+/// not yet recorded). The start's claim refuses the close, so no worker is
+/// left at work on a closed issue; once the start is done, the close runs.
+#[tokio::test]
+async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issue() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    let during = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), w.host.clone(), during.clone());
+    // Once: its worker's terminal, the first the start opens.
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        if !into.lock().unwrap().is_empty() {
+            return;
+        }
+        let closed =
+            crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await }).unwrap();
+        into.lock().unwrap().push(closed.map_err(|r| (r.code, r.message)));
+    }));
+    w.tick().await.started.expect("the start goes on");
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    let during = during.lock().unwrap().clone();
+    assert_eq!(during.len(), 1, "a close ran during the start");
+    let (code, why) = during[0].as_ref().expect_err("refused");
+    assert_eq!(code, "claimed");
+    assert!(why.starts_with("start is under way on it (process "), "it names the start: {why}");
+    let wk = worker(&w.app).await;
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("ready"), "{wk}");
+    w.app.issue_close("web", 1, "no").await.unwrap();
+    assert!(w.app.workers(false).await.unwrap().as_array().unwrap().is_empty(), "closed, its worker ended");
+    assert!(!worktree(&wk).exists(), "and its worktree is removed");
+}
+
+/// A start-over that dies between its read and its act leaves its claim:
+/// while its process is alive (as far as the tick can tell) the issue
+/// starts no worker; once it is gone, the next tick clears the claim and
+/// resumes the worktree the start-over never removed.
+#[tokio::test]
+async fn a_claim_whose_process_died_is_cleared_by_the_next_tick() {
+    let w = World::new();
+    let tree = waiting_for_human(&w, true).await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    *w.host.orca.while_removing.lock().unwrap() = Some(Box::new(|_: &str| panic!("the start-over's process dies")));
+    let (db, host) = (w.db.clone(), w.host.clone());
+    let died = crate::fixture::another(&db, &host, |app| async move { app.issue_start_over("web", 1, "x").await });
+    assert!(died.is_err(), "it died");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["claim"]["by"], json!("start_over"));
+    assert_eq!(w.tick().await.started, None, "claimed, it does not start");
+    *w.host.gone.lock().unwrap() = true;
+    let started = w.tick().await.started.expect("its claim cleared, it starts");
+    *w.host.gone.lock().unwrap() = false;
+    assert_eq!(started["worktree"], json!(tree), "in the worktree the start-over never removed");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["claim"], json!(null));
+}
