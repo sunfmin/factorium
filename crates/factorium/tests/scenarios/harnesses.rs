@@ -196,6 +196,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     }
     offered.sort();
     let expected = [
+        "account.rs: const PREFIX",
         "account.rs: fn here",
         "account.rs: struct Here",
         "account.rs: struct Skipped",
@@ -226,6 +227,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: fn stopped",
         "harness.rs: fn told",
         "harness/store.rs: fn prompted",
+        "harness/store.rs: fn spent",
         "harness/store.rs: fn turn",
         "harness/store.rs: fn write_session",
         "lib.rs: mod account",
