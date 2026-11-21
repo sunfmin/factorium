@@ -18,7 +18,7 @@
 //! - `{"orca": method, "args": […]}`: calls factorium's own reader of Orca
 //!   (`factorium::host::Orca`) and prints what it made of the answers.
 //! - `{"world": {…}}`: sets what a scenario sets of the fake's world
-//!   (`tokens`, `slimfit`, `installed`, `tap`, `busy` and `unobserved`); `real` skips it.
+//!   (`tokens`, `slimfit`, `installed`, `tap`, `busy`, `unobserved` and `background`); `real` skips it.
 //! - `"only": "fake" | "real"` on any step runs it on that side alone,
 //!   unprinted: how each side is brought to the same state.
 //! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
@@ -71,6 +71,9 @@ fn set(fake: &FakeHost, to: &Value) {
         let mut terminals = fake.orca.terminals.lock().unwrap();
         let term = terminals.get_mut(handle).expect("a terminal to be busy");
         (term.busy, term.unobserved) = (true, to["unobserved"] == true);
+    }
+    if let Some(handle) = to["background"].as_str() {
+        fake.orca.terminals.lock().unwrap().get_mut(handle).expect("a terminal with a shell").background = true;
     }
 }
 

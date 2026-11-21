@@ -27,6 +27,10 @@ pub struct Terminal {
     /// Orca does not see its agent's turns start (one that ends within a
     /// second, or starts right after an interrupt).
     pub unobserved: bool,
+    /// Its agent holds a shell it moved to the background: Orca sees it
+    /// working, in a turn or not (Claude Code 2.1.330), so a wait for it
+    /// to sit idle times out.
+    pub background: bool,
     /// Closed through Orca: its tab is gone, not only its program.
     pub closed: bool,
     /// Its harness opened a dialog of its own: a line typed with Enter
@@ -215,6 +219,7 @@ impl FakeOrca {
                     "read" => {
                         answer(json!({ "terminal": { "handle": handle, "status": status, "tail": term.screen } }))
                     }
+                    "wait" if term.background && flag(args, "--for") == "tui-idle" => error("timeout"),
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
                     "send" if *self.refuse_send.lock().unwrap() => error("terminal_send_failed"),
                     "send" if term.alive => {
