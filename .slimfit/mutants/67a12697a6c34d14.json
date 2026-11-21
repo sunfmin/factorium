@@ -1,0 +1,27 @@
+{
+  "tree": "fd2dbabffa7ebf5b37b5ce25cb01a6ab1b768eff+d1fba762150c532c",
+  "picker": "codex:01a1fc4e-dfe9-7861-b8c1-ba373fd1467d:default",
+  "author": "claude-code:bcf34d1d-c3b0-5457-94cb-4d6bb23cc49f:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/brew.rs:45:27: replace match guard e.contains(\"has already locked\") with true in Brew<'_>::upgrade",
+        "why": "The added scenarios only exercise lock errors, so they may miss a different Homebrew error being retried as a lock.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/host/src/brew.rs:72:44: replace && with || in Brew<'_>::holder",
+        "why": "The process fixture has a line that meets both conditions and a line that meets neither, so either operator selects the same line.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/host/src/brew.rs:72:97: replace == with != in Brew<'_>::holder",
+        "why": "The real holder still matches through its PID and other tokens, and the fixture has no unrelated brew process to expose the false positive.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
