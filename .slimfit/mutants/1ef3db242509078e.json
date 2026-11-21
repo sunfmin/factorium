@@ -1,0 +1,33 @@
+{
+  "tree": "b8f3ed4ee5942fc226bbb10b668ab0983c38bddc+d1fba762150c532c",
+  "picker": "codex:01a1fcb2-dc28-79b2-a2fd-bd2c90396ba7:default",
+  "author": "claude-code:4154d894-0c92-56a5-bbef-855f69bad2cb:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/orca.rs:172:23: replace match guard f.code.as_deref() == Some(\"timeout\") with true in Orca<'_>::press",
+        "why": "The new scenario exercises a timeout, so accepting other idle-wait errors may go undetected.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/orca.rs:152:9: replace Orca<'_>::settle -> Result<(), Failed> with Ok(())",
+        "why": "Skipping the idle wait still produces the same keypress and submitted delivery that the scenario asserts.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/orca.rs:171:48: replace * with + in Orca<'_>::press",
+        "why": "The fake returns a timeout regardless of the requested duration, so 1005 ms could pass in place of 5000 ms.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/orca.rs:147:9: replace Orca<'_>::ready -> Result<(), String> with Ok(())",
+        "why": "The shown readiness call expects success, which the mutant returns even if the terminal never becomes idle.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
