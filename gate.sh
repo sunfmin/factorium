@@ -13,3 +13,8 @@ slimfit check
 # Each stand-in of the scenario world answers its contract's cases
 # (truefit.toml): the stand-ins alone, never the real programs.
 truefit contract
+
+# The heavy queue's model (models/HeavyQueue.tla) holds its properties, and
+# allows the scenario run kept as its trace (`models/heavy.sh` for the rest).
+truefit model
+truefit model heavy-run --trace models/heavy-run.jsonl

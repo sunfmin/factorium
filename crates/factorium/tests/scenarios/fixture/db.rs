@@ -6,7 +6,7 @@ use super::World;
 
 impl World {
     /// The world's database, as one more program on it would open it.
-    fn sql(&self) -> rusqlite::Connection {
+    pub(super) fn sql(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(&self.db).unwrap()
     }
 
