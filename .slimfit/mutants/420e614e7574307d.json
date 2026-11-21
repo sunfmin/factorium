@@ -1,0 +1,39 @@
+{
+  "tree": "4dc462b22316a878951ae7a6bd6cfd9ea627f082+d1fba762150c532c",
+  "picker": "codex:01a1fb92-1e00-74f2-bf33-7046aa99c3f5:default",
+  "author": "claude-code:dd958ce0-66a2-5883-ba9b-2a90322f0f72:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/kit.rs:104:64: replace != with == in Kit::choose_on",
+        "why": "This reverses which checkout pins permit the named account, and the scenario uses an unpinned checkout.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/kit.rs:110:67: replace <= with > in Kit::choose_on",
+        "why": "The scenario starts a named account without recording its quota, so it may miss that this mutation admits an exhausted account.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:63:29: replace && with || in On::is_none",
+        "why": "This drops the role or account from the opening event when only one is set, and the scenario sets both fields or neither.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/launch.rs:367:19: replace match guard theirs.is_dir() with true in role_dir",
+        "why": "This can leave a dangling skills symlink for a role without a skills directory, and the tested role has one.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/harness/src/harness/store.rs:136:58: replace && with || in spent",
+        "why": "This can count usage from a file that looks relevant but never records the worker's turn, a case the session tests do not exercise.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
