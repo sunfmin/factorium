@@ -16,12 +16,14 @@
 (* tick's start; the landing, its line), and the CLI commands start-over, *)
 (* close and discard, each its own process. Each step a process takes is  *)
 (* one action, named as the code names it; any process may die between   *)
-(* two of its steps (`Dies` names where), and comes back idle.            *)
+(* two of its steps (`Dies` names where), and comes back idle. All of     *)
+(* them interleave, and a worker's own steps (its changes and commits,    *)
+(* failing) with everything.                                              *)
 (*                                                                         *)
-(* `Races`: whether a CLI command's steps may interleave with the         *)
-(* daemon's and each other's (they are other processes, so in the code    *)
-(* they may: models/worktrees.sh finding). A worker's own steps (its      *)
-(* changes and commits, failing) interleave with everything either way.   *)
+(* A start and the commands that abandon a worktree hold the issue's      *)
+(* claim (issue.claim, factorium#189), one at a time: a start from its    *)
+(* take to its worker recorded or undone, a command from its read to its  *)
+(* act's end. A claim whose process died, the next tick clears.           *)
 (*                                                                         *)
 (* `Bug` names a broken variant (BrokenVariants below); "none" is the     *)
 (* code as it is. `models/worktrees.sh broken` shows each property        *)
@@ -36,7 +38,6 @@ EXTENDS Integers, FiniteSets, TLC
 CONSTANTS
     A,          \* attempts: 1..A, and so trees 1..A
     W,          \* work tokens a worker makes: 1..W
-    Races,      \* whether CLI commands interleave with the daemon and each other
     Dies,       \* the points (a process's `at`) it may die at
     Bug,        \* "none", or a broken variant
     Depth       \* a bound on the steps a model check explores
@@ -64,6 +65,7 @@ Start0 == [
     proving  |-> {},                          \* what the proving tip holds
     tipok    |-> TRUE,                        \* the proving tip can be read (fetched)
     made     |-> {},                          \* every token a worker made (no code holds this)
+    claim    |-> "",                          \* issue.claim: the process that holds it ("": none)
     pc       |-> [p \in Procs |-> Idle]]      \* where each process is: its step, attempt, tree
 
 VARIABLES
@@ -78,6 +80,7 @@ TypeOK ==
     /\ \A a \in Attempts : s.started[a] \in 0..a
     /\ \A t \in Trees : s.dirty[t] # {} => s.disk[t]
     /\ \A t \in Trees : s.disk[t] => s.hasbr[t]
+    /\ s.claim \in {""} \cup Procs
 
 Init == s = Start0 /\ last = [act |-> "init", p |-> "", t |-> 0, tip |-> TRUE, removed |-> FALSE]
 
@@ -118,20 +121,23 @@ Owner(S, t) == S.status # "closed" /\ t # 0 /\ t = LastTree(S)
 \* deletes its branch.
 Remove(S, t) == [S EXCEPT !.disk[t] = FALSE, !.dirty[t] = {}, !.hasbr[t] = FALSE, !.br[t] = {}]
 
-\* Under ~Races, a command begins only while no other process is in one.
-Alone(S, p) == Races \/ \A q \in Procs \ {p} : S.pc[q].at = "idle"
-At(S, p, at) == [S.pc[p] EXCEPT !.at = at]
+\* The issue's claim (ClaimIssue, TakeIssue): free, p takes it; held,
+\* p is refused. (Broken, `unclaimed`: no process claims it.)
+Free(S) == S.claim = "" \/ Bug = "unclaimed"
+Claim(S, p) == [S EXCEPT !.claim = IF Bug = "unclaimed" THEN "" ELSE p]
+\* p is done (UnclaimIssue): idle, its claim freed if it holds it still.
+Done(S, p) == [S EXCEPT !.pc[p] = Idle, !.claim = IF @ = p THEN "" ELSE @]
 
 -----------------------------------------------------------------------------
 (* The daemon's start (life.rs start_worker, kept.rs next_worktree).       *)
 
 \* The tick takes the issue: the proving tip is fetched first (unread, the
 \* start refuses and takes nothing), then TakeIssue counts an attempt.
-TakeG(S) == /\ S.pc.daemon.at = "idle" /\ Alone(S, "daemon")
+TakeG(S) == /\ S.pc.daemon.at = "idle" /\ Free(S)
             /\ S.status = "ready" /\ S.taken = 0 /\ S.attempts < A
             /\ (S.tipok \/ Bug = "start_unknown")
 TakeF(S) == LET a == S.attempts + 1 IN
-            [S EXCEPT !.attempts = a, !.taken = a, !.pc.daemon = [at |-> "taken", a |-> a, t |-> 0]]
+            [Claim(S, "daemon") EXCEPT !.attempts = a, !.taken = a, !.pc.daemon = [at |-> "taken", a |-> a, t |-> 0]]
 
 \* next_worktree: the worktree its last attempt kept (on disk, holding work
 \* that is nowhere else against the tip it read), else one Orca makes on a
@@ -144,10 +150,11 @@ DecideF(S) ==
     ELSE [S EXCEPT !.disk[a] = TRUE, !.hasbr[a] = TRUE, !.br[a] = S.proving, !.dirty[a] = {},
                    !.pc.daemon = [at |-> "opened", a |-> a, t |-> a]]
 
-\* Its session opens and it is recorded started (StartWorker): at work.
+\* Its session opens and it is recorded started (StartWorker): at work;
+\* the start frees its claim.
 RecordG(S) == S.pc.daemon.at = "opened"
 RecordF(S) == LET a == S.pc.daemon.a IN
-              [S EXCEPT !.started[a] = S.pc.daemon.t, !.live[a] = TRUE, !.pc.daemon = Idle]
+              Done([S EXCEPT !.started[a] = S.pc.daemon.t, !.live[a] = TRUE], "daemon")
 
 \* Its session does not open: undo_start frees the issue and releases the
 \* worktree (finish: it goes unless it holds work of its own, against the
@@ -155,7 +162,7 @@ RecordF(S) == LET a == S.pc.daemon.a IN
 UndoRm(S) == ~HoldsOwn(S, S.pc.daemon.t, S.tipok)
 UndoF(S) == LET t == S.pc.daemon.t
                 S1 == IF UndoRm(S) THEN Remove(S, t) ELSE S
-            IN [S1 EXCEPT !.taken = 0, !.pc.daemon = Idle]
+            IN Done([S1 EXCEPT !.taken = 0], "daemon")
 
 -----------------------------------------------------------------------------
 (* A worker's own steps, in the worktree its attempt works in.             *)
@@ -174,16 +181,16 @@ FailF(S, a) == [S EXCEPT !.live[a] = FALSE]
 \* It ends keeping its worktree, its issue free again: `issue
 \* wait-for-human` (waiting for a person), `watch restart` of one whose
 \* session is gone (ready).
-EndsG(S, a) == S.taken = a /\ S.started[a] # 0 /\ S.status # "closed" /\ Alone(S, "")
+EndsG(S, a) == S.taken = a /\ S.started[a] # 0 /\ S.status # "closed"
 EndsF(S, a, st) == [S EXCEPT !.live[a] = FALSE, !.taken = 0, !.status = st]
 \* `issue ready`.
-ReadyG(S) == S.status = "human" /\ Alone(S, "")
+ReadyG(S) == S.status = "human"
 ReadyF(S) == [S EXCEPT !.status = "ready"]
 
 \* Landing (line.rs): `worker done`; the branch merged onto the proving
 \* tip, gated green, pushed; the worker ends landed, its issue closes.
 LandG(S, a) == /\ S.live[a] /\ S.taken = a /\ S.tipok
-               /\ S.pc.land.at = "idle" /\ Alone(S, "land")
+               /\ S.pc.land.at = "idle"
 LandF(S, a) == LET t == Tree(S, a) IN
                [S EXCEPT !.proving = @ \cup S.br[t], !.live[a] = FALSE, !.status = "closed",
                          !.taken = 0, !.pc.land = [at |-> "landed", a |-> a, t |-> t]]
@@ -196,47 +203,52 @@ ReleaseF(S) == LET S1 == IF ReleaseRm(S) THEN Remove(S, S.pc.land.t) ELSE S IN
 -----------------------------------------------------------------------------
 (* The CLI commands (issues.rs, kept.rs).                                  *)
 
-\* `issue start-over`: refused while a worker is on the issue; else the
-\* worktree its last attempt kept (kept_now: against the tip as read now,
-\* unread meaning held) is abandoned.
+\* `issue start-over`: its claim refused while a worker is on the issue;
+\* else the worktree its last attempt kept (kept_now: against the tip as
+\* read now, unread meaning held) is abandoned. (Under its claim no start
+\* changes what it read, so the claim and the read are one step.)
 OverG(S) == LET lt == LastTree(S) IN
-            /\ S.pc.over.at = "idle" /\ Alone(S, "over")
+            /\ S.pc.over.at = "idle" /\ Free(S)
             /\ (S.taken = 0 \/ Bug = "start_over_live")
             /\ lt # 0 /\ S.disk[lt] /\ HoldsOwn(S, lt, S.tipok)
-OverF(S) == [S EXCEPT !.pc.over = [at |-> "commit", a |-> 0, t |-> LastTree(S)]]
+OverF(S) == [Claim(S, "over") EXCEPT !.pc.over = [at |-> "commit", a |-> 0, t |-> LastTree(S)]]
 
-\* `issue close`: the worktree its last attempt left on disk (left), if
-\* any, is abandoned once the issue closes. With none, it just closes
-\* (a worker on it ends, its worktree released: there is none on disk).
-CloseG(S) == S.pc.close.at = "idle" /\ Alone(S, "close") /\ S.status # "closed"
+\* `issue close`, under its claim: the worktree its last attempt left on
+\* disk (left), if any, is abandoned once the issue closes. With none, it
+\* just closes (a worker on it ends, its worktree released: there is none
+\* on disk). Closed, the issue holds no claim: it takes no start.
+CloseG(S) == S.pc.close.at = "idle" /\ Free(S) /\ S.status # "closed"
 Left(S) == IF LastTree(S) # 0 /\ S.disk[LastTree(S)] THEN LastTree(S) ELSE 0
-Shut(S) == [S EXCEPT !.status = "closed", !.taken = 0, !.live = [a \in Attempts |-> FALSE]]
-CloseF(S) == IF Left(S) = 0 THEN Shut(S)
-             ELSE [S EXCEPT !.pc.close = [at |-> "close", a |-> 0, t |-> Left(S)]]
+Shut(S) == [S EXCEPT !.status = "closed", !.taken = 0, !.live = [a \in Attempts |-> FALSE], !.claim = ""]
+CloseF(S) == IF Left(S) = 0 THEN Done(Shut(S), "close")
+             ELSE [Claim(S, "close") EXCEPT !.pc.close = [at |-> "close", a |-> 0, t |-> Left(S)]]
 \* abandon's first steps for a close: its comment, then the close (a worker
 \* on it ends, keeping its worktree).
 ShutG(S) == S.pc.close.at = "close"
 ShutF(S) == [Shut(S) EXCEPT !.pc.close.at = IF Bug = "close_no_keep" THEN "remove" ELSE "commit"]
 
-\* `discard <worktree>`: one doctor finds that no open issue owns.
-DiscardG(S, t) == S.pc.discard.at = "idle" /\ Alone(S, "discard") /\ Orphaned(S, t)
-DiscardF(S, t) == [S EXCEPT !.pc.discard = [at |-> "commit", a |-> 0, t |-> t]]
+\* `discard <worktree>`: one doctor finds that no open issue owns, found
+\* again under the claim of its issue, if open.
+DiscardG(S, t) == /\ S.pc.discard.at = "idle" /\ Orphaned(S, t)
+                  /\ (S.status = "closed" \/ Free(S))
+DiscardF(S, t) == LET S1 == IF S.status = "closed" THEN S ELSE Claim(S, "discard") IN
+                  [S1 EXCEPT !.pc.discard = [at |-> "commit", a |-> 0, t |-> t]]
 
 \* abandon, by p: its uncommitted changes committed (refused if the
 \* worktree is gone), its branch kept as `-abandoned` at HEAD, the
-\* worktree removed with its branch.
+\* worktree removed with its branch; then p frees its claim.
 AbCommitG(S, p) == S.pc[p].at = "commit"
 AbCommitF(S, p) ==
     LET t == S.pc[p].t IN
-    IF ~S.disk[t] THEN [S EXCEPT !.pc[p] = Idle]
+    IF ~S.disk[t] THEN Done(S, p)
     ELSE IF Bug = "abandon_no_commit" THEN [S EXCEPT !.pc[p].at = "keep"]
     ELSE [S EXCEPT !.br[t] = @ \cup S.dirty[t], !.dirty[t] = {}, !.pc[p].at = "keep"]
 AbKeepG(S, p) == S.pc[p].at = "keep"
 AbKeepF(S, p) == LET t == S.pc[p].t IN
-                 IF ~S.disk[t] THEN [S EXCEPT !.pc[p] = Idle]     \* its HEAD cannot be read
+                 IF ~S.disk[t] THEN Done(S, p)     \* its HEAD cannot be read
                  ELSE [S EXCEPT !.kept[t] = S.br[t], !.pc[p].at = "remove"]
 AbRemoveG(S, p) == S.pc[p].at = "remove"
-AbRemoveF(S, p) == [Remove(S, S.pc[p].t) EXCEPT !.pc[p] = Idle]
+AbRemoveF(S, p) == Done(Remove(S, S.pc[p].t), p)
 
 -----------------------------------------------------------------------------
 (* The steps, each with what it read for the properties.                   *)
@@ -265,6 +277,11 @@ Abandon(p) ==
     \/ AbKeepG(s, p) /\ Plain(AbKeepF(s, p), "ab_keep", p, s.pc[p].t)
     \/ AbRemoveG(s, p) /\ Plain(AbRemoveF(s, p), "ab_remove", p, s.pc[p].t)
 
+\* The tick clears a claim whose process died (it holds it, idle):
+\* next_issue, ClaimIssue's callers (clear_dead_claim).
+ClearG(S) == S.claim # "" /\ S.pc[S.claim].at = "idle" /\ S.pc.daemon.at = "idle"
+Clear == ClearG(s) /\ Plain([s EXCEPT !.claim = ""], "clear", "daemon", 0)
+
 \* The proving tip becomes readable, or not (the remote, the network).
 Tip == Plain([s EXCEPT !.tipok = ~@], "tip", "", 0)
 
@@ -277,7 +294,7 @@ Die ==
 
 Next ==
     \/ Take \/ Decide \/ Record \/ Undo \/ Release \/ Ready
-    \/ Over \/ Close \/ ShutStep \/ Tip \/ Die
+    \/ Over \/ Close \/ ShutStep \/ Tip \/ Die \/ Clear
     \/ \E a \in Attempts : Edit(a) \/ Commit(a) \/ Fail(a) \/ Ends(a) \/ Land(a)
     \/ \E t \in Trees : Discard(t)
     \/ \E p \in CLIs : Abandon(p)
@@ -365,6 +382,7 @@ BrokenVariants == [
     release_unknown   |-> "HeldWhenUnknown",        \* an unread tip counts as nothing committed
     start_unknown     |-> "HeldWhenUnknown",        \* a start takes the issue with the tip unread
     start_over_live   |-> "NoStartOverUnderWorker", \* start-over not refused under a worker
+    unclaimed         |-> "NoStartOverUnderWorker", \* no claim: a start runs between a command's read and act (#189)
     closed_unfound    |-> "DoctorFinds"             \* doctor passes over a closed issue's worktree
 ]
 =============================================================================

@@ -12,8 +12,8 @@
 #       Checks each broken variant (BrokenVariants in the model) under the
 #       gate's config: each must fail on its property.
 #   models/worktrees.sh finding
-#       Checks the two configs whose behaviours the code does not yet
-#       handle (WorktreesRace.cfg, WorktreesDeath.cfg): each must fail.
+#       Checks the config whose behaviours the code does not yet handle
+#       (WorktreesDeath.cfg): it must fail.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -56,7 +56,6 @@ case "${1:-}" in
     ;;
   finding)
     failed=0
-    expect "$(check models/WorktreesRace.cfg none)" NoStartOverUnderWorker "the code, racing (WorktreesRace.cfg)" || failed=1
     expect "$(check models/WorktreesDeath.cfg none)" DoctorFinds "the code, dying mid-start (WorktreesDeath.cfg)" || failed=1
     exit $failed
     ;;

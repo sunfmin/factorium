@@ -101,6 +101,8 @@ impl App {
                         None
                     }
                     Err(r) if r.code == "no_harness" => Some(format!("kit: {}", r.message)),
+                    // Claimed since it was picked: it starts on a later tick.
+                    Err(r) if r.code == "claimed" => Some(format!("{checkout}#{number}: {}", r.message)),
                     Err(r) => return Err(r),
                 },
                 Err(why) => Some(why),
@@ -164,6 +166,12 @@ impl App {
             }
             checked.insert(checkout.clone());
             let issue = self.issue(&checkout, number).await?;
+            // Claimed, a command acts on its worktrees: it starts once that
+            // is done. A claim whose process is gone is cleared.
+            self.clear_dead_claim(&issue).await?;
+            if self.issue(&checkout, number).await?.claim.is_some() {
+                continue;
+            }
             if !self.blockers(&issue).await?.iter().all(|(_, met)| met.is_some()) {
                 continue;
             }

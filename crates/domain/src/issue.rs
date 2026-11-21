@@ -30,6 +30,9 @@ pub struct Issue {
     pub reason: Option<String>,
     /// The worker that holds it now.
     pub worker: Option<Uuid>,
+    /// The one process acting on its worktrees now ([`Claim`]), if one is.
+    #[serde(default)]
+    pub claim: Option<Claim>,
     /// How many workers have taken it.
     pub attempts: u32,
     /// The one record of what was said about it, oldest first.
@@ -269,6 +272,10 @@ pub enum IssueEvent {
         worker: Uuid,
     },
     IssueReleased,
+    IssueClaimed {
+        claim: Claim,
+    },
+    IssueUnclaimed,
     IssueCommented {
         text: String,
         by: Author,
@@ -342,7 +349,10 @@ impl Aggregate for Issues {
                 s.attempts += 1;
             }
             IssueEvent::IssueReleased => s.worker = None,
-            IssueEvent::IssueClosed { at, .. } => (s.worker, s.closed_at) = (None, at),
+            IssueEvent::IssueClaimed { claim } => s.claim = Some(claim),
+            IssueEvent::IssueUnclaimed => s.claim = None,
+            // Closed, it takes no start: no claim is needed.
+            IssueEvent::IssueClosed { at, .. } => (s.worker, s.closed_at, s.claim) = (None, at, None),
             IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
             IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }
@@ -504,10 +514,76 @@ pub struct Take {
     pub worker: Uuid,
 }
 
-on_issue!(TakeIssue, "issue.take", Take, |s, p, now| match (s.status, s.worker) {
-    (Status::Ready, None) => Ok(vec![IssueEvent::IssueTaken { worker: p.worker }]),
-    (_, Some(_)) => no("taken", "a worker holds it already"),
+/// What acts on an issue's worktrees in more than one step: a start (from
+/// its take to its worker recorded started, or undone) and the commands
+/// that abandon a worktree. One at a time per issue (factorium#189), so
+/// none acts on what it read while another changed it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Claimant {
+    Start,
+    StartOver,
+    Close,
+    Discard,
+}
+
+/// An issue's claim: who holds it, and the process it runs in, which,
+/// gone, holds it no longer (the next to claim it, or the tick, clears it).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Claim {
+    pub by: Claimant,
+    pub pid: u32,
+}
+
+impl std::fmt::Display for Claim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} is under way on it (process {})", named(self.by), self.pid)
+    }
+}
+
+/// A worker's take of an issue: its start claims it, in process `pid`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Taking {
+    pub checkout: String,
+    pub number: u64,
+    pub worker: Uuid,
+    pub pid: u32,
+}
+
+on_issue!(TakeIssue, "issue.take", Taking, |s, p, now| match (s.status, s.worker, &s.claim) {
+    (_, _, Some(c)) => no("claimed", c.to_string()),
+    (Status::Ready, None, None) => Ok(vec![
+        IssueEvent::IssueTaken { worker: p.worker },
+        IssueEvent::IssueClaimed { claim: Claim { by: Claimant::Start, pid: p.pid } },
+    ]),
+    (_, Some(_), _) => no("taken", "a worker holds it already"),
     _ => no("not_ready", format!("it is {}", named(s.status))),
+});
+
+/// `claim` of issue `number` of `checkout`, to claim it or to free it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Claiming {
+    pub checkout: String,
+    pub number: u64,
+    pub claim: Claim,
+}
+
+// Refused while another holds it; a start-over's, while a worker is on it.
+on_issue!(ClaimIssue, "issue.claim", Claiming, |s, p, now| match &s.claim {
+    Some(c) => no("claimed", c.to_string()),
+    None if p.claim.by == Claimant::StartOver && s.worker.is_some() => no(
+        "live_worker",
+        format!(
+            "a worker is on {}#{}: leave it to a person first (factorium issue wait-for-human {} {} --why …)",
+            p.checkout, p.number, p.checkout, p.number
+        ),
+    ),
+    None => Ok(vec![IssueEvent::IssueClaimed { claim: p.claim.clone() }]),
+});
+
+// Frees the claim, if `claim` holds it still.
+on_issue!(UnclaimIssue, "issue.unclaim", Claiming, |s, p, now| {
+    Ok(if s.claim.as_ref() == Some(&p.claim) { vec![IssueEvent::IssueUnclaimed] } else { Vec::new() })
 });
 
 on_issue!(ReleaseIssue, "issue.release", Take, |s, p, now| {

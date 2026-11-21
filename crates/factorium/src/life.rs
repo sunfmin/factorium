@@ -5,7 +5,10 @@
 //! closed and its issue is free again. Every end, whatever its cause, runs
 //! in one order ([`App::finish`]).
 
-use factorium_domain::issue::{Because, CloseIssue, ReleaseIssue, Take, TakeIssue};
+use factorium_domain::checkout::Checkout;
+use factorium_domain::issue::{
+    Because, Claim, Claimant, Claiming, CloseIssue, Issue, ReleaseIssue, Take, TakeIssue, Taking,
+};
 use factorium_domain::outbox::Outcome;
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factorium_domain::worker_id;
@@ -32,7 +35,9 @@ impl End {
 }
 
 impl App {
-    /// Starts a worker on issue `number` of `checkout`.
+    /// Starts a worker on issue `number` of `checkout`. Its take claims the
+    /// issue ([`TakeIssue`]) until the start is recorded or undone, so no
+    /// command that abandons a worktree acts on it meanwhile (factorium#189).
     pub(crate) async fn start_worker(&self, checkout: &str, number: u64) -> Answer {
         let c = self.checkout(checkout).await?;
         let issue = self.issue(checkout, number).await?;
@@ -41,12 +46,21 @@ impl App {
         let worker = worker_id(checkout, number, attempt);
         // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.
         let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
-        let take = Take { checkout: checkout.into(), number, worker };
-        self.submit::<TakeIssue>(take.clone()).await?;
-        let (st, typed) = match self.open_worker(&c, &issue, attempt, worker, &pick, tip).await {
+        let pid = std::process::id();
+        self.submit::<TakeIssue>(Taking { checkout: checkout.into(), number, worker, pid }).await?;
+        let started = self.taken(&c, &issue, attempt, worker, &pick, tip).await;
+        let claim = Claim { by: Claimant::Start, pid };
+        self.unclaim(Claiming { checkout: checkout.into(), number, claim }).await?;
+        started
+    }
+
+    /// A start, once it took the issue: its worker opened and recorded, or undone.
+    async fn taken(&self, c: &Checkout, issue: &Issue, attempt: u32, worker: Uuid, pick: &Pick, tip: String) -> Answer {
+        let (checkout, number) = (c.name.clone(), issue.number);
+        let (st, typed) = match self.open_worker(c, issue, attempt, worker, pick, tip).await {
             Ok(opened) => opened,
             Err(r) => {
-                self.submit::<ReleaseIssue>(take).await?;
+                self.submit::<ReleaseIssue>(Take { checkout, number, worker }).await?;
                 return Err(r);
             }
         };
@@ -145,10 +159,10 @@ impl App {
 
     async fn open_worker(
         &self,
-        c: &factorium_domain::checkout::Checkout,
-        issue: &factorium_domain::issue::Issue,
+        c: &Checkout,
+        issue: &Issue,
         attempt: u32,
-        worker: factum::Uuid,
+        worker: Uuid,
         pick: &Pick,
         tip: String,
     ) -> Answer<(Started, Option<String>)> {

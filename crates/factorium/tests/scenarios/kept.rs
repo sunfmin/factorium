@@ -419,3 +419,64 @@ async fn a_later_attempt_s_start_is_no_finding_while_under_way_and_one_once_undo
     let f = findings(&d).iter().find(|f| f["key"].as_str().unwrap().ends_with("web-1-2")).expect("undone, it is one");
     assert!(f["what"].as_str().unwrap().contains("attempt 2 is neither web#1's last started (1) nor starting"), "{f}");
 }
+
+/// factorium#189, behaviour 1: a tick, as another process, between
+/// start-over's read (no worker, a kept worktree) and its act (the
+/// worktree's removal). The claim start-over holds keeps the tick from
+/// taking the issue, so no worker resumes the worktree it removes; the
+/// next tick starts afresh, and the work is on the kept branch.
+#[tokio::test]
+async fn a_tick_during_a_start_over_starts_no_worker_in_the_worktree_it_removes() {
+    let w = World::new();
+    let tree = waiting_for_human(&w, true).await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    let during = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), w.host.clone(), during.clone());
+    *w.host.orca.while_removing.lock().unwrap() = Some(Box::new(move |_: &str| {
+        let started = crate::fixture::another(&db, &host, |app| async move { app.tick().await.map(|t| t.started) });
+        into.lock().unwrap().push(started.map_err(|r| r.to_string()));
+    }));
+    w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
+    *w.host.orca.while_removing.lock().unwrap() = None;
+    let during = during.lock().unwrap().clone();
+    assert!(!during.is_empty(), "a tick ran during the start-over");
+    assert!(during.iter().all(|t| matches!(t, Ok(None))), "it started no worker: {during:?}");
+    assert!(!tree.exists(), "start-over removed it");
+    let next = w.tick().await.started.expect("the next tick starts");
+    assert_ne!(next["worktree"], json!(tree), "afresh, not in the removed worktree");
+    assert!(PathBuf::from(next["worktree"].as_str().unwrap()).exists());
+    let repo = w.dir.join("repos").join("web");
+    assert!(w.git(&repo, &["show", "factorium/web-1-1-abandoned:kept.txt"]).is_ok(), "the work is kept");
+}
+
+/// factorium#189, behaviour 2: `issue close`, as another process, while a
+/// tick's start opens its worker's session (its worktree made, its worker
+/// not yet recorded). The start's claim refuses the close, so no worker is
+/// left at work on a closed issue; once the start is done, the close runs.
+#[tokio::test]
+async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issue() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    let during = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), w.host.clone(), during.clone());
+    // Once: its worker's terminal, the first the start opens.
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        if !into.lock().unwrap().is_empty() {
+            return;
+        }
+        let closed = crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await });
+        into.lock().unwrap().push(closed.map_err(|r| r.code));
+    }));
+    w.tick().await.started.expect("the start goes on");
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    let during = during.lock().unwrap().clone();
+    assert_eq!(during.len(), 1, "a close ran during the start");
+    assert_eq!(during[0].as_ref().err().map(String::as_str), Some("claimed"), "refused: {during:?}");
+    let wk = worker(&w.app).await;
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("ready"), "{wk}");
+    w.app.issue_close("web", 1, "no").await.unwrap();
+    assert!(w.app.workers(false).await.unwrap().as_array().unwrap().is_empty(), "closed, its worker ended");
+    assert!(!worktree(&wk).exists(), "and its worktree is removed");
+}

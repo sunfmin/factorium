@@ -362,3 +362,20 @@ impl World {
         std::os::unix::fs::symlink(&keg, &opt).unwrap();
     }
 }
+
+/// Runs `f` on another App on database `db` and `host`, as another
+/// process would, on a thread of its own; answers what it answers.
+pub fn another<T, F, Fut>(db: &Path, host: &Arc<FakeHost>, f: F) -> T
+where
+    T: Send + 'static,
+    F: FnOnce(App) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T>,
+{
+    let (db, host) = (db.to_path_buf(), host.clone());
+    let run = std::thread::spawn(move || {
+        let app = App::open(&db, "owner", host).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(f(app))
+    });
+    run.join().unwrap()
+}

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::doctor::Orphaned;
-use factorium_domain::issue::{Author, Issue, Issues, Status};
+use factorium_domain::issue::{Author, Claimant, Issue, Issues, Status};
 use factorium_domain::tracker;
 use factorium_domain::worker::{Started, Workers};
 use factorium_domain::{issue_id, worker_id};
@@ -209,15 +209,32 @@ impl App {
     }
 
     /// `discard`: abandons a worktree doctor finds that no open issue's
-    /// attempt owns ([`App::abandon`]). Refused for any other path.
+    /// attempt owns ([`App::abandon`]). Refused for any other path. One of
+    /// an open issue is found again under its claim ([`App::claimed`]), so
+    /// no start resumes it between the find and the abandon.
     pub async fn discard_orphaned(&self, worktree: &Path) -> Answer {
+        let o = self.found_orphan(worktree).await?;
+        let issue = self.state::<Issues>(issue_id(&o.checkout, o.number)).await?;
+        if !issue.opened() {
+            return self.discard_found(worktree).await;
+        }
+        self.claimed(&o.checkout, o.number, Claimant::Discard, self.discard_found(worktree)).await
+    }
+
+    /// The worktree at `worktree`, as doctor finds it no open issue owns.
+    async fn found_orphan(&self, worktree: &Path) -> Answer<Orphaned> {
         let at = worktree.display().to_string();
         let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
         let found = self.orphaned().await?.into_iter().find(|o| real(Path::new(&o.path)) == real(worktree));
-        let Some(o) = found else {
+        found.ok_or_else(|| {
             let why = format!("{at} is no worker's worktree that no open issue owns: doctor names those");
-            return Err(Refusal::new("not_orphaned", why));
-        };
+            Refusal::new("not_orphaned", why)
+        })
+    }
+
+    async fn discard_found(&self, worktree: &Path) -> Answer {
+        let at = worktree.display().to_string();
+        let o = self.found_orphan(worktree).await?;
         let (c, Orphaned { checkout, number, attempt, branch, why, .. }) = (self.checkout(&o.checkout).await?, o);
         let st = Started { checkout, number, attempt, worktree: at, branch, ..Started::default() };
         Ok(self.abandon(&c, &st, Why::Orphaned(&why)).await?.shown(json!({ "why": why })))

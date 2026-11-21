@@ -103,6 +103,13 @@ watch's look and the operator's view.
    `<branch>-abandoned`, a comment names that branch and the why, and the
    worktree goes, so the next start is branched from the proving tip. The
    issue stays ready or waiting for a human as it was.
+   A start and the commands that abandon a worktree (start-over, close,
+   discard) each claim the issue, one at a time: a start from taking it to
+   its worker recorded started (or undone), a command from its read to its
+   act's end. A start skips a claimed issue, and a command is refused while
+   one is under way, so none acts on what it read while another changed
+   it; a claim whose process is gone is cleared by the next tick (or the
+   next command's claim).
    Closing an issue unlanded (`issue close`, by the owner or the watch)
    removes the worktree its last attempt left on disk the same way: its
    uncommitted changes are committed, its branch is kept as

@@ -110,6 +110,8 @@ fn model() -> Model {
         .command::<issue::CloseIssue>()
         .command::<issue::TakeIssue>()
         .command::<issue::ReleaseIssue>()
+        .command::<issue::ClaimIssue>()
+        .command::<issue::UnclaimIssue>()
         .command::<issue::CommentIssue>()
         .aggregate::<worker::Workers>()
         .command::<worker::StartWorker>()

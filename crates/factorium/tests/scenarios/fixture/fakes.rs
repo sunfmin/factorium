@@ -85,6 +85,9 @@ pub struct FakeOrca {
     /// While set, this runs with the worktree when a terminal is asked to
     /// open there, before Orca answers.
     pub while_opening: Mutex<Option<Closing>>,
+    /// While set, this runs with the worktree when one is asked to be
+    /// removed, before Orca removes it.
+    pub while_removing: Mutex<Option<Closing>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -121,6 +124,13 @@ impl FakeOrca {
             if let Some(mut during) = during {
                 during(flag(args, "--worktree"));
                 *self.while_opening.lock().unwrap() = Some(during);
+            }
+        }
+        if args[..2] == ["worktree", "rm"] {
+            let during = self.while_removing.lock().unwrap().take();
+            if let Some(mut during) = during {
+                during(flag(args, "--worktree"));
+                *self.while_removing.lock().unwrap() = Some(during);
             }
         }
         let mut held = self.held.lock().unwrap();

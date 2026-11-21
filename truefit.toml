@@ -335,10 +335,9 @@ now = 'r.now \div 500'
 # An issue's worktrees and attempts (SPEC §2 steps 3 and 6), model-checked
 # by TLC: models/Worktrees.tla, under the gate's config, in full (every
 # state it reaches). Its properties each fail on a broken variant
-# (`models/worktrees.sh broken`). Two configs the code does not yet hold
-# are findings, not in the gate (`models/worktrees.sh finding`): a CLI
-# command racing a tick's start (WorktreesRace.cfg), and the daemon dying
-# mid-start (WorktreesDeath.cfg).
+# (`models/worktrees.sh broken`). A config the code does not yet hold is
+# a finding, not in the gate (`models/worktrees.sh finding`): the daemon
+# dying mid-start (WorktreesDeath.cfg).
 [[model]]
 name = "worktrees"
 spec = "models/Worktrees.tla"
@@ -348,6 +347,10 @@ commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
 covers = [
   { action = "Take", file = "crates/factorium/src/life.rs", function = "App::start_worker (fetch, TakeIssue)" },
   { action = "Take", file = "crates/domain/src/issue.rs", function = "TakeIssue" },
+  { action = "Over", file = "crates/domain/src/issue.rs", function = "ClaimIssue, UnclaimIssue" },
+  { action = "Over", file = "crates/factorium/src/issues.rs", function = "App::claimed, App::unclaim" },
+  { action = "Clear", file = "crates/factorium/src/issues.rs", function = "App::clear_dead_claim" },
+  { action = "Clear", file = "crates/factorium/src/daemon.rs", function = "App::next_issue (claimed)" },
   { action = "Decide", file = "crates/factorium/src/kept.rs", function = "App::next_worktree, App::kept, App::last_started, holds_own" },
   { action = "Record", file = "crates/factorium/src/life.rs", function = "App::open_worker, App::begin (StartWorker)" },
   { action = "Undo", file = "crates/factorium/src/life.rs", function = "App::undo_start, App::finish" },
@@ -363,7 +366,7 @@ covers = [
   { action = "Close", file = "crates/factorium/src/issues.rs", function = "App::issue_close" },
   { action = "Close", file = "crates/factorium/src/kept.rs", function = "App::left" },
   { action = "ShutStep", file = "crates/factorium/src/issues.rs", function = "App::close" },
-  { action = "Discard", file = "crates/factorium/src/kept.rs", function = "App::discard_orphaned, App::orphaned" },
+  { action = "Discard", file = "crates/factorium/src/kept.rs", function = "App::discard_orphaned, App::found_orphan, App::discard_found, App::orphaned" },
   { action = "Abandon", file = "crates/factorium/src/kept.rs", function = "App::abandon, App::remove_worktree" },
   { action = "DoctorFinds", file = "crates/factorium/src/kept.rs", function = "App::orphaned" },
   { action = "DoctorFinds", file = "crates/factorium/src/doctor.rs", function = "App::doctor (orphaned)" },
@@ -385,4 +388,4 @@ covers = [
 
 # Each record's state as the model's, its processes idle between steps.
 [model.trace]
-s = '[status |-> r.state.status, taken |-> r.state.taken, attempts |-> r.state.attempts, started |-> [a \in Attempts |-> r.state.started[a]], live |-> [a \in Attempts |-> r.state.live[a]], disk |-> [t \in Trees |-> r.state.disk[t]], dirty |-> [t \in Trees |-> Set(r.state.dirty[t])], hasbr |-> [t \in Trees |-> r.state.hasbr[t]], br |-> [t \in Trees |-> Set(r.state.br[t])], kept |-> [t \in Trees |-> Set(r.state.kept[t])], proving |-> Set(r.state.proving), tipok |-> r.state.tipok, made |-> Set(r.state.made), pc |-> [p \in Procs |-> Idle]]'
+s = '[status |-> r.state.status, taken |-> r.state.taken, attempts |-> r.state.attempts, started |-> [a \in Attempts |-> r.state.started[a]], live |-> [a \in Attempts |-> r.state.live[a]], disk |-> [t \in Trees |-> r.state.disk[t]], dirty |-> [t \in Trees |-> Set(r.state.dirty[t])], hasbr |-> [t \in Trees |-> r.state.hasbr[t]], br |-> [t \in Trees |-> Set(r.state.br[t])], kept |-> [t \in Trees |-> Set(r.state.kept[t])], proving |-> Set(r.state.proving), tipok |-> r.state.tipok, made |-> Set(r.state.made), claim |-> "", pc |-> [p \in Procs |-> Idle]]'

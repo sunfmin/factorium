@@ -97,6 +97,7 @@ impl App {
             "blocked_across": i.blocked_across(),
             "reason": i.reason,
             "worker": i.worker,
+            "claim": i.claim,
             "task": i.task,
             "role": i.on.role,
             "account": i.on.account,
@@ -112,17 +113,21 @@ impl App {
     }
 
     /// Closes an issue; a worker on it ends. The attempt whose worktree its
-    /// last attempt left on disk is abandoned ([`App::abandon`]).
+    /// last attempt left on disk is abandoned ([`App::abandon`]). Claimed
+    /// ([`App::claimed`]): refused while a start is under way.
     pub async fn issue_close(&self, checkout: &str, number: u64, reason: &str) -> Answer {
-        let issue = self.issue(checkout, number).await?;
-        // A checkout off the list has no worktrees factorium removes.
-        let left = match self.checkout(checkout).await {
-            Ok(c) => self.left(&issue).await?.map(|st| (c, st)),
-            Err(_) => None,
-        };
-        let Some((c, st)) = left else { return self.close(checkout, number, reason, false).await };
-        let done = self.abandon(&c, &st, Why::Close(reason)).await?;
-        Ok(done.shown(self.issue_show(checkout, number).await?))
+        self.claimed(checkout, number, Claimant::Close, async {
+            let issue = self.issue(checkout, number).await?;
+            // A checkout off the list has no worktrees factorium removes.
+            let left = match self.checkout(checkout).await {
+                Ok(c) => self.left(&issue).await?.map(|st| (c, st)),
+                Err(_) => None,
+            };
+            let Some((c, st)) = left else { return self.close(checkout, number, reason, false).await };
+            let done = self.abandon(&c, &st, Why::Close(reason)).await?;
+            Ok(done.shown(self.issue_show(checkout, number).await?))
+        })
+        .await
     }
 
     /// Closes an issue for `reason`; a worker on it ends, keeping its worktree if `keep`.
@@ -151,30 +156,68 @@ impl App {
 
     /// Starts an issue over on purpose: the attempt whose worktree its last
     /// attempt kept is abandoned ([`App::abandon`]), so its next start
-    /// begins from the proving tip; nothing is lost. Refused while a worker
-    /// is on the issue; its state (ready or waiting for a person) stays.
+    /// begins from the proving tip; nothing is lost. Claimed
+    /// ([`App::claimed`]), so refused while a worker is on the issue; its
+    /// state (ready or waiting for a person) stays.
     pub async fn issue_start_over(&self, checkout: &str, number: u64, why: &str) -> Answer {
         if why.trim().is_empty() {
             return Err(Refusal::new("no_reason", "say why the issue starts over"));
         }
-        let issue = self.issue(checkout, number).await?;
-        if issue.worker.is_some() {
-            return Err(Refusal::new(
-                "live_worker",
-                format!(
-                    "a worker is on {checkout}#{number}: leave it to a person first (factorium issue wait-for-human {checkout} {number} --why …)"
-                ),
-            ));
+        self.issue(checkout, number).await?;
+        self.claimed(checkout, number, Claimant::StartOver, async {
+            let (c, issue) = (self.checkout(checkout).await?, self.issue(checkout, number).await?);
+            let Some(st) = self.kept_now(&c, &issue).await? else {
+                let mut shown = self.issue_show(checkout, number).await?;
+                shown["discarded"] = json!(false);
+                shown["said"] = json!("nothing was kept to discard: the next start begins from the proving tip");
+                return Ok(shown);
+            };
+            let done = self.abandon(&c, &st, Why::StartOver(why)).await?;
+            Ok(done.shown(self.issue_show(checkout, number).await?))
+        })
+        .await
+    }
+
+    /// Runs `act` holding issue `number`'s claim for `by`, freed once it
+    /// is done (factorium#189): what `act` reads of the issue's worktrees,
+    /// no start changes before it acts. Refused while another holds it; a
+    /// claim whose process is gone is cleared first. A closed issue takes
+    /// no start, so `act` runs on one unclaimed.
+    pub(crate) async fn claimed<T>(
+        &self,
+        checkout: &str,
+        number: u64,
+        by: Claimant,
+        act: impl Future<Output = Answer<T>>,
+    ) -> Answer<T> {
+        self.clear_dead_claim(&self.issue(checkout, number).await?).await?;
+        let claim = Claiming { checkout: checkout.into(), number, claim: Claim { by, pid: std::process::id() } };
+        match self.submit::<ClaimIssue>(claim.clone()).await {
+            Err(r) if r.code == "ended" => return act.await,
+            claimed => claimed?,
         }
-        let c = self.checkout(checkout).await?;
-        let Some(st) = self.kept_now(&c, &issue).await? else {
-            let mut shown = self.issue_show(checkout, number).await?;
-            shown["discarded"] = json!(false);
-            shown["said"] = json!("nothing was kept to discard: the next start begins from the proving tip");
-            return Ok(shown);
-        };
-        let done = self.abandon(&c, &st, Why::StartOver(why)).await?;
-        Ok(done.shown(self.issue_show(checkout, number).await?))
+        let done = act.await;
+        self.unclaim(claim).await?;
+        done
+    }
+
+    /// Frees `claim`, if it holds its issue still: closed, it holds none.
+    pub(crate) async fn unclaim(&self, claim: Claiming) -> Answer<()> {
+        match self.submit::<UnclaimIssue>(claim).await {
+            Err(r) if r.code == "ended" => Ok(()),
+            freed => freed,
+        }
+    }
+
+    /// Clears `issue`'s claim if the process that holds it is gone.
+    pub(crate) async fn clear_dead_claim(&self, issue: &Issue) -> Answer<()> {
+        match &issue.claim {
+            Some(c) if !self.host.alive(c.pid) => {
+                let (checkout, number) = (issue.checkout.clone(), issue.number);
+                self.unclaim(Claiming { checkout, number, claim: c.clone() }).await
+            }
+            _ => Ok(()),
+        }
     }
 
     pub async fn issue_ready(&self, checkout: &str, number: u64) -> Answer {
