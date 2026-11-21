@@ -1,0 +1,15 @@
+{
+  "tree": "37c17512d02c1fb69e6d9cfd7689a62fb51ccddc+d1fba762150c532c",
+  "picker": "codex:01a1fdb1-d71e-7b91-b179-b590bedf3086:default",
+  "author": "claude-code:1a876b7d-25ac-589d-9ade-303cc8dc7d6e:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/line.rs:184:42: replace match guard held.is_empty() with true in App::promote_tip",
+        "why": "The empty-lock assertion still passes, and a contention test that checks only refusal and gate execution would miss the loss of the recorded holder details.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
