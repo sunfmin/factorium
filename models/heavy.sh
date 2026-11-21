@@ -15,27 +15,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-# check <config> <bug>: `truefit model` on the model under <config> with
-# Bug = <bug>, in a scratch directory; prints its report.
-check() {
-  dir=$(mktemp -d)
-  cp models/HeavyQueue.tla "$dir/"
-  sed "s/Bug = \"none\"/Bug = \"$2\"/" "$1" > "$dir/c.cfg"
-  printf '[[model]]\nname = "v"\nspec = "HeavyQueue.tla"\nconfig = "c.cfg"\nlimit = 120\ncommit = "%s"\ncovers = [{ action = "Next", file = "HeavyQueue.tla", function = "Next" }]\n' \
-    "$(git rev-parse HEAD)" > "$dir/truefit.toml"
-  (cd "$dir" && git init -q && truefit model || true)
-  rm -rf "$dir"
-}
-
-# expect <report> <property> <what>: the report fails on <property>.
-expect() {
-  error=$(printf '%s' "$1" | jq -r '.models[0].error // ""')
-  steps=$(printf '%s' "$1" | jq -r '[.models[0].behaviour[]?.action] | join(" > ")')
-  case "$error" in
-    *" $2 is violated."*) echo "fails  $3: $error ($steps)" ;;
-    *) echo "PASSES $3: $(printf '%s' "$1" | jq -c '.models[0] | {result, error}')"; return 1 ;;
-  esac
-}
+. models/tlc.sh
 
 case "${1:-}" in
   trace)
@@ -45,16 +25,10 @@ case "${1:-}" in
     truefit model heavy-run --trace "$file" | jq '.trace | del(.output)'
     ;;
   broken)
-    failed=0
-    for v in $(sed -n '/^BrokenVariants/,/^]/s/^ *\([a-z_]*\) *|-> "\([A-Za-z]*\)".*/\1:\2/p' models/HeavyQueue.tla); do
-      bug=${v%%:*} property=${v#*:}
-      config=$(grep -l "^\(PROPERTY\|INVARIANT\) .*\b$property\b" models/HeavyStarts.cfg models/HeavyEnds.cfg models/HeavyRules.cfg | head -n1)
-      expect "$(check "$config" "$bug")" "$property" "$bug ($config)" || failed=1
-    done
-    exit $failed
+    broken models/HeavyQueue.tla models/HeavyStarts.cfg models/HeavyEnds.cfg models/HeavyRules.cfg
     ;;
   finding)
-    expect "$(check models/HeavyFinding.cfg none)" UnqueuedAnswers "the code (models/HeavyFinding.cfg)"
+    expect "$(check models/HeavyQueue.tla models/HeavyFinding.cfg none)" UnqueuedAnswers "the code (models/HeavyFinding.cfg)"
     ;;
   *)
     sed -n '2,14p' "$0"; exit 2 ;;
