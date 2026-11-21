@@ -341,6 +341,59 @@ async fn a_tell_its_session_takes_just_after_orca_s_window_is_submitted_and_one_
     }
 }
 
+/// factorium#170: guild#17's worker on 2026-11-21 read a comment typed
+/// while its turn ran: Claude Code wrote it only as a `queue-operation` and a
+/// `queued_command` attachment of that turn, in the session file of the
+/// directory it started in, and the turn ended before factorium looked. It
+/// was taken; words another prompt took instead were not.
+#[tokio::test]
+async fn a_tell_claude_code_takes_into_its_running_turn_is_submitted_and_one_another_prompt_took_is_missed() {
+    for taken in [true, false] {
+        let w = World::new();
+        w.checkout("web").await;
+        w.kit().await;
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let wk = worker(&w.app).await;
+        let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+        // The turn it was typed into has ended, and Orca saw no turn start.
+        w.set_busy(handle, false, true);
+        let said = "factorium (the watch): look at the FIFO";
+        let took = if taken { said } else { "factorium (the watch): something else" };
+        let role = w.data().worker_role().to_string_lossy().into_owned();
+        let line = |kind: &str, body: serde_json::Value| {
+            let mut l = json!({ "type": kind, "timestamp": NEXT_CENTURY, "cwd": role, "isSidechain": false });
+            l.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+            l.to_string()
+        };
+        let lines = [
+            line(
+                "attachment",
+                json!({ "attachment": { "type": "environment", "additionalWorkingDirectories": [cwd] } }),
+            ),
+            line("queue-operation", json!({ "operation": "enqueue", "content": took })),
+            line("queue-operation", json!({ "operation": "remove", "content": took, "reason": "absorbed_mid_turn" })),
+            line(
+                "attachment",
+                json!({ "attachment": { "type": "queued_command", "prompt": took, "commandMode": "prompt" } }),
+            ),
+            line("assistant", json!({ "message": { "role": "assistant", "stop_reason": "end_turn" } })),
+        ];
+        let file = w.host.home().join(".claude/projects/-role-worker/session.jsonl");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
+        let delivery = w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap()["delivery"].clone();
+        let status = worker(&w.app).await["status"].clone();
+        if taken {
+            assert_eq!((delivery, status), (json!("submitted"), json!("working")), "taken into its turn");
+        } else {
+            assert_eq!((delivery, status), (json!("missed"), json!("waiting")), "another prompt took the keys");
+        }
+    }
+}
+
 #[tokio::test]
 async fn an_escalation_makes_the_look_due_on_the_next_tick() {
     let w = World::new();
