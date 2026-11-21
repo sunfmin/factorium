@@ -1,0 +1,39 @@
+{
+  "tree": "69a1ff17605a5e5ab052a0c834c508fa7499bea8+d1fba762150c532c",
+  "picker": "codex:01a1ff1e-61ae-7000-be02-56ffbbf8ad19:default",
+  "author": "claude-code:b36172cf-6eaf-5497-a85a-8c6637c40b23:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/idle.rs:141:102: replace < with <= in to_file",
+        "why": "This changes filing only at exactly seven days after closure, which tests using younger and older tasks would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/idle.rs:148:33: replace || with && in to_file",
+        "why": "This can file a task with an empty kind, which well-formed task fixtures would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/idle.rs:138:105: replace == with != in to_file",
+        "why": "This reverses which task kinds an open issue blocks, which tests starting with an empty issue list would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/idle.rs:108:41: replace * with +",
+        "why": "This shortens the cooldown to about ten minutes and can survive tests that derive their timestamps from the same constant.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/domain/src/idle.rs:141:97: replace - with + in to_file",
+        "why": "This adds the timestamps when checking the cooldown and can survive fixtures that set the closing timestamp to zero.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

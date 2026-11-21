@@ -83,7 +83,7 @@ pub struct Idle {
     pub steps: Vec<String>,
     /// A shell line run after them that prints tasks: what read them, then
     /// slimfit's `next --all` answer. Each kind's first is filed as an issue
-    /// (`task::to_file`).
+    /// (`idle::to_file`).
     pub tasks: Option<String>,
     /// At most one run per this many seconds, from the last one's start.
     #[serde(default = "every")]
