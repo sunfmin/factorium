@@ -385,13 +385,30 @@ impl Kind for Codex {
         let started = json!({"type": "task_started", "started_at": at, "turn_id": "factorium"});
         body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": started}));
         if !open {
+            let usage = json!({"input_tokens": 15, "cached_input_tokens": 7, "output_tokens": 11});
+            let counted = json!({"type": "token_count", "info": {"total_token_usage": usage}});
+            body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": counted}));
             let done = json!({"type": "task_complete", "completed_at": at, "turn_id": "factorium"});
             body += &format!("{}\n", json!({"timestamp": iso, "type": "event_msg", "payload": done}));
         }
         body
     }
 
+    const SPENT: Option<super::ReadSpent> = Some(spent);
+
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
         None
     }
+}
+
+/// The tokens a session file spent: its last `token_count` event's total
+/// usage, whose input counts the cached input.
+fn spent(text: &str) -> (u64, u64) {
+    let total = json_lines(text)
+        .filter(|v| v["type"] == "event_msg" && v["payload"]["type"] == "token_count")
+        .filter_map(|v| v["payload"]["info"]["total_token_usage"].as_object().cloned())
+        .last()
+        .unwrap_or_default();
+    let n = |field: &str| total.get(field).and_then(serde_json::Value::as_u64).unwrap_or(0);
+    (n("input_tokens"), n("output_tokens"))
 }

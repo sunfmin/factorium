@@ -156,6 +156,16 @@ pub enum IssueCmd {
         /// until a cut of that checkout holds its landing (and installs it).
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         blocked_by: Vec<Blocker>,
+        /// The role its worker plays: a directory, by its absolute path,
+        /// whose rules (CLAUDE.md) and skills (.claude/skills) its worker
+        /// starts with beside factorium's worker rules. Read, never written.
+        #[arg(long, value_name = "DIR")]
+        role: Option<String>,
+        /// The engine account its worker starts on (mytokens
+        /// `agent-account-<NAME>`), on the kit's entry of that account's
+        /// harness. While it is used up its issue waits.
+        #[arg(long, value_name = "NAME")]
+        account: Option<String>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -164,7 +174,11 @@ pub enum IssueCmd {
         closed: bool,
     },
     /// Answers one issue, with its comments: what the owner, its workers,
-    /// the watch and factorium said about it, each with who and when (ms).
+    /// the watch and factorium said about it, each with who and when (ms);
+    /// the role and account it names; and `spent`, what it took: each
+    /// attempt's time from start to end (a live one's, to now) in ms, and the
+    /// tokens its session spent (`null`: its harness's files do not say),
+    /// with their sums.
     Show { checkout: String, number: u64 },
     /// Changes an issue's title or body.
     Edit {
@@ -357,9 +371,10 @@ impl Top {
                 CheckoutCmd::List => app.checkout_list().await,
             },
             Top::Issue(i) => match i {
-                IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by } => {
+                IssueCmd::Add { checkout, title, body, body_file, waiting_for_human, blocked_by, role, account } => {
                     let body = body_text(body, body_file)?.unwrap_or_default();
-                    app.issue_add(&checkout, &title, &body, waiting_for_human, &blocked_by).await
+                    let on = factorium_domain::issue::On { role, account };
+                    app.issue_add_on(&checkout, &title, &body, waiting_for_human, &blocked_by, on).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,

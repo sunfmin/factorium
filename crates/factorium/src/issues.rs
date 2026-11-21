@@ -25,7 +25,24 @@ impl App {
         waiting_for_human: bool,
         blocked_by: &[Blocker],
     ) -> Answer {
+        self.issue_add_on(checkout, title, body, waiting_for_human, blocked_by, On::default()).await
+    }
+
+    /// [`App::issue_add`], its worker to start as `on` says: with the rules
+    /// and skills of the role directory it names, on the account it names.
+    /// Refused unless the role is a directory named by its absolute path and
+    /// the account is one this host can use.
+    pub async fn issue_add_on(
+        &self,
+        checkout: &str,
+        title: &str,
+        body: &str,
+        waiting_for_human: bool,
+        blocked_by: &[Blocker],
+        on: On,
+    ) -> Answer {
         self.checkout(checkout).await?;
+        self.on_here(&on)?;
         for by in blocked_by {
             self.blocker(checkout, by.clone()).await?;
         }
@@ -36,6 +53,7 @@ impl App {
             body,
             waiting_for_human,
             blocked_by: blocked_by.to_vec(),
+            on,
             ..Open::default()
         };
         let number = self.open_issue(open).await?;
@@ -80,6 +98,9 @@ impl App {
             "reason": i.reason,
             "worker": i.worker,
             "task": i.task,
+            "role": i.on.role,
+            "account": i.on.account,
+            "spent": self.issue_spent(&i).await?,
             "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
         }))
     }
@@ -238,5 +259,57 @@ impl App {
             all.push((name, met));
         }
         Ok(all)
+    }
+}
+
+impl App {
+    /// Refuses `on` unless its role is a directory named by its absolute
+    /// path and its account one mytokens holds that this host can use.
+    fn on_here(&self, on: &On) -> Answer<()> {
+        if let Some(role) = &on.role {
+            let path = std::path::Path::new(role);
+            if !path.is_absolute() || !path.is_dir() {
+                let why = format!("the role `{role}` is not a directory named by its absolute path");
+                return Err(Refusal::new("no_role", why));
+            }
+        }
+        if let Some(account) = &on.account {
+            let here = self.accounts_here();
+            if !here.usable.iter().any(|u| &u.name == account) {
+                let skipped = here
+                    .skipped
+                    .iter()
+                    .find(|s| s.secret == format!("{}{account}", factorium_harness::account::PREFIX));
+                let why = skipped.map_or("mytokens holds no such account".to_string(), |s| s.why.clone());
+                return Err(Refusal::new("no_account", format!("account {account} cannot be used here: {why}")));
+            }
+        }
+        Ok(())
+    }
+
+    /// What issue `i` took: each attempt's time, from its start to its end
+    /// (a live one's, to now), in ms, and the tokens its session spent, as
+    /// recorded when it ended (a live one's, as its session files say now;
+    /// `null`: its harness's files do not say); and their sums, `tokens`
+    /// summing the attempts that say.
+    async fn issue_spent(&self, i: &Issue) -> Answer<serde_json::Value> {
+        use factorium_domain::worker::{Status as W, Tokens, Workers};
+        let (mut ms, mut tokens, mut attempts) = (0, None::<Tokens>, Vec::new());
+        for attempt in 1..=i.attempts {
+            let worker = factorium_domain::worker_id(&i.checkout, i.number, attempt);
+            let wk = self.state::<Workers>(worker).await?;
+            let Some(st) = &wk.started else { continue };
+            let ended = wk.status == W::Ended;
+            let took = ((if ended { wk.since } else { self.now() }) - st.at).max(0);
+            let spent = if ended { wk.spent } else { self.spent(st) };
+            ms += took;
+            if let Some(s) = spent {
+                let sum = tokens.get_or_insert_default();
+                (sum.input, sum.output) = (sum.input + s.input, sum.output + s.output);
+            }
+            attempts.push(json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
+                "account": st.account, "ended": ended, "ms": took, "tokens": spent }));
+        }
+        Ok(json!({ "ms": ms, "tokens": tokens, "attempts": attempts }))
     }
 }

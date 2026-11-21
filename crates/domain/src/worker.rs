@@ -68,6 +68,21 @@ pub struct Worker {
     /// issue waits for, and it goes back to work once all of that is met.
     #[serde(default)]
     pub parked: bool,
+    /// The tokens its session spent, as its session files said once it
+    /// ended; `None`: not recorded (its harness's files do not say, or it
+    /// is live).
+    #[serde(default)]
+    pub spent: Option<Tokens>,
+}
+
+/// Tokens a session spent: those it was given (cached ones too) and those
+/// it wrote.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tokens {
+    #[serde(rename = "in")]
+    pub input: u64,
+    #[serde(rename = "out")]
+    pub output: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -151,6 +166,8 @@ pub enum WorkerEvent {
     SessionClosed {
         failed: Option<String>,
     },
+    /// What its session spent, read from its session files as it ends.
+    Spent(Tokens),
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -204,6 +221,7 @@ impl Aggregate for Workers {
             WorkerEvent::CameUnder => s.over_since = None,
             WorkerEvent::HeavyHeld => s.heavy = true,
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
+            WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             _ => {}
         }
     }
@@ -373,3 +391,23 @@ command!(EndWorker, "worker.end", Workers, Because, |p| p.worker, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::WorkerEnded { why: p.why.clone(), at: now.0 }])
 });
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Spend {
+    pub worker: Uuid,
+    pub tokens: Tokens,
+}
+
+command!(
+    /// What its session spent, as its session files say. Recorded before it
+    /// ends: an ended worker takes no more commands.
+    NoteSpent,
+    "worker.spent",
+    Workers,
+    Spend,
+    |p| p.worker,
+    |s, p, _now| {
+        live(s)?;
+        Ok(vec![WorkerEvent::Spent(p.tokens)])
+    }
+);

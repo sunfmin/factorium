@@ -45,7 +45,7 @@ impl App {
                 Ok(true) => {}
             }
         }
-        let pick = match self.pick("").await {
+        let pick = match self.pick("", None).await {
             Ok(pick) => pick,
             Err(r) if r.code == "no_harness" => return Ok(None),
             Err(r) => return Err(r),

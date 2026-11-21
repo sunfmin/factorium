@@ -79,7 +79,7 @@ async fn an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_
 }
 
 /// This machine's name, as an account's `MACHINE` names it.
-fn this_machine() -> String {
+pub(crate) fn this_machine() -> String {
     let out = std::process::Command::new("hostname").arg("-s").output().unwrap();
     String::from_utf8(out.stdout).unwrap().trim().to_string()
 }

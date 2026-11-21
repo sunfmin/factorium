@@ -86,6 +86,33 @@ impl Kit {
 }
 
 impl Kit {
+    /// What a worker of `checkout` whose issue names `account` starts on
+    /// now: that account, on the first entry of its harness (as `here`, the
+    /// accounts here as (name, harness), says), whatever the order of the
+    /// kit. Refused when the account is not here, its harness is not in the
+    /// kit or not the one `checkout` is pinned to, or the account is used up.
+    pub fn choose_on(
+        &self,
+        checkout: &str,
+        account: &str,
+        now: i64,
+        here: &[(String, String)],
+    ) -> Result<Choice, String> {
+        let Some((_, harness)) = here.iter().find(|(n, _)| n == account) else {
+            return Err(format!("account {account} is not usable on this host"));
+        };
+        if let Some(p) = self.pins.get(checkout).filter(|p| *p != harness) {
+            return Err(format!("account {account} is of {harness}, and {checkout} is pinned to {p}"));
+        }
+        let Some(entry) = self.entries.iter().find(|e| e.harness == *harness) else {
+            return Err(format!("account {account} is of {harness}, which is not in the kit"));
+        };
+        if self.accounts.get(account).is_some_and(|a| a.left(now) <= 0.0) {
+            return Err(format!("account {account} is used up"));
+        }
+        Ok(Choice { entry: entry.clone(), account: Some(account.into()) })
+    }
+
     /// The harness and account a worker on `harness` has its mutants picked
     /// on: the first other harness of the kit `asks` says can be asked, else
     /// `harness` again (a new session), whatever a pin says, on its account

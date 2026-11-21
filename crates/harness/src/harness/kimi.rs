@@ -287,6 +287,8 @@ impl Kind for Kimi {
         body
     }
 
+    const SPENT: Option<super::ReadSpent> = None;
+
     fn prompted(_text: &str, _said: &str, _since: u64) -> Option<bool> {
         None
     }
