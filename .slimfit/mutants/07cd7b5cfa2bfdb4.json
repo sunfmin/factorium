@@ -1,0 +1,6 @@
+{
+  "tree": "1c35361216516657079197ada90cd006351cb53a+d1fba762150c532c",
+  "picker": "claude-code-subagent:a35972460f791b795:claude-opus-5-5",
+  "author": "claude-code:factorium-175-1:claude-opus-5-5",
+  "none": "cargo-mutants listed no mutants of the change: it touches only an example binary (examples/standin.rs) and truefit.toml, so nothing is left to run"
+}
