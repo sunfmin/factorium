@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 
 use crate::gate::At;
 use crate::life::End;
-use crate::lock::{Held, Taken};
+use crate::lock::{self, Taken};
 use crate::{Answer, App, LineClone, Want, fail};
 
 /// Fast-forwards the checkout's local base to `tip`, never further, where
@@ -174,15 +174,18 @@ impl App {
         // One promotion of a checkout at a time: a second would reset the
         // clone under the running one's slow gate.
         let who = if by_hand { "`factorium promote`" } else { "the daemon's promotion" };
-        let _running = match Held::take(
+        let _running = match lock::take(
             &self.data().promotion_lock(&c.name),
             &format!("{who} of {tip}, pid {}", std::process::id()),
         ) {
             Ok(running) => running,
-            Err(Taken::Held(held)) if held.is_empty() => {
-                return Ok(Err(format!("a promotion of {} runs: another promotion", c.name)));
+            Err(taken) => {
+                let held = match taken {
+                    Taken::Held(held) if held.is_empty() => "another promotion".into(),
+                    Taken::Held(e) | Taken::Fails(e) => e,
+                };
+                return Ok(Err(format!("a promotion of {} runs: {held}", c.name)));
             }
-            Err(Taken::Held(e) | Taken::Fails(e)) => return Ok(Err(format!("a promotion of {} runs: {e}", c.name))),
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;

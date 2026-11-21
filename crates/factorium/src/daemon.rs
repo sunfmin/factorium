@@ -18,7 +18,7 @@ use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::lock::{Held as Lock, Taken};
+use crate::lock::{self, Taken};
 use crate::{Answer, App, LineClone, Refusal};
 
 /// The descriptor a daemon hands the binary it runs in its place, open on
@@ -255,8 +255,8 @@ impl App {
         // Held already if this process ran a newly installed binary as the
         // same pid: the lock came through the exec.
         let handed = std::env::var(LOCK_FD).ok().and_then(|fd| fd.parse().ok());
-        let inherited = handed.and_then(|fd| crate::host::procs::inherited(fd, &pid)).and_then(Lock::adopt);
-        let lock = match inherited.map_or_else(|| Lock::take(&pid, &me), Ok) {
+        let inherited = handed.and_then(|fd| crate::host::procs::inherited(fd, &pid)).filter(|f| f.try_lock().is_ok());
+        let held = match inherited.map_or_else(|| lock::take(&pid, &me), Ok) {
             Ok(held) => held,
             Err(Taken::Held(said)) => {
                 let who = said.trim().parse::<u32>().ok().filter(|n| *n != 0 && self.host.alive(*n));
@@ -285,13 +285,13 @@ impl App {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
-                        self.exec(binary.as_ref(), &lock).await;
+                        self.exec(binary.as_ref(), &held).await;
                     }
                 }
                 Err(e) => {
                     eprintln!("tick: {e}");
                     if let Some(kept) = self.fallback() {
-                        self.exec(&kept, &lock).await;
+                        self.exec(&kept, &held).await;
                     }
                 }
             }
@@ -314,16 +314,16 @@ impl App {
 
     /// Runs `binary` in place of this one, between ticks, as the same pid:
     /// the pid file stays right, and its lock stays held. Answers only if it cannot.
-    async fn exec(&self, binary: &std::path::Path, lock: &Lock) {
+    async fn exec(&self, binary: &std::path::Path, held: &std::fs::File) {
         use std::os::unix::process::CommandExt;
-        let fd = match crate::host::procs::kept_across_exec(lock.file(), true) {
+        let fd = match crate::host::procs::kept_across_exec(held, true) {
             Ok(fd) => fd,
             Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
         };
         let _ = self.beside(false, true).await;
         let e =
             std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
-        let _ = crate::host::procs::kept_across_exec(lock.file(), false);
+        let _ = crate::host::procs::kept_across_exec(held, false);
         eprintln!("restart as {}: {e}", binary.display());
     }
 
@@ -347,7 +347,7 @@ impl App {
         } else {
             // Only once its lock is ours: a daemon that has it and has not
             // yet written its pid keeps its file.
-            if let Ok(_held) = Lock::take(&self.data().pid(), "") {
+            if let Ok(_held) = lock::take(&self.data().pid(), "") {
                 let _ = std::fs::remove_file(self.data().pid());
             }
             json!({ "stopped": false, "why": "no daemon runs" })
