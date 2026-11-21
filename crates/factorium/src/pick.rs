@@ -14,96 +14,69 @@ use factorium_domain::worker::Started;
 use factorium_harness::{Ask, Asked, Harness};
 use factorium_host::Priority;
 use factum::Uuid;
+use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 
 use crate::session::{Pick, SessionEnv};
 use crate::{Answer, App, Refusal, Want, fail};
 
-/// What a second agent answered, taken, and who it was: the pick it ran
-/// on, its session, the ms it took, and those that failed before it.
-struct Second<T> {
-    got: T,
-    on: Pick,
-    asked: Asked,
-    took_ms: u64,
-    failed: Vec<(String, String)>,
-    author: String,
-}
-
-impl<T> Second<T> {
-    fn taken(&self) -> Taken<'_> {
-        let (on, asked) = (&self.on, &self.asked);
-        Taken {
-            harness: on.harness.key(),
-            session: &asked.session,
-            model: &asked.model,
-            account: on.account.as_deref(),
-            author: self.author.clone(),
-            took_ms: self.took_ms,
-            tokens_in: asked.tokens_in,
-            tokens_out: asked.tokens_out,
-            fell_back: &self.failed,
-        }
-    }
-}
-
 impl App {
     /// Has the worker's change's mutants picked, and answers the picks, or
     /// why none, by whom, with the commands that run and record them; when
     /// every picker fails, the last one's refusal, and nothing is kept.
     pub async fn worker_pick_mutants(&self, worker: Uuid) -> Answer {
-        let (st, diff, author) = self.change(worker).await?;
+        let (st, diff) = self.change(worker).await?;
         let goal = self.slimfit(&["help", "picker"])?;
         let listing = self.slimfit(&["check", "--repo", &st.worktree, "--mutants"])?;
         let listed = serde_json::from_str(&listing).map_err(|e| Refusal::new("slimfit", format!("{e}: {listing}")))?;
         let question = pick::question(&goal, &diff, &listing);
-        let second = self.second(&st, author, "picker", &question, |text| pick::read(text, &listed)).await?;
-        let (answer, cost) = pick::answer(&second.got, &second.taken(), factorium_harness::quoted);
-        self.note(&st.checkout, st.number, Author::Factorium, &cost).await?;
-        Ok(answer)
+        let quote = factorium_harness::quoted;
+        self.second(&st, worker, "picker", &question, |text, t| Ok(pick::answer(&pick::read(text, &listed)?, t, quote)))
+            .await
     }
 
     /// Has the worker's change's growth judged, and answers the verdict, by
     /// whom, with the command that writes its growth record; when every
     /// reviewer fails, the last one's refusal, and nothing is kept.
     pub async fn worker_review_growth(&self, worker: Uuid) -> Answer {
-        let (st, diff, author) = self.change(worker).await?;
+        let (st, diff) = self.change(worker).await?;
         let question = review::question(&self.slimfit(&["help", "reviewer"])?, &diff);
-        let second = self.second(&st, author, "reviewer", &question, review::read).await?;
-        let serves = format!("{}#{}", st.checkout, st.number);
-        let (answer, cost) = review::answer(&second.got, &serves, &second.taken(), factorium_harness::quoted);
-        self.note(&st.checkout, st.number, Author::Factorium, &cost).await?;
-        Ok(answer)
+        let (serves, quote) = (format!("{}#{}", st.checkout, st.number), factorium_harness::quoted);
+        self.second(&st, worker, "reviewer", &question, |text, t| {
+            Ok(review::answer(&review::read(text)?, &serves, t, quote))
+        })
+        .await
     }
 
-    /// The live worker, its change's diff from where it leaves origin's
-    /// proving, and its id, as `--author` takes it.
-    async fn change(&self, worker: Uuid) -> Answer<(Started, String, String)> {
+    /// The live worker and its change's diff, from where it leaves origin's proving.
+    async fn change(&self, worker: Uuid) -> Answer<(Started, String)> {
         let st = self.live(worker, Want::Any).await?.started;
         let proving = self.checkout(&st.checkout).await?.fetched_proving();
         let git = self.host.git(&st.worktree);
         let from = git.run(&["merge-base", "HEAD", &proving]).map_err(fail("git"))?;
         let diff = git.run(&["diff", from.trim()]).map_err(fail("git"))?;
-        let author = format!("{}:{worker}:{}", st.harness, st.model.as_deref().unwrap_or("default"));
-        Ok((st, diff, author))
+        Ok((st, diff))
     }
 
     fn slimfit(&self, args: &[&str]) -> Answer<String> {
         self.host.programs().run("slimfit", args).result("slimfit", args).map_err(fail("slimfit"))
     }
 
-    /// `question` asked of a fresh session as `role`, its answer taken by
-    /// `read`: on the kit's other harness that can be asked, each that
-    /// fails handing it to the next, the worker's own last.
-    async fn second<T>(
+    /// `question` asked of a fresh session as `role`, on the kit's other
+    /// harness that can be asked, each that fails handing it to the next,
+    /// the worker's own last; its answer and the issue's line of what it
+    /// took made by `take` of its text and who it was. Keeps the line and
+    /// answers the answer.
+    async fn second(
         &self,
         st: &Started,
-        author: String,
+        worker: Uuid,
         role: &str,
         question: &str,
-        read: impl Fn(&str) -> Result<T, String>,
-    ) -> Answer<Second<T>> {
+        take: impl Fn(&str, &Taken) -> Result<(Value, String), String>,
+    ) -> Answer {
+        let author = format!("{}:{worker}:{}", st.harness, st.model.as_deref().unwrap_or("default"));
         let (mut failed, mut last): (Vec<(String, String)>, Option<Refusal>) = (Vec::new(), None);
         loop {
             let asks =
@@ -115,12 +88,27 @@ impl App {
             let dir = self.data().pick(uuid::Uuid::now_v7());
             let answered = self.ask_in(&dir, &on, role, question).await;
             let _ = std::fs::remove_dir_all(&dir);
-            let why = match answered.and_then(|(asked, took_ms)| {
-                let got = read(&asked.text).map_err(fail(&format!("{role}_answer")))?;
-                Ok((got, asked, took_ms))
-            }) {
-                Ok((got, asked, took_ms)) => {
-                    return Ok(Second { got, on, asked, took_ms, failed, author });
+            let taken = answered.and_then(|(asked, took_ms)| {
+                let (harness, account, author) = (on.harness.key(), on.account.as_deref(), author.clone());
+                let (session, model, tokens_in, tokens_out) =
+                    (&asked.session, &asked.model, asked.tokens_in, asked.tokens_out);
+                let t = Taken {
+                    harness,
+                    session,
+                    model,
+                    account,
+                    author,
+                    took_ms,
+                    tokens_in,
+                    tokens_out,
+                    fell_back: &failed,
+                };
+                take(&asked.text, &t).map_err(fail(&format!("{role}_answer")))
+            });
+            let why = match taken {
+                Ok((answer, cost)) => {
+                    self.note(&st.checkout, st.number, Author::Factorium, &cost).await?;
+                    return Ok(answer);
                 }
                 Err(why) => why,
             };

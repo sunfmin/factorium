@@ -58,30 +58,26 @@ pub fn read(text: &str) -> Result<Reviewed, String> {
 /// each word put in by `quote` — and the line its issue keeps of what
 /// reviewing took.
 pub fn answer(reviewed: &Reviewed, serves: &str, t: &Taken, quote: fn(&str) -> String) -> (Value, String) {
-    let ids = format!("--reviewer {} --author {}", quote(&t.id()), quote(&t.author));
-    let ratchet = format!(
-        "factorium worker exclusive -- slimfit ratchet --serves {} --considered \"<the code you weighed reusing or deleting>\"",
-        quote(serves)
-    );
-    let mut said = t.said("reviewer");
-    let what = match reviewed {
-        Reviewed::AsIs(why) => {
-            said["as_is"] = why.as_str().into();
-            said["next"] = format!("{ratchet} --as-is {} {ids}; commit .slimfit/ with the change", quote(why)).into();
-            "as-is"
-        }
-        Reviewed::Cut(what) => {
-            said["cut"] = what.as_str().into();
-            said["next"] = format!(
-                "make the cuts, or answer each with why not; if the change still adds more than the allowance, \
-                 {ratchet} --cut {} --answer \"<what you did, or why not>\" {ids}; commit .slimfit/ with the change",
-                quote(what)
-            )
-            .into();
-            "cut"
-        }
+    let (field, verdict, first, flags) = match reviewed {
+        Reviewed::AsIs(why) => ("as_is", why, "", format!("--as-is {}", quote(why))),
+        Reviewed::Cut(what) => (
+            "cut",
+            what,
+            "make the cuts, or answer each with why not; if the change still adds more than the allowance, ",
+            format!("--cut {} --answer \"<what you did, or why not>\"", quote(what)),
+        ),
     };
-    (said, t.cost("review-growth", "reviewer", "reviewed", what))
+    let mut said = t.said("reviewer");
+    said[field] = verdict.as_str().into();
+    said["next"] = format!(
+        "{first}factorium worker exclusive -- slimfit ratchet --serves {} --considered \"<the code you weighed reusing \
+         or deleting>\" {flags} --reviewer {} --author {}; commit .slimfit/ with the change",
+        quote(serves),
+        quote(&t.id()),
+        quote(&t.author)
+    )
+    .into();
+    (said, t.cost("review-growth", "reviewer", "reviewed", &field.replace('_', "-")))
 }
 
 #[cfg(test)]
