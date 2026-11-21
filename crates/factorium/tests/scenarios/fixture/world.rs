@@ -214,6 +214,11 @@ impl World {
         (term.dialog, term.screen) = (true, lines.iter().map(|l| l.to_string()).collect());
     }
 
+    /// Its agent moves a shell to the background, and holds it.
+    pub fn background_shell(&self, handle: &str) {
+        self.host.orca.terminals.lock().unwrap().get_mut(handle).unwrap().background = true;
+    }
+
     pub fn kill_terminal(&self, handle: &str) {
         self.host.orca.terminals.lock().unwrap().get_mut(handle).unwrap().alive = false;
     }

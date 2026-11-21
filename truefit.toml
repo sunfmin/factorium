@@ -126,6 +126,34 @@ stdin = """
 {"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 
+# factorium#179: idle, with a shell it moved to the background, Claude
+# Code 2.1.330 is working as Orca 1.4.267 sees it, so a wait for tui-idle
+# times out, before an Escape as after it. A tell sent with its interrupt
+# key is still typed, and starts a turn.
+[[standin.case]]
+name = "idle-background-tell"
+stdin = """
+{"scratch": "truefit-idle-background-tell"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-idle-background-tell", "truefit-idle-background-tell", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "claude --dangerously-skip-permissions --model haiku"], "keep": {"terminal": "/ok"}}
+{"run": ["sleep", "5"], "only": "real"}
+{"run": ["orca", "terminal", "send", "--terminal", "{terminal}", "--text", "\\u001b[B", "--json"], "only": "real"}
+{"run": ["orca", "terminal", "send", "--terminal", "{terminal}", "--enter", "--json"], "only": "real"}
+{"orca": "ready", "args": ["{terminal}"]}
+# The real one starts a shell in the background and ends its turn; the
+# fake holds one as a scenario sets it.
+{"orca": "deliver", "args": ["{terminal}", "Call the Bash tool once with run_in_background set to true and the command: sleep 900. Then reply STARTED and end your turn."], "only": "real"}
+{"run": ["sleep", "15"], "only": "real"}
+{"world": {"background": "{terminal}"}}
+{"run": ["orca", "terminal", "wait", "--terminal", "{terminal}", "--for", "tui-idle", "--timeout-ms", "3000", "--json"], "read": ["/ok", "/error/code"]}
+{"orca": "press", "args": ["{terminal}", "\\u001b"]}
+{"orca": "deliver", "args": ["{terminal}", "Told now: reply NOW-SEEN and nothing else.", "\\u001b"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"scratch": "truefit-idle-background-tell"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
 [[standin]]
 name = "brew"
 run = ["crates/factorium/tests/contract/standin", "fake"]

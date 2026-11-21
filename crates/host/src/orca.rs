@@ -32,6 +32,10 @@ pub enum Delivery {
 /// How long, in seconds, a delivery watches for its line to start a turn.
 const SUBMIT_WAIT: u32 = 10;
 
+/// How long, in seconds, a key pressed at a terminal is given to bring its
+/// program back to idle.
+const PRESS_WAIT: u32 = 5;
+
 /// Orca, reached through the programs the host runs.
 pub struct Orca<'a>(pub &'a dyn Programs);
 
@@ -140,14 +144,14 @@ impl Orca<'_> {
     /// be up and its screen to settle. Text sent before then goes to the
     /// shell, ahead of the line Orca types to start the program.
     pub fn ready(&self, terminal: &str) -> Result<(), String> {
-        self.settle(terminal, 60_000)
+        self.settle(terminal, 60_000).map_err(String::from)
     }
 
     /// Waits up to `ms` for a terminal's program to sit idle at its prompt.
-    fn settle(&self, terminal: &str, ms: u32) -> Result<(), String> {
+    fn settle(&self, terminal: &str, ms: u32) -> Result<(), Failed> {
         let ms = ms.to_string();
         let wait = ["terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", &ms];
-        self.call(&wait).map(|_| ()).map_err(String::from)
+        self.call(&wait).map(|_| ())
     }
 
     /// Types `text` and Enter at a terminal.
@@ -157,17 +161,24 @@ impl Orca<'_> {
             .map_err(String::from)
     }
 
-    /// Types `key` without Enter at a terminal, and waits for its program to
-    /// sit idle again.
+    /// Types `key` without Enter at a terminal, and waits, up to
+    /// `PRESS_WAIT` seconds, for its program to sit idle again. Orca does
+    /// not always see it idle (Claude Code 2.1.330 holding a shell in the
+    /// background is working to Orca 1.4.267, in a turn or not): a wait that
+    /// times out is no failure, and the caller reads what came of the key.
     pub fn press(&self, terminal: &str, key: &str) -> Result<(), String> {
         self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
-        self.settle(terminal, 30_000)
+        match self.settle(terminal, PRESS_WAIT * 1000) {
+            Err(f) if f.code.as_deref() == Some("timeout") => Ok(()),
+            other => other.map_err(String::from),
+        }
     }
 
     /// Types `text` and Enter at an agent's terminal and watches, up to
     /// `SUBMIT_WAIT` seconds, whether it started a turn. `interrupt`: first
     /// types that key (no Enter) to stop the agent's running turn, and waits
-    /// for its prompt to be idle. Orca never resends a prompt it watched.
+    /// for its prompt to be idle, as [`Orca::press`] does. Orca never resends
+    /// a prompt it watched.
     pub fn deliver(&self, terminal: &str, text: &str, interrupt: Option<&str>) -> Result<Delivery, String> {
         if let Some(key) = interrupt {
             self.press(terminal, key)?;

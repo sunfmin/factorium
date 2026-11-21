@@ -82,6 +82,22 @@ async fn behind_a_running_turn_every_message_queues_and_only_now_stops_the_turn_
     }
 }
 
+#[tokio::test]
+async fn told_now_while_idle_with_a_shell_in_the_background_the_message_is_submitted_though_orca_never_sees_it_idle() {
+    for kind in [Kind::Tell, Kind::Restart] {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.background_shell(handle);
+        let before = w.terminal(handle).sent.len();
+        assert_eq!(kind.say(&w, &wk, true).await.unwrap()["delivery"], "submitted", "{kind:?}");
+        let sent = w.terminal(handle).sent[before..].to_vec();
+        assert!(sent.len() == 2 && sent[0] == ESCAPE && sent[1].starts_with(kind.opens()), "{kind:?}: {sent:?}");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "submitted", "{kind:?}");
+    }
+}
+
 /// Claude Code's dialog after a turn ended, as two workers showed it on
 /// 2026-11-18 while their landing's red was typed at them.
 const AUTO_MODE_DIALOG: [&str; 4] = [
