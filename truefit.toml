@@ -344,7 +344,7 @@ name = "worktrees"
 spec = "models/Worktrees.tla"
 config = "models/Worktrees.cfg"
 limit = 60
-commit = "89e5eeaaf507e632fd7435a87240297fb7c810b2"
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
 covers = [
   { action = "Take", file = "crates/factorium/src/life.rs", function = "App::start_worker (fetch, TakeIssue)" },
   { action = "Take", file = "crates/domain/src/issue.rs", function = "TakeIssue" },
@@ -378,7 +378,7 @@ spec = "models/Worktrees.tla"
 config = "models/WorktreesRun.cfg"
 limit = 60
 next = "TraceNext"
-commit = "89e5eeaaf507e632fd7435a87240297fb7c810b2"
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
 covers = [
   { action = "TraceNext", file = "crates/factorium/tests/scenarios/fixture/kept_trace.rs", function = "KeptTrace::state" },
 ]
