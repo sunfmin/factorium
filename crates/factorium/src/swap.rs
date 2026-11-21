@@ -57,6 +57,11 @@ impl crate::App {
         m.exe.clone()
     }
 
+    /// This process was started from the binary `exe` (canonical): a scenario's, as [`Self::exe`] notes it.
+    pub fn started_from(&self, exe: &Path) {
+        self.memory.lock().unwrap().exe = Some(exe.to_path_buf());
+    }
+
     /// The link to exec in place of this binary: Homebrew links a version other
     /// than the one running (a cut, or by hand) and than the one a rollback
     /// went back from, and that version opens this host's database;
