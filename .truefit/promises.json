@@ -1,0 +1,8 @@
+{
+  "e4709c8f8169": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check registry itself: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line), re-pin a model's commit, or add covers for new code; the promises those fixes keep live in models/*.tla and the code their covers name, not in this file"
+  }
+}
