@@ -121,11 +121,12 @@ impl App {
         self.exclusive(Asker::Program, dir, cmd, background).await
     }
 
-    /// The queue's depth: how many entries run and how many wait, and each entry, oldest first.
+    /// The queue's depth: how many entries run and how many wait, each entry, oldest first, and
+    /// the places kept for entries that left unstarted.
     pub async fn heavy_depth(&self) -> Answer {
         let q = self.state::<Heavy>(queue_id()).await?;
         let (running, waiting) = (q.running().count(), q.waiting().count());
-        Ok(serde_json::json!({ "running": running, "waiting": waiting, "entries": q.entries }))
+        Ok(serde_json::json!({ "running": running, "waiting": waiting, "entries": q.entries, "kept": q.left }))
     }
 
     /// Runs `cmd` in `dir` by hand for `asker`, waiting for its turn: within four hold bounds, at

@@ -88,3 +88,27 @@ async fn waiters_a_restarted_daemon_refuses_start_in_the_order_they_were_queued_
     assert_eq!(held.unwrap()["ok"], true);
     assert_eq!(ran(), ["a", "b", "c", "d"] as [&str; 4], "in the order first queued, none at the back");
 }
+
+/// A place is kept a day at most, whatever the keep bound: kept places stay few.
+#[tokio::test]
+async fn a_place_kept_past_a_day_goes_once_another_entry_leaves() {
+    let w = World::new();
+    w.run().under_rules("1.0.1").daemon_start().await.unwrap();
+    let old = w.run().under_rules("1.0.0");
+    // Each waiter of the old binary is refused at once, and its entry leaves unstarted.
+    let leaves = async |what: &str| {
+        let refused = old.worker_exclusive(Some(Uuid::now_v7()), &w.dir, what).await;
+        assert_eq!(refused.expect_err("refused under replaced rules").code, "stale");
+    };
+    let kept = async || -> Vec<String> {
+        let depth = w.run().heavy_depth().await.unwrap();
+        depth["kept"].as_array().unwrap().iter().map(|k| k["what"].as_str().unwrap().to_string()).collect()
+    };
+    leaves("echo a").await;
+    w.clock.advance(24 * 3600 * 1000);
+    leaves("echo b").await;
+    assert_eq!(kept().await, ["echo a", "echo b"], "a day old, it is kept");
+    w.clock.advance(1);
+    leaves("echo c").await;
+    assert_eq!(kept().await, ["echo b", "echo c"], "past a day, it went");
+}

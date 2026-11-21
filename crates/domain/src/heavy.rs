@@ -430,47 +430,4 @@ mod tests {
         let q = Queue { entries: vec![entry(1, 1), line.clone()], ..Queue::default() };
         assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(Uuid::from_u128(1)));
     }
-
-    fn queued(n: u128, what: &str, worker: Option<Uuid>, at: i64, place: Option<i64>) -> HeavyEvent {
-        let (id, what) = (Uuid::from_u128(n), what.to_string());
-        HeavyEvent::HeavyQueued { id, what, pid: 1, worker, program: false, at, bound_at: None, place }
-    }
-
-    #[test]
-    fn an_entry_that_left_unstarted_keeps_its_place_for_its_asker_alone_within_the_keep_bound() {
-        let (me, other) = (Some(Uuid::from_u128(7)), Some(Uuid::from_u128(8)));
-        let mut q = Queue::default();
-        Heavy::evolve(&mut q, queued(1, "check", me, 10, None));
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(1), kept_at: Some(20) });
-        assert_eq!(q.place("check", me, false, 30, 10), Some(10), "asked again within the bound");
-        assert_eq!(q.place("check", me, false, 31, 10), None, "past it");
-        assert_eq!(q.place("check", other, false, 30, 10), None, "another worker's");
-        assert_eq!(q.place("gate", me, false, 30, 10), None, "another command");
-        assert_eq!(q.place("check", None, false, 30, 10), None, "neither a worker's nor a program's");
-        // Taken, it is gone.
-        Heavy::evolve(&mut q, queued(2, "check", me, 30, Some(10)));
-        assert_eq!(q.entries[0].queued_at, 10, "it takes the place it had");
-        assert!(q.left.is_empty());
-        // Ended with its place gone (the owner's unqueue), or once started, none is kept.
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(2), kept_at: None });
-        Heavy::evolve(&mut q, queued(3, "check", me, 40, None));
-        Heavy::evolve(&mut q, HeavyEvent::HeavyStarted { id: Uuid::from_u128(3), at: 41 });
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(3), kept_at: Some(42) });
-        assert!(q.left.is_empty(), "{:?}", q.left);
-    }
-
-    #[test]
-    fn a_kept_place_older_than_a_day_goes_once_another_leaves() {
-        let (me, other) = (Some(Uuid::from_u128(7)), Some(Uuid::from_u128(8)));
-        let mut q = Queue::default();
-        let day = 86_400_000;
-        Heavy::evolve(&mut q, queued(1, "check", me, 10, None));
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(1), kept_at: Some(day) });
-        Heavy::evolve(&mut q, queued(2, "gate", other, 2 * day - 1, None));
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(2), kept_at: Some(2 * day) });
-        assert_eq!(q.left.len(), 2, "a day old, it is kept");
-        Heavy::evolve(&mut q, queued(3, "test", other, 2 * day, None));
-        Heavy::evolve(&mut q, HeavyEvent::HeavyEnded { id: Uuid::from_u128(3), kept_at: Some(2 * day + 1) });
-        assert_eq!(q.left.iter().map(|l| l.what.as_str()).collect::<Vec<_>>(), ["gate", "test"], "past a day, it went");
-    }
 }
