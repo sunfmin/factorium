@@ -117,7 +117,7 @@ struct Described {
 struct ToolCall {
     name: String,
     #[serde(default)]
-    args: Option<Value>,
+    args: Value,
 }
 
 /// The tool agy runs shell lines with, and its argument holding the line.
@@ -222,7 +222,7 @@ impl Kind for Agy {
     /// Its brief is its first prompt, on its line.
     fn briefed(line: String, brief: &str) -> (String, Option<String>) {
         let pointer = crate::brief::brief_pointer(brief);
-        (Line::new().launch(&line).arg(PROMPT_INTERACTIVE).fixed(" ").word(&pointer).done(), None)
+        (Line::new().launch(&line).flag(PROMPT_INTERACTIVE, &pointer).done(), None)
     }
 
     /// A shell call is `run_command` with its `CommandLine`; one without is
@@ -232,8 +232,8 @@ impl Kind for Agy {
         if call.name != SHELL_TOOL {
             return Ok(Call::NotShell);
         }
-        match call.args.as_ref().map(|args| &args[SHELL_LINE]) {
-            Some(Value::String(line)) => Ok(Call::Shell(line.clone())),
+        match &call.args[SHELL_LINE] {
+            Value::String(line) => Ok(Call::Shell(line.clone())),
             _ => Err(D::Error::custom(format!("a `{SHELL_TOOL}` call with no `{SHELL_LINE}`"))),
         }
     }
@@ -249,8 +249,8 @@ impl Kind for Agy {
         Layout::Named { dir: ".gemini/antigravity-cli/brain".into(), name: ".system_generated/logs/transcript.jsonl" }
     }
 
-    fn could_record(cwd: &str, text: &str, brief: &str) -> bool {
-        session::names_cwd_or_brief(cwd, text, brief)
+    fn could_record(_cwd: &str, _text: &str, _brief: &str) -> bool {
+        true
     }
 
     /// The turn `text`, one conversation's transcript, records for the
@@ -258,11 +258,11 @@ impl Kind for Agy {
     /// session's when its first brief pointer is this brief's. A user's input
     /// starts a turn; the model's answer that calls no tool ends it.
     fn recorded_turn(_cwd: &str, text: &str, brief: &str) -> Option<Turn> {
-        let mut pointers = json_lines(text)
-            .filter(user_input)
-            .filter_map(|value| value["content"].as_str().map(|content| request(content).to_string()));
-        let first = pointers.find(|said| said.starts_with(crate::brief::BRIEF_POINTER_PREFIX))?;
-        if first != crate::brief::brief_pointer(brief) {
+        let pointer = |value: Value| {
+            let said = request(value["content"].as_str()?);
+            said.starts_with(crate::brief::BRIEF_POINTER_PREFIX).then(|| said == crate::brief::brief_pointer(brief))
+        };
+        if !json_lines(text).filter(user_input).find_map(pointer)? {
             return None;
         }
         let notes: Vec<Note> = json_lines(text).filter_map(|value| note(&value)).collect();

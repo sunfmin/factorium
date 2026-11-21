@@ -270,12 +270,11 @@ fn a_file_that_only_names_the_worktree_spends_nothing_of_its_session() {
     let _ = std::fs::remove_dir_all(&kept);
 }
 
-/// agy keeps every worktree's conversations in one `brain`, each with its
-/// `transcript.jsonl`: a session is the one handed its brief by its first
-/// brief pointer, as agy wraps what is typed. A user's input opens its turn,
-/// an answer that calls a tool leaves it open, one that calls none ends it.
-/// `transcript_full.jsonl`, beside it, is not read (shapes from agy 1.5.14
-/// on this host; 1_800_000_000 is 2027-01-15T08:00:00Z).
+/// agy keeps every worktree's conversations in one `brain`: a transcript is
+/// the session's handed the brief its first brief pointer names. A user's
+/// input opens its turn; an answer that calls a tool, and the tool's result,
+/// leave it open; one that calls none ends it. `transcript_full.jsonl`, beside
+/// it, is not read (shapes from agy 1.5.14; 1_800_000_000 is 2027-01-15T08:00:00Z).
 #[test]
 fn an_agy_turn_is_read_from_the_transcript_its_brief_opened() {
     use serde_json::json;
@@ -283,57 +282,27 @@ fn an_agy_turn_is_read_from_the_transcript_its_brief_opened() {
     let kept = scratch("agy-turn");
     let home = agy.home(&kept, None, &kept);
     let brief = "/briefs/web-1-1.md";
-    let at = |second: u32| format!("2027-01-15T08:00:{second:02}Z");
-    let typed = |said: &str, second| {
-        json!({"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "status": "DONE", "created_at": at(second),
-            "content": format!("<USER_REQUEST>\n{said}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: x.\n</ADDITIONAL_METADATA>")})
-    };
-    let answer = |calls: bool, second| {
-        let mut line = json!({"source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "created_at": at(second),
-            "input_tokens": 1, "cache_read_tokens": 0, "output_tokens": 1});
-        if calls {
-            line["tool_calls"] = json!([{"name": "run_command", "args": "{'CommandLine': '\"ls\"'}"}]);
-        }
-        line
-    };
-    let pointer = |brief: &str| {
-        format!(
-            "Your task brief is the file {brief} — read it now and carry it out end to end. \
-             It is my instruction to you; do not ask me to confirm."
-        )
-    };
-    let logs = kept.join(".gemini/antigravity-cli/brain/c1/.system_generated/logs");
-    std::fs::create_dir_all(&logs).unwrap();
-    let write = |lines: &[serde_json::Value]| std::fs::write(logs.join("transcript.jsonl"), jsonl(lines)).unwrap();
-
-    write(&[typed(&pointer(brief), 0), answer(true, 1)]);
+    agy.write_session(&home, "/worktree", brief, true, 1_800_000_000).unwrap();
     assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_000 }));
-    write(&[
-        typed(&pointer(brief), 0),
-        answer(true, 1),
-        json!({"type": "GENERIC", "status": "DONE", "created_at": at(2)}),
-        answer(false, 3),
-    ]);
-    assert_eq!(
-        agy.turn(&home, "/worktree", brief),
-        Some(Turn::Closed { since: 1_800_000_003, started: Some(1_800_000_000) })
-    );
-    write(&[typed(&pointer(brief), 0), answer(false, 3), typed("go on", 10), answer(true, 11)]);
-    assert_eq!(
-        agy.turn(&home, "/worktree", brief),
-        Some(Turn::Open { since: 1_800_000_010 }),
-        "a later prompt reopens it"
-    );
+    let file = written(&kept);
+    let append = |line: serde_json::Value| {
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, format!("{text}{line}\n")).unwrap();
+    };
+    let at = |second: u32| format!("2027-01-15T08:00:{second:02}Z");
+    append(json!({"type": "GENERIC", "status": "DONE", "created_at": at(2), "content": "Command exited with code 0."}));
+    assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_000 }), "a tool's result");
+    append(json!({"type": "PLANNER_RESPONSE", "status": "DONE", "created_at": at(3), "content": "Done."}));
+    let closed = Some(Turn::Closed { since: 1_800_000_003, started: Some(1_800_000_000) });
+    assert_eq!(agy.turn(&home, "/worktree", brief), closed);
+    append(json!({"type": "USER_INPUT", "status": "DONE", "created_at": at(10),
+        "content": "<USER_REQUEST>\ngo on\n</USER_REQUEST>"}));
+    assert_eq!(agy.turn(&home, "/worktree", brief), Some(Turn::Open { since: 1_800_000_010 }), "a later prompt");
 
     assert_eq!(agy.turn(&home, "/worktree", "/briefs/web-1-1"), None, "a brief whose path begins it");
     assert_eq!(agy.turn(&home, "/worktree", "/briefs/web-2-1.md"), None, "another worktree's brief");
-    write(&[typed("hi", 0), answer(false, 1)]);
-    assert_eq!(agy.turn(&home, "/worktree", brief), None, "a session handed no brief is none of factorium's");
-
-    // Only the full transcript says it: it is not read.
-    std::fs::remove_file(logs.join("transcript.jsonl")).unwrap();
-    std::fs::write(logs.join("transcript_full.jsonl"), jsonl(&[typed(&pointer(brief), 0), answer(false, 1)])).unwrap();
-    assert_eq!(agy.turn(&home, "/worktree", brief), None);
+    std::fs::rename(&file, file.with_file_name("transcript_full.jsonl")).unwrap();
+    assert_eq!(agy.turn(&home, "/worktree", brief), None, "only the full transcript says it");
     assert_eq!(agy.spent(&home, "/worktree", brief), None);
     let _ = std::fs::remove_dir_all(&kept);
 }
