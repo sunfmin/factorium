@@ -189,20 +189,16 @@ impl App {
                     format!("{name} is closed")
                 } else {
                     // Owned: the last started attempt's own worktree, whatever
-                    // attempt its branch names; a newer attempt's while its
-                    // worker holds the issue, still starting.
+                    // attempt its branch names; the attempt's whose worker
+                    // holds the issue (the newest), still starting.
                     let last = self.last_started(&issue).await?;
-                    if last.as_ref().is_some_and(|l| branch.as_deref() == Some(l.branch.as_str())) {
+                    if last.as_ref().is_some_and(|l| branch.as_deref() == Some(l.branch.as_str()))
+                        || issue.worker == Some(worker_id(&c.name, number, attempt))
+                    {
                         continue;
                     }
-                    let newer = last.as_ref().is_none_or(|l| attempt > l.attempt);
-                    if newer && issue.worker == Some(worker_id(&c.name, number, attempt)) {
-                        continue;
-                    }
-                    match last {
-                        Some(l) if !newer => format!("attempt {attempt} is older than {name}'s last, {}", l.attempt),
-                        _ => format!("attempt {attempt} of {name} never started: its start was undone"),
-                    }
+                    let last = last.map_or("none".to_string(), |l| l.attempt.to_string());
+                    format!("attempt {attempt} is neither {name}'s last started ({last}) nor starting")
                 };
                 let (checkout, path, branch) = (c.name.clone(), path.display().to_string(), branch.unwrap_or_default());
                 let kept = abandoned(&branch);

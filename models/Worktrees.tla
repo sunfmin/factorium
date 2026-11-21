@@ -109,7 +109,7 @@ Orphaned(S, t) ==
     /\ \/ S.status = "closed" /\ Bug # "closed_unfound"
        \/ /\ S.status # "closed"
           /\ t # (IF Bug = "orphan_by_attempt" THEN LastStarted(S) ELSE LastTree(S))
-          /\ ~(t > LastStarted(S) /\ S.taken = t)
+          /\ S.taken # t
 
 \* SPEC §2.6: an open issue owns one worktree, its last started attempt's.
 Owner(S, t) == S.status # "closed" /\ t # 0 /\ t = LastTree(S)
