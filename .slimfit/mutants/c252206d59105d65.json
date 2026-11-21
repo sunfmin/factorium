@@ -1,0 +1,15 @@
+{
+  "tree": "70d4e3e64cb49be86f9ebeb9c75d9ab76bdc1123+d1fba762150c532c",
+  "picker": "codex:01a1fc7f-103b-7520-9916-9ab84a4ebd1f:default",
+  "author": "claude-code:5e08e262-078b-5abd-9f0e-66c36ca42cd7:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/pick.rs:127:95: replace / with * in Taken<'_>::cost",
+        "why": "The issue-note assertions check the agent ID, token counts, and verdict, so they could miss an incorrect conversion from milliseconds to seconds.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
