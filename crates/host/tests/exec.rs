@@ -39,3 +39,15 @@ fn a_descriptor_handed_through_an_exec_is_owned_only_on_its_own_file() {
     assert!(again.try_lock().is_ok(), "closed: the lock goes");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+#[allow(unsafe_code)]
+fn a_descriptor_not_open_is_neither_kept_nor_inherited() {
+    use std::os::fd::FromRawFd;
+    // Far past any this process opens.
+    let fd = 1 << 20;
+    // SAFETY: never read, written or closed: ManuallyDrop keeps it from closing.
+    let none = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+    assert!(kept_across_exec(&none, true).is_err());
+    assert!(inherited(fd, &std::env::temp_dir()).is_none());
+}

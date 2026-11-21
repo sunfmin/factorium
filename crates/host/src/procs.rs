@@ -126,12 +126,11 @@ pub fn inherited(fd: i32, path: &std::path::Path) -> Option<std::fs::File> {
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::MetadataExt;
     let at = std::fs::metadata(path).ok()?;
-    // SAFETY: fstat writes only into `st`, which it is handed.
+    // SAFETY: fstat writes only into `st`, which it is handed. A descriptor
+    // not open leaves it zeroed, which no file's device and inode are.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    // SAFETY: as above; a descriptor not open answers -1.
-    if unsafe { libc::fstat(fd, &raw mut st) } == -1 {
-        return None;
-    }
+    // SAFETY: as above.
+    unsafe { libc::fstat(fd, &raw mut st) };
     if u64::try_from(st.st_dev).ok()? != at.dev() || st.st_ino != at.ino() {
         return None;
     }
