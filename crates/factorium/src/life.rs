@@ -35,8 +35,8 @@ impl App {
     /// Starts a worker on issue `number` of `checkout`.
     pub(crate) async fn start_worker(&self, checkout: &str, number: u64) -> Answer {
         let c = self.checkout(checkout).await?;
-        let pick = self.pick(checkout).await?;
         let issue = self.issue(checkout, number).await?;
+        let pick = self.pick(checkout, issue.on.account.as_deref()).await?;
         let attempt = issue.attempts + 1;
         let worker = worker_id(checkout, number, attempt);
         // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.
@@ -109,6 +109,11 @@ impl App {
     /// own. Answers why its terminal is not closed, if it is not.
     async fn finish(&self, worker: Uuid, st: &Started, status: Option<Status>, end: End) -> Answer<Option<String>> {
         let unclosed = self.close_worker_session(worker, st).await?;
+        // What it spent, read once it stopped spending and kept: its session
+        // files are the harness's, which may clear them.
+        if let (Some(Status::Working | Status::Landing | Status::Waiting), Some(tokens)) = (status, self.spent(st)) {
+            self.submit::<w::NoteSpent>(w::Spend { worker, tokens }).await?;
+        }
         match (&end, status) {
             (_, None | Some(Status::Ended)) => {}
             (End::Landed(commit), _) => {
@@ -153,7 +158,14 @@ impl App {
         let (path, branch, resumed) = (next.path, next.branch, next.resumed);
         let title = format!("{}#{}", c.name, issue.number);
         let brief = worker_brief(c, issue, &branch, resumed.as_ref());
-        let role = Role::Worker { id: worker, worktree: &path, name: &name, title: &title, brief: &brief };
+        let role = Role::Worker {
+            id: worker,
+            worktree: &path,
+            name: &name,
+            title: &title,
+            brief: &brief,
+            role: issue.on.role.as_deref(),
+        };
         let opened = self.open_session(role, pick)?;
         let started = Started {
             checkout: c.name.clone(),

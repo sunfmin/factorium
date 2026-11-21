@@ -88,6 +88,9 @@ trait Kind {
     /// `brief`, its turn left open when `open`, written at `at` (epoch
     /// seconds).
     fn stand_in(cwd: &str, brief: &str, open: bool, at: u64) -> String;
+    /// The tokens a session file's `text` says its session spent, as (given,
+    /// written), the given counting cached ones. `None`: its files do not say.
+    const SPENT: Option<fn(text: &str) -> (u64, u64)>;
     /// Whether the session file `text` took `said` as a prompt at or after
     /// `since` (epoch seconds). `None`: its session files do not say.
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool>;

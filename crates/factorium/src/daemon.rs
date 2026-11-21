@@ -152,20 +152,32 @@ impl App {
         Ok(filed)
     }
 
-    /// The oldest ready issue no worker holds and nothing open blocks.
+    /// The oldest ready issue no worker holds and nothing open blocks, and
+    /// whose account, if it names one, can start now.
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
+        let mut held = None;
         for r in self.rows(tracker::untaken()).await? {
             let (checkout, number) = (r.checkout, r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;
             }
             checked.insert(checkout.clone());
-            if self.blockers(&self.issue(&checkout, number).await?).await?.iter().all(|(_, met)| met.is_some()) {
-                return Ok(Some((checkout, number)));
+            let issue = self.issue(&checkout, number).await?;
+            if !self.blockers(&issue).await?.iter().all(|(_, met)| met.is_some()) {
+                continue;
             }
+            // One whose account cannot start now (used up) waits behind
+            // those that can; with none, its start answers why it is held.
+            if let Some(account) = issue.on.account.as_deref()
+                && self.pick(&checkout, Some(account)).await.is_err()
+            {
+                held.get_or_insert((checkout, number));
+                continue;
+            }
+            return Ok(Some((checkout, number)));
         }
-        Ok(None)
+        Ok(held)
     }
 
     /// Each worker the watch parked behind what its issue waits for, sent

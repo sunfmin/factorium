@@ -38,6 +38,30 @@ pub struct Issue {
     pub task: Option<Task>,
     /// When it was closed, in ms (unknown for issues closed before it was kept).
     pub closed_at: Option<i64>,
+    /// What its worker plays and where it runs, as the one who filed it
+    /// decided: none, the kit's and the host's choice.
+    pub on: On,
+}
+
+/// The role an issue's worker plays and the account it starts on, each
+/// named by the one who filed it (Guild, for one): unnamed, the worker's
+/// role is factorium's alone and its account the kit's choice.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct On {
+    /// A directory holding the role's rules (`CLAUDE.md`) and skills
+    /// (`.claude/skills`), which its worker starts with beside factorium's
+    /// worker rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// The engine account its worker starts on (`agent-account-<name>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+}
+
+impl On {
+    fn is_none(&self) -> bool {
+        self.role.is_none() && self.account.is_none()
+    }
 }
 
 /// Who wrote a comment.
@@ -214,6 +238,8 @@ pub enum IssueEvent {
         waiting_for_human: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         task: Option<Task>,
+        #[serde(default, skip_serializing_if = "On::is_none")]
+        on: On,
     },
     IssueEdited {
         title: String,
@@ -291,8 +317,8 @@ impl Aggregate for Issues {
     fn evolve(s: &mut Issue, event: IssueEvent) {
         let standing = event.standing();
         match event {
-            IssueEvent::IssueOpened { checkout, number, title, body, task, .. } => {
-                *s = Issue { checkout, number, title, body, task, ..Issue::default() };
+            IssueEvent::IssueOpened { checkout, number, title, body, task, on, .. } => {
+                *s = Issue { checkout, number, title, body, task, on, ..Issue::default() };
             }
             IssueEvent::IssueEdited { title, body } => (s.title, s.body) = (title, body),
             // An own-checkout issue waited for until it closes is written as
@@ -361,6 +387,9 @@ pub struct Open {
     /// The task it is filed for, by idle work.
     #[serde(default)]
     pub task: Option<Task>,
+    /// The role and account its worker is to start with.
+    #[serde(default)]
+    pub on: On,
 }
 
 command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.number), |s, p, now| {
@@ -380,6 +409,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         body: p.body.clone(),
         waiting_for_human: p.waiting_for_human,
         task: p.task.clone(),
+        on: p.on.clone(),
     }];
     let mut opened = Issue::default();
     Issues::evolve(&mut opened, events[0].clone());

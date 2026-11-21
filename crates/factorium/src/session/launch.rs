@@ -148,7 +148,9 @@ impl Caller {
 /// The role a session is opened for, and where.
 pub(crate) enum Role<'a> {
     /// A worker in its worktree, handed `brief`, which `name` names.
-    Worker { id: Uuid, worktree: &'a Path, name: &'a str, title: &'a str, brief: &'a str },
+    /// `role`: the role directory its issue names, whose rules and skills it
+    /// starts with beside the worker's rules.
+    Worker { id: Uuid, worktree: &'a Path, name: &'a str, title: &'a str, brief: &'a str, role: Option<&'a str> },
     /// The watch, in its home.
     Watch,
 }
@@ -201,10 +203,15 @@ impl App {
         rules_hash_of(&self.watch_rules())
     }
 
-    /// What a session for `checkout` (the watch: `""`) starts on now; refused
-    /// `no_harness` when nothing of the kit can.
-    pub(crate) async fn pick(&self, checkout: &str) -> Answer<Pick> {
-        self.pick_by(|kit, now, here| kit.choose(checkout, now, here)).await
+    /// What a session for `checkout` (the watch: `""`) starts on now, on
+    /// `account` where its issue names one; refused `no_harness` when nothing
+    /// of the kit can.
+    pub(crate) async fn pick(&self, checkout: &str, account: Option<&str>) -> Answer<Pick> {
+        self.pick_by(|kit, now, here| match account {
+            Some(account) => kit.choose_on(checkout, account, now, here),
+            None => kit.choose(checkout, now, here),
+        })
+        .await
     }
 
     /// What a session starts on now, as `choose` chooses from the kit and
@@ -233,13 +240,15 @@ impl App {
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
         let mut rules_hash = None;
         let (dir, worktree, brief, title, mut env) = match role {
-            Role::Worker { id, worktree, name, title, brief } => {
+            Role::Worker { id, worktree, name, title, brief, role } => {
                 let path = self.data().brief(name);
                 std::fs::create_dir_all(path.parent().expect("a parent")).map_err(io)?;
                 std::fs::write(&path, brief).map_err(io)?;
-                let dir = self.data().worker_role();
-                std::fs::create_dir_all(dir.join(factorium_harness::SKILLS)).map_err(io)?;
-                std::fs::write(dir.join(RULES), WORKER_RULES).map_err(io)?;
+                let dir = match role {
+                    None => self.data().worker_role(),
+                    Some(_) => self.data().issue_role(name),
+                };
+                role_dir(&dir, role.map(Path::new)).map_err(io)?;
                 (dir, worktree.to_path_buf(), path, title.to_string(), vec![(WORKER_ENV, id.to_string())])
             }
             Role::Watch => {
@@ -339,6 +348,26 @@ fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String
     let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).map_err(io)?;
     std::io::Write::write_all(&mut f, factorium_harness::secrets_file(secrets).as_bytes()).map_err(io)?;
     Ok(file.to_string_lossy().into_owned())
+}
+
+/// Makes `dir` the directory a worker's session starts in: its rules
+/// ([`RULES`]) the worker's, then, where its issue names a role, that role's
+/// own rules; its skills ([`factorium_harness::SKILLS`]) the role's, by a
+/// link, else none. The role's directory is read, never written.
+fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<()> {
+    let skills = dir.join(factorium_harness::SKILLS);
+    let Some(role) = role else {
+        std::fs::create_dir_all(&skills)?;
+        return std::fs::write(dir.join(RULES), WORKER_RULES);
+    };
+    let own = std::fs::read_to_string(role.join(RULES)).unwrap_or_default();
+    std::fs::create_dir_all(skills.parent().expect("a parent"))?;
+    let _ = std::fs::remove_file(&skills).or_else(|_| std::fs::remove_dir_all(&skills));
+    match role.join(factorium_harness::SKILLS) {
+        theirs if theirs.is_dir() => std::os::unix::fs::symlink(theirs, &skills)?,
+        _ => std::fs::create_dir_all(&skills)?,
+    }
+    std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))
 }
 
 /// A hash of `rules` that is the same from one build to the next (64-bit
