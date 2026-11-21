@@ -4,7 +4,7 @@
 use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::LineJob;
 use factorium_domain::line::{self, next_version};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::{Did, QUEUED};
 use crate::heavy::{Job, Turn};
@@ -45,11 +45,7 @@ impl App {
             let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
             let up = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}")));
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
-            // Its factorium runs in the daemon's place only once it opens this
-            // host's database (factorium#141): else the cut failed, and the old one runs on.
-            if let Some(bin) = self.host.brew().bin(formula, "factorium") {
-                self.proves(&bin).await.map_err(|e| format!("installed {formula}, but {e}"))?;
-            }
+            self.proves_formula(formula).await?;
             Ok((tagged, Some(formula.clone())))
         };
         let (tagged, installed) = match done.await {
@@ -61,5 +57,41 @@ impl App {
         };
         self.submit::<line::RecordCut>(record(&tagged, None)).await?;
         Ok(Ok(json!({ "cut": c.name, "version": version, "commit": tagged, "installed": installed })))
+    }
+
+    /// Its factorium runs in the daemon's place only once it opens this
+    /// host's database (factorium#141): else the cut failed, and the old one runs on.
+    async fn proves_formula(&self, formula: &str) -> Result<(), String> {
+        match self.host.brew().bin(formula, "factorium") {
+            Some(bin) => self.proves(&bin).await.map_err(|e| format!("installed {formula}, but {e}")),
+            None => Ok(()),
+        }
+    }
+
+    /// The failed cut of `version` on `c`, read back (factorium#185): its tag
+    /// is on origin and, where the repo declares a formula, Homebrew has that
+    /// version, whoever installed it, and it proves. Then the cut is recorded
+    /// made, and answers what it did; else it stays failed, and answers
+    /// nothing. The steps before the tag leave nothing to read back: the tag
+    /// is pushed only once they pass.
+    pub(super) async fn cut_read_back(&self, c: &Checkout, version: &str) -> Answer<Option<Value>> {
+        let git = self.host.git(&c.path);
+        // The checkout's tags are origin's, as fetched with its base: a cut tags in its own clone.
+        git.fetch(&c.base).map_err(fail("git"))?;
+        let Ok(tagged) = git.sha(&format!("refs/tags/{version}")) else { return Ok(None) };
+        let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };
+        if let Some(formula) = &cut.formula {
+            let (host, f, v) = (self.host.clone(), formula.clone(), version.to_string());
+            let has = tokio::task::spawn_blocking(move || host.brew().has(&f, &v)).await.unwrap_or(false);
+            if !has || self.proves_formula(formula).await.is_err() {
+                return Ok(None);
+            }
+        }
+        let record =
+            line::Cut { checkout: c.name.clone(), version: version.into(), commit: tagged.clone(), failed: None };
+        self.submit::<line::RecordCut>(record).await?;
+        Ok(Some(
+            json!({ "cut": c.name, "version": version, "commit": tagged, "installed": cut.formula, "read_back": true }),
+        ))
     }
 }

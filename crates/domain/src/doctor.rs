@@ -189,7 +189,8 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             add(
                 format!("cut:{checkout}:{version}"),
                 format!("{checkout}: cutting {version} failed: {why}"),
-                "fix the step that failed (an issue if it is the repo's); the next cut tries again",
+                "fix the step that failed (an issue if it is the repo's); each tick reads it back and clears this once it \
+                 holds, or the next cut tries again",
             );
         }
     }
