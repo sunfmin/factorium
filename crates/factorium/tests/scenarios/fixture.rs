@@ -12,6 +12,7 @@
 mod db;
 mod fakes;
 mod heavy;
+mod kept_trace;
 mod read;
 mod sessions;
 mod steps;
@@ -20,6 +21,7 @@ mod world;
 
 pub use fakes::*;
 pub use heavy::*;
+pub use kept_trace::*;
 pub use read::*;
 pub use sessions::*;
 pub use steps::*;
