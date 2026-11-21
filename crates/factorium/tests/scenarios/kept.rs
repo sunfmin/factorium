@@ -419,3 +419,67 @@ async fn a_later_attempt_s_start_is_no_finding_while_under_way_and_one_once_undo
     let f = findings(&d).iter().find(|f| f["key"].as_str().unwrap().ends_with("web-1-2")).expect("undone, it is one");
     assert!(f["what"].as_str().unwrap().contains("attempt 2 is neither web#1's last started (1) nor starting"), "{f}");
 }
+
+/// Runs one tick of a daemon (its own App, on `w`'s database) that dies
+/// between Orca's new worktree and the start's record: its fake Orca's
+/// hook panics as its terminal opens, `then` run first.
+fn a_daemon_dies_mid_start(w: &World, then: impl FnMut() + Send + 'static) {
+    let mut then = then;
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        then();
+        panic!("the daemon dies");
+    }));
+    let (db, host) = (w.db.clone(), w.host.clone());
+    let dying = std::thread::spawn(move || {
+        let app = factorium::App::open(&db, "owner", host).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(app.tick())
+    });
+    assert!(dying.join().is_err(), "it died");
+    *w.host.orca.while_opening.lock().unwrap() = None;
+}
+
+#[tokio::test]
+async fn a_daemon_that_died_mid_start_frees_its_issue_when_it_starts_again() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    a_daemon_dies_mid_start(&w, || {});
+    let tree = w.dir.join("worktrees").join("web-1-1");
+    assert!(tree.exists(), "its worktree was made");
+    assert_ne!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "taken, never started");
+
+    // The daemon starts again: the issue is free, its worktree (holding nothing) goes, and it starts again.
+    let restarted = w.run();
+    restarted.daemon_start().await.unwrap();
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
+    assert!(!tree.exists(), "it held nothing: it goes");
+    let again = restarted.tick().await.unwrap().started.expect("it starts again");
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+}
+
+#[tokio::test]
+async fn a_daemon_that_died_mid_start_leaves_its_held_worktree_to_doctor() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    // The worktree is made; then the proving tip cannot be read, and the daemon dies.
+    let (at, away) = (w.dir.join("remotes").join("web.git"), w.dir.join("remotes").join("web.git.away"));
+    let (from, to) = (at.clone(), away.clone());
+    a_daemon_dies_mid_start(&w, move || std::fs::rename(&from, &to).unwrap());
+    let restarted = w.run();
+    restarted.daemon_start().await.unwrap();
+    let tree = w.dir.join("worktrees").join("web-1-1");
+    assert!(tree.exists(), "with the tip unread, held");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
+    let d = w.app.doctor().await.unwrap();
+    let f = findings(&d).iter().find(|f| f["key"].as_str().unwrap().ends_with("web-1-1")).expect("a finding");
+    assert!(
+        f["what"].as_str().unwrap().contains("attempt 1 is neither web#1's last started (none) nor starting"),
+        "{f}"
+    );
+    std::fs::rename(&away, &at).unwrap();
+    assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
+}

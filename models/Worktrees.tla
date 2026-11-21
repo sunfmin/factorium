@@ -16,7 +16,8 @@
 (* tick's start; the landing, its line), and the CLI commands start-over, *)
 (* close and discard, each its own process. Each step a process takes is  *)
 (* one action, named as the code names it; any process may die between   *)
-(* two of its steps (`Dies` names where), and comes back idle.            *)
+(* two of its steps (`Dies` names where), and comes back idle: the       *)
+(* daemon, dead, first frees a start it died in (Free).                    *)
 (*                                                                         *)
 (* `Races`: whether a CLI command's steps may interleave with the         *)
 (* daemon's and each other's (they are other processes, so in the code    *)
@@ -157,6 +158,17 @@ UndoF(S) == LET t == S.pc.daemon.t
                 S1 == IF UndoRm(S) THEN Remove(S, t) ELSE S
             IN [S1 EXCEPT !.taken = 0, !.pc.daemon = Idle]
 
+\* The daemon starts again after it died (daemon.rs daemon_start, life.rs
+\* free_unstarted): no start is under way, so an issue taken by an attempt
+\* never recorded started is free again, and the worktree that attempt
+\* made, if it made one, goes as undo_start's does: unless it holds work of
+\* its own, against the tip read now.
+FreeG(S) == S.pc.daemon.at = "dead"
+Unstarted(S) == S.taken # 0 /\ S.started[S.taken] = 0 /\ Bug # "no_free"
+FreeRm(S) == Unstarted(S) /\ S.disk[S.taken] /\ ~HoldsOwn(S, S.taken, S.tipok)
+FreeF(S) == LET S1 == IF FreeRm(S) THEN Remove(S, S.taken) ELSE S IN
+            [S1 EXCEPT !.taken = IF Unstarted(S) THEN 0 ELSE @, !.pc.daemon = Idle]
+
 -----------------------------------------------------------------------------
 (* A worker's own steps, in the worktree its attempt works in.             *)
 
@@ -249,6 +261,7 @@ Take == TakeG(s) /\ Did(TakeF(s), "take", "daemon", 0, s.tipok, FALSE)
 Decide == DecideG(s) /\ Plain(DecideF(s), "decide", "daemon", DecideF(s).pc.daemon.t)
 Record == RecordG(s) /\ Plain(RecordF(s), "record", "daemon", s.pc.daemon.t)
 Undo == RecordG(s) /\ Did(UndoF(s), "undo", "daemon", s.pc.daemon.t, s.tipok, UndoRm(s))
+Free == FreeG(s) /\ Did(FreeF(s), "free", "daemon", s.taken, s.tipok, FreeRm(s))
 Edit(a) == EditG(s, a) /\ Plain(EditF(s, a), "edit", "worker", Tree(s, a))
 Commit(a) == CommitG(s, a) /\ Plain(CommitF(s, a), "commit", "worker", Tree(s, a))
 Fail(a) == FailG(s, a) /\ Plain(FailF(s, a), "fail", "worker", Tree(s, a))
@@ -269,14 +282,15 @@ Abandon(p) ==
 Tip == Plain([s EXCEPT !.tipok = ~@], "tip", "", 0)
 
 \* A process dies where `Dies` allows, and comes back idle: the daemon
-\* (its start and its landing alike), or a CLI command.
+\* (its start and its landing alike), dead until it starts again (Free),
+\* or a CLI command.
 Die ==
     \/ /\ s.pc.daemon.at \in Dies \/ s.pc.land.at \in Dies
-       /\ Plain([s EXCEPT !.pc.daemon = Idle, !.pc.land = Idle], "die", "daemon", 0)
+       /\ Plain([s EXCEPT !.pc.daemon = [Idle EXCEPT !.at = "dead"], !.pc.land = Idle], "die", "daemon", 0)
     \/ \E p \in CLIs : s.pc[p].at \in Dies /\ Plain([s EXCEPT !.pc[p] = Idle], "die", p, 0)
 
 Next ==
-    \/ Take \/ Decide \/ Record \/ Undo \/ Release \/ Ready
+    \/ Take \/ Decide \/ Record \/ Undo \/ Free \/ Release \/ Ready
     \/ Over \/ Close \/ ShutStep \/ Tip \/ Die
     \/ \E a \in Attempts : Edit(a) \/ Commit(a) \/ Fail(a) \/ Ends(a) \/ Land(a)
     \/ \E t \in Trees : Discard(t)
@@ -365,6 +379,7 @@ BrokenVariants == [
     release_unknown   |-> "HeldWhenUnknown",        \* an unread tip counts as nothing committed
     start_unknown     |-> "HeldWhenUnknown",        \* a start takes the issue with the tip unread
     start_over_live   |-> "NoStartOverUnderWorker", \* start-over not refused under a worker
-    closed_unfound    |-> "DoctorFinds"             \* doctor passes over a closed issue's worktree
+    closed_unfound    |-> "DoctorFinds",            \* doctor passes over a closed issue's worktree
+    no_free           |-> "DoctorFinds"             \* a daemon starting again frees no start it died in (#190)
 ]
 =============================================================================
