@@ -1,0 +1,21 @@
+{
+  "tree": "4273a35a109b5916daa9918faecc119a84a0c6b3+d1fba762150c532c",
+  "picker": "grok:01a20069-b44f-7583-b6c4-a5727f33040d:grok-4.7-build",
+  "author": "claude-code:ad554712-76eb-540a-b210-0c09d3e94030:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/outage.rs:51:9: replace Outage::brief -> String with \"xyzzy\".into()",
+        "why": "The diff only rewords Outage::brief and leaves that text unasserted, so a stand-in return can survive.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/outage.rs:51:9: replace Outage::brief -> String with String::new()",
+        "why": "An empty brief is the same unasserted return: this diff's tests can pass with no outage message.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
