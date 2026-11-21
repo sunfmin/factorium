@@ -9,17 +9,18 @@
 (* it, and merging a branch that proving holds already is proving itself   *)
 (* (`git merge --no-ff` of a merged branch is "Already up to date").      *)
 (*                                                                         *)
-(* The processes: each daemon (`factorium run`; one, but `Daemons` may     *)
-(* hold two: its pid file is checked, then written, so two started at once *)
-(* both run), and `factorium promote` from the CLI. A daemon takes one     *)
-(* move at a time (its tick's pass over the line: crates/factorium/src/    *)
-(* line.rs, App::lines and App::carry), each move as the steps App::land,  *)
-(* App::promote_tip and App::cut_base take, any process acting between     *)
-(* two of them. A daemon may die between any two steps (`Die`), and is     *)
-(* started again with nothing in flight; what it recorded and pushed       *)
-(* stays. Each push to the remote answers ok, refused (the tip it          *)
-(* requires moved), or is lost: it took effect, and the daemon reads an    *)
-(* error, as for a refusal.                                                *)
+(* The processes: the daemon (`factorium run`), and `factorium promote`    *)
+(* from the CLI. `Daemons = {"d1"}` is the code: a daemon holds its pid    *)
+(* file's lock for its life (crates/factorium/src/lock.rs), so a second is *)
+(* refused, however close in time it starts; two (LineTwo.cfg) is what     *)
+(* the lock rules out. A daemon takes one move at a time (its tick's pass  *)
+(* over the line: crates/factorium/src/line.rs, App::lines and             *)
+(* App::carry), each move as the steps App::land, App::promote_tip and     *)
+(* App::cut_base take, any process acting between two of them. A daemon    *)
+(* may die between any two steps (`Die`), and is started again with        *)
+(* nothing in flight; what it recorded and pushed stays. Each push to the  *)
+(* remote answers ok, refused (the tip it requires moved), or is lost: it  *)
+(* took effect, and the daemon reads an error, as for a refusal.           *)
 (*                                                                         *)
 (* What the store records (crates/domain/src/line.rs, worker.rs,           *)
 (* issue.rs, gate.rs) is one step each. A command the store refuses fails  *)
@@ -33,7 +34,7 @@ EXTENDS Integers, Sequences, FiniteSets, TLC
 
 CONSTANTS
     Workers,    \* the workers of the checkout, by their slot
-    Daemons,    \* the daemons that run at once (one, or two that raced)
+    Daemons,    \* the daemons that run at once (the code: one; two the lock rules out)
     MaxDones,   \* how often each worker runs `worker done`
     MaxDeaths,  \* how often a process dies
     MaxLost,    \* how many pushes' answers are lost
