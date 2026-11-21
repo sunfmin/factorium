@@ -346,3 +346,21 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         }
     }
 }
+
+/// No daemon runs, for `why` ([`crate::daemon::down`]): nothing lands,
+/// starts or is watched until one does, so it is doctor's first finding.
+/// `service` is launchd's target when it has the service loaded; `log` the
+/// daemon's log.
+pub fn no_daemon(why: &str, service: Option<&str>, log: &str) -> Found {
+    let fix = match service {
+        Some(target) => format!(
+            "launchd has the service loaded and no daemon runs: read `launchctl print {target}` (its last exit) and \
+             {log}; a hung one: `sample` its pid, then `factorium stop` and `factorium service install`"
+        ),
+        None => format!(
+            "`factorium service install` from a shell whose PATH finds its programs; if launchd lists it \
+             (`launchctl list | grep factorium`: its pid and last exit), {log} says how the last daemon ended"
+        ),
+    };
+    Found { key: "daemon:none".into(), what: format!("no daemon runs: {why}"), fix, heard: Vec::new() }
+}

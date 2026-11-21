@@ -1,0 +1,27 @@
+{
+  "tree": "cadee4468760142d86368d0a42cadae032523c07+d1fba762150c532c",
+  "picker": "grok:01a20070-05c9-7f03-ba6e-84b4edd284b1:grok-4.7-build",
+  "author": "claude-code:c155f35f-697b-5123-9e4f-8202f5d60024:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon.rs:336:9: replace App::note_ticked with ()",
+        "why": "Nothing asserts the daemon wrote daemon.tick: a missing file counts as up, and the hung case plants the file itself.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:345:36: replace && with || in App::daemon_down",
+        "why": "A live pid makes || skip the lock check, and every exercised daemon_down case is no pid or a pid whose lock is held.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/lock.rs:45:5: replace held -> bool with true",
+        "why": "held is only read for a live pid, and no test has a live pid with a free lock, so true matches every path the tests run.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

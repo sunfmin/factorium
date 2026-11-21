@@ -7,7 +7,8 @@
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::daemon::{NoteTick, Start, StartDaemon, Ticked};
+use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Ticked};
+use factorium_domain::doctor;
 use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
@@ -286,8 +287,11 @@ impl App {
             Err(e) => eprintln!("start: {e}"),
         }
         let mut ticks = 0u64;
+        self.note_ticked();
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-            match self.tick().await {
+            let ticked = self.tick().await;
+            self.note_ticked();
+            match ticked {
                 Ok(t) => {
                     let did = !t.landed.is_empty()
                         || !t.lines.is_empty()
@@ -321,8 +325,42 @@ impl App {
             }
         }
         let _ = self.beside(false, true).await;
+        let _ = std::fs::remove_file(self.data().ticked());
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
+    }
+
+    /// The daemon is alive and ticking, now: what [`Self::daemon_down`]
+    /// reads. A file, not an event: a tick that does nothing records nothing.
+    fn note_ticked(&self) {
+        let _ = std::fs::write(self.data().ticked(), self.now().to_string());
+    }
+
+    /// Why no daemon runs on this database, if none does: its pid file names
+    /// no live process holding its lock, or that one has not ticked lately.
+    pub async fn daemon_down(&self) -> Option<String> {
+        let pid = self.daemon_pid();
+        // The lock is tried only on a live pid: a daemon starting takes it
+        // before it writes its own, and is never refused for this look.
+        let locked = pid.is_some() && lock::held(&self.data().pid());
+        let ticked = std::fs::read_to_string(self.data().ticked()).ok().and_then(|t| t.trim().parse().ok());
+        let every = self.settings().await.unwrap_or_default().ms(Time::TickEvery);
+        daemon::down(&daemon::Probe { pid, locked, ticked }, every, self.now())
+    }
+
+    /// `factorium doctor` as the owner runs it: [`Self::doctor`], with no
+    /// daemon running as its first finding, unless the store cannot be read
+    /// (that is its one finding). The watch's look leaves it out: the daemon runs it.
+    pub async fn doctor_here(&self) -> Answer {
+        let mut answer = self.doctor().await?;
+        if let (None, Some(why)) = (answer.get("unreadable"), self.daemon_down().await) {
+            let log = self.data().log().display().to_string();
+            let found = doctor::no_daemon(&why, self.service_loaded().as_deref(), &log);
+            if let Some(f) = answer["findings"].as_array_mut() {
+                f.insert(0, json!(found));
+            }
+        }
+        Ok(answer)
     }
 
     /// Runs `binary` in place of this one, between ticks, as the same pid:

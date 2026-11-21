@@ -125,3 +125,44 @@ command!(NoteRollback, "daemon.rollback", Daemons, Rollback, |_p| daemon_id(), |
         (None, None) => Vec::new(),
     })
 });
+
+/// What the daemon's own files say of it, as the process edge reads them:
+/// the live pid its pid file names, whether its lock is held, and when it
+/// last ticked (ms on its clock).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Probe {
+    pub pid: Option<u32>,
+    pub locked: bool,
+    pub ticked: Option<i64>,
+}
+
+/// Why no daemon runs, if none does: the pid file names no live process
+/// that holds its lock, or the one that does has not ticked in five of its
+/// ticks, never under two minutes, as one tick fetches every checkout
+/// (hung). One that has written no tick at all is a binary older than the
+/// tick file (rolled back to, or not yet swapped): it runs.
+pub fn down(p: &Probe, tick_every: i64, now: i64) -> Option<String> {
+    let Some(pid) = p.pid else { return Some("its pid file names no live process".into()) };
+    if !p.locked {
+        return Some(format!("pid {pid}, which its pid file names, does not hold its lock"));
+    }
+    let silent = now - p.ticked?;
+    (silent > (5 * tick_every).max(120_000))
+        .then(|| format!("pid {pid} holds its lock and has not ticked for {} s: it hangs", silent / 1000))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_daemon_is_down_without_a_live_pid_its_lock_or_a_tick_within_the_bound() {
+        let running = Probe { pid: Some(7), locked: true, ticked: Some(0) };
+        assert_eq!(down(&running, 10_000, 120_000), None, "the two-minute floor");
+        assert!(down(&running, 10_000, 120_001).unwrap().contains("not ticked for 120 s: it hangs"));
+        assert_eq!(down(&running, 60_000, 300_000), None, "five ticks, past the floor");
+        assert!(down(&Probe::default(), 10_000, 0).unwrap().contains("names no live process"));
+        assert!(down(&Probe { locked: false, ..running.clone() }, 10_000, 0).unwrap().contains("its lock"));
+        assert_eq!(down(&Probe { ticked: None, ..running }, 10_000, i64::MAX / 2), None, "an older binary runs");
+    }
+}

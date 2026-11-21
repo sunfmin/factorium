@@ -404,7 +404,7 @@ impl Top {
             },
             Top::Workers { all } => app.workers(all).await,
             Top::Outbox { worker } => app.outbox_of(worker).await,
-            Top::Doctor => app.doctor().await,
+            Top::Doctor => app.doctor_here().await,
             Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,

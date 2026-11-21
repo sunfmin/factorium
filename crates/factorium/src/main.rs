@@ -22,6 +22,13 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
     let db = cli.db.unwrap_or_else(|| default_db(|name| std::env::var_os(name)));
     let data = factorium::Data::of(&db).root().to_path_buf();
     let app = App::open(&db, caller.by(), Arc::new(Machine::new(data)))?;
+    // Whoever runs factorium hears that no daemon runs, but the daemon,
+    // what ends or starts it, and doctor, which names it as a finding.
+    if !matches!(cli.command, Top::Run | Top::Stop | Top::Service(_) | Top::Doctor)
+        && let Some(why) = app.daemon_down().await
+    {
+        eprintln!("factorium: no daemon runs ({why}): nothing lands, starts or is watched; see `factorium doctor`");
+    }
     match cli.command {
         Top::Run => app.run(&*stopped_by_signals()?, factorium::handed_lock()).await,
         command => command.answer(&app, &caller).await,

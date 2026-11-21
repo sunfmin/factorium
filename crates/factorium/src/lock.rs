@@ -39,6 +39,13 @@ pub(crate) fn take(path: &Path, text: &str) -> Result<std::fs::File, Taken> {
     }
 }
 
+/// Whether another holds the lock on `path`. A shared lock is tried and let
+/// go at once, never taken over a holder; a file not there is not held.
+pub(crate) fn held(path: &Path) -> bool {
+    let Ok(f) = std::fs::File::open(path) else { return false };
+    matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
+}
+
 /// Why a lock was not taken.
 #[derive(Debug)]
 pub(crate) enum Taken {
