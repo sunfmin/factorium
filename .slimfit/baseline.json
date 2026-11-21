@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 11576,
-      "test_lines": 10455,
-      "tests": 334,
+      "prod_lines": 11579,
+      "test_lines": 10487,
+      "tests": 337,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 6756,
+      "covered_lines": 6759,
       "uncovered_lines": 107
     }
   },
@@ -46,6 +46,12 @@
       "test": "factorium::scenarios::one_harness::of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks",
       "hash": "8e2b10fbdf4749a0",
       "reason": "No assertion maps: this test checks which of several session files in a worktree speaks (start order, end order, both read orders), probed once at 60 min; admission::silence_counts_from_the_end_of_the_last_turn checks the silent bound's timing (30 min working, 31 min silent with its why) on one session. The shared lines are World::working and the session write; folding the 30/31 timeline into silent_with's single 60-min probe changes what each case checks."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_to_the_watch",
+      "hash": "c1f879c9ed4e4159",
+      "reason": "Setups conflict: all three of its cases start from a merge red (red_on_moved_proving) and check the moved-proving rule (same tip; proving moved but red tip not merged; red tip merged then gate red). The other test starts from a gate red and checks first-red handling (worker told, proving unchanged, issue ready) and then a gate-red second. No assertion maps, and each case needs its own World, so folding saves no setup and would change which first red each case checks."
     }
   ],
   "kept_files": [
@@ -72,13 +78,21 @@
       "commits_90d": 40,
       "commits_total": 40,
       "reason": "The tick is the composition root: pass() orders every step that moves without a command (idle, lines, bumps, worker health, one admitted start, resume, watch look, swap), and each step's rules already live behind deeper modules (line.rs via lines(), load.rs, swap.rs, issues.rs blockers, domain admission/bump/worker). Its interface is small: tick/run/stop/daemon_start, and scenarios test through tick() only. Churn is features adding one step each, which belong in the pass's order here; daemon.rs was already deepened by factorium#93 (lines) and #134 (swap). Moving bumps/next_issue/resume_parked out would only relocate one-call private helpers, not add depth."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/heavy.rs",
+      "prod_lines": 293,
+      "commits_90d": 33,
+      "commits_total": 33,
+      "reason": "Deep already: callers (gate.rs, line/cut.rs, idle.rs, daemon.rs) use one entry, heavy(Job, Turn), plus Job's per-kind constructors and the tick hooks asking_once/beside/adopt_queued/note_rules; behind it sit queueing, place-keeping, stale-rules exec, dead-pid cleanup, session noting, hold-bound and give-way ending. Deletion test: removing it would spread that protocol over its four callers. Rules already live in factorium_domain::heavy; no unit tests reach past the interface (covered by queue/admission scenarios). Churn is feature work on the queue (factorium#193/#194), not interface friction. factorium#206"
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 120,
-      "test_seconds": 260.251
+      "uncovered_lines": 117,
+      "test_seconds": 257.373
     }
   }
 }

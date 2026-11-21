@@ -27,6 +27,9 @@
 //!   `{scratch}`: the Orca cases' one repo per host (truefit.toml).
 //! - `{"scratch": branch}`: makes `{scratch}` if need be, keeps its head as
 //!   `{sha}`, and removes its worktrees on `branch` and the branch.
+//!
+//! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
+//! (`fakes::ORCA_FAULTS`); `real` never reads it.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -176,7 +179,11 @@ fn main() {
     let dir: PathBuf = std::env::current_dir().unwrap();
     let side = Side(fake.then(|| {
         let reading = Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 };
-        FakeHost::at(&dir, Arc::new(ManualClock::new(0)), reading)
+        let host = FakeHost::at(&dir, Arc::new(ManualClock::new(0)), reading);
+        if let Ok(fault) = std::env::var("TRUEFIT_FAULT") {
+            host.orca.fault(&fault, true);
+        }
+        host
     }));
     let uid = std::fs::metadata(&dir).map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap();
     let nonce = format!("{}-{}", std::process::id(), std::time::UNIX_EPOCH.elapsed().unwrap().as_millis());

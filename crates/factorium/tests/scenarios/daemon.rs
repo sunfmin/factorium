@@ -345,3 +345,23 @@ async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
             .expect("it ticks as the clock moves");
     assert_eq!(ran.unwrap()["ticks"], 3, "the third failed tick went back");
 }
+
+#[tokio::test]
+async fn a_pid_file_that_does_not_open_refuses_the_run_as_io() {
+    let w = World::new();
+    let pid = w.data().pid();
+    std::fs::create_dir_all(&pid).unwrap();
+    let e = w.app.run(&AtomicBool::new(true), None).await.unwrap_err();
+    assert_eq!(e.code, "io", "{e}");
+    assert!(e.message.contains("does not open"), "{e}");
+}
+
+#[tokio::test]
+async fn stop_leaves_the_file_of_a_daemon_that_holds_its_lock_and_has_not_written_its_pid() {
+    let w = World::new();
+    let pid = w.data().pid();
+    let held = held_saying(&pid, "");
+    assert_eq!(w.app.stop().await.unwrap()["why"], "no daemon runs");
+    assert!(pid.exists(), "its holder keeps it");
+    drop(held);
+}

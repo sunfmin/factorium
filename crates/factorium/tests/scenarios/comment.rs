@@ -79,9 +79,9 @@ async fn a_waiting_worker_hears_only_what_was_said_since_it_started_waiting() {
 async fn a_comment_that_cannot_be_typed_is_kept_for_the_next_brief() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
-    *w.host.orca.refuse_send.lock().unwrap() = true;
+    w.host.orca.fault("send-refused", true);
     assert_eq!(w.app.issue_comment("web", 1, "use the v2 API").await.unwrap()["delivery"], "none");
-    *w.host.orca.refuse_send.lock().unwrap() = false;
+    w.host.orca.fault("send-refused", false);
     w.kill_terminal(wk["terminal"].as_str().unwrap());
     assert_eq!(w.app.issue_comment("web", 1, "and log it").await.unwrap()["delivery"], "none");
 
@@ -161,7 +161,7 @@ async fn what_the_watch_tells_a_worker_is_kept_on_its_issue_and_typed_once() {
     assert_eq!(w.terminal(handle).sent[before..], ["factorium (the watch): use the v2 API".to_string()]);
 
     // Not delivered, it is kept all the same.
-    *w.host.orca.refuse_send.lock().unwrap() = true;
+    w.host.orca.fault("send-refused", true);
     assert!(w.app.watch_tell(id(&wk), "and log it", false).await.is_err());
     assert_eq!(w.comments("web", 1).await[1]["text"], "and log it");
 }

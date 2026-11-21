@@ -95,10 +95,10 @@ async fn left_by_a_close(w: &World) -> PathBuf {
     let tree = worktree(&w.working(CLAUDE, "t").await);
     w.commit(&tree, "kept.txt", "x");
     std::fs::write(tree.join("wip.txt"), "half done").unwrap();
-    *w.host.orca.refuse_rm.lock().unwrap() = true;
+    w.host.orca.fault("remove-refused", true);
     let refused = w.app.issue_close("web", 1, "not needed").await.unwrap_err();
     assert_eq!(refused.code, "orca", "{refused:?}");
-    *w.host.orca.refuse_rm.lock().unwrap() = false;
+    w.host.orca.fault("remove-refused", false);
     assert!(tree.exists());
     tree
 }
@@ -569,4 +569,22 @@ async fn a_claim_whose_process_died_is_cleared_by_the_next_tick() {
     *w.host.gone.lock().unwrap() = false;
     assert_eq!(started["worktree"], json!(tree), "in the worktree the start-over never removed");
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["claim"], json!(null));
+}
+
+#[tokio::test]
+async fn a_daemon_that_died_mid_start_whose_worktree_is_gone_frees_its_issue_with_none() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    a_daemon_dies_mid_start(&w, || {});
+    let tree = w.dir.join("worktrees").join("web-1-1");
+    w.git(&w.dir.join("repos").join("web"), &["worktree", "remove", "--force", &tree.to_string_lossy()]).unwrap();
+
+    let restarted = w.run();
+    let freed = restarted.daemon_start().await.unwrap()["freed"].clone();
+    assert_eq!(freed[0]["issue"], "web#1", "{freed}");
+    assert_eq!(freed[0]["worktree"], json!(null), "no worktree left to release: {freed}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
+    assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
 }

@@ -1,0 +1,338 @@
+{
+  "005e806fe808": {
+    "mark": "not",
+    "sentence": "A command change touches `cli.rs` and the concept's module, not the process code; a guard change touches `session/launch.rs` only.",
+    "source": "docs/adr/0002-binary-is-the-process-edge.md:48"
+  },
+  "00e59bae2ccb": {
+    "mark": "promise",
+    "sentence": "A host may stay busy for days, so tasks have a bound: once a checkout's last run started more than `every` plus `tasks_bound` (a setting, a day by default) ago, or it never ran, its tasks line runs without an idle host, alone (not the steps), as a heavy command at background priority that yields to nothing but the hold bound; it is recorded as any run is.",
+    "source": "SPEC.md:46"
+  },
+  "03af39f8bbf7": {
+    "mark": "not",
+    "sentence": "the daemon's tick drove the line move by move: every checkout's landing first, then each one's promotion and cut, then its local base following origin's.",
+    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:12"
+  },
+  "047cae9363dd": {
+    "mark": "promise",
+    "sentence": "Whether one more worker may start now, from the host's readings alone: CPU busy share (less what runs in started heavy slots, the queue's to bound), free memory, the disk floor, factorium's own share caps, the accounts' windows, and the heavy queue keeping up — no heavy command waiting its turn past `queue_wait_bound` (the queue starts beside what runs only while the host has room, so it holds the busy share near the limit, and the load it holds back shows in no reading but that wait: factorium#194). No concurrency number.",
+    "source": "SPEC.md:38"
+  },
+  "05dd824b4aac": {
+    "mark": "promise",
+    "sentence": "A run is ended whole, by one path whoever ends it (the hold bound, its limit, `unqueue`): each step runs in a session of its own, noted on its entry, so a process that left its process group or its parent is ended too (only one that starts a session of its own leaves it) — TERM, then KILL after a short grace; an unqueued run's waiter answers `unqueued`. Gates first, and a time a gate compares measured at the gate's priority: a gate (fast or slow, a worker's or the line's) and a worker's `worker exclusive` (a program's `heavy run`) run at the priority factorium runs at, so a baseline a worker records (`slimfit ratchet`) is measured as the gate measures it; heavy work whose time no gate compares — a cut, idle work, a worker's `worker exclusive --background` (a mutation run), a program's `heavy run --background` — runs at background priority, its whole process tree (on macOS Darwin's background band, and a nice of 10 more), so the CPU goes to a gate before it.",
+    "source": "SPEC.md:39"
+  },
+  "068fb3fab629": {
+    "mark": "not",
+    "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a worker starts on the account with the most left, and a login that refreshes is bound to one machine; admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
+    "source": "SPEC.md:390"
+  },
+  "09fb6e467023": {
+    "mark": "not",
+    "sentence": "**Scenarios through `App`.** `App` is the program's one entry: every CLI command is one method of it, and the daemon's tick is one too.",
+    "source": "SPEC.md:307"
+  },
+  "0a8e7890f25f": {
+    "mark": "not",
+    "sentence": "`owner.rs` was the binary's biggest, busiest file (459 lines, 35 commits in 90 days). Its history shows why: most of those commits only added a line to `model()`, the list of every aggregate and command the engine runs.",
+    "source": "docs/adr/0001-owner-commands-by-concept.md:7"
+  },
+  "0d9fd79a8a5f": {
+    "mark": "promise",
+    "sentence": "A green run is recorded against the tree it ran on, so the same tree is never gated twice.",
+    "source": "SPEC.md:41"
+  },
+  "0fdc353f3cd2": {
+    "mark": "not",
+    "sentence": "The crate stays within its budget (SPEC §5): no step adds more than a module's header.",
+    "source": "docs/adr/0002-binary-is-the-process-edge.md:43"
+  },
+  "13c2c405ea81": {
+    "mark": "not",
+    "sentence": "What a repo declares**, in `factorium.toml` at its root (§3); every table may be left out:",
+    "source": "SPEC.md:273"
+  },
+  "14adc684df39": {
+    "mark": "promise",
+    "sentence": "Green: the issue closes, the worker ends, its worktree is removed unless it holds work that is nowhere else: the one test that also decides where its issue's next start begins (step 3). It is read against the last attempt that started, and only a worktree still on disk is resumed or discarded.",
+    "source": "SPEC.md:93"
+  },
+  "14ded477f8d4": {
+    "mark": "promise",
+    "sentence": "The worker follows `slimfit next`; what is factorium's is the priority: a mutants run goes through `factorium worker exclusive --background`, a run whose baseline it ratchets through `factorium worker exclusive` (§1, row 9). And the second agent that picks a change's mutants ([`slimfit help picker`](https://github.com/sunfmin/slimfit/blob/main/src/help/picker.md)): `factorium worker pick-mutants` asks a fresh headless session, on another harness of the kit that can be asked headless (else the worker's, anew), on its account with the most left, within `pick_bound`, given only slimfit's goal, the diff from origin's proving and `slimfit check",
+    "source": "SPEC.md:362"
+  },
+  "1da033da2bee": {
+    "mark": "not",
+    "sentence": "`next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`)",
+    "source": "SPEC.md:182"
+  },
+  "1f5231afd89c": {
+    "mark": "not",
+    "sentence": "The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.",
+    "source": "SPEC.md:152"
+  },
+  "22a58c447520": {
+    "mark": "not",
+    "sentence": "What would reopen it: a landing that harms before review can catch it (secrets, data loss, something externally visible) — then a finding that holds promotion (`factorium hold`), not an approval on every landing; or measured evidence that findings after landing cost more than review before it.",
+    "source": "SPEC.md:445"
+  },
+  "2330314014f4": {
+    "mark": "not",
+    "sentence": "The app runs them through one port (run a program, get its answer), and a scenario stands in there with answers shaped as the real programs gave them — Orca's keeping terminals and what was sent to them — so what the app makes of their answers runs in every scenario.",
+    "source": "SPEC.md:312"
+  },
+  "250a0f5ca414": {
+    "mark": "promise",
+    "sentence": "The worker runs `factorium worker gate` (the fast gate) as often as it likes, then `factorium worker done`. What it wants kept (a measurement) it records with `factorium worker comment`, a comment on its issue by it that changes nothing else and goes to no one: not the watch, which is for decisions (`worker escalate`). A follow-up its issue asks for it files with `factorium worker file <checkout> <title> --body-file <f> [--blocked-by …]`, as `issue add` files one (never waiting for a person); on its own checkout the filed one also waits for its issue to land, which a follow-up usually builds on, unless `--independent` (factorium#184). Both keep the record as its comments: its issue says \"filed <checkout>#<n>\", the filed one which issue and worker filed it.",
+    "source": "SPEC.md:73"
+  },
+  "275ff088ad87": {
+    "mark": "promise",
+    "sentence": "A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed.",
+    "source": "SPEC.md:33"
+  },
+  "2880fcdce877": {
+    "mark": "not",
+    "sentence": "Every scenario drives `App` as the CLI does and reads only what the CLI could print.",
+    "source": "SPEC.md:309"
+  },
+  "28faeb410fd2": {
+    "mark": "not",
+    "sentence": "A bound is raised only by `slimfit ratchet --loosen <bound> --reason \"<why>\"`.",
+    "source": "README.md:76"
+  },
+  "2a9257e4825d": {
+    "mark": "promise",
+    "sentence": "The help in the binary is the manual (as in afkconvoy): every command's `--help` says what it does and what it answers.",
+    "source": "SPEC.md:252"
+  },
+  "2aa673f406af": {
+    "mark": "promise",
+    "sentence": "A merge red on a proving tip that moved since the last red's tip, which the branch holds, is not the second: the worker did what the first asked, and in one day eight watch rounds only said \"merge the new tip\" (factorium#171). `moved_reds_max` bounds how many in a row are let off.",
+    "source": "SPEC.md:431"
+  },
+  "2d40ee717543": {
+    "mark": "not",
+    "sentence": "The crate stays within its budget (SPEC §5).",
+    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:37"
+  },
+  "2f36ea462be4": {
+    "mark": "not",
+    "sentence": "A command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run.",
+    "source": "SPEC.md:39"
+  },
+  "32420616b492": {
+    "mark": "not",
+    "sentence": "A cut's change (steps, tagging, the install) edits `line/cut.rs` only.",
+    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:43"
+  },
+  "572a962a4f23": {
+    "mark": "promise",
+    "sentence": "Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound.",
+    "source": "SPEC.md:43"
+  },
+  "5afb14fcaae7": {
+    "mark": "promise",
+    "sentence": "**A landing waits for no review** (factorium#167). It lands on the fast gate alone and reaches only proving, which is promoted after the slow gate; verdicts and rework stay out of factorium (§7). Review comes after landing, from outside: Guild's warden, and control's job on a proving branch, file what they find as new issues.",
+    "source": "SPEC.md:441"
+  },
+  "5b13e7c51b0b": {
+    "mark": "promise",
+    "sentence": "mutants`; its time and tokens go on the issue (factorium#147). Claude Code, Codex, Grok and agy can be asked, each in a user directory of its own that holds only its login (agy's, its HOME, also an agent with no tools, factorium#200). One that fails hands the pick to the next harness of the kit, the worker's own last, and the record names each that failed and why; when none is left the worker gets the last refusal, never a pick (factorium#154). When slimfit lists no candidates (an empty listing, or its refusal that the tool listed none, slimfit#77) no picker is asked: it answers `none`, \"slimfit lists no candidates\", with no picker, and the issue keeps that line (factorium#178). The second agent that judges a change's growth ([`slimfit help reviewer`](https://github.com/sunfmin/slimfit/blob/main/src/help/reviewer.md)): `factorium worker review-growth` asks one the same way, with the same fallback and bound, given only slimfit's goal and the diff; it answers `as_is` with why or `cut` with what, and the `slimfit ratchet` that writes the growth record naming it (`harness:session:model`) and the issue it serves; its time and tokens go on the issue (factorium#174).",
+    "source": "SPEC.md:371"
+  },
+  "5b89c136e1ce": {
+    "mark": "promise",
+    "sentence": "A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it.",
+    "source": "SPEC.md:39"
+  },
+  "671e9481e446": {
+    "mark": "promise",
+    "sentence": "Off the path, everything goes to the watch: `worker escalate`, a worker whose session died, never came up (five minutes after it started, a fixed bound), went silent past its bound, or hung past it (its turn open, its processes next to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held for one reason past the host's span.",
+    "source": "SPEC.md:136"
+  },
+  "6dfd0200e79b": {
+    "mark": "promise",
+    "sentence": "The checkout's local base follows: fast-forwarded to the promoted tip, and on every tick to origin's base as last fetched, never further — in the tree it is checked out in, if that tree is clean.",
+    "source": "SPEC.md:43"
+  },
+  "6edda18b9da3": {
+    "mark": "promise",
+    "sentence": "While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can.",
+    "source": "SPEC.md:37"
+  },
+  "7b6a22997151": {
+    "mark": "not",
+    "sentence": "`issues.rs` is the tracker: every `issue …` command and the issue helpers other modules call (`issue`, `note`). An issue that leaves its worker (`close`, `wait-for-human`) does so through one private step that ends the worker with the reason and says whether its worktree is kept.",
+    "source": "docs/adr/0001-owner-commands-by-concept.md:35"
+  },
+  "809ac9988dfb": {
+    "mark": "not",
+    "sentence": "Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
+    "source": "SPEC.md:260"
+  },
+  "87ae7757cc5d": {
+    "mark": "promise",
+    "sentence": "Every message to a session — a brief, a landing's red, a round, `watch tell` and `watch restart`, a comment — goes through that session's outbox, one record of who it was from, the line typed, and how it went: `typed` (a brief), `submitted` (it started a turn), `queued` (it waits behind the running turn), `brief` (written into a brief still to be typed), `not_typed` (the harness was not up, the terminal gone, Orca refused), or `missed` (typed, it started no turn and none runs: a dialog took it). Nothing is typed before the harness is up, nor ahead of the brief.",
+    "source": "SPEC.md:184"
+  },
+  "891c045bcd15": {
+    "mark": "promise",
+    "sentence": "`issue comment` records the comment and reaches the live worker on the issue at once, through the same outbox as `watch tell`, never stopping its running turn: a working worker gets one line typed at its session (`delivery: submitted`, `queued`, or `missed`); one whose brief is not yet handed gets it in that brief (`brief`); a waiting one is not typed at, its watch episode carries it (`watch`); with no worker, or when delivery fails (`undelivered` says why), `none`. The next brief carries every comment.",
+    "source": "SPEC.md:198"
+  },
+  "8c88e1798a4d": {
+    "mark": "promise",
+    "sentence": "A repo factorium manages has its base moved only by promotion; anything else that moves the base turns promotion red.",
+    "source": "SPEC.md:438"
+  },
+  "972618f2a67f": {
+    "mark": "promise",
+    "sentence": "A kept worktree that went bad is discarded on purpose with `issue start-over <checkout> <n> --why …`, only while no worker is on the issue: its uncommitted changes are committed, its branch is kept as `<branch>-abandoned`, a comment names that branch and the why, and the worktree goes, so the next start is branched from the proving tip.",
+    "source": "SPEC.md:102"
+  },
+  "98d94faaae9a": {
+    "mark": "promise",
+    "sentence": "Each reaches the worker at most once: the line `tell` or `restart` types is its delivery, nothing types it again, and a worker's own escalation is typed back at no one.",
+    "source": "SPEC.md:211"
+  },
+  "9b9c3f581a08": {
+    "mark": "promise",
+    "sentence": "So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind.",
+    "source": "SPEC.md:46"
+  },
+  "a18d33a2f6ad": {
+    "mark": "not",
+    "sentence": "Mutation testing (SPEC.md §6) is `slimfit check --mutants`, on a change only: it mutates what the change touched, and is too slow for the gate.",
+    "source": "README.md:79"
+  },
+  "a2560e85b22b": {
+    "mark": "promise",
+    "sentence": "It works by the rules of the factorium that runs: its session records which rules (their hash) it was briefed with, and a look that finds them other than the running binary's — a cut installed a version that changed them — closes that session between rounds, never in one, and starts a fresh one briefed with the new rules before the next round.",
+    "source": "SPEC.md:45"
+  },
+  "a7685f55d299": {
+    "mark": "promise",
+    "sentence": "So does a line that stopped: whatever it owes is done within its bound or is a finding — a heavy queue that starts nothing past `stall_bound` (or whose oldest waits past `hold_bound` and `stall_bound` more), a landing no gate runs for past `stall_bound`, the oldest unpromoted landing past `promotion_bound` with no promotion running, the oldest uncut promotion past `cut_bound` with no cut running.",
+    "source": "SPEC.md:140"
+  },
+  "a7ad95898ed1": {
+    "mark": "not",
+    "sentence": "A crate over its target, or that grew at each of its last five landings that changed it, is a task: the idle tasks line runs `./lines.sh --tasks` after slimfit's `next`, and a `crate-lines` issue names the crate and the files that grew most (§1.16). Its worker deepens the crate; a target changes only with its reason in the issue that changes it.",
+    "source": "SPEC.md:266"
+  },
+  "a8f2a5921746": {
+    "mark": "promise",
+    "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
+    "source": "SPEC.md:45"
+  },
+  "aae476d382e9": {
+    "mark": "promise",
+    "sentence": "A crate's target is a trend, not a gate (factorium#163): `./lines.sh`, which `checks.sh` runs, prints each crate's lines against its target here and an overage, and never fails.",
+    "source": "SPEC.md:264"
+  },
+  "ace2fb985724": {
+    "mark": "promise",
+    "sentence": "One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start (so the load a start brings is read before the next), and ends one that holds others up past the hold bound.",
+    "source": "SPEC.md:39"
+  },
+  "b3024e962d14": {
+    "mark": "promise",
+    "sentence": "One with commits of its own, or checked out over changes not committed, is never reset: it is left, and is a doctor finding naming the checkout and how far behind it is.",
+    "source": "SPEC.md:43"
+  },
+  "b3bfe41e7545": {
+    "mark": "promise",
+    "sentence": "Text is typed at a session only once its harness's own screen is up there: typed at a shell, a line is a command it runs.",
+    "source": "SPEC.md:68"
+  },
+  "bf18b78a3358": {
+    "mark": "promise",
+    "sentence": "A daemon Homebrew installed notes its formula's link at start; once the link names another version (a cut by the daemon, by `factorium cut`, or by hand), it execs the link between ticks, as the same pid, once that binary is proven to open this host's database: it answers `doctor` on a copy (SQLite's backup, never the live file). A cut of the formula proves it right after the install; one that fails is a failed cut, its why the error and the copy's path (kept for a look), and the old binary runs on.",
+    "source": "SPEC.md:220"
+  },
+  "c29cc046c3d4": {
+    "mark": "not",
+    "sentence": "Not in factorium: teams, roles kept by factorium (an issue may name a role directory, §1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
+    "source": "SPEC.md:401"
+  },
+  "c9fb8371b646": {
+    "mark": "promise",
+    "sentence": "One binary, `factorium`. Three groups, by who uses them; the guard lets a worker run only `factorium worker …` and lets only the watch run `factorium watch …`.",
+    "source": "SPEC.md:174"
+  },
+  "cf392e0ef816": {
+    "mark": "not",
+    "sentence": "**Every scenario is held to account**, by two mechanisms and no whole-workspace mutation run (factorium#114): a change's mutants, and slimfit's coverage-plus-review task, which finds a scenario that only repeats another, or shares its setup, to delete or merge.",
+    "source": "SPEC.md:331"
+  },
+  "d38d1e5b2123": {
+    "mark": "promise",
+    "sentence": "One of another checkout is `--blocked-by <checkout>#N`, met once it is closed (landed); `<checkout>#N@cut` is met only once a cut of that checkout holds its landing, and installed it where its `[cut]` names a formula, for a tool used from another repo.",
+    "source": "SPEC.md:56"
+  },
+  "d7337baf3f06": {
+    "mark": "not",
+    "sentence": "Only spending money is left to the owner, in the report's `human` part, which `doctor` shows.",
+    "source": "SPEC.md:153"
+  },
+  "dad9071fb3d9": {
+    "mark": "not",
+    "sentence": "**Every checkout has a proving branch**: one path.",
+    "source": "SPEC.md:428"
+  },
+  "e1fcaa4d3692": {
+    "mark": "promise",
+    "sentence": "`run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call)",
+    "source": "SPEC.md:180"
+  },
+  "e87d32e6357e": {
+    "mark": "promise",
+    "sentence": "It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written.",
+    "source": "SPEC.md:33"
+  },
+  "ea34d158d387": {
+    "mark": "not",
+    "sentence": "`App`'s interface is unchanged: the scenarios and the CLI keep calling the same methods, and `tests/scenarios/binary.rs` tests the binary end to end, so every step is tested as it lands.",
+    "source": "docs/adr/0002-binary-is-the-process-edge.md:41"
+  },
+  "eb42a9267d16": {
+    "mark": "not",
+    "sentence": "It changes only when how the process runs changes.",
+    "source": "docs/adr/0002-binary-is-the-process-edge.md:39"
+  },
+  "ed046a99c77f": {
+    "mark": "promise",
+    "sentence": "A worker's or a program's entry that leaves unstarted without the owner taking it off (its waiter refused and failing to exec, or gone) keeps its place for `heavy_keep`: the same worker (or program) asking the same command again within it takes that place, not the back; so a daemon restart or a client that gives up and asks again loses no turn (factorium#193).",
+    "source": "SPEC.md:39"
+  },
+  "ee84ad56b950": {
+    "mark": "promise",
+    "sentence": "It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick.",
+    "source": "SPEC.md:46"
+  },
+  "f785be711f96": {
+    "mark": "not",
+    "sentence": "Each `App` method keeps its signature: the CLI and the scenarios call the same interface, so the scenarios are the test of every step.",
+    "source": "docs/adr/0001-owner-commands-by-concept.md:42"
+  },
+  "f7a093f354a1": {
+    "mark": "promise",
+    "sentence": "What a checkout declares under `[idle]` (§5): steps too slow for any gate (a long soak or load test), run in their own clone at the base's tip while the host is idle — no live worker works (each waits for the watch, or none lives), the heavy queue holds nothing, and the host has room — at most once per `every` (from the last run's start) and within `limit` for all the steps.",
+    "source": "SPEC.md:46"
+  },
+  "f9535c89e20b": {
+    "mark": "not",
+    "sentence": "Those public items name no issue, worker, watch or checkout: what only the caller knows it passes in, or says through a trait it implements.",
+    "source": "SPEC.md:298"
+  },
+  "e4709c8f8169": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check registry itself: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line), re-pin a model's commit, or add covers for new code; the promises those fixes keep live in models/*.tla and the code their covers name, not in this file"
+  }
+}

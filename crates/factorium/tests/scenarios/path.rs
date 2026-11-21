@@ -566,8 +566,8 @@ async fn a_closed_issue_s_worktree_is_removed_through_orca_even_once_gone_from_d
 async fn orca_refusing_to_remove_a_worktree_is_an_error_and_the_worktree_stays() {
     let w = World::new();
     let tree = worktree(&w.working(CLAUDE, "a").await);
-    *w.host.orca.refuse_rm.lock().unwrap() = true;
+    w.host.orca.fault("remove-refused", true);
     let refused = w.app.issue_close("web", 1, "not needed").await.unwrap_err();
-    assert!(refused.message.contains("orca worktree rm: worktree_remove_failed"), "{refused:?}");
+    assert!(refused.message.contains("orca worktree rm: selector_not_found"), "{refused:?}");
     assert!(tree.exists());
 }
