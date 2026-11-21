@@ -41,3 +41,23 @@ async fn a_daemon_gone_after_recording_a_landing_lands_it_again_and_closes_its_i
     assert_eq!(t.landed[0]["commit"], pushed.as_str());
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed");
 }
+
+/// The record itself: a commit the line holds, landed, promoted or the
+/// promoted tip, records nothing; a new one is recorded.
+#[test]
+fn a_landing_recorded_already_records_nothing_wherever_the_line_holds_it() {
+    use factorium_domain::line::{Landed, Landing, Line, RecordLanding};
+    use factum::{By, Command, Instant};
+    let landing = |c: &str| Landing { number: 1, commit: c.into(), at: 0 };
+    let land = |c: &str| Landed { checkout: "web".into(), number: 1, commit: c.into() };
+    let (by, now) = (By::Principal("test".into()), Instant(0));
+    let held = [
+        Line { unpromoted: vec![landing("a")], ..Default::default() },
+        Line { uncut: vec![landing("a")], ..Default::default() },
+        Line { promoted: Some("a".into()), ..Default::default() },
+    ];
+    for line in &held {
+        assert!(RecordLanding::decide(line, &land("a"), &by, now).unwrap().events.is_empty(), "{line:?}");
+        assert_eq!(RecordLanding::decide(line, &land("b"), &by, now).unwrap().events.len(), 1, "{line:?}");
+    }
+}
