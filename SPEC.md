@@ -47,7 +47,13 @@ approval and an entry here.
 
 `doctor` is not a concept of its own: it is the findings computed from the
 database and the host's readings, each with how to fix it. It is the
-watch's look and the operator's view.
+watch's look and the operator's view. The operator's view first answers
+whether a daemon runs: its pid file names a live process that holds its
+lock, and that one ticked (`daemon.tick`) within five `tick_every`, never
+under two minutes. When none does, that is the first finding, with its fix;
+and every other command but `run`, `stop` and `service` says so in one line
+on stderr, so whoever touches factorium next sees it. The watch's look
+leaves it out: the daemon runs the look.
 
 ## 2. The issue's path
 

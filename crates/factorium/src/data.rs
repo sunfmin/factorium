@@ -117,6 +117,12 @@ impl Data {
         self.0.join("daemon.pid")
     }
 
+    /// When the running daemon last ticked, ms on its clock: as it started,
+    /// then after each tick.
+    pub fn ticked(&self) -> PathBuf {
+        self.0.join("daemon.tick")
+    }
+
     /// The binary kept to roll back to, as `<version>/bin/<name>` in it.
     pub fn binary(&self) -> PathBuf {
         self.0.join("binary")

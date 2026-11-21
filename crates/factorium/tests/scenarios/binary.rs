@@ -756,3 +756,51 @@ fn a_daemon_that_runs_a_newly_installed_binary_keeps_its_lock_and_a_second_is_re
     assert!(ok && stopped["pid"] == me, "{stopped}");
     ended_in_order(&dir, daemon);
 }
+
+/// What `issue add` says on stderr, its issue added.
+fn issue_add_says(dir: &Dir, title: &str) -> String {
+    let out = bin(dir).args(["issue", "add", "web", title]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// No daemon running is doctor's first finding and a line on stderr of the
+/// other commands; a running one is neither; one that holds its lock and
+/// stopped ticking (hung) is the finding again (factorium#214).
+#[test]
+fn no_daemon_running_is_doctor_s_first_finding_and_commands_say_so() {
+    let dir = Dir::new();
+    sh(
+        &dir.0,
+        "git init -q -b main seed && cd seed && git commit -q --allow-empty -m start && cd .. \
+         && git clone -q --bare seed remote.git && git clone -q remote.git web",
+    );
+    assert!(run(&dir, &["checkout", "add", "web", dir.0.join("web").to_str().unwrap()]).0);
+    assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    let first = |doctor: &Value| doctor["findings"][0].clone();
+
+    let (_, doctor) = run(&dir, &["doctor"]);
+    assert_eq!(first(&doctor)["key"], "daemon:none", "{doctor}");
+    assert!(first(&doctor)["fix"].as_str().unwrap().contains("factorium service install"), "{doctor}");
+    assert!(issue_add_says(&dir, "a").contains("no daemon runs"), "issue add warns");
+
+    let mut daemon = ticking(&dir);
+    until_tick(&dir, &mut daemon, 2);
+    let (_, doctor) = run(&dir, &["doctor"]);
+    assert!(!crate::fixture::finding_keys(&doctor).contains(&"daemon:none".to_string()), "{doctor}");
+    assert_eq!(issue_add_says(&dir, "b"), "", "a running daemon: no warning");
+
+    // Hung: alive, its lock held, its last tick long ago.
+    let pid = daemon.id().to_string();
+    assert!(Command::new("kill").args(["-STOP", &pid]).status().unwrap().success());
+    std::fs::write(dir.0.join("data/factorium/daemon.tick"), "0").unwrap();
+    let (_, doctor) = run(&dir, &["doctor"]);
+    let said = issue_add_says(&dir, "c");
+    assert!(Command::new("kill").args(["-CONT", &pid]).status().unwrap().success());
+    assert_eq!(first(&doctor)["key"], "daemon:none", "{doctor}");
+    assert!(first(&doctor)["what"].as_str().unwrap().contains("it hangs"), "{doctor}");
+    assert!(said.contains("it hangs"), "{said}");
+    let (ok, stopped) = run(&dir, &["stop"]);
+    assert!(ok && stopped["pid"] == daemon.id(), "{stopped}");
+    ended_in_order(&dir, daemon);
+}
