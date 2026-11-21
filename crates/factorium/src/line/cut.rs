@@ -76,9 +76,8 @@ impl App {
     /// is pushed only once they pass.
     pub(super) async fn cut_read_back(&self, c: &Checkout, version: &str) -> Answer<Option<Value>> {
         let git = self.host.git(&c.path);
-        if !git.version_tags().iter().any(|t| t == version) {
-            return Ok(None);
-        }
+        // The checkout's tags are origin's, as fetched with its base: a cut tags in its own clone.
+        git.fetch(&c.base).map_err(fail("git"))?;
         let Ok(tagged) = git.sha(&format!("refs/tags/{version}")) else { return Ok(None) };
         let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };
         if let Some(formula) = &cut.formula {
