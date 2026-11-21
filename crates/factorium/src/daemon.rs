@@ -356,7 +356,9 @@ impl App {
         if let (None, Some(why)) = (answer.get("unreadable"), self.daemon_down().await) {
             let log = self.data().log().display().to_string();
             let found = doctor::no_daemon(&why, self.service_loaded().as_deref(), &log);
-            answer["findings"].as_array_mut().map(|f| f.insert(0, json!(found)));
+            if let Some(f) = answer["findings"].as_array_mut() {
+                f.insert(0, json!(found));
+            }
         }
         Ok(answer)
     }
