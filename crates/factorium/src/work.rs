@@ -113,7 +113,10 @@ impl App {
     /// never waiting for a person: a decision only the owner makes is
     /// escalated. Each side keeps the record, as the worker's comment: the
     /// filed issue names the issue and worker that filed it, the worker's
-    /// issue the issue it filed. Answers the filed issue.
+    /// issue the issue it filed. Filed on the worker's own checkout, it also
+    /// waits for the worker's issue, whose unlanded change a follow-up
+    /// usually builds on (factorium#184), unless `independent`. Answers the
+    /// filed issue, its blocks among it.
     pub async fn worker_file(
         &self,
         worker: Uuid,
@@ -121,9 +124,14 @@ impl App {
         title: &str,
         body: &str,
         blocked_by: &[Blocker],
+        independent: bool,
     ) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
-        let filed = self.issue_add(checkout, title, body, false, blocked_by).await?;
+        let mut blocked_by = blocked_by.to_vec();
+        if checkout == st.checkout && !independent {
+            blocked_by.push(Blocker::Here(st.number));
+        }
+        let filed = self.issue_add(checkout, title, body, false, &blocked_by).await?;
         let number = filed["number"].as_u64().expect("an issue shown has its number");
         let by = Author::Worker(worker);
         let from = format!("filed by worker {worker}, working {}#{}", st.checkout, st.number);

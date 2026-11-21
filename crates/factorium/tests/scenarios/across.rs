@@ -129,7 +129,7 @@ async fn a_worker_files_a_follow_up_on_another_checkout_that_waits_for_a_cut() {
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#2"));
     let worker = crate::fixture::id(&w.worker_on("web", 1).await);
-    let filed = w.app.worker_file(worker, "factorium", "follow-up", "what web#1 left", &[by("web#1@cut")]).await;
+    let filed = w.app.worker_file(worker, "factorium", "follow-up", "what web#1 left", &[by("web#1@cut")], false).await;
     let filed = filed.unwrap();
     assert_eq!((filed["checkout"].clone(), filed["number"].clone()), (json!("factorium"), json!(1)));
     assert_eq!(
@@ -141,8 +141,8 @@ async fn a_worker_files_a_follow_up_on_another_checkout_that_waits_for_a_cut() {
     let from = json!(format!("filed by worker {worker}, working web#1"));
     assert_eq!(said(&w.comments("factorium", 1).await), [(from, by_worker.clone())]);
     assert_eq!(said(&w.comments("web", 1).await), [(json!("filed factorium#1"), by_worker)]);
-    refused(w.app.worker_file(worker, "factorium", " ", "", &[]).await, "no_title");
-    refused(w.app.worker_file(worker, "nowhere", "x", "", &[]).await, "no_checkout");
+    refused(w.app.worker_file(worker, "factorium", " ", "", &[], false).await, "no_title");
+    refused(w.app.worker_file(worker, "nowhere", "x", "", &[], false).await, "no_checkout");
 
     assert_eq!(started(&w.tick().await), None, "it waits for web#1's cut");
     let t = w.lands("web", 1, "a").await.tick;
@@ -151,4 +151,26 @@ async fn a_worker_files_a_follow_up_on_another_checkout_that_waits_for_a_cut() {
     assert_eq!(started(&w.tick().await), None, "promoted is not cut");
     assert_eq!(w.run().cut("web").await.unwrap()["installed"], "web");
     assert_eq!(started(&w.tick().await).as_deref(), Some("factorium#1"));
+}
+
+/// A follow-up a worker files on its own checkout waits for the worker's
+/// issue to land, whose change it usually builds on (factorium#184);
+/// `independent` is ready at once.
+#[tokio::test]
+async fn a_worker_files_a_follow_up_on_its_own_checkout_that_waits_for_its_issue() {
+    let w = World::new();
+    two_checkouts(&w).await;
+    w.app.issue_add("web", "change", "", false, &[]).await.unwrap();
+    assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
+    let worker = crate::fixture::id(&w.worker_on("web", 1).await);
+    let filed = w.app.worker_file(worker, "web", "tests", "for web#1", &[], false).await.unwrap();
+    assert_eq!((filed["number"].clone(), filed["blocked_by"].clone()), (json!(2), json!([1])));
+    assert_eq!(started(&w.tick().await), None, "web#2 waits while web#1 is open");
+
+    let alone = w.app.worker_file(worker, "web", "aside", "", &[], true).await.unwrap();
+    assert_eq!((alone["number"].clone(), alone["blocked_by"].clone()), (json!(3), json!([])));
+    assert_eq!(started(&w.tick().await).as_deref(), Some("web#3"), "independent is ready at once");
+
+    let t = w.lands("web", 1, "a").await.tick;
+    assert_eq!(started(&t).as_deref(), Some("web#2"));
 }

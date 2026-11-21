@@ -1,0 +1,6 @@
+{
+  "tree": "f819bc3b986c4e242a1735b091cfdb86206b24d1+d1fba762150c532c",
+  "picker": "codex:01a1fd0d-49f8-7020-ba52-76a2d61a6783:default",
+  "author": "claude-code:97bd1a4a-4f06-52b7-86d8-9143719c70bc:opus",
+  "none": "The same-checkout test catches all three guard mutations by checking both default and independent filings, and neither Default::default() replacement builds because Answer is a Result."
+}
