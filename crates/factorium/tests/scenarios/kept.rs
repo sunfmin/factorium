@@ -95,10 +95,10 @@ async fn left_by_a_close(w: &World) -> PathBuf {
     let tree = worktree(&w.working(CLAUDE, "t").await);
     w.commit(&tree, "kept.txt", "x");
     std::fs::write(tree.join("wip.txt"), "half done").unwrap();
-    *w.host.orca.refuse_rm.lock().unwrap() = true;
+    w.host.orca.fault("remove-refused", true);
     let refused = w.app.issue_close("web", 1, "not needed").await.unwrap_err();
     assert_eq!(refused.code, "orca", "{refused:?}");
-    *w.host.orca.refuse_rm.lock().unwrap() = false;
+    w.host.orca.fault("remove-refused", false);
     assert!(tree.exists());
     tree
 }

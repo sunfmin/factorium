@@ -61,8 +61,8 @@ pub struct FakeOrca {
     /// Terminals open at their shell's prompt while set, their harness not
     /// up; else at the harness's own screen.
     pub opens_at_shell: Mutex<bool>,
-    /// Orca refuses to type at terminals while set.
-    pub refuse_send: Mutex<bool>,
+    /// Orca refuses to type at terminals while set ([`FakeOrca::fault`]).
+    refuse_send: Mutex<bool>,
     /// While set, `orca` prints no answer, only this on stderr (its runtime is down).
     pub down: Mutex<Option<String>>,
     /// The repos and worktrees Orca holds, by id.
@@ -71,8 +71,8 @@ pub struct FakeOrca {
     finding: Mutex<Vec<PathBuf>>,
     /// While set, a repo Orca was just given is never found.
     pub never_found: Mutex<bool>,
-    /// Orca refuses to remove worktrees while set.
-    pub refuse_rm: Mutex<bool>,
+    /// Orca refuses to remove worktrees while set ([`FakeOrca::fault`]).
+    refuse_rm: Mutex<bool>,
     /// Orca refuses to close a terminal while set.
     pub refuse_close: Mutex<bool>,
     /// While set, Orca answers a terminal's close and leaves it as it was.
@@ -107,7 +107,24 @@ fn flag<'a>(args: &[&'a str], name: &str) -> &'a str {
     args.iter().position(|a| *a == name).and_then(|i| args.get(i + 1)).copied().unwrap_or_default()
 }
 
+/// The failures the stand-in Orca answers when asked (truefit.toml's orca
+/// `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as real Orca
+/// 1.4.267 answers it: `send-refused`, a terminal it will not type at (as
+/// one closed); `remove-refused`, a worktree it will not remove (as a
+/// directory it does not hold).
+pub const ORCA_FAULTS: [&str; 2] = ["send-refused", "remove-refused"];
+
 impl FakeOrca {
+    /// Sets, or clears, the failure `name` (one of [`ORCA_FAULTS`]).
+    pub fn fault(&self, name: &str, on: bool) {
+        let flag = match name {
+            "send-refused" => &self.refuse_send,
+            "remove-refused" => &self.refuse_rm,
+            _ => panic!("no Orca fault {name}: {ORCA_FAULTS:?}"),
+        };
+        *flag.lock().unwrap() = on;
+    }
+
     fn answer(&self, root: &Path, args: &[&str]) -> Said {
         if let Some(why) = &*self.down.lock().unwrap() {
             return Said { ok: false, out: String::new(), err: why.clone() };
@@ -171,7 +188,7 @@ impl FakeOrca {
                     return error("selector_not_found");
                 }
                 if *self.refuse_rm.lock().unwrap() {
-                    return error("worktree_remove_failed");
+                    return error("selector_not_found");
                 }
                 if path.exists()
                     && let Err(e) = git_of(root, &path, &["worktree", "remove", "--force", &path.to_string_lossy()])
@@ -241,7 +258,7 @@ impl FakeOrca {
                     }
                     "wait" if term.background && flag(args, "--for") == "tui-idle" => error("timeout"),
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
-                    "send" if *self.refuse_send.lock().unwrap() => error("terminal_send_failed"),
+                    "send" if *self.refuse_send.lock().unwrap() => error("terminal_not_writable"),
                     "send" if term.alive => {
                         let (text, enter) = (flag(args, "--text"), args.contains(&"--enter"));
                         term.sent.push(text.into());
