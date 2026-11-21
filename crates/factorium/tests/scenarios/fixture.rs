@@ -15,6 +15,7 @@ mod heavy;
 mod read;
 mod sessions;
 mod steps;
+mod trace;
 mod world;
 
 pub use fakes::*;
