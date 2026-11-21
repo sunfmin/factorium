@@ -46,6 +46,12 @@
       "test": "factorium::scenarios::one_harness::of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks",
       "hash": "8e2b10fbdf4749a0",
       "reason": "No assertion maps: this test checks which of several session files in a worktree speaks (start order, end order, both read orders), probed once at 60 min; admission::silence_counts_from_the_end_of_the_last_turn checks the silent bound's timing (30 min working, 31 min silent with its why) on one session. The shared lines are World::working and the session write; folding the 30/31 timeline into silent_with's single 60-min probe changes what each case checks."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_to_the_watch",
+      "hash": "c1f879c9ed4e4159",
+      "reason": "Setups conflict: all three of its cases start from a merge red (red_on_moved_proving) and check the moved-proving rule (same tip; proving moved but red tip not merged; red tip merged then gate red). The other test starts from a gate red and checks first-red handling (worker told, proving unchanged, issue ready) and then a gate-red second. No assertion maps, and each case needs its own World, so folding saves no setup and would change which first red each case checks."
     }
   ],
   "kept_files": [
