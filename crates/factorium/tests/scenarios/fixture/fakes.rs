@@ -82,6 +82,9 @@ pub struct FakeOrca {
     /// set, this runs with the handle when one terminal's close is asked,
     /// before it takes: what another process sees in that time.
     pub while_closing: Mutex<Option<Closing>>,
+    /// While set, this runs with the worktree when a terminal is asked to
+    /// open there, before Orca answers.
+    pub while_opening: Mutex<Option<Closing>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -111,6 +114,13 @@ impl FakeOrca {
             if let Some(mut during) = during {
                 during(flag(args, "--terminal"));
                 *self.while_closing.lock().unwrap() = Some(during);
+            }
+        }
+        if args[..2] == ["terminal", "create"] {
+            let during = self.while_opening.lock().unwrap().take();
+            if let Some(mut during) = during {
+                during(flag(args, "--worktree"));
+                *self.while_opening.lock().unwrap() = Some(during);
             }
         }
         let mut held = self.held.lock().unwrap();

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::fixture::{CLAUDE, World, comments, findings, keyed, worktree};
+use crate::fixture::{CLAUDE, KeptTrace, World, comments, findings, id, keyed, worker, worktree};
 
 /// The branch a comment of factorium's names, in backticks, which a git
 /// branch of `web` must be.
@@ -185,7 +185,10 @@ async fn doctor_leaves_an_open_issue_s_worktrees_and_discard_refuses_them() {
     // An older attempt's worktree, and one of an issue this database does not hold, are no one's.
     let repo = w.dir.join("repos").join("web");
     let tip = w.remote_tip("web", "proving");
-    for (name, why) in [("web-1-0", "older than web#1's last, 1"), ("web-9-1", "web#9 is not an issue here")] {
+    for (name, why) in [
+        ("web-1-0", "attempt 0 is neither web#1's last started (1) nor starting"),
+        ("web-9-1", "web#9 is not an issue here"),
+    ] {
         let at = w.dir.join("worktrees").join(name);
         let branch = format!("factorium/{name}");
         w.git(&repo, &["worktree", "add", "--quiet", "-b", &branch, &at.to_string_lossy(), &tip]).unwrap();
@@ -250,4 +253,169 @@ async fn discarding_an_older_attempt_s_worktree_names_that_attempt_and_its_kept_
     let last = w.comments("web", 1).await.last().unwrap()["text"].as_str().unwrap().to_string();
     assert!(last.starts_with("Discarded attempt 1's worktree"), "{last}");
     assert_eq!(named_branch(&w, &last), "factorium/web-1-1-abandoned");
+}
+
+#[tokio::test]
+async fn a_start_undone_with_the_proving_tip_unread_leaves_its_worktree_to_doctor() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    // Its session does not open, and by then the proving tip cannot be read:
+    // what its new worktree holds is unknown, so the undone start keeps it.
+    let (at, away) = (w.dir.join("remotes").join("web.git"), w.dir.join("remotes").join("web.git.away"));
+    let (from, to) = (at.clone(), away.clone());
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        if from.exists() {
+            std::fs::rename(&from, &to).unwrap()
+        }
+    }));
+    *w.host.orca.refuse_open.lock().unwrap() = true;
+    assert!(w.app.tick().await.is_err(), "the session does not open");
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    std::fs::rename(&away, &at).unwrap();
+    let tree = w.dir.join("worktrees").join("web-1-1");
+    assert!(tree.exists(), "held");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
+
+    // No attempt started: doctor names it all the same (factorium#187), and discard fixes it.
+    let real = tree.canonicalize().unwrap();
+    let found = w.finding(&format!("worktree:{}", real.display())).await;
+    let found = found.or(w.finding(&format!("worktree:{}", tree.display())).await).expect("doctor names it");
+    assert!(
+        found["what"].as_str().unwrap().contains("attempt 1 is neither web#1's last started (none) nor starting"),
+        "{found}"
+    );
+    assert_eq!(w.app.discard_orphaned(&tree).await.unwrap()["abandoned"], "factorium/web-1-1-abandoned");
+    assert!(!tree.exists());
+}
+
+/// Worker `wk` writes token `n` (`w<n>.txt`) in its worktree, not committed.
+fn writes(wk: &serde_json::Value, n: u64) {
+    std::fs::write(worktree(wk).join(format!("w{n}.txt")), "x").unwrap();
+}
+
+/// Worker `wk` commits what its worktree holds.
+fn commits(w: &World, wk: &serde_json::Value) {
+    w.git(&worktree(wk), &["add", "-A"]).unwrap();
+    w.git(&worktree(wk), &["commit", "--quiet", "-m", "work"]).unwrap();
+}
+
+/// A worktree's life, each step recorded as the model's state
+/// (models/Worktrees.tla; the gate checks the kept run,
+/// models/worktrees-run.jsonl): attempt 1 works, ends kept; attempt 2
+/// resumes it, ends; with the tip unread, start-over discards it, keeping
+/// its branch; attempt 3 starts afresh and lands, and its worktree goes.
+#[tokio::test]
+async fn a_worktree_s_life_from_start_to_close_is_a_behaviour_of_its_model() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    let mut t = KeptTrace::default();
+    w.tick().await;
+    t.step(&w, "start").await;
+    let first = worker(&w.app).await;
+    writes(&first, 1);
+    t.step(&w, "edit").await;
+    commits(&w, &first);
+    t.step(&w, "commit").await;
+    writes(&first, 2);
+    t.step(&w, "edit").await;
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
+    t.step(&w, "ends").await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    t.step(&w, "ready").await;
+    let again = w.tick().await.started.unwrap();
+    t.step(&w, "start").await;
+    assert_eq!(again["worktree"], json!(worktree(&first)), "attempt 2 resumes attempt 1's worktree");
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
+    t.step(&w, "ends").await;
+    let away = Unreachable::web(&w);
+    t.step(&w, "tip").await;
+    w.app.issue_start_over("web", 1, "wrong approach").await.unwrap();
+    t.step(&w, "start-over").await;
+    away.back();
+    t.step(&w, "tip").await;
+    w.app.issue_ready("web", 1).await.unwrap();
+    t.step(&w, "ready").await;
+    w.tick().await;
+    t.step(&w, "start").await;
+    let third = worker(&w.app).await;
+    writes(&third, 3);
+    t.step(&w, "edit").await;
+    commits(&w, &third);
+    t.step(&w, "commit").await;
+    w.app.worker_done(id(&third)).await.unwrap();
+    w.tick().await;
+    t.step(&w, "land").await;
+    assert!(!worktree(&third).exists(), "landed, it goes");
+}
+
+#[tokio::test]
+async fn a_start_under_way_is_no_doctor_finding() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    // doctor, as another process, while the start opens its session: its worktree is made, its worker not yet recorded.
+    let found = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), std::sync::Arc::downgrade(&w.host), found.clone());
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        let (db, host) = (db.clone(), host.upgrade().unwrap());
+        let doctor = std::thread::spawn(move || {
+            let app = factorium::App::open(&db, "owner", host).unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(app.doctor()).unwrap()
+        });
+        into.lock().unwrap().push(doctor.join().unwrap());
+    }));
+    w.tick().await.started.unwrap();
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    let found = found.lock().unwrap();
+    assert!(!found.is_empty(), "doctor ran during the start");
+    for d in found.iter() {
+        assert!(keyed(d, "worktree:").is_empty(), "{d}");
+    }
+}
+
+#[tokio::test]
+async fn a_later_attempt_s_start_is_no_finding_while_under_way_and_one_once_undone() {
+    let w = World::new();
+    worktree(&w.working(CLAUDE, "t").await);
+    w.app.issue_wait_for_human("web", 1, "later").await.unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    // Attempt 2's session does not open: doctor runs, as another process, while
+    // it opens; then the proving tip cannot be read, so its undone start keeps its worktree.
+    let found = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (db, host, into) = (w.db.clone(), std::sync::Arc::downgrade(&w.host), found.clone());
+    let (at, away) = (w.dir.join("remotes").join("web.git"), w.dir.join("remotes").join("web.git.away"));
+    let (from, to) = (at.clone(), away.clone());
+    *w.host.orca.while_opening.lock().unwrap() = Some(Box::new(move |_: &str| {
+        let (db, host) = (db.clone(), host.upgrade().unwrap());
+        let doctor = std::thread::spawn(move || {
+            let app = factorium::App::open(&db, "owner", host).unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(app.doctor()).unwrap()
+        });
+        into.lock().unwrap().push(doctor.join().unwrap());
+        if from.exists() {
+            std::fs::rename(&from, &to).unwrap();
+        }
+    }));
+    *w.host.orca.refuse_open.lock().unwrap() = true;
+    assert!(w.app.tick().await.is_err(), "the session does not open");
+    *w.host.orca.while_opening.lock().unwrap() = None;
+    std::fs::rename(&away, &at).unwrap();
+    let second = w.dir.join("worktrees").join("web-1-2");
+    assert!(second.exists(), "held");
+    let named = |d: &serde_json::Value| keyed(d, "worktree:").into_iter().filter(|k| k.ends_with("web-1-2")).count();
+    let during = found.lock().unwrap().clone();
+    assert!(
+        !during.is_empty() && during.iter().all(|d| named(d) == 0),
+        "under way, attempt 2's is no finding: {during:?}"
+    );
+    let d = w.app.doctor().await.unwrap();
+    let f = findings(&d).iter().find(|f| f["key"].as_str().unwrap().ends_with("web-1-2")).expect("undone, it is one");
+    assert!(f["what"].as_str().unwrap().contains("attempt 2 is neither web#1's last started (1) nor starting"), "{f}");
 }
