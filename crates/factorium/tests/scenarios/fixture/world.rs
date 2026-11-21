@@ -93,6 +93,8 @@ pub struct World {
     pub clock: Arc<ManualClock>,
     pub host: Arc<FakeHost>,
     pub app: App,
+    /// Where each tick ended: the last event's `seq` then (a line's trace).
+    pub ticks: Mutex<Vec<i64>>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -111,7 +113,7 @@ impl World {
         let host = Arc::new(FakeHost::at(&dir, clock.clone(), reading));
         let db = dir.join("data").join(name);
         let app = App::open(&db, "owner", host.clone()).unwrap();
-        World { dir, db, clock, host, app }
+        World { dir, db, clock, host, app, ticks: Mutex::default() }
     }
 
     /// Where the App keeps what it keeps beside the database.
@@ -173,7 +175,9 @@ impl World {
     }
 
     pub async fn tick(&self) -> Tick {
-        self.app.tick().await.unwrap()
+        let t = self.app.tick().await.unwrap();
+        self.ticks.lock().unwrap().push(self.last_seq());
+        t
     }
 
     pub fn advance(&self, minutes: i64) {
@@ -264,6 +268,7 @@ impl World {
 impl Drop for World {
     fn drop(&mut self) {
         self.keep_heavy_trace();
+        self.keep_line_trace();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
