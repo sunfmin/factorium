@@ -86,10 +86,11 @@ pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
     }
 }
 
-/// Who picked and made the change, and what picking took.
+/// Who was asked and who made the change, and what asking took.
 #[derive(Debug, Clone)]
 pub struct Taken<'a> {
-    /// The picker's harness, session and model, as `slimfit ratchet --picker` takes it.
+    /// The second agent's harness, session and model, as `slimfit ratchet
+    /// --picker` (and `--reviewer`) takes it.
     pub harness: &'a str,
     pub session: &'a str,
     pub model: &'a str,
@@ -100,22 +101,50 @@ pub struct Taken<'a> {
     pub took_ms: u64,
     pub tokens_in: u64,
     pub tokens_out: u64,
-    /// The pickers that failed before it, in turn: harness and why, of
+    /// The ones asked before it that failed, in turn: harness and why, of
     /// which the first line is kept.
     pub fell_back: &'a [(String, String)],
+}
+
+impl Taken<'_> {
+    /// The second agent's id, `harness:session:model`.
+    pub fn id(&self) -> String {
+        format!("{}:{}:{}", self.harness, self.session, self.model)
+    }
+
+    /// What the worker is answered of who was asked, as its `role`
+    /// (`picker`, `reviewer`), and what it took.
+    pub fn said(&self, role: &str) -> Value {
+        let mut said = json!({ role: self.id(), "author": self.author, "harness": self.harness, "model": self.model,
+            "account": self.account, "took_ms": self.took_ms, "tokens": { "in": self.tokens_in, "out": self.tokens_out } });
+        said["fell_back"] = self.failed().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
+        said
+    }
+
+    /// The line the issue keeps of what `command` took and found (`what`),
+    /// and of each `role` that failed before the one that `did` it.
+    pub fn cost(&self, command: &str, role: &str, did: &str, what: &str) -> String {
+        let (on, secs) = (self.account.unwrap_or("the host's own login"), self.took_ms as f64 / 1000.0);
+        let (id, tin, tout) = (self.id(), self.tokens_in, self.tokens_out);
+        let mut cost = format!("{command}: {id} on {on}, {secs:.1}s, {tin} tokens in, {tout} out; {what}");
+        for (harness, why) in self.failed() {
+            cost.push_str(&format!("; the {harness} {role} failed first, so {} {did}: {why}", self.harness));
+        }
+        cost
+    }
+
+    fn failed(&self) -> impl Iterator<Item = (&String, &str)> {
+        self.fell_back.iter().map(|(h, why)| (h, why.lines().next().unwrap_or_default()))
+    }
 }
 
 /// The worker's answer — what was picked, by whom, what it took, and the
 /// commands that run the picks and record them, each word put in by
 /// `quote` — and the line its issue keeps of what picking took.
 pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, String) {
-    let picker = format!("{}:{}:{}", t.harness, t.session, t.model);
-    let ids = format!("--picker {} --author {}", quote(&picker), quote(&t.author));
+    let ids = format!("--picker {} --author {}", quote(&t.id()), quote(&t.author));
     let ratchet = format!("factorium worker exclusive -- slimfit ratchet {ids}");
-    let mut said = json!({ "picker": picker, "author": t.author, "harness": t.harness, "model": t.model,
-        "account": t.account, "took_ms": t.took_ms, "tokens": { "in": t.tokens_in, "out": t.tokens_out } });
-    let failed = t.fell_back.iter().map(|(h, why)| (h, why.lines().next().unwrap_or_default()));
-    said["fell_back"] = failed.clone().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
+    let mut said = t.said("picker");
     let what = match picked {
         Picked::Picks(picks) => {
             let names: Vec<String> = picks.iter().map(|(n, _)| quote(n)).collect();
@@ -133,12 +162,5 @@ pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, 
             "none picked".into()
         }
     };
-    let on = t.account.unwrap_or("the host's own login");
-    let secs = t.took_ms as f64 / 1000.0;
-    let mut cost =
-        format!("pick-mutants: {picker} on {on}, {secs:.1}s, {} tokens in, {} out; {what}", t.tokens_in, t.tokens_out);
-    for (harness, why) in failed {
-        cost.push_str(&format!("; the {harness} picker failed first, so {} picked: {why}", t.harness));
-    }
-    (said, cost)
+    (said, t.cost("pick-mutants", "picker", "picked", &what))
 }

@@ -1,0 +1,10 @@
+{
+  "tree": "70d4e3e64cb49be86f9ebeb9c75d9ab76bdc1123+d1fba762150c532c",
+  "lines": 118,
+  "serves": "factorium#174",
+  "considered": "pick-mutants' ask loop, fallback and cost line: shared by both commands (one second(), Taken::said/cost), not copied",
+  "reviewer": "codex:01a1fc75-3251-7fb1-bd95-c38f33268ab7:default",
+  "author": "claude-code:5e08e262-078b-5abd-9f0e-66c36ca42cd7:opus",
+  "cut": "In crates/factorium/src/pick.rs, delete Second<T> and its taken() conversion; second() builds Taken in the fallback loop and a per-command closure answers, the note written once. In crates/domain/src/review.rs, pick the verdict field and flags in the match and build next once.",
+  "answer": "Made both cuts: Second<T> and taken() deleted, second() builds Taken and takes a closure that reads and answers, the note kept once; review::answer builds next once: 134 to 118 net lines, the rest is the new command, its domain module and scenarios"
+}

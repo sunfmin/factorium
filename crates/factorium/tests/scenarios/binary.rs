@@ -190,7 +190,7 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run_with(&dir, &worker, &file);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_worker", "{answer}");
-    for command in ["done", "pick-mutants"] {
+    for command in ["done", "pick-mutants", "review-growth"] {
         let (ok, answer) = run_with(&dir, &worker, &["worker", command]);
         assert!(!ok);
         assert_eq!(answer["error"]["code"], "no_worker", "{command}: a worker command runs for a worker");

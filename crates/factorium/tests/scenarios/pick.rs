@@ -1,4 +1,4 @@
-//! A worker's mutants are picked by a second agent factorium starts: a
+//! A worker's mutants are picked, and its growth judged, by a second agent factorium starts: a
 //! fresh session asked headless, not the worker's, on another harness of the
 //! kit where one can be asked, given slimfit's goal, the change's diff and
 //! slimfit's candidates and nothing of the worker's. What it took is kept on
@@ -142,14 +142,22 @@ async fn a_kit_with_no_harness_that_can_be_asked_refuses_to_pick() {
 const PICKS: &str = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
 
 /// A checkout `web` whose kit is the stand-in Claude Code picker, answering
-/// [`PICKS`], then a stand-in picker of `other` on `model`, which runs `then`
-/// and answers `picks` as that harness does; the host user logged in to
+/// `claude_says`, then a stand-in of `other` on `model`, which runs `then`
+/// and answers `picks` as that harness does; slimfit's reviewer goal
+/// [`REVIEW_GOAL`]; the host user logged in to
 /// `other`; a worker on Claude Code that changed `a.rs`.
-async fn beside(other: Harness, model: &str, then: &str, picks: &str) -> (World, Value, crate::fixture::Picker) {
+async fn beside(
+    other: Harness,
+    model: &str,
+    then: &str,
+    picks: &str,
+    claude_says: &str,
+) -> (World, Value, crate::fixture::Picker) {
     let w = World::new();
     w.checkout("web").await;
     w.slimfit(GOAL, LISTING);
-    let claude = w.picker(Harness::ClaudeCode, "", &answered(PICKS));
+    let claude = w.picker(Harness::ClaudeCode, "", &answered(claude_says));
+    w.host.slimfit.lock().unwrap().insert("help reviewer".into(), REVIEW_GOAL.into());
     let theirs =
         Asked { session: "t-1".into(), model: model.into(), text: picks.into(), tokens_in: 900, tokens_out: 40 };
     let picker = w.picker(other, then, &theirs);
@@ -172,7 +180,7 @@ async fn beside(other: Harness, model: &str, then: &str, picks: &str) -> (World,
 async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_names_it_and_its_model() {
     let cases = [(Harness::Codex, "gpt-6.2-sol", "CODEX_HOME"), (Harness::Grok, "grok-4.7-build", "GROK_HOME")];
     crate::fixture::each(&cases, |(other, model, user_dir)| async move {
-        let (w, wk, picker) = beside(*other, model, "", PICKS).await;
+        let (w, wk, picker) = beside(*other, model, "", PICKS, PICKS).await;
         assert_eq!(wk["harness"], "claude-code");
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
@@ -204,7 +212,7 @@ async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_nam
 async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_and_the_record_says_so() {
     let cases = [("exit 3", PICKS), ("", "You have hit your usage limit.")];
     crate::fixture::each(&cases, |(then, said)| async move {
-        let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said).await;
+        let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said, PICKS).await;
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
         assert_eq!(answer["picker"], "claude-code:s-1:claude-opus-5-5", "{answer}");
@@ -216,4 +224,68 @@ async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_an
         let text = kept[0]["text"].as_str().unwrap();
         assert!(text.contains("; the codex picker failed first, so claude-code picked: "), "{text}");
     });
+}
+
+const REVIEW_GOAL: &str = "You are given a change's diff, nothing else.";
+const AS_IS: &str = r#"{"as_is": "a new function nothing else does"}"#;
+
+#[tokio::test]
+async fn a_worker_s_growth_is_judged_on_the_kit_s_other_harness_and_the_record_names_it() {
+    let (w, wk, reviewer) = beside(Harness::Codex, "gpt-6.2-sol", "", AS_IS, PICKS).await;
+    let answer = w.app.worker_review_growth(id(&wk)).await.unwrap();
+
+    let (reviewer_id, author) = ("codex:t-1:gpt-6.2-sol", format!("claude-code:{}:claude-opus-5-5", id(&wk)));
+    assert_eq!(answer["reviewer"], reviewer_id, "{answer}");
+    assert_eq!((answer["harness"].as_str(), answer["model"].as_str()), (Some("codex"), Some("gpt-6.2-sol")));
+    assert_eq!(answer["as_is"], "a new function nothing else does");
+    assert_eq!(answer["fell_back"], json!([]));
+    // The command that writes the growth record names the reviewer, its harness and model, and the issue.
+    let next = answer["next"].as_str().unwrap();
+    let ids = format!("--as-is 'a new function nothing else does' --reviewer '{reviewer_id}' --author '{author}'");
+    assert!(next.contains("slimfit ratchet --serves 'web#1' --considered ") && next.contains(&ids), "{next}");
+
+    // Given the goal and the diff, nothing of slimfit's candidates nor of the worker's.
+    let (asked, _, env) = reviewer.asked();
+    assert!(asked.starts_with(REVIEW_GOAL) && asked.contains("+fn a(x: u8) -> bool { x == 1 }"), "{asked}");
+    assert!(!asked.contains(LISTING), "{asked}");
+    let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=')).map(|(n, _)| n).collect();
+    assert!(
+        names.iter().all(|n| ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", "CODEX_HOME"].contains(n)),
+        "{names:?}"
+    );
+
+    let kept = kept(&w).await;
+    let text = kept[0]["text"].as_str().unwrap();
+    assert!(text.starts_with(&format!("review-growth: {reviewer_id} on ")), "{text}");
+    assert!(text.ends_with(", 900 tokens in, 40 out; as-is"), "{text}");
+}
+
+#[tokio::test]
+async fn a_reviewer_on_another_harness_that_fails_hands_the_review_to_claude_code_and_the_record_says_so() {
+    let cut = r#"{"cut": "a.rs: reuse b instead of a"}"#;
+    let cases = [("exit 3", AS_IS), ("", "You have hit your usage limit."), ("", r#"{"as_is": "two\nlines"}"#)];
+    crate::fixture::each(&cases, |(then, said)| async move {
+        let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said, cut).await;
+        let answer = w.app.worker_review_growth(id(&wk)).await.unwrap();
+
+        assert_eq!(answer["reviewer"], "claude-code:s-1:claude-opus-5-5", "{answer}");
+        assert_eq!(answer["fell_back"].as_array().unwrap()[0]["harness"], "codex", "{answer}");
+        assert_eq!(answer["cut"], "a.rs: reuse b instead of a");
+        let next = answer["next"].as_str().unwrap();
+        assert!(
+            next.contains("--cut 'a.rs: reuse b instead of a' --answer ")
+                && next.contains("--reviewer 'claude-code:s-1:"),
+            "{next}"
+        );
+        let kept = kept(&w).await;
+        let text = kept[0]["text"].as_str().unwrap();
+        assert!(text.contains("; cut; the codex reviewer failed first, so claude-code reviewed: "), "{text}");
+    });
+}
+
+#[tokio::test]
+async fn a_review_no_reviewer_answers_as_asked_is_refused_and_nothing_is_kept() {
+    let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", "exit 3", AS_IS, "It could be smaller.").await;
+    refused(w.app.worker_review_growth(id(&wk)).await, "reviewer_answer");
+    assert_eq!(kept(&w).await, Vec::<Value>::new());
 }

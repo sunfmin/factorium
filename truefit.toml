@@ -180,13 +180,14 @@ real = ["crates/factorium/tests/contract/standin", "real"]
 needs = "slimfit on PATH, and cargo-mutants (its mutants list)"
 version = ["slimfit", "--version"]
 
-# `worker pick-mutants`: the picker's goal, and a change's candidates, of
-# which factorium reads the names.
+# `worker pick-mutants` and `review-growth`: the picker's and the
+# reviewer's goals, and a change's candidates, of which factorium reads
+# the names.
 [[standin.case]]
 name = "pick"
 dir = "crates/factorium/tests/contract/slimfit-change"
 stdin = """
-{"world": {"slimfit": {"help": "The goal.", "check": "{\\"candidates\\": {\\"rust\\": [{\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with true\\"}, {\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with false\\"}, {\\"name\\": \\"src/lib.rs:4:29: replace == with != in a\\"}]}}"}}}
+{"world": {"slimfit": {"help picker": "The goal.", "help reviewer": "The reviewer's goal.", "check": "{\\"candidates\\": {\\"rust\\": [{\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with true\\"}, {\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with false\\"}, {\\"name\\": \\"src/lib.rs:4:29: replace == with != in a\\"}]}}"}}}
 {"run": ["git", "init", "-q", "-b", "main"], "read": "ok"}
 {"run": ["git", "add", "-A"], "read": "ok"}
 {"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"], "read": "ok"}
@@ -194,6 +195,7 @@ stdin = """
 {"run": ["sh", "-c", "echo 'pub fn a(x: u8) -> bool { x == 1 }' >> src/lib.rs"], "read": "ok"}
 {"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "change"], "read": "ok"}
 {"run": ["slimfit", "help", "picker"]}
+{"run": ["slimfit", "help", "reviewer"]}
 {"run": ["slimfit", "check", "--repo", "{dir}", "--mutants"], "read": ["/candidates/*/*/name"]}
 """
 
