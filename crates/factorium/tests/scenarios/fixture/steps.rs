@@ -129,8 +129,10 @@ impl World {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("said"), harness.asked_stand_in(answered).unwrap()).unwrap();
         let d = dir.display();
+        // agy's user directory is its HOME; the others name theirs.
+        let user_dir = if harness == Harness::Agy { "$HOME" } else { "$CODEX_HOME$GROK_HOME" };
         let script = format!(
-            "#!/bin/sh\ncat > '{d}/asked'\nls -A \"$CODEX_HOME$GROK_HOME\" > '{d}/user_dir' 2>/dev/null\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
+            "#!/bin/sh\ncat > '{d}/asked'\n(cd \"{user_dir}\" 2>/dev/null && find . ! -type d | sed 's|^\\./||' | sort > '{d}/user_dir')\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
         );
         let program = dir.join("program");
         super::program(&program, &script);
