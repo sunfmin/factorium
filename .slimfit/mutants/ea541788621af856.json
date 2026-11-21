@@ -1,0 +1,6 @@
+{
+  "tree": "8c7fd8f706e84f1747dca854ef43102571b5d5f4+d1fba762150c532c",
+  "picker": "codex:01a1fe73-e5fc-7b93-8bb8-4668f04be315:default",
+  "author": "claude-code:cfadfe6e-8e1f-5350-b9b1-a64e245e5a2d:opus",
+  "none": "The tests check the generated shell setup and launch command, so replacing either function’s output would fail assertions already in the diff."
+}
