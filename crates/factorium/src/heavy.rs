@@ -312,7 +312,7 @@ impl App {
         let settings = self.settings().await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
-        let room = admission::room(&crate::load::Load::read(&*self.host, q).room(), &settings);
+        let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
         let settle = settings.ms(Time::HeavySettle);
         match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules: self.rules.clone() }).await {
             Ok(()) => Ok(true),

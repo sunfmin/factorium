@@ -93,7 +93,7 @@ impl App {
         }
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
-            let held = admission::admit(&load.admission(), &settings);
+            let held = admission::admit(&load.admission(), &load.queue, self.now(), &settings);
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
                     Ok(started) => {

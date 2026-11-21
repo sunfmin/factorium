@@ -95,10 +95,16 @@ fn session_of(pid: u32) -> Option<u32> {
     u32::try_from(sid).ok()
 }
 
+/// Whether `pid` lives (a zombie not yet reaped counts): asked of the kernel
+/// with `kill(pid, 0)`, not by starting `kill`, as each waiting heavy
+/// command asks it of every entry twice a second (factorium#194).
+#[allow(unsafe_code)]
 pub fn alive(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the process exists; none is sent.
+    let answered = unsafe { libc::kill(pid, 0) };
+    answered == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }

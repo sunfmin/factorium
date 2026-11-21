@@ -49,7 +49,15 @@ impl Load {
 
     /// The queue's reading: nothing left out, as it bounds its own slots.
     pub(crate) fn room(&self) -> Reading {
-        self.outside(&BTreeSet::new())
+        whole(&self.host)
+    }
+
+    /// The queue's reading as a waiter asks for its turn: the host's alone.
+    /// It leaves no process out, so it lists none: each waiter asked twice a
+    /// second, and the listing (`ps -E` of every process) and a `kill` per
+    /// entry cost each 0.13 of a core (factorium#194).
+    pub(crate) fn queue(host: &dyn Host) -> Reading {
+        whole(&host.reading())
     }
 
     /// Admission's reading: every process the queue granted left out.
@@ -91,4 +99,9 @@ impl Load {
         }
         all
     }
+}
+
+/// `r` with nothing left out: the queue's reading.
+fn whole(r: &factorium_host::Reading) -> Reading {
+    Reading { cpu_busy: r.cpu_busy, memory_free: r.memory_free, disk_free: r.disk_free, workers_cpu: 0 }
 }
