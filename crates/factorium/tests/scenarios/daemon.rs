@@ -43,7 +43,7 @@ async fn a_program_missing_at_start_is_a_finding() {
     let w = World::new();
     w.kit().await;
     *w.host.missing.lock().unwrap() = vec!["orca".into(), "claude".into()];
-    let ran = w.app.run(&AtomicBool::new(true)).await.unwrap();
+    let ran = w.app.run(&AtomicBool::new(true), None).await.unwrap();
     assert_eq!(ran["ticks"], 0);
     for program in ["orca", "claude"] {
         let found = w.finding(&format!("missing:{program}")).await.expect(program);
@@ -102,7 +102,7 @@ async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
     let w = World::new();
     // A daemon that runs a newly installed binary keeps its pid, and its file.
     std::fs::write(w.data().pid(), std::process::id().to_string()).unwrap();
-    let ran = w.app.run(&AtomicBool::new(true)).await.unwrap();
+    let ran = w.app.run(&AtomicBool::new(true), None).await.unwrap();
     assert_eq!(ran, json!({ "stopped": true, "ticks": 0 }));
 }
 
@@ -121,14 +121,14 @@ async fn a_second_daemon_is_refused_while_the_first_holds_the_lock_whatever_its_
     // Its pid not yet written, or a pid no process has (macOS gives at most 99998).
     for said in ["", "999999"] {
         let held = held_saying(&pid, said);
-        let e = w.app.run(&AtomicBool::new(true)).await.unwrap_err();
+        let e = w.app.run(&AtomicBool::new(true), None).await.unwrap_err();
         assert_eq!(e.code, "running", "{said:?}: {e}");
         assert!(e.message.starts_with("a daemon runs already, a daemon holds "), "{said:?}: {e}");
         assert_eq!(std::fs::read_to_string(&pid).unwrap(), said, "the refused one leaves its file");
         drop(held);
     }
     // Once the holder ends, however it ends, the next one runs.
-    assert_eq!(w.app.run(&AtomicBool::new(true)).await.unwrap(), json!({ "stopped": true, "ticks": 0 }));
+    assert_eq!(w.app.run(&AtomicBool::new(true), None).await.unwrap(), json!({ "stopped": true, "ticks": 0 }));
     assert!(!pid.exists());
 }
 
@@ -140,14 +140,15 @@ async fn two_daemons_started_together_one_runs_the_other_is_refused() {
     let second = async {
         // The first ticked, and waits for its next tick, holding its lock.
         w.until(async || w.clock.asleep() == 1).await;
-        let refused = w.app.run(&AtomicBool::new(true)).await;
+        let refused = w.app.run(&AtomicBool::new(true), None).await;
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         w.advance(10);
         refused
     };
-    let (first, second) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop), second) })
-        .await
-        .expect("the first one stops");
+    let (first, second) =
+        tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop, None), second) })
+            .await
+            .expect("the first one stops");
     let e = second.unwrap_err();
     assert_eq!(e.code, "running");
     assert_eq!(e.message, format!("a daemon runs already, as pid {}", std::process::id()));
@@ -163,7 +164,7 @@ async fn a_run_ended_by_its_stop_flag_answers_its_ticks() {
     let during = stop.clone();
     let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
-    assert_eq!(w.app.run(&stop).await.unwrap()["ticks"], 1);
+    assert_eq!(w.app.run(&stop, None).await.unwrap()["ticks"], 1);
 }
 
 /// The daemon waits between ticks on the app's clock: the next tick comes
@@ -188,7 +189,7 @@ async fn the_daemon_waits_between_ticks_on_the_apps_clock() {
         w.until(async || w.clock.asleep() == 1).await;
         w.advance(10);
     };
-    let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop), moves) })
+    let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(w.app.run(&stop, None), moves) })
         .await
         .expect("the clock moved, it ticks");
     assert_eq!(ran.unwrap()["ticks"], 2);
@@ -207,7 +208,7 @@ async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
     let during = stop.clone();
     let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
-    assert_eq!(w.app.run(&stop).await.unwrap(), json!({ "stopped": true, "ticks": 1 }));
+    assert_eq!(w.app.run(&stop, None).await.unwrap(), json!({ "stopped": true, "ticks": 1 }));
 }
 
 /// Homebrew links `version` of the formula `factorium` (the `running_as`
@@ -338,8 +339,9 @@ async fn a_run_whose_ticks_all_fail_execs_the_kept_binary() {
             w.until(async || w.clock.asleep() != 1).await;
         }
     };
-    let (ran, ()) = tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(swapped.run(&stop), moves) })
-        .await
-        .expect("it ticks as the clock moves");
+    let (ran, ()) =
+        tokio::time::timeout(crate::fixture::STUCK, async { tokio::join!(swapped.run(&stop, None), moves) })
+            .await
+            .expect("it ticks as the clock moves");
     assert_eq!(ran.unwrap()["ticks"], 3, "the third failed tick went back");
 }

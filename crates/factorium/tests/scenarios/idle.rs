@@ -71,7 +71,7 @@ async fn idle_work_runs_when_the_host_is_idle_and_not_again_within_every() {
     w.advance(2);
     assert!(started(&w.tick().await.idle), "again once `every` has passed");
     // The daemon stops before its next tick: the run ends with it, unrecorded.
-    assert_eq!(w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap()["ticks"], 0);
+    assert_eq!(w.app.run(&std::sync::atomic::AtomicBool::new(true), None).await.unwrap()["ticks"], 0);
     assert_eq!(w.queued().await, Vec::<String>::new(), "it left the queue");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], d["idle"][0]["last"], "the first run is the last");
 }
@@ -241,7 +241,7 @@ async fn idle_work_refused_its_start_leaves_the_queue_as_it_found_it() {
         assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "it waits behind what runs");
         assert_eq!(w.queued().await, running);
         // A newer binary's daemon starts: its rules replace this one's.
-        w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+        w.run().under_rules("99.0.0").run(&std::sync::atomic::AtomicBool::new(true), None).await.unwrap();
         assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "refused under replaced rules");
         assert_eq!(w.queued().await, running);
     })
@@ -366,6 +366,6 @@ async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
     assert_ne!(entry(&w, "idle work of web").await, id, "unrecorded, it is due again: a new entry");
     assert_eq!(w.app.doctor().await.unwrap()["idle"][0]["last"], json!(null), "an unqueued run is no run");
     // The daemon stops: the run it started again ends with it.
-    w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+    w.app.run(&std::sync::atomic::AtomicBool::new(true), None).await.unwrap();
     assert_eq!(w.queued().await, Vec::<String>::new());
 }

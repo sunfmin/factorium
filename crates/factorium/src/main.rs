@@ -23,7 +23,7 @@ async fn run(cli: Cli, caller: Caller) -> Answer {
     let data = factorium::Data::of(&db).root().to_path_buf();
     let app = App::open(&db, caller.by(), Arc::new(Machine::new(data)))?;
     match cli.command {
-        Top::Run => app.run(&*stopped_by_signals()?).await,
+        Top::Run => app.run(&*stopped_by_signals()?, factorium::handed_lock()).await,
         command => command.answer(&app, &caller).await,
     }
 }

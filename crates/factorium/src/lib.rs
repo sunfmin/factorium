@@ -38,7 +38,7 @@ use factum_sqlite::SqliteStore;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-pub use daemon::Tick;
+pub use daemon::{Tick, handed_lock};
 pub use data::{Data, LineClone};
 pub use factorium_host as host;
 pub use session::{Caller, DB_ENV};

@@ -72,7 +72,7 @@ async fn an_outage_that_cannot_be_kept_still_briefs_the_watch() {
 async fn a_daemon_whose_start_cannot_record_goes_on_to_its_ticks() {
     let w = World::new();
     unreadable(&w).await;
-    let ran = w.app.run(&std::sync::atomic::AtomicBool::new(true)).await.unwrap();
+    let ran = w.app.run(&std::sync::atomic::AtomicBool::new(true), None).await.unwrap();
     assert_eq!(ran["ticks"], 0, "{ran}");
 }
 
