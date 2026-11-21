@@ -293,6 +293,39 @@ async fn a_cut_whose_upgrade_fails_other_than_by_a_lock_fails_at_once() {
     assert!(brew_waits(&w).is_empty());
 }
 
+/// A cut failed on the Homebrew lock, and the brew that held it then
+/// installed that version: the next tick reads the install back and clears
+/// the failure, without a new cut (factorium#185).
+#[tokio::test]
+async fn a_failed_cut_whose_version_got_installed_anyway_is_cleared() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().locked = u32::MAX;
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    assert!(cut["failed"].as_str().is_some_and(|f| f.contains("has already locked")), "{cut}");
+    let finding = || async { w.finding("cut:web:v0.1.0").await.is_some() };
+    assert!(finding().await, "{:?}", w.findings().await);
+    // Still not installed: the next tick leaves the failure as it is.
+    let t = w.tick().await;
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "{:?}", t.lines);
+    assert!(finding().await, "it still fails: {:?}", w.findings().await);
+    // The other brew installs it and frees the lock.
+    let mut brew = w.host.brew.lock().unwrap();
+    brew.locked = 0;
+    brew.installed.insert("web".into(), "0.1.0".into());
+    drop(brew);
+    let upgrades = || w.host.brewed().iter().filter(|b| *b == "upgrade web").count();
+    let before = upgrades();
+    let t = w.tick().await;
+    let read = t.lines.iter().find(|l| l["cut"] == "web").expect("the failure is read back");
+    assert_eq!((&read["version"], &read["read_back"], &read["installed"]), (&json!("v0.1.0"), &json!(true), &json!("web")));
+    assert_eq!(upgrades(), before, "no new cut, no new install");
+    assert!(!finding().await, "{:?}", w.findings().await);
+    let t = w.tick().await;
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "the line counts as cut: {:?}", t.lines);
+}
+
 #[tokio::test]
 async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
     let w = World::new();
