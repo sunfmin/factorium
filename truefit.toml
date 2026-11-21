@@ -403,3 +403,58 @@ unpromoted = 'r.state.unpromoted'
 uncut = 'r.state.uncut'
 promoted = 'r.state.promoted'
 red = 'r.state.red'
+
+# An issue's worktrees and attempts (SPEC §2 steps 3 and 6), model-checked
+# by TLC: models/Worktrees.tla, under the gate's config, in full (every
+# state it reaches). Its properties each fail on a broken variant
+# (`models/worktrees.sh broken`). Two configs the code does not yet hold
+# are findings, not in the gate (`models/worktrees.sh finding`): a CLI
+# command racing a tick's start (WorktreesRace.cfg), and the daemon dying
+# mid-start (WorktreesDeath.cfg).
+[[model]]
+name = "worktrees"
+spec = "models/Worktrees.tla"
+config = "models/Worktrees.cfg"
+limit = 60
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
+covers = [
+  { action = "Take", file = "crates/factorium/src/life.rs", function = "App::start_worker (fetch, TakeIssue)" },
+  { action = "Take", file = "crates/domain/src/issue.rs", function = "TakeIssue" },
+  { action = "Decide", file = "crates/factorium/src/kept.rs", function = "App::next_worktree, App::kept, App::last_started, holds_own" },
+  { action = "Record", file = "crates/factorium/src/life.rs", function = "App::open_worker, App::begin (StartWorker)" },
+  { action = "Undo", file = "crates/factorium/src/life.rs", function = "App::undo_start, App::finish" },
+  { action = "Undo", file = "crates/factorium/src/kept.rs", function = "App::release_worker, tip, holds_own" },
+  { action = "Ends", file = "crates/factorium/src/issues.rs", function = "App::issue_wait_for_human, App::leave" },
+  { action = "Ends", file = "crates/factorium/src/watch.rs", function = "App::restart (its session gone)" },
+  { action = "Ready", file = "crates/factorium/src/issues.rs", function = "App::issue_ready" },
+  { action = "Land", file = "crates/factorium/src/line.rs", function = "App::land" },
+  { action = "Release", file = "crates/factorium/src/life.rs", function = "App::finish (End::Landed)" },
+  { action = "Release", file = "crates/factorium/src/kept.rs", function = "App::release_worker" },
+  { action = "Over", file = "crates/factorium/src/issues.rs", function = "App::issue_start_over" },
+  { action = "Over", file = "crates/factorium/src/kept.rs", function = "App::kept_now" },
+  { action = "Close", file = "crates/factorium/src/issues.rs", function = "App::issue_close" },
+  { action = "Close", file = "crates/factorium/src/kept.rs", function = "App::left" },
+  { action = "ShutStep", file = "crates/factorium/src/issues.rs", function = "App::close" },
+  { action = "Discard", file = "crates/factorium/src/kept.rs", function = "App::discard_orphaned, App::orphaned" },
+  { action = "Abandon", file = "crates/factorium/src/kept.rs", function = "App::abandon, App::remove_worktree" },
+  { action = "DoctorFinds", file = "crates/factorium/src/kept.rs", function = "App::orphaned" },
+  { action = "DoctorFinds", file = "crates/factorium/src/doctor.rs", function = "App::doctor (orphaned)" },
+]
+
+# A scenario's run, as kept_trace.rs records it (crates/factorium/tests/
+# scenarios/fixture/kept_trace.rs): each record one whole tick, command
+# or worker's step (TraceNext); the properties are worktrees'.
+[[model]]
+name = "worktrees-run"
+spec = "models/Worktrees.tla"
+config = "models/WorktreesRun.cfg"
+limit = 60
+next = "TraceNext"
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
+covers = [
+  { action = "TraceNext", file = "crates/factorium/tests/scenarios/fixture/kept_trace.rs", function = "KeptTrace::state" },
+]
+
+# Each record's state as the model's, its processes idle between steps.
+[model.trace]
+s = '[status |-> r.state.status, taken |-> r.state.taken, attempts |-> r.state.attempts, started |-> [a \in Attempts |-> r.state.started[a]], live |-> [a \in Attempts |-> r.state.live[a]], disk |-> [t \in Trees |-> r.state.disk[t]], dirty |-> [t \in Trees |-> Set(r.state.dirty[t])], hasbr |-> [t \in Trees |-> r.state.hasbr[t]], br |-> [t \in Trees |-> Set(r.state.br[t])], kept |-> [t \in Trees |-> Set(r.state.kept[t])], proving |-> Set(r.state.proving), tipok |-> r.state.tipok, made |-> Set(r.state.made), pc |-> [p \in Procs |-> Idle]]'
