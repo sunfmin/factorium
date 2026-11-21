@@ -206,7 +206,10 @@ async fn beside(
     let theirs =
         Asked { session: "t-1".into(), model: model.into(), text: picks.into(), tokens_in: 900, tokens_out: 40 };
     let picker = w.picker(other, then, &theirs);
-    let login = w.host.home().join(format!(".{}", other.key())).join("auth.json");
+    let login = match other {
+        Harness::Agy => w.host.home().join(".gemini/antigravity-cli/antigravity-oauth-token"),
+        _ => w.host.home().join(format!(".{}", other.key())).join("auth.json"),
+    };
     std::fs::create_dir_all(login.parent().unwrap()).unwrap();
     std::fs::write(&login, "{}").unwrap();
     let kit = [
@@ -222,8 +225,12 @@ async fn beside(
 }
 
 #[tokio::test]
-async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_names_it_and_its_model() {
-    let cases = [(Harness::Codex, "gpt-6.2-sol", "CODEX_HOME"), (Harness::Grok, "grok-4.7-build", "GROK_HOME")];
+async fn an_opus_worker_s_mutants_are_picked_on_codex_grok_or_agy_and_the_record_names_it_and_its_model() {
+    let cases = [
+        (Harness::Codex, "gpt-6.2-sol", "CODEX_HOME"),
+        (Harness::Grok, "grok-4.7-build", "GROK_HOME"),
+        (Harness::Agy, "gemini-4-neon-high", "HOME"),
+    ];
     crate::fixture::each(&cases, |(other, model, user_dir)| async move {
         let (w, wk, picker) = beside(*other, model, "", PICKS, PICKS).await;
         assert_eq!(wk["harness"], "claude-code");
@@ -244,8 +251,13 @@ async fn an_opus_worker_s_mutants_are_picked_on_codex_or_grok_and_the_record_nam
         let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", user_dir];
         assert!(names.iter().all(|n| theirs.contains(n)), "{names:?}");
         let held: Vec<String> = picker.user_dir().lines().map(String::from).collect();
-        let expected: Vec<&str> =
-            if *other == Harness::Grok { vec!["auth.json", "config.toml"] } else { vec!["auth.json"] };
+        let expected: Vec<&str> = match other {
+            Harness::Grok => vec!["auth.json", "config.toml"],
+            Harness::Agy => {
+                vec![".gemini/antigravity-cli/antigravity-oauth-token", ".gemini/config/agents/factorium-ask.md"]
+            }
+            _ => vec!["auth.json"],
+        };
         assert_eq!(held, expected);
 
         let kept = kept(&w).await;

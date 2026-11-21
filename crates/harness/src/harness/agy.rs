@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use super::session::{self, json_lines};
 use super::store::Layout;
 use super::{Dialog, Kind, Link, Login, Stop};
+use crate::ask::Asked;
 use crate::harness::{Call, Harness};
 use crate::line::{Line, quoted};
 use crate::start::{Start, TOLD};
@@ -151,6 +152,63 @@ fn note(value: &Value) -> Option<Note> {
     (planner(value) && !calls && value["status"] == "DONE").then_some(Note { marker: Marker::End, at, child: false })
 }
 
+/// The agent a session asked headless runs as: none of agy's tools, none
+/// of its default prompt's sections; its user directory is a fresh one
+/// (`ask_home`) holding only its login and this agent, so no hook, rule,
+/// skill, plugin or MCP server of the host user's.
+const ASK_AGENT_FILE: &str = ".gemini/config/agents/factorium-ask.md";
+const ASK_AGENT: &str = "---\nname: factorium-ask\ndescription: Answers one question, with no tools.\n\
+                         tools: []\nexcludeDefaultComponents: true\n---\n\
+                         You have no tools. Answer the question in this one reply, as it asks, and nothing else.\n";
+
+/// agy asked one question headless (read in agy 1.5.14): with stdin not a
+/// terminal and no `-p`, it reads its prompt there (`-p` takes the prompt
+/// as its value, and an empty one is refused), answers one JSON object, and
+/// expands no slash command. It runs as [`ASK_AGENT`], which has no tools,
+/// and every kind of call its permission rules name is denied besides.
+const HEADLESS: crate::ask::Headless = crate::ask::Headless {
+    flags: "--output-format json --disable-slash-commands --agent factorium-ask \
+            --settings '{\"permissions\":{\"deny\":[\"command(*)\",\"read_file(*)\",\"write_file(*)\",\
+            \"read_url(*)\",\"execute_url(*)\",\"mcp(*)\"]}}'",
+    model: MODEL,
+    files: asked_files,
+    read: asked,
+    stand_in: asked_stand_in,
+};
+
+fn asked_files() -> Result<crate::ask::Files, String> {
+    Ok(vec![(ASK_AGENT_FILE, ASK_AGENT.into())])
+}
+
+/// What `agy --output-format json` printed: its answer in `response`,
+/// unless `status` is not `SUCCESS` (then `error` says why); the
+/// conversation in `conversation_id`; the tokens of every turn in `usage`,
+/// thinking among the output. It names no model: the kit's, else
+/// `default`, as the worker's id says one.
+fn asked(out: &str, model: Option<&str>) -> Result<Asked, String> {
+    let said: Value = serde_json::from_str(out.trim()).map_err(|e| format!("agy answered no JSON ({e}): {out}"))?;
+    if said["status"] != "SUCCESS" {
+        return Err(format!("agy failed: {}", said["error"].as_str().unwrap_or(out.trim())));
+    }
+    let text = said["response"]
+        .as_str()
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| format!("agy answered nothing: {out}"))?;
+    let session = said["conversation_id"].as_str().filter(|s| !s.is_empty()).ok_or("agy named no conversation_id")?;
+    let n = |field: &str| said["usage"][field].as_u64().unwrap_or(0);
+    let (tokens_in, tokens_out) = (n("input_tokens") + n("cache_read_tokens"), n("output_tokens"));
+    let model = model.unwrap_or("default").to_string();
+    Ok(Asked { session: session.into(), model, text: text.into(), tokens_in, tokens_out })
+}
+
+fn asked_stand_in(a: &Asked) -> String {
+    let usage = json!({ "input_tokens": a.tokens_in, "output_tokens": a.tokens_out, "thinking_tokens": 0,
+                        "cache_read_tokens": 0, "total_tokens": a.tokens_in + a.tokens_out });
+    let said = json!({ "conversation_id": a.session, "status": "SUCCESS", "response": a.text,
+                       "duration_seconds": 1.0, "num_turns": 1, "usage": usage });
+    format!("{said}\n")
+}
+
 /// Antigravity CLI, as a harness: what its module says of it.
 pub(super) struct Agy;
 
@@ -170,8 +228,7 @@ impl Kind for Agy {
     const REFUSED: u8 = 2;
     /// Escape.
     const INTERRUPT: &'static str = "\x1b";
-    /// Not asked headless: no run of it so has been read here.
-    const HEADLESS: Option<crate::ask::Headless> = None;
+    const HEADLESS: Option<crate::ask::Headless> = Some(HEADLESS);
 
     /// What the host keeps for agy beside its login: the hooks, where its
     /// rules are, its onboarding done, and the shell's way back to the host

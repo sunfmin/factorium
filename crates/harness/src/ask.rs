@@ -89,7 +89,9 @@ impl Harness {
             return Err(format!("{} is not logged in: no {}", self.key(), login.display()));
         }
         let io = |e: std::io::Error| format!("{}: {e}", fresh.display());
-        std::os::unix::fs::symlink(&login, fresh.join(link.kept)).map_err(io)?;
+        let linked = fresh.join(link.kept);
+        linked.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;
+        std::os::unix::fs::symlink(&login, linked).map_err(io)?;
         for (file, text) in (h.files)()? {
             let path = fresh.join(file);
             path.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;

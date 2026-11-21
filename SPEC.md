@@ -367,8 +367,9 @@ depend on nothing else of factorium.
   on its account with the most left, within `pick_bound`, given only
   slimfit's goal, the diff from origin's proving and `slimfit check
   --mutants`; its time and tokens go on the issue (factorium#147). Claude
-  Code, Codex and Grok can be asked, each in a user directory of its own
-  that holds only its login. One that fails hands the pick to the next
+  Code, Codex, Grok and agy can be asked, each in a user directory of its
+  own that holds only its login (agy's, its HOME, also an agent with no
+  tools, factorium#200). One that fails hands the pick to the next
   harness of the kit, the worker's own last, and the record names each
   that failed and why; when none is left the worker gets the last refusal,
   never a pick (factorium#154). When slimfit lists no candidates (an
