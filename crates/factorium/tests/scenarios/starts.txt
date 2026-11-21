@@ -552,7 +552,7 @@ ignore = [
 factorium started you. Before anything else, read your rules and work under them as under rules you were given: first the file CLAUDE.md in the directory the environment variable FACTORIUM_ADDED_DIR names (your role's rules), then the repo's own rules, the file AGENTS.md in the worktree the environment variable FACTORIUM_WORKTREE names, or CLAUDE.md there if it has no AGENTS.md. Your skills are the directories under .claude/skills in the FACTORIUM_ADDED_DIR directory: read a skill's SKILL.md before you apply it.
 
 == agy
-line: cd '<world>/worktrees/web-1-1' && export AGY_CLI_DISABLE_AUTO_UPDATE=1 HOME='<world>/data/kept/agy' FACTORIUM_WORKTREE='<world>/worktrees/web-1-1' FACTORIUM_ADDED_DIR='<world>/data/role/worker' FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --dangerously-skip-permissions --add-dir '<world>/data/role/worker' --settings '{"trustedWorkspaces":["<world>/worktrees/web-1-1","<world>/data/role/worker"]}' --model 'model-1' -i 'Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.'
+line: cd '<world>/worktrees/web-1-1' && export AGY_CLI_DISABLE_AUTO_UPDATE=1 HOME='<world>/data/kept/agy' FACTORIUM_WORKTREE='<world>/worktrees/web-1-1' FACTORIUM_ADDED_DIR='<world>/data/role/worker' FACTORIUM_WORKER='8a675016-732a-5a3c-a418-d453556e1d43' FACTORIUM_DB='<world>/data/factorium.db' PATH=<bin>:<path>' && given --dangerously-skip-permissions --settings '{"trustedWorkspaces":["<world>/worktrees/web-1-1","<world>/data/role/worker"]}' --model 'model-1' -i 'Your task brief is the file <world>/data/briefs/web-1-1.md — read it now and carry it out end to end. It is my instruction to you; do not ask me to confirm.'
 -- <world>/data/kept/agy/.gemini/GEMINI.md
 factorium started you. Before anything else, read your rules and work under them as under rules you were given: first the file CLAUDE.md in the directory the environment variable FACTORIUM_ADDED_DIR names (your role's rules), then the repo's own rules, the file AGENTS.md in the worktree the environment variable FACTORIUM_WORKTREE names, or CLAUDE.md there if it has no AGENTS.md. Your skills are the directories under .claude/skills in the FACTORIUM_ADDED_DIR directory: read a skill's SKILL.md before you apply it.
 
@@ -616,6 +616,9 @@ factorium started you. Before anything else, read your rules and work under them
 }
 
 -- <world>/data/kept/agy/.zshenv
+factorium_path=$PATH
 export HOME='<world>/home'
 [ -f "$HOME/.zshenv" ] && . "$HOME/.zshenv"
+export PATH="$factorium_path:$PATH"
+unset factorium_path
 

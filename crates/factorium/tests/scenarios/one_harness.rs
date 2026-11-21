@@ -684,11 +684,32 @@ async fn an_agy_worker_s_kept_hooks_report_to_orca_with_the_host_user_s_home() {
         assert_eq!(said, (Some(0), format!("{event} {}\n", user.display())), "{event}");
         assert_eq!(agy_hook(command, &home, &[], "{}"), (Some(0), quiet.to_string()), "{event}: no Orca pane");
     }
+    // The host user's own `.zshenv` puts Homebrew first, as on the real host
+    // (factorium#201), where it found the installed factorium, not the session's.
+    std::fs::write(user.join(".zshenv"), "export PATH=\"/brew/bin:$PATH\"\n").unwrap();
     let zshenv = std::fs::read_to_string(home.join(".zshenv")).unwrap();
     let shell = std::process::Command::new("/bin/sh")
-        .args(["-c", &format!("{zshenv}\nprintf '%s' \"$HOME\"")])
+        .args(["-c", &format!("{zshenv}\nprintf '%s\\n%s' \"$HOME\" \"$PATH\"")])
         .env("HOME", &home)
+        .env("PATH", "/session/bin:/usr/bin:/bin")
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&shell.stdout), user.to_string_lossy());
+    let said = String::from_utf8_lossy(&shell.stdout);
+    let (said_home, path) = said.split_once('\n').unwrap();
+    assert_eq!(said_home, user.to_string_lossy());
+    assert!(path.starts_with("/session/bin:") && path.contains("/brew/bin"), "the session's PATH first: {path}");
+}
+
+/// An agy worker's commands run in its worktree: agy runs every command in
+/// a directory added with `--add-dir` (agy 1.5.14, factorium#201's real run),
+/// so its line adds none; it trusts both, and reads its rules by their path.
+#[tokio::test]
+async fn an_agy_worker_s_line_adds_no_directory_so_its_commands_run_in_its_worktree() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    let worktree = wk["worktree"].as_str().unwrap();
+    assert!(!line.contains("--add-dir"), "{line}");
+    assert!(line.starts_with(&format!("cd '{worktree}' && ")), "{line}");
+    assert!(line.contains("trustedWorkspaces") && line.contains(worktree), "{line}");
 }

@@ -7,7 +7,10 @@
 //! done are generated at each start; none of the host user's hooks, settings,
 //! rules or skills is there. The shell its commands run in is given the host
 //! user's `HOME` back by the kept `.zshenv`, so git, cargo and factorium find
-//! theirs. A session works in the worktree, its start directory added.
+//! theirs, its session's `PATH` still first. A session works in the
+//! worktree, its start directory not added: agy runs every command in a
+//! directory added with `--add-dir`, in either order (agy 1.5.14), and the
+//! session reads its rules there by their path.
 
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
@@ -22,7 +25,6 @@ use crate::line::{Line, quoted};
 use crate::start::{Start, TOLD};
 use crate::turn::{Marker, Note, Turn};
 
-const ADD_DIR: &str = "--add-dir";
 const MODEL: &str = "--model";
 /// Settings for this session only, never saved (`agy --help`).
 const SETTINGS: &str = "--settings";
@@ -101,9 +103,16 @@ fn hooks(user_home: &str, guard: &str) -> String {
     serde_json::to_string_pretty(&all).unwrap_or_default() + "\n"
 }
 
-/// The shell's first file: the host user's home back, then theirs.
+/// The shell's first file: the host user's home back, then theirs, then
+/// the session's `PATH` before whatever theirs put first, so the factorium
+/// it runs by name is the one that started it (a `.zshenv` that puts
+/// Homebrew first would find an installed one).
 fn zshenv(user_home: &str) -> String {
-    format!("export HOME={}\n[ -f \"$HOME/.zshenv\" ] && . \"$HOME/.zshenv\"\n", quoted(user_home))
+    format!(
+        "factorium_path=$PATH\nexport HOME={}\n[ -f \"$HOME/.zshenv\" ] && . \"$HOME/.zshenv\"\n\
+         export PATH=\"$factorium_path:$PATH\"\nunset factorium_path\n",
+        quoted(user_home)
+    )
 }
 
 /// One tool call, as agy hands it to its `PreToolUse` hook (agy 1.5.14):
@@ -268,12 +277,12 @@ impl Kind for Agy {
         start.rules_env(line.set(USER_DIR, start.home.dir()))
     }
 
-    /// The start directory added, both directories trusted for this session
-    /// alone (else it asks whether to trust the worktree before it starts),
-    /// and the caller's model.
+    /// Both directories trusted for this session alone (else it asks
+    /// whether to trust the worktree before it starts), and the caller's
+    /// model. No directory added: agy would run its commands there.
     fn added(line: Line, start: &Start) -> Line {
         let trusted = json!({ "trustedWorkspaces": [start.worktree, start.dir] }).to_string();
-        line.flag(ADD_DIR, start.dir).flag(SETTINGS, &trusted).flag_if(MODEL, start.model)
+        line.flag(SETTINGS, &trusted).flag_if(MODEL, start.model)
     }
 
     /// Its brief is its first prompt, on its line.

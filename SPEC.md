@@ -14,7 +14,9 @@ Claude Code worker on a throwaway repo, one real watch round, and
 factorium cut its own v0.1.0 through Homebrew. Phase 3 had real runs for
 Claude Code, and (factorium#39) for DSH and Kimi Code: each worker started by
 a daemon from its kit entry, refused by the real guard when it pushed, landed;
-codex, pi, grok and agy have had no such run on this host. Phase 7 waits
+and (factorium#201) for agy: the same, its tokens read from its real
+transcript, and a real headless ask read; codex, pi and grok have had no
+such run on this host. Phase 7 waits
 on the owner: which repo moves first, and how Guild moves its gate and landing dependencies, since factorium has no
 counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
 and factorium does not is in `docs/dropped.md`.
