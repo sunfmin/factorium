@@ -165,15 +165,21 @@ NoteRules ==
         rules < r /\ rules' = r /\ now' = t /\ Did("rules", 0, t)
     /\ UNCHANGED <<q, last_start, waiter>>
 
-\* heavy.queue again (take_turn, each poll): a waiter whose waiting entry
-\* was taken off queues it again.
-Enqueue(i) ==
+\* take_turn, each poll after its first ask: a waiter whose waiting entry
+\* was taken off (an unqueue) answers `unqueued`, and is not queued again.
+\* Broken (`requeues`), it queues it again, at the back (factorium#186).
+Unqueued(i) ==
     /\ waiter[i].phase = "waits" /\ ~q[i].in
     /\ \E t \in Times :
         /\ now' = t
-        /\ q' = [q EXCEPT ![i] = Entry(t, waiter[i].yields, waiter[i].bound)]
-        /\ Did("queue", i, t)
-    /\ UNCHANGED <<last_start, rules, waiter>>
+        /\ IF Bug = "requeues"
+           THEN /\ q' = [q EXCEPT ![i] = Entry(t, waiter[i].yields, waiter[i].bound)]
+                /\ Did("queue", i, t)
+                /\ UNCHANGED waiter
+           ELSE /\ waiter' = [waiter EXCEPT ![i] = Ended(waiter[i], "unqueued")]
+                /\ Did("unqueued", i, t)
+                /\ UNCHANGED q
+    /\ UNCHANGED <<last_start, rules>>
 
 
 \* heavy.start (take_turn): i asks on a reading taken at `read`, which
@@ -269,7 +275,7 @@ Next ==
     \/ Tick
     \/ Arrives
     \/ NoteRules
-    \/ \E i \in Ids : Enqueue(i) \/ Ask(i) \/ NoteRun(i)
+    \/ \E i \in Ids : Unqueued(i) \/ Ask(i) \/ NoteRun(i)
                       \/ Look(i) \/ Done(i) \/ Unqueue(i)
 
 Spec == Init /\ [][Next]_vars
@@ -342,7 +348,7 @@ UnqueuedRunAnswers ==
         waiter[i].answer \in {"", "unqueued"}
 
 \* An unqueued entry's waiter answers `unqueued`, waiting or running: it is
-\* not queued again, and never runs. (A finding: `models/HeavyQueueFinding.cfg`.)
+\* not queued again, and never runs.
 UnqueuedAnswers ==
     \A i \in Ids : waiter[i].unqueued # "" =>
         ~q[i].in /\ waiter[i].answer \in {"", "unqueued"}
@@ -366,6 +372,7 @@ BrokenVariants == [
     held_from_queued |-> "NotCutShort",  \* held counted from the waiter's queueing alone
     no_held          |-> "HeldEnded",    \* the hold bound never ends one
     answer_ran       |-> "UnqueuedRunAnswers", \* run_held does not look whether it is held
+    requeues         |-> "UnqueuedAnswers",    \* take_turn queues an unqueued waiter again (#186)
     no_stale         |-> "StaleRefused", \* heavy.start takes any rules
     stale_requeues   |-> "StaleRefused"  \* the exec'd waiter queues anew, at the back
 ]

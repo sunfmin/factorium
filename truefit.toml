@@ -267,7 +267,6 @@ commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
-  { action = "Enqueue", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy, when the queue does not hold it)" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
   { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start" },
   { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, oldest, overdue" },
@@ -295,6 +294,8 @@ covers = [
   { action = "NotCutShort", file = "crates/domain/src/heavy.rs", function = "Queue::ends" },
   { action = "HeldEnded", file = "crates/factorium/src/heavy.rs", function = "App::look_at" },
   { action = "UnqueuedRunAnswers", file = "crates/factorium/src/heavy.rs", function = "App::run_held" },
+  { action = "Unqueued", file = "crates/factorium/src/heavy.rs", function = "App::heavy (queued), App::take_turn (unqueued)" },
+  { action = "UnqueuedAnswers", file = "crates/factorium/src/heavy.rs", function = "App::take_turn" },
 ]
 
 [[model]]
