@@ -33,13 +33,6 @@ impl KeptTrace {
         self.lines.push(json!({ "step": step, "event": event, "state": state }).to_string());
     }
 
-    /// Writes the run's trace where [`TRACE`] names, if it does.
-    pub fn keep(&self) {
-        if let Ok(path) = std::env::var(TRACE) {
-            std::fs::write(path, self.lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
-        }
-    }
-
     async fn state(&mut self, w: &World) -> Value {
         let issue = w.app.issue_show("web", 1).await.unwrap();
         let attempt_of =
