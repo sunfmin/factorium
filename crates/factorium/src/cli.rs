@@ -273,8 +273,10 @@ pub enum WorkerCmd {
     },
     /// Files an issue your issue asks for (a follow-up), as `issue add`
     /// does, on any checkout on the list; your issue keeps the record
-    /// ("filed <checkout>#<n>") and the filed one names you. Answers it.
-    /// An issue that needs the owner's decision is escalated instead.
+    /// ("filed <checkout>#<n>") and the filed one names you. Answers it,
+    /// with the blocks it got. On your own checkout it also waits for your
+    /// issue to land, unless `--independent`. An issue that needs the
+    /// owner's decision is escalated instead.
     File {
         checkout: String,
         title: String,
@@ -284,6 +286,10 @@ pub enum WorkerCmd {
         /// An issue it waits for, repeat for each, as for `issue add`.
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         blocked_by: Vec<Blocker>,
+        /// On your own checkout, does not wait for your issue: for a
+        /// follow-up that does not need your change.
+        #[arg(long)]
+        independent: bool,
     },
     /// Has a second agent, a fresh session factorium starts, pick your
     /// change's mutants from slimfit's candidates, given slimfit's goal
@@ -430,9 +436,9 @@ impl Top {
                     };
                     app.worker_comment(worker_id()?, &text).await
                 }
-                WorkerCmd::File { checkout, title, body_file, blocked_by } => {
+                WorkerCmd::File { checkout, title, body_file, blocked_by, independent } => {
                     let body = body_text(None, Some(body_file))?.unwrap_or_default();
-                    app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by).await
+                    app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by, independent).await
                 }
                 WorkerCmd::Exclusive { background, command } => {
                     let (dir, line) = (here()?, line(&command));

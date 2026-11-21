@@ -29,7 +29,9 @@ Your brief (the file you were handed) says what the issue is.
   `factorium worker file <checkout> <title> --body-file <f>
   [--blocked-by <[checkout#]N[@cut]>]…` for each: it files the issue (on
   any checkout on the list, waiting for its blockers from the start),
-  answers its number, and keeps "filed <checkout>#<n>" on your issue. You
+  answers its number and blocks, and keeps "filed <checkout>#<n>" on your
+  issue. On your own checkout it also waits for your issue to land; give
+  `--independent` for one that does not need your change. You
   do not close, ready or block other issues; one that needs the owner's
   decision is escalated, not filed.
 - If you cannot go on without a decision or something you lack, run
