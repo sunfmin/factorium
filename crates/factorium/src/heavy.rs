@@ -145,18 +145,23 @@ impl App {
     /// [`Turn::Once`] or [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
     /// once it started: a tick's [`App::beside`] answers how it ran, with its idle work.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
-        let id = match &turn {
-            Turn::Beside { .. } => Uuid::now_v7(),
+        // `queued`: its entry was queued before this ask, so one the queue
+        // no longer holds was unqueued.
+        let (id, mut queued) = match &turn {
+            Turn::Beside { .. } => (Uuid::now_v7(), false),
             // A waiter that execs the installed binary keeps its place.
-            Turn::Wait => std::env::var(PLACE).ok().and_then(|p| p.parse().ok()).unwrap_or_else(Uuid::now_v7),
+            Turn::Wait => match std::env::var(PLACE).ok().and_then(|p| p.parse().ok()) {
+                Some(place) => (place, true),
+                None => (Uuid::now_v7(), false),
+            },
             Turn::Once(key) => {
                 let id = factorium_domain::id(&format!("heavy:{key}"));
                 self.memory.lock().unwrap().asked.insert(id);
-                id
+                (id, false)
             }
         };
         loop {
-            let took = match self.take_turn(id, &job).await {
+            let took = match self.take_turn(id, &job, std::mem::replace(&mut queued, true)).await {
                 Err(r) if r.code == "stale" => match &turn {
                     Turn::Wait => {
                         let r = self.as_installed(id, r);
@@ -285,8 +290,10 @@ impl App {
     }
 
     /// Queues `id` if it is not, and asks once to start it. Entries of
-    /// processes that died are forgotten first.
-    async fn take_turn(&self, id: Uuid, job: &Job<'_>) -> Answer<bool> {
+    /// processes that died are forgotten first. One `queued` before that
+    /// the queue no longer holds was unqueued: refused as `unqueued`, not
+    /// queued again.
+    async fn take_turn(&self, id: Uuid, job: &Job<'_>, queued: bool) -> Answer<bool> {
         let q = self.state::<Heavy>(queue_id()).await?;
         if older(&q.rules, &self.rules) {
             self.note_rules().await?;
@@ -294,6 +301,9 @@ impl App {
         let pid = std::process::id();
         for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
             self.submit::<EndHeavy>(End { id: e.id }).await?;
+        }
+        if !q.holds(id) && queued {
+            return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
         }
         if !q.holds(id) {
             let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
