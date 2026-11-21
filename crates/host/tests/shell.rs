@@ -61,3 +61,17 @@ fn no_session_but_a_runs_own_is_signalled() {
     assert_eq!(signal_session(1, 0), 0);
     assert_eq!(signal_session(mine, 0), 0);
 }
+
+/// Whether a process lives, asked of the kernel: this one does, so does one
+/// of another user's that may not be signalled (launchd), and a child that
+/// exited and was reaped does not.
+#[test]
+fn alive_answers_for_live_processes_and_another_user_s_and_not_for_a_reaped_one() {
+    use factorium_host::procs::alive;
+    assert!(alive(std::process::id()), "this process");
+    assert!(alive(1), "pid 1, not ours to signal");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    assert!(!alive(pid), "a reaped child is gone");
+}
