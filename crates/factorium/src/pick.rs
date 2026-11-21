@@ -25,11 +25,19 @@ impl App {
     /// Has the worker's change's mutants picked, and answers the picks, or
     /// why none, by whom, with the commands that run and record them; when
     /// every picker fails, the last one's refusal, and nothing is kept.
+    /// When slimfit lists no candidates no picker is asked: none, and why.
     pub async fn worker_pick_mutants(&self, worker: Uuid) -> Answer {
         let (st, diff) = self.change(worker).await?;
-        let goal = self.slimfit(&["help", "picker"])?;
-        let listing = self.slimfit(&["check", "--repo", &st.worktree, "--mutants"])?;
-        let listed = serde_json::from_str(&listing).map_err(|e| Refusal::new("slimfit", format!("{e}: {listing}")))?;
+        let args = ["check", "--repo", &st.worktree, "--mutants"];
+        let said = self.host.programs().run("slimfit", &args);
+        let listed = pick::listing(said.ok, &said.out)
+            .map_err(|e| Refusal::new("slimfit", format!("slimfit {}: {e} {}", args.join(" "), said.err.trim())))?;
+        let Some(listed) = listed else {
+            let (answer, line) = pick::unlisted(&author(&st, worker));
+            self.note(&st.checkout, st.number, Author::Factorium, &line).await?;
+            return Ok(answer);
+        };
+        let (goal, listing) = (self.slimfit(&["help", "picker"])?, said.out);
         let question = pick::question(&goal, &diff, &listing);
         let quote = factorium_harness::quoted;
         self.second(&st, worker, "picker", &question, |text, t| Ok(pick::answer(&pick::read(text, &listed)?, t, quote)))
@@ -76,7 +84,7 @@ impl App {
         question: &str,
         take: impl Fn(&str, &Taken) -> Result<(Value, String), String>,
     ) -> Answer {
-        let author = format!("{}:{worker}:{}", st.harness, st.model.as_deref().unwrap_or("default"));
+        let author = author(st, worker);
         let (mut failed, mut last): (Vec<(String, String)>, Option<Refusal>) = (Vec::new(), None);
         loop {
             let asks =
@@ -151,4 +159,9 @@ impl App {
         let asked = on.harness.asked(&said, on.model.as_deref()).map_err(fail(&failed))?;
         Ok((asked, ran.took_ms))
     }
+}
+
+/// The worker's id, as `--author` takes it: `harness:worker:model`.
+fn author(st: &Started, worker: Uuid) -> String {
+    format!("{}:{worker}:{}", st.harness, st.model.as_deref().unwrap_or("default"))
 }

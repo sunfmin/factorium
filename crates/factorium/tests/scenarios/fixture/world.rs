@@ -263,6 +263,7 @@ impl World {
 
 impl Drop for World {
     fn drop(&mut self) {
+        self.keep_heavy_trace();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

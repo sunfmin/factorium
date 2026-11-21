@@ -106,6 +106,51 @@ async fn a_picker_that_says_none_is_worth_one_answers_the_record_of_that() {
 }
 
 #[tokio::test]
+async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_none_with_why() {
+    // A change of tests and config alone, as slimfit answers it, and as it
+    // refuses one of examples (slimfit#77).
+    let refused = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\n INFO No mutants to filter", "fix": "f"}]}"#;
+    let cases = [r#"{"candidates": {"rust": []}, "next": "n"}"#, refused];
+    crate::fixture::each(&cases, |listing| async move {
+        let w = World::new();
+        w.checkout("web").await;
+        w.slimfit(GOAL, listing);
+        let picker = w.picker(Harness::ClaudeCode, "", &answered(PICKS));
+        w.app.kit_set(&[format!("claude-code={}", picker.program.display())]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let wk = crate::fixture::worker(&w.app).await;
+        w.commit(&worktree(&wk), "a_test.rs", "#[test]\nfn a() {}\n");
+        w.commit(&worktree(&wk), "slimfit.toml", "[check]\n");
+        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+
+        assert_eq!(answer["none"], "slimfit lists no candidates", "{answer}");
+        assert_eq!(answer["picker"], Value::Null, "nothing pretends a second agent judged it: {answer}");
+        assert_eq!(answer["author"], format!("claude-code:{}:default", id(&wk)));
+        let next = answer["next"].as_str().unwrap();
+        assert!(next.contains("slimfit ratchet;") && !next.contains("--picker"), "{next}");
+        assert_eq!(picker.asked(), Default::default(), "no session was started");
+        let kept = kept(&w).await;
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(kept[0]["text"], "pick-mutants: no picker asked; slimfit lists no candidates");
+
+        // Nothing more to record: the change lands, its gate green.
+        w.app.worker_done(id(&wk)).await.unwrap();
+        let tick = w.tick().await;
+        assert!(tick.landed.iter().any(|l| l["landed"] == "web#1"), "{tick:?}");
+    });
+}
+
+#[tokio::test]
+async fn a_listing_slimfit_refuses_otherwise_is_refused_and_no_picker_is_asked() {
+    let (w, wk, picker) = changed(None, "", PICKS).await;
+    w.slimfit(GOAL, r#"{"error": [{"fault": "no target found", "fix": "f"}]}"#);
+    refused(w.app.worker_pick_mutants(id(&wk)).await, "slimfit");
+    assert_eq!(picker.asked(), Default::default());
+    assert_eq!(kept(&w).await, Vec::<Value>::new());
+}
+
+#[tokio::test]
 async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused_and_nothing_is_kept() {
     let bad = |name: &str| format!(r#"{{"picks": [{{"name": "{name}", "why": "w"}}]}}"#);
     let six: Vec<String> = (0..6).map(|_| format!(r#"{{"name": "{KILLS}", "why": "w"}}"#)).collect();

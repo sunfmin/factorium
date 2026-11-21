@@ -432,8 +432,10 @@ impl Programs for FakeHost {
             }
             "slimfit" => {
                 let said = self.slimfit.lock().unwrap();
+                // A refusal is printed as slimfit prints one: `{"error": …}`, exit 2.
                 let out = said.get(&args.join(" ")).or_else(|| said.get(args[0])).cloned();
-                Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
+                let ok = out.as_ref().is_some_and(|o| !o.starts_with(r#"{"error""#));
+                Said { ok, out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
             "ps" => Said { ok: true, out: self.brew.lock().unwrap().ps.clone(), err: String::new() },
             "sleep" => {

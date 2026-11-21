@@ -252,3 +252,81 @@ stdin = """
 {"run": ["launchctl", "print", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
 {"run": ["launchctl", "bootout", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
 """
+
+# The heavy queue's design (SPEC §1 row 9), model-checked by TLC
+# (truefit ADR 0001): models/HeavyQueue.tla, one model checked under three
+# configs, each the smallest that still shows its properties fail on a
+# broken variant (`models/heavy.sh broken`), and each bounded in depth.
+# A scenario's run is checked as its trace (`models/heavy.sh trace`).
+[[model]]
+name = "heavy-starts"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyStarts.cfg"
+limit = 120
+commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+covers = [
+  { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
+  { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
+  { action = "Enqueue", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy, when the queue does not hold it)" },
+  { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start" },
+  { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, oldest, overdue" },
+  { action = "AtOnce", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
+  { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "next" },
+  { action = "LineAhead", file = "crates/domain/src/neutral/queue.rs", function = "next" },
+  { action = "Settled", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
+]
+
+[[model]]
+name = "heavy-ends"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyEnds.cfg"
+limit = 120
+commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+covers = [
+  { action = "NoteRun", file = "crates/domain/src/heavy.rs", function = "NoteRun" },
+  { action = "NoteRun", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::look_at (NoteRun)" },
+  { action = "Look", file = "crates/factorium/src/heavy.rs", function = "App::look_at" },
+  { action = "Look", file = "crates/domain/src/heavy.rs", function = "Queue::ends, Queue::overheld" },
+  { action = "Look", file = "crates/domain/src/neutral/queue.rs", function = "overheld" },
+  { action = "Done", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::heavy (EndHeavy), App::beside" },
+  { action = "Unqueue", file = "crates/factorium/src/owner.rs", function = "App::unqueue" },
+  { action = "Unqueue", file = "crates/domain/src/heavy.rs", function = "EndHeavy" },
+  { action = "NotCutShort", file = "crates/domain/src/heavy.rs", function = "Queue::ends" },
+  { action = "HeldEnded", file = "crates/factorium/src/heavy.rs", function = "App::look_at" },
+  { action = "UnqueuedRunAnswers", file = "crates/factorium/src/heavy.rs", function = "App::run_held" },
+]
+
+[[model]]
+name = "heavy-rules"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyRules.cfg"
+limit = 60
+commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+covers = [
+  { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
+  { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules, App::take_turn" },
+  { action = "StaleRefused", file = "crates/factorium/src/heavy.rs", function = "App::heavy (stale), App::as_installed" },
+  { action = "StaleRefused", file = "crates/domain/src/heavy.rs", function = "StartHeavy" },
+]
+
+# A scenario's run, as the queue records it (crates/factorium/tests/
+# scenarios/fixture/trace.rs): its constants are the scenario's, and its
+# own check is one step deep; the properties are the three above's.
+[[model]]
+name = "heavy-run"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyRun.cfg"
+limit = 60
+commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+covers = [
+  { action = "Next", file = "crates/domain/src/heavy.rs", function = "Heavy::evolve" },
+]
+
+# Each record's queue, in the model's units (500 ms); the waiters and the
+# last step are left free.
+[model.trace]
+q = '[i \in Ids |-> IF i > Len(r.state.q) THEN Absent ELSE LET e == r.state.q[i] IN [in |-> e.in, queued_at |-> e.queued_at \div 500, started_at |-> e.started_at \div 500, yields |-> e.yields, bound_at |-> e.bound_at \div 500, noted |-> e.noted]]'
+last_start = 'r.state.last_start \div 500'
+rules = 'r.state.rules'
+now = 'r.now \div 500'

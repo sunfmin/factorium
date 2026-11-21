@@ -362,7 +362,10 @@ depend on nothing else of factorium.
   that holds only its login. One that fails hands the pick to the next
   harness of the kit, the worker's own last, and the record names each
   that failed and why; when none is left the worker gets the last refusal,
-  never a pick (factorium#154). The second agent that judges a change's growth
+  never a pick (factorium#154). When slimfit lists no candidates (an
+  empty listing, or its refusal that the tool listed none, slimfit#77)
+  no picker is asked: it answers `none`, "slimfit lists no candidates",
+  with no picker, and the issue keeps that line (factorium#178). The second agent that judges a change's growth
   ([`slimfit help reviewer`](https://github.com/sunfmin/slimfit/blob/main/src/help/reviewer.md)):
   `factorium worker review-growth` asks one the same way, with the same
   fallback and bound, given only slimfit's goal and the diff; it answers
