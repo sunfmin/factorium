@@ -32,8 +32,8 @@ pub(crate) struct Gated {
     pub recorded: bool,
     /// The run, if it ran: `None` when the tree was green already.
     pub ran: Option<Ran>,
-    /// The file that keeps the run's whole output, or why it could not.
-    pub kept: Option<Result<PathBuf, String>>,
+    /// Where the run's whole output is kept, or why it is not: empty when it did not run.
+    pub kept: String,
 }
 
 /// How many gate runs' whole outputs a checkout keeps, the newest.
@@ -44,11 +44,7 @@ impl Gated {
     pub fn why(&self) -> String {
         let Some(ran) = &self.ran else { return String::new() };
         let tail = if ran.timed_out { format!("past its limit\n{}", ran.tail) } else { ran.tail.clone() };
-        match &self.kept {
-            Some(Ok(path)) => format!("{tail}\nwhole output: {}", path.display()),
-            Some(Err(e)) => format!("{tail}\nwhole output not kept: {e}"),
-            None => tail,
-        }
+        format!("{tail}\n{}", self.kept)
     }
 }
 
@@ -63,10 +59,10 @@ impl App {
         let tree = here.tree(rev).map_err(fail("git"))?;
         let recorded = !dirty;
         if recorded && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
-            return Ok(Some(Gated { green: true, tree, recorded, ran: None, kept: None }));
+            return Ok(Some(Gated { green: true, tree, recorded, ran: None, kept: String::new() }));
         }
         let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
-            return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: None }));
+            return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: String::new() }));
         };
         let steps = [cmd];
         let job = |what| Job::gate(what, &here.dir, &steps, limit);
@@ -94,7 +90,9 @@ impl App {
         }
         let commit = here.sha(rev).map(|sha| if dirty { format!("{sha}-dirty") } else { sha });
         let kept = commit.and_then(|commit| self.keep_output(checkout, kind, &commit, &ran.said));
-        Ok(Some(Gated { green: ran.ok, tree, recorded, ran: Some(ran), kept: Some(kept) }))
+        let kept =
+            kept.map_or_else(|e| format!("whole output not kept: {e}"), |p| format!("whole output: {}", p.display()));
+        Ok(Some(Gated { green: ran.ok, tree, recorded, ran: Some(ran), kept }))
     }
 
     /// Keeps `said`, the whole output of `checkout`'s `kind` gate on
