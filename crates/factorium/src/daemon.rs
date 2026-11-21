@@ -18,7 +18,12 @@ use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::lock::{self, Taken};
 use crate::{Answer, App, LineClone, Refusal};
+
+/// The descriptor a daemon hands the binary it runs in its place, open on
+/// its pid file, whose lock it holds.
+const LOCK_FD: &str = "FACTORIUM_DAEMON_LOCK_FD";
 
 /// What one tick did.
 #[derive(Debug, Default, Serialize)]
@@ -246,16 +251,25 @@ impl App {
 
     /// `factorium run`: ticks until `stop` is set (on SIGTERM or SIGINT, as
     /// `stop` and launchd send), then ends in order: the tick in progress
-    /// finishes, idle work ends, the pid file goes. One daemon runs: another
-    /// that is alive is refused.
+    /// finishes, idle work ends, the pid file goes. One daemon runs per
+    /// database: it holds a lock on the pid file for its life, and another
+    /// is refused while it does, whatever the file says.
     pub async fn run(&self, stop: &std::sync::atomic::AtomicBool) -> Answer {
         let pid = self.data().pid();
-        if let Some(n) = self.daemon_pid()
-            && n != std::process::id()
-        {
-            return Err(Refusal::new("running", format!("a daemon runs already, as pid {n}")));
-        }
-        std::fs::write(&pid, std::process::id().to_string()).map_err(|e| Refusal::new("io", e.to_string()))?;
+        let me = std::process::id().to_string();
+        // Held already if this process ran a newly installed binary as the
+        // same pid: the lock came through the exec.
+        let handed = std::env::var(LOCK_FD).ok().and_then(|fd| fd.parse().ok());
+        let inherited = handed.and_then(|fd| crate::host::procs::inherited(fd, &pid)).filter(|f| f.try_lock().is_ok());
+        let held = match inherited.map_or_else(|| lock::take(&pid, &me), Ok) {
+            Ok(held) => held,
+            Err(Taken::Held(said)) => {
+                let who = said.trim().parse::<u32>().ok().filter(|n| *n != 0 && self.host.alive(*n));
+                let why = who.map_or_else(|| format!("a daemon holds {}", pid.display()), |n| format!("as pid {n}"));
+                return Err(Refusal::new("running", format!("a daemon runs already, {why}")));
+            }
+            Err(Taken::Fails(e)) => return Err(Refusal::new("io", e)),
+        };
         let _ = self.linked();
         // A database this binary cannot use fails its ticks, which may go
         // back to the kept binary; their looks reach the watch outside the store.
@@ -276,13 +290,13 @@ impl App {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
-                        self.exec(binary.as_ref()).await;
+                        self.exec(binary.as_ref(), &held).await;
                     }
                 }
                 Err(e) => {
                     eprintln!("tick: {e}");
                     if let Some(kept) = self.fallback() {
-                        self.exec(&kept).await;
+                        self.exec(&kept, &held).await;
                     }
                 }
             }
@@ -304,11 +318,17 @@ impl App {
     }
 
     /// Runs `binary` in place of this one, between ticks, as the same pid:
-    /// the pid file stays right. Answers only if it cannot.
-    async fn exec(&self, binary: &std::path::Path) {
+    /// the pid file stays right, and its lock stays held. Answers only if it cannot.
+    async fn exec(&self, binary: &std::path::Path, held: &std::fs::File) {
         use std::os::unix::process::CommandExt;
+        let fd = match crate::host::procs::kept_across_exec(held, true) {
+            Ok(fd) => fd,
+            Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
+        };
         let _ = self.beside(false, true).await;
-        let e = std::process::Command::new(binary).args(std::env::args_os().skip(1)).exec();
+        let e =
+            std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
+        let _ = crate::host::procs::kept_across_exec(held, false);
         eprintln!("restart as {}: {e}", binary.display());
     }
 
@@ -330,7 +350,11 @@ impl App {
             let _ = std::process::Command::new("kill").arg(n.to_string()).status();
             json!({ "stopped": true, "pid": n })
         } else {
-            let _ = std::fs::remove_file(self.data().pid());
+            // Only once its lock is ours: a daemon that has it and has not
+            // yet written its pid keeps its file.
+            if let Ok(_held) = lock::take(&self.data().pid(), "") {
+                let _ = std::fs::remove_file(self.data().pid());
+            }
             json!({ "stopped": false, "why": "no daemon runs" })
         };
         answer["watch_closed"] = json!(self.close_watch_session().await?);
