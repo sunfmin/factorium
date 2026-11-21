@@ -12,7 +12,7 @@ use std::path::Path;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::doctor::Stuck;
-use factorium_domain::line::{self, Due, Lines, Move};
+use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::settings::Setting;
@@ -87,6 +87,11 @@ impl App {
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
         let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);
         match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
+            // A failed cut whose steps hold now is made, without a new cut.
+            Err(NotDue::CutFailed { version, why }) => match self.cut_read_back(c, &version).await? {
+                Some(did) => Ok(Ok(did)),
+                None => Ok(Err(line::why(NotDue::CutFailed { version, why }))),
+            },
             Err(not) => Ok(Err(line::why(not))),
             Ok(Due::Land(worker)) => self.land(c, worker).await,
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,

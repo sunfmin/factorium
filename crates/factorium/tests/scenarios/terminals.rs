@@ -220,3 +220,27 @@ async fn a_watch_terminal_left_open_by_stop_is_named_by_doctor() {
     assert_eq!(named[0].0, first);
     assert!(named[0].1.contains("factorium watch"), "{named:?}");
 }
+
+#[tokio::test]
+async fn a_landed_worker_whose_issue_close_the_store_refused_has_it_closed_on_the_next_tick() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    let wk = worker(&w.app).await;
+    let tree = std::path::PathBuf::from(wk["worktree"].as_str().unwrap());
+    w.done(&wk, "a", "x").await;
+    // The worker is recorded landed; its issue's close is not, as if the daemon died there.
+    w.disk_refuses("IssueClosed", true);
+    assert!(w.app.tick().await.is_err(), "the tick stops at the close");
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((&issue["status"], &issue["worker"]), (&json!("ready"), &wk["worker"]), "open, held: {issue}");
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "the worker ended landed");
+
+    w.disk_refuses("IssueClosed", false);
+    let t = w.app.tick().await.expect("the next tick closes it");
+    assert_eq!(t.closed, vec![json!({ "closed": "web#1", "commit": t.closed[0]["commit"] })], "{:?}", t.closed);
+    assert!(t.closed[0]["commit"].is_string());
+    assert!(t.landed.is_empty(), "not landed again: {:?}", t.landed);
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed");
+    assert!(!tree.exists(), "and its worktree goes, as a landed worker's does");
+    assert!(w.app.tick().await.unwrap().closed.is_empty(), "once");
+}

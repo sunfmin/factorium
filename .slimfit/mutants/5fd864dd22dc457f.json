@@ -1,0 +1,6 @@
+{
+  "tree": "90980d3ec5dfeee184f8a1b902a77b4dd29c826a+d1fba762150c532c",
+  "picker": "claude-code-subagent:a4f91796a0040faa3:claude-opus-5-5",
+  "author": "claude-code:0871aff1-0506-5e28-8c62-c744fe208621:opus",
+  "none": "slimfit lists no candidates: cargo-mutants does not mutate inside the command! macro, where all the added lines sit; the scenarios and answers::a_landing_recorded_already_records_nothing_wherever_the_line_holds_it pin each branch"
+}

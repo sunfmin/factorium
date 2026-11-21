@@ -49,6 +49,24 @@ impl World {
         clone
     }
 
+    /// The next push to repo `name`'s remote takes effect and its answer is
+    /// lost: the remote ends its side once the refs are updated, before it
+    /// reports them, as a dropped connection does.
+    pub fn lose_next_push(&self, name: &str) {
+        let remote = self.dir.join("remotes").join(format!("{name}.git"));
+        let hook = remote.join("hooks/reference-transaction");
+        let lose = remote.join("lose");
+        std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        std::fs::write(&lose, "").unwrap();
+        let script = format!(
+            "#!/bin/sh\n[ \"$1\" = committed ] && [ -f '{l}' ] && {{ rm -f '{l}'; kill -9 $PPID; }}\nexit 0\n",
+            l = lose.display()
+        );
+        std::fs::write(&hook, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     /// Workers on #1 and #2 of `web`, neither ever silent: the checkout is
     /// never idle.
     pub async fn two_at_work(&self) {

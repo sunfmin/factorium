@@ -263,7 +263,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
+commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -281,7 +281,7 @@ name = "heavy-ends"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyEnds.cfg"
 limit = 120
-commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
+commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
 covers = [
   { action = "NoteRun", file = "crates/domain/src/heavy.rs", function = "NoteRun" },
   { action = "NoteRun", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::look_at (NoteRun)" },
@@ -303,12 +303,17 @@ name = "heavy-rules"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRules.cfg"
 limit = 60
-commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
+commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
 covers = [
   { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules, App::take_turn" },
   { action = "StaleRefused", file = "crates/factorium/src/heavy.rs", function = "App::heavy (stale), App::as_installed" },
   { action = "StaleRefused", file = "crates/domain/src/heavy.rs", function = "StartHeavy" },
+  { action = "GivesUp", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (End keeps)" },
+  { action = "GivesUp", file = "crates/domain/src/heavy.rs", function = "EndHeavy, Heavy::evolve (HeavyEnded)" },
+  { action = "Rejoin", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy keep)" },
+  { action = "Rejoin", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy, Queue::place, Heavy::evolve (HeavyQueued)" },
+  { action = "KeptPlace", file = "crates/domain/src/heavy.rs", function = "Queue::place" },
 ]
 
 # A scenario's run, as the queue records it (crates/factorium/tests/
@@ -319,7 +324,7 @@ name = "heavy-run"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRun.cfg"
 limit = 60
-commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
+commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
 covers = [
   { action = "Next", file = "crates/domain/src/heavy.rs", function = "Heavy::evolve" },
 ]
@@ -331,3 +336,142 @@ q = '[i \in Ids |-> IF i > Len(r.state.q) THEN Absent ELSE LET e == r.state.q[i]
 last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
+
+# A checkout's line (SPEC §1.12-1.14, §2), model-checked by TLC:
+# models/Line.tla under its configs, each the smallest that still shows its
+# properties fail on a broken variant (`models/line.sh broken`); what the
+# code breaks is `models/line.sh finding`. A scenario's run is checked as
+# its trace (`models/line.sh trace`).
+[[model]]
+name = "line"
+spec = "models/Line.tla"
+config = "models/Line.cfg"
+limit = 60
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+covers = [
+  { action = "Done", file = "crates/domain/src/worker.rs", function = "AskLanding" },
+  { action = "LandRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::carry, App::land (fetch, fresh, merge_from)" },
+  { action = "LandRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::due, Line::landing" },
+  { action = "LandRead", file = "crates/domain/src/line.rs", function = "look" },
+  { action = "LandGate", file = "crates/factorium/src/gate.rs", function = "App::gate (Kind::Fast)" },
+  { action = "LandGate", file = "crates/factorium/src/line.rs", function = "App::land (red), App::red" },
+  { action = "LandPush", file = "crates/factorium/src/line.rs", function = "App::land (push_requiring)" },
+  { action = "LandPush", file = "crates/host/src/git.rs", function = "Git::push_requiring" },
+  { action = "LandRecord", file = "crates/domain/src/line.rs", function = "RecordLanding" },
+  { action = "LandEnd", file = "crates/factorium/src/life.rs", function = "App::end_worker, App::finish (GreenLanding)" },
+  { action = "LandClose", file = "crates/factorium/src/life.rs", function = "App::finish (CloseIssue)" },
+  { action = "PromRead", file = "crates/factorium/src/line.rs", function = "App::carry, App::promote_tip (Running::take, fetch base), App::promote" },
+  { action = "PromRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::promotable, Line::on_tip" },
+  { action = "PromGate", file = "crates/factorium/src/line.rs", function = "App::promote_tip (slow gate, red)" },
+  { action = "PromPush", file = "crates/factorium/src/line.rs", function = "App::promote_tip (behind, push_requiring)" },
+  { action = "PromPush", file = "crates/domain/src/line.rs", function = "Promotion::red" },
+  { action = "PromRecord", file = "crates/domain/src/line.rs", function = "Promote" },
+  { action = "PromRecord", file = "crates/domain/src/neutral/landing.rs", function = "Line::apply (Promoted)" },
+  { action = "CutRead", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base (fetch base)" },
+  { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
+  { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
+  { action = "CutMake", file = "crates/domain/src/line.rs", function = "RecordCut" },
+  { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::run, App::tick" },
+  { action = "OneAtATime", file = "crates/factorium/src/daemon.rs", function = "App::run (pid file)" },
+]
+
+[[model]]
+name = "line-live"
+spec = "models/Line.tla"
+config = "models/LineLive.cfg"
+limit = 60
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+covers = [
+  { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
+  { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
+  { action = "LandedCloses", file = "crates/domain/src/line.rs", function = "RecordLanding" },
+]
+
+# The code's two steps for a worker's end, between which a daemon may die:
+# the next tick closes the issue its landed worker holds.
+[[model]]
+name = "line-end"
+spec = "models/Line.tla"
+config = "models/LineEnd.cfg"
+limit = 60
+commit = "0f6ce74b1da900b78019d5f4f3d60b25bf3bc1c4"
+covers = [
+  { action = "LandSweep", file = "crates/factorium/src/life.rs", function = "App::close_landed" },
+]
+
+# A scenario's run, as the line records it (crates/factorium/tests/
+# scenarios/fixture/line_trace.rs): one worker, the code's two steps for
+# its end; its own check is one step deep.
+[[model]]
+name = "line-run"
+spec = "models/Line.tla"
+config = "models/LineRun.cfg"
+limit = 60
+commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+covers = [
+  { action = "Next", file = "crates/factorium/src/line.rs", function = "App::land, App::promote_tip, App::cut_base" },
+]
+
+[model.trace]
+status = '[w \in Workers |-> r.state.status[w]]'
+asks = 'r.state.asks'
+closed = '{r.state.closed[i] : i \in DOMAIN r.state.closed}'
+unpromoted = 'r.state.unpromoted'
+uncut = 'r.state.uncut'
+promoted = 'r.state.promoted'
+red = 'r.state.red'
+
+# An issue's worktrees and attempts (SPEC §2 steps 3 and 6), model-checked
+# by TLC: models/Worktrees.tla, under the gate's config, in full (every
+# state it reaches). Its properties each fail on a broken variant
+# (`models/worktrees.sh broken`). Two configs the code does not yet hold
+# are findings, not in the gate (`models/worktrees.sh finding`): a CLI
+# command racing a tick's start (WorktreesRace.cfg), and the daemon dying
+# mid-start (WorktreesDeath.cfg).
+[[model]]
+name = "worktrees"
+spec = "models/Worktrees.tla"
+config = "models/Worktrees.cfg"
+limit = 60
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
+covers = [
+  { action = "Take", file = "crates/factorium/src/life.rs", function = "App::start_worker (fetch, TakeIssue)" },
+  { action = "Take", file = "crates/domain/src/issue.rs", function = "TakeIssue" },
+  { action = "Decide", file = "crates/factorium/src/kept.rs", function = "App::next_worktree, App::kept, App::last_started, holds_own" },
+  { action = "Record", file = "crates/factorium/src/life.rs", function = "App::open_worker, App::begin (StartWorker)" },
+  { action = "Undo", file = "crates/factorium/src/life.rs", function = "App::undo_start, App::finish" },
+  { action = "Undo", file = "crates/factorium/src/kept.rs", function = "App::release_worker, tip, holds_own" },
+  { action = "Ends", file = "crates/factorium/src/issues.rs", function = "App::issue_wait_for_human, App::leave" },
+  { action = "Ends", file = "crates/factorium/src/watch.rs", function = "App::restart (its session gone)" },
+  { action = "Ready", file = "crates/factorium/src/issues.rs", function = "App::issue_ready" },
+  { action = "Land", file = "crates/factorium/src/line.rs", function = "App::land" },
+  { action = "Release", file = "crates/factorium/src/life.rs", function = "App::finish (End::Landed)" },
+  { action = "Release", file = "crates/factorium/src/kept.rs", function = "App::release_worker" },
+  { action = "Over", file = "crates/factorium/src/issues.rs", function = "App::issue_start_over" },
+  { action = "Over", file = "crates/factorium/src/kept.rs", function = "App::kept_now" },
+  { action = "Close", file = "crates/factorium/src/issues.rs", function = "App::issue_close" },
+  { action = "Close", file = "crates/factorium/src/kept.rs", function = "App::left" },
+  { action = "ShutStep", file = "crates/factorium/src/issues.rs", function = "App::close" },
+  { action = "Discard", file = "crates/factorium/src/kept.rs", function = "App::discard_orphaned, App::orphaned" },
+  { action = "Abandon", file = "crates/factorium/src/kept.rs", function = "App::abandon, App::remove_worktree" },
+  { action = "DoctorFinds", file = "crates/factorium/src/kept.rs", function = "App::orphaned" },
+  { action = "DoctorFinds", file = "crates/factorium/src/doctor.rs", function = "App::doctor (orphaned)" },
+]
+
+# A scenario's run, as kept_trace.rs records it (crates/factorium/tests/
+# scenarios/fixture/kept_trace.rs): each record one whole tick, command
+# or worker's step (TraceNext); the properties are worktrees'.
+[[model]]
+name = "worktrees-run"
+spec = "models/Worktrees.tla"
+config = "models/WorktreesRun.cfg"
+limit = 60
+next = "TraceNext"
+commit = "5ebf183a106a25a3b19d064b4944082d30d46acd"
+covers = [
+  { action = "TraceNext", file = "crates/factorium/tests/scenarios/fixture/kept_trace.rs", function = "KeptTrace::state" },
+]
+
+# Each record's state as the model's, its processes idle between steps.
+[model.trace]
+s = '[status |-> r.state.status, taken |-> r.state.taken, attempts |-> r.state.attempts, started |-> [a \in Attempts |-> r.state.started[a]], live |-> [a \in Attempts |-> r.state.live[a]], disk |-> [t \in Trees |-> r.state.disk[t]], dirty |-> [t \in Trees |-> Set(r.state.dirty[t])], hasbr |-> [t \in Trees |-> r.state.hasbr[t]], br |-> [t \in Trees |-> Set(r.state.br[t])], kept |-> [t \in Trees |-> Set(r.state.kept[t])], proving |-> Set(r.state.proving), tipok |-> r.state.tipok, made |-> Set(r.state.made), pc |-> [p \in Procs |-> Idle]]'

@@ -188,11 +188,17 @@ impl App {
                 } else if issue.status == Status::Closed {
                     format!("{name} is closed")
                 } else {
-                    let Some(last) = self.last_started(&issue).await? else { continue };
-                    if branch.as_deref() == Some(last.branch.as_str()) || attempt > last.attempt {
+                    // Owned: the last started attempt's own worktree, whatever
+                    // attempt its branch names; the attempt's whose worker
+                    // holds the issue (the newest), still starting.
+                    let last = self.last_started(&issue).await?;
+                    if last.as_ref().is_some_and(|l| branch.as_deref() == Some(l.branch.as_str()))
+                        || issue.worker == Some(worker_id(&c.name, number, attempt))
+                    {
                         continue;
                     }
-                    format!("attempt {attempt} is older than {name}'s last, {}", last.attempt)
+                    let last = last.map_or("none".to_string(), |l| l.attempt.to_string());
+                    format!("attempt {attempt} is neither {name}'s last started ({last}) nor starting")
                 };
                 let (checkout, path, branch) = (c.name.clone(), path.display().to_string(), branch.unwrap_or_default());
                 let kept = abandoned(&branch);

@@ -31,7 +31,6 @@ impl Brew<'_> {
             }
             self.brew(&["upgrade", formula])
         };
-        let has = || self.brew(&["list", "--versions", formula]).unwrap_or_default();
         // `brew update` may see the tap seconds before its new formula; then
         // the upgrade has nothing to do and succeeds. Wait, backing off, up
         // to a bound before it fails.
@@ -51,14 +50,24 @@ impl Brew<'_> {
                     said?
                 }
             };
-            if names(&has(), version) {
+            if self.has(formula, version) {
                 return Ok(said);
             }
         }
         match locked {
             Some(e) => Err(format!("{e} (still locked after {waited}s{})", self.holder(formula))),
-            None => Err(stale(formula, version, &has(), waited)),
+            None => Err(stale(formula, version, &self.listed(formula), waited)),
         }
+    }
+
+    /// Whether Homebrew has `version` (a tag such as `v0.1.1`) of `formula`
+    /// installed, whoever installed it.
+    pub fn has(&self, formula: &str, version: &str) -> bool {
+        names(&self.listed(formula), version)
+    }
+
+    fn listed(&self, formula: &str) -> String {
+        self.brew(&["list", "--versions", formula]).unwrap_or_default()
     }
 
     /// `; held by <pid command>` for each brew process `ps` finds on

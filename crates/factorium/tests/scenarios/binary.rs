@@ -493,6 +493,68 @@ fn a_heavy_command_whose_process_died_holds_nothing_up() {
     assert!(ended.is_some_and(|s| s.success()), "the dead one's entry held it up");
 }
 
+/// factorium#193: a waiter that gives up (killed while it waits, as a
+/// harness ends a command past its timeout) and asks again within the keep
+/// bound takes back the place it had, ahead of one queued after its first ask.
+#[test]
+fn a_waiter_that_gave_up_and_asks_again_starts_before_one_queued_after_it() {
+    let dir = Dir::new();
+    // No reading ever has room: one starts only when nothing runs, oldest first.
+    assert!(run(&dir, &["settings", "memory_free_min", "100"]).0);
+    sh(&dir.0, "mkfifo go");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let db = rusqlite::Connection::open_with_flags(
+        dir.0.join("data/factorium/factorium.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let until_queued = |n: i64| {
+        let queued = "SELECT count(*) FROM events WHERE kind = 'HeavyQueued'";
+        while db.query_row(queued, [], |r| r.get::<_, i64>(0)).unwrap() < n {
+            assert!(std::time::Instant::now() < deadline, "{n} never queued");
+            std::thread::sleep(crate::fixture::LOOK);
+        }
+    };
+    let ask = |line: &str| {
+        let mut cmd = bin(&dir);
+        cmd.args(["heavy", "run", "--", "sh", "-c", line]).current_dir(&dir.0).stdout(Stdio::null());
+        cmd.spawn().unwrap()
+    };
+    // It holds the queue until the fifo is written.
+    let mut held = ask("perl -e 'alarm 20; open my $f, \">\", \"running\"; exec @ARGV' cat go");
+    while !dir.0.join("running").exists() {
+        assert!(std::time::Instant::now() < deadline, "the first never ran");
+        std::thread::sleep(crate::fixture::LOOK);
+    }
+    let mut gave_up = ask("echo first >> log");
+    until_queued(2);
+    let mut after = ask("echo after >> log");
+    until_queued(3);
+    gave_up.kill().unwrap();
+    gave_up.wait().unwrap();
+    let mut again = ask("echo first >> log");
+    until_queued(4);
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NONBLOCK: fails until `cat` has the fifo open for reading.
+        let open = || std::fs::OpenOptions::new().write(true).custom_flags(0x0004).open(dir.0.join("go"));
+        while open().is_err() {
+            assert!(std::time::Instant::now() < deadline, "the first never read the fifo");
+            std::thread::sleep(crate::fixture::LOOK);
+        }
+    }
+    for child in [&mut held, &mut again, &mut after] {
+        while child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() > deadline {
+                child.kill().unwrap();
+            }
+            std::thread::sleep(crate::fixture::LOOK);
+        }
+    }
+    let log = std::fs::read_to_string(dir.0.join("log")).unwrap_or_default();
+    assert_eq!(log, "first\nafter\n", "asked again, it starts before the one queued after its first ask");
+}
+
 /// Starts the daemon on `dir`, its `ps` one that counts: each tick reads the
 /// host's processes through it.
 fn ticking(dir: &Dir) -> std::process::Child {
