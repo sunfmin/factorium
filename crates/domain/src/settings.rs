@@ -134,7 +134,7 @@ impl Setting {
             S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),
             S::Time(T::TickEvery) => ("tick_every", 10, Seconds, "the daemon ticks this often"),
             S::Time(T::HeavySettle) => ("heavy_settle", 30, Seconds, "a heavy command starts beside another only on a reading taken this long after the last start"),
-            S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's mutant picker (`worker pick-mutants`) is ended, red, past this"),
+            S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this"),
         }
     }
 

@@ -14,6 +14,9 @@ Your brief (the file you were handed) says what the issue is.
 - A change's mutants are picked by a second agent, never you (`slimfit help
   picker`): `factorium worker pick-mutants` starts it and answers the picks
   and the commands that run and record them.
+- A change past slimfit's growth allowance is judged by a second agent,
+  never you (`slimfit help reviewer`): `factorium worker review-growth`
+  starts it and answers its verdict and the command that records it.
 - When the work is committed and the gate is green, run
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told

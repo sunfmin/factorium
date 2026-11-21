@@ -99,7 +99,7 @@ impl World {
     /// its `check --mutants`.
     pub fn slimfit(&self, goal: &str, listing: &str) {
         let mut said = self.host.slimfit.lock().unwrap();
-        said.insert("help".into(), goal.into());
+        said.insert("help picker".into(), goal.into());
         said.insert("check".into(), listing.into());
     }
 

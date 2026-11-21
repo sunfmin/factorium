@@ -331,7 +331,8 @@ pub struct FakeHost {
     pub reading_procs: Mutex<Option<Box<dyn Fn() + Send>>>,
     /// mytokens: service → what `get --json` prints.
     pub tokens: Mutex<BTreeMap<String, String>>,
-    /// slimfit: its subcommand → what it prints (`help picker`, `check --mutants`).
+    /// slimfit: its whole command line, else its subcommand → what it prints
+    /// (`help picker`, `help reviewer`, `check`).
     pub slimfit: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
@@ -401,7 +402,8 @@ impl Programs for FakeHost {
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
             }
             "slimfit" => {
-                let out = self.slimfit.lock().unwrap().get(args[0]).cloned();
+                let said = self.slimfit.lock().unwrap();
+                let out = said.get(&args.join(" ")).or_else(|| said.get(args[0])).cloned();
                 Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
             "sleep" => {
