@@ -247,9 +247,10 @@ async fn a_cut_waits_for_a_homebrew_lock_another_brew_holds() {
 async fn a_cut_whose_version_the_lock_holder_installs_is_made() {
     let w = World::new();
     w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    let mut brew = w.host.brew.lock().unwrap();
-    (brew.locked, brew.holder_installs) = (1, true);
-    drop(brew);
+    {
+        let mut brew = w.host.brew.lock().unwrap();
+        (brew.locked, brew.holder_installs) = (1, true);
+    }
     let t = cut_one(&w).await;
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
     assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.1.0");
@@ -262,10 +263,11 @@ async fn a_cut_whose_version_the_lock_holder_installs_is_made() {
 async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder() {
     let w = World::new();
     w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    let mut brew = w.host.brew.lock().unwrap();
-    brew.locked = u32::MAX;
-    brew.ps = "  101 /usr/sbin/sshd\n 4242 /h/homebrew/Library/Homebrew/vendor/ruby/bin/ruby brew.rb upgrade sunfmin/tap/web\n".into();
-    drop(brew);
+    {
+        let mut brew = w.host.brew.lock().unwrap();
+        brew.locked = u32::MAX;
+        brew.ps = "  101 /usr/sbin/sshd\n 4242 /h/homebrew/Library/Homebrew/vendor/ruby/bin/ruby brew.rb upgrade sunfmin/tap/web\n".into();
+    }
     let t = cut_one(&w).await;
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
     let why = cut["failed"].as_str().expect("the cut fails");
