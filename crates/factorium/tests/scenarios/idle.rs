@@ -315,9 +315,11 @@ async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
     w.app.issue_close("web", 4, "deepened").await.unwrap();
     assert_eq!(files(&w).await, json!([]), "a task closed this week is not filed again");
-    // a.rs closed with #1, four minutes before that run, and each run is two
-    // minutes on: this one is a week to the minute after that close.
-    w.advance(7 * 24 * 60 - 6);
+    w.advance(24 * 60);
+    assert_eq!(files(&w).await, json!([]), "nor a day on");
+    // a.rs closed with #1 a day and six minutes before that run, and each run
+    // is two minutes on: this one is a week to the minute after that close.
+    w.advance(6 * 24 * 60 - 8);
     assert_eq!(files(&w).await, json!([5]), "a week on, it is");
 
     std::fs::write(&answer, "no tasks").unwrap();
