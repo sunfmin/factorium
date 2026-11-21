@@ -78,6 +78,14 @@
       "commits_90d": 40,
       "commits_total": 40,
       "reason": "The tick is the composition root: pass() orders every step that moves without a command (idle, lines, bumps, worker health, one admitted start, resume, watch look, swap), and each step's rules already live behind deeper modules (line.rs via lines(), load.rs, swap.rs, issues.rs blockers, domain admission/bump/worker). Its interface is small: tick/run/stop/daemon_start, and scenarios test through tick() only. Churn is features adding one step each, which belong in the pass's order here; daemon.rs was already deepened by factorium#93 (lines) and #134 (swap). Moving bumps/next_issue/resume_parked out would only relocate one-call private helpers, not add depth."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/heavy.rs",
+      "prod_lines": 293,
+      "commits_90d": 33,
+      "commits_total": 33,
+      "reason": "Deep already: callers (gate.rs, line/cut.rs, idle.rs, daemon.rs) use one entry, heavy(Job, Turn), plus Job's per-kind constructors and the tick hooks asking_once/beside/adopt_queued/note_rules; behind it sit queueing, place-keeping, stale-rules exec, dead-pid cleanup, session noting, hold-bound and give-way ending. Deletion test: removing it would spread that protocol over its four callers. Rules already live in factorium_domain::heavy; no unit tests reach past the interface (covered by queue/admission scenarios). Churn is feature work on the queue (factorium#193/#194), not interface friction. factorium#206"
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",

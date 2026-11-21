@@ -1,0 +1,49 @@
+{
+  "tip": "8a6aca38b5777ba39ed26901dd110d617ba490dc",
+  "from": "e6070f8e7e3216cd5a830599df5e3b689b1ad12f",
+  "pool": 899,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/domain/src/heavy.rs:182:76: replace && with || in Queue::place",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/idle.rs:42:9: replace App::idle_check -> Answer<Option<Value>> with Answer::new(Some(Default::default()))",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/life.rs:80:9: replace App::free_unstarted -> Answer<Vec<serde_json::Value>> with Answer::from_iter([vec![]])",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:259:37: replace || with && in App::beside",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/doctor.rs:17:9: replace App::seen -> Answer<doctor::Seen> with Answer::new(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/session/health.rs:34:9: replace App::worker_health -> Answer<Option<Value>> with Answer::new()",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/harness/src/ask.rs:72:9: replace Harness::asks -> bool with true",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:168:9: replace App::next_issue -> Answer<Option<(String, u64)>> with Answer::new(Some((\"xyzzy\".into(), 1)))",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/task.rs:89:56: replace + with * in answers",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/harness/src/ask.rs:133:9: replace Harness::asked_stand_in -> Option<String> with Some(String::new())",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
