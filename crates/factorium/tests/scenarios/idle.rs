@@ -287,10 +287,12 @@ async fn files(w: &World) -> Value {
 async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     let w = World::new();
     let answer = finds_tasks(&w).await;
-    // slimfit's answer, then one that names what read it (`./lines.sh --tasks`, SPEC §5).
+    // slimfit's answer, then, after a line of its own (as `truefit --version`
+    // prints before `truefit next --all`), one that names what read it
+    // (`./lines.sh --tasks`, SPEC §5).
     let lines = json!({ "by": "lines.sh", "tasks": [{ "kind": "crate-lines", "files": ["c/a.rs"], "summary": "crates/c: rose" }] });
     let said = next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")]);
-    std::fs::write(&answer, format!("{said}\n{lines}\n")).unwrap();
+    std::fs::write(&answer, format!("{said}\ntruefit 0.1.5\n{lines}\n")).unwrap();
     assert_eq!(files(&w).await, json!([1, 2, 3]), "one of each kind, of each answer");
     let crate_lines = w.app.issue_show("web", 3).await.unwrap();
     assert_eq!(crate_lines["title"], "lines.sh crate-lines: crates/c: rose");
