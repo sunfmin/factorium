@@ -1,0 +1,6 @@
+{
+  "tree": "e0bb0181d071530a89780fe1b03c5aa9d1a88afe+d1fba762150c532c",
+  "picker": "codex:01a1fb9f-0f24-76f2-8101-5480e2a167a1:default",
+  "author": "claude-code:af4528a0-3255-5a76-b864-a4ceb2c5674a:opus",
+  "none": "The only candidate specific to worker filing replaces its Result with Default::default(), which cannot compile."
+}
