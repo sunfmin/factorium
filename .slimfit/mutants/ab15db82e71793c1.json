@@ -1,0 +1,6 @@
+{
+  "tree": "c21af98cd0643e596a759a04b63dc76e19a4d2ff+d1fba762150c532c",
+  "picker": "codex:01a1fd8c-4282-7602-9d0e-1bf3a9b43c09:default",
+  "author": "claude-code:2cf5ffc6-072b-5f28-9401-78849f500736:opus",
+  "none": "Deleting `!` flips the worktree cleanup flag, which the new scenario checks directly, and the whole-body replacements either fail to build or bypass behavior that scenario requires."
+}
