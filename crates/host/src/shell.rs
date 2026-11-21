@@ -16,6 +16,8 @@ pub struct Ran {
     pub code: Option<i32>,
     /// The last lines it printed, both streams interleaved.
     pub tail: String,
+    /// Everything it printed, as `tail` is of it.
+    pub said: String,
     pub took_ms: u64,
     /// It ran past its limit and was ended.
     pub timed_out: bool,
@@ -116,7 +118,8 @@ pub fn run(
     }
     let _ = std::fs::remove_file(&log);
     let code = status.and_then(|s| s.code());
-    Ran { ok: !ended && code == Some(0), code, tail: tail(&said), took_ms: at.elapsed().as_millis() as u64, timed_out }
+    let took_ms = at.elapsed().as_millis() as u64;
+    Ran { ok: !ended && code == Some(0), code, tail: tail(&said), said, took_ms, timed_out }
 }
 
 /// Starts `cmd` as the leader of a new session (and so of a new process
@@ -132,7 +135,7 @@ fn in_own_session(cmd: &mut Command) {
 }
 
 fn failed(why: String) -> Ran {
-    Ran { ok: false, code: None, tail: why, took_ms: 0, timed_out: false }
+    Ran { ok: false, code: None, tail: why.clone(), said: why, took_ms: 0, timed_out: false }
 }
 
 /// The last lines of `said`.

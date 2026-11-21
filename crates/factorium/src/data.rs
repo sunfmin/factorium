@@ -133,6 +133,12 @@ impl Data {
         self.0.join("proofs").join(id.to_string()).join("factorium.db")
     }
 
+    /// The whole outputs of `checkout`'s gate runs, one file each, named
+    /// so that their names sort oldest first.
+    pub fn gate_outputs(&self, checkout: &str) -> PathBuf {
+        self.0.join("gates").join(checkout)
+    }
+
     /// What the daemon prints, as the service keeps it.
     pub fn log(&self) -> PathBuf {
         self.0.join("daemon.log")

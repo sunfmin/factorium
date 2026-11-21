@@ -55,6 +55,35 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
 }
 
+/// Seen 2026-11-22 (factorium#202): a red slow gate's finding carried only
+/// its tail, and what named the failing seed was above it.
+#[tokio::test]
+async fn a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones_go() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    let outputs = w.data().gate_outputs("web");
+    std::fs::create_dir_all(&outputs).unwrap();
+    let old: Vec<_> = (0..25).map(|n| outputs.join(format!("{n:013}-slow-old.log"))).collect();
+    for o in &old {
+        std::fs::write(o, "old\n").unwrap();
+    }
+    let toml = "[gate]\nfast = \"true\"\nslow = \"echo the first line; seq 2 200; exit 1\"\n";
+    w.done(&worker(&w.app).await, "factorium.toml", toml).await;
+    let t = w.tick().await;
+    let red = t.lines.iter().find(|l| l["promotion"] == "web").expect("a promotion ran")["red"].clone();
+    let red = red.as_str().unwrap();
+    assert!(!red.contains("the first line"), "past the tail: {red}");
+    let doctor = w.app.doctor().await.unwrap();
+    let what = findings(&doctor)[0]["what"].as_str().unwrap().to_string();
+    let path = what.rsplit_once("whole output: ").expect("names the file").1.trim();
+    let whole = std::fs::read_to_string(path).unwrap();
+    assert!(whole.starts_with("the first line\n2\n") && whole.ends_with("200\n"), "{whole}");
+    let left = std::fs::read_dir(&outputs).unwrap().count();
+    assert_eq!(left, 20, "the newest 20 are kept");
+    // The landing's fast gate and the promotion's slow gate are the newest two.
+    assert!(!old[6].exists() && old[7].exists(), "the oldest go first");
+}
+
 #[tokio::test]
 async fn promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own() {
     let w = World::new();

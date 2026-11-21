@@ -1,0 +1,6 @@
+{
+  "tree": "4fb92ccbe29de96b8e2fd836348218c1b1f72a13+d1fba762150c532c",
+  "picker": "codex:01a1fed1-9fe6-7cf1-bad8-2d9e59ebaf8f:default",
+  "author": "claude-code:48d2f42a-34cc-516f-8242-73f7fa6e53b6:opus",
+  "none": "The regression scenario already exercises the gate decision, success and failure handling, output path, and retained file contents that the viable mutants would change."
+}
