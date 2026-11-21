@@ -404,7 +404,10 @@ impl Kind for ClaudeCode {
                 ("timestamp", iso.into()),
                 ("cwd", cwd.into()),
                 ("isSidechain", false.into()),
-                ("message", serde_json::json!({ "id": "msg_factorium", "role": "assistant", "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 7, "output_tokens": 11} })),
+                (
+                    "message",
+                    serde_json::json!({ "id": "msg_factorium", "role": "assistant", "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 5, "cache_read_input_tokens": 7, "output_tokens": 11} }),
+                ),
             ]);
             body.push_str(&format!("{end}\n"));
         }
