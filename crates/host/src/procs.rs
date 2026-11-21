@@ -103,32 +103,23 @@ pub fn alive(pid: u32) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Keeps `file` open in the program this process `exec`s, so a lock it
-/// holds stays held through the exec: answers the descriptor it has there.
-/// `close_on_exec(file)` undoes it.
+/// Whether `file` stays open in a program this process runs (`exec`s, or
+/// starts), as a lock it holds must through an exec; files open closing in
+/// them by default. Answers its descriptor.
 #[allow(unsafe_code)]
-pub fn keep_across_exec(file: &std::fs::File) -> std::io::Result<i32> {
+pub fn kept_across_exec(file: &std::fs::File, kept: bool) -> std::io::Result<i32> {
     use std::os::fd::AsRawFd;
     let fd = file.as_raw_fd();
-    // SAFETY: fcntl reads and sets the flags of a descriptor `file` owns.
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-    // SAFETY: as above.
-    if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1 {
+    let flags = if kept { 0 } else { libc::FD_CLOEXEC };
+    // SAFETY: fcntl sets the flags of a descriptor `file` owns.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags) } == -1 {
         return Err(std::io::Error::last_os_error());
     }
     Ok(fd)
 }
 
-/// Closes `file` in any program this process runs, as files open by default.
-#[allow(unsafe_code)]
-pub fn close_on_exec(file: &std::fs::File) {
-    use std::os::fd::AsRawFd;
-    // SAFETY: fcntl sets the flags of a descriptor `file` owns.
-    unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
-}
-
 /// The file at `path` this process was handed open as descriptor `fd` by
-/// the image it replaced (`keep_across_exec`), if `fd` is open on that very
+/// the image it replaced (`kept_across_exec`), if `fd` is open on that very
 /// file: then it is this process's to own, and closes in programs it runs.
 #[allow(unsafe_code)]
 pub fn inherited(fd: i32, path: &std::path::Path) -> Option<std::fs::File> {
@@ -147,6 +138,6 @@ pub fn inherited(fd: i32, path: &std::path::Path) -> Option<std::fs::File> {
     // SAFETY: `fd` is open on `path`'s file, which nothing else in this
     // process opened as it: it came through the exec, and is owned here.
     let file = unsafe { std::fs::File::from_raw_fd(fd) };
-    close_on_exec(&file);
+    kept_across_exec(&file, false).ok()?;
     Some(file)
 }

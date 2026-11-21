@@ -616,3 +616,81 @@ fn doctor_on_a_store_it_cannot_read_answers_that_finding_and_fails() {
     let what = doctor["findings"][0]["what"].as_str().unwrap_or_default();
     assert!(what.contains("no such column") && what.contains(&*db.parent().unwrap().to_string_lossy()), "{doctor}");
 }
+
+/// The built binary, installed in `dir`'s Homebrew as `version` (a copy, as
+/// Homebrew installs it), its opt link following it; answers its path.
+fn installed(dir: &Dir, version: &str) -> PathBuf {
+    let keg = dir.0.join("brew/Cellar/factorium").join(version);
+    std::fs::create_dir_all(keg.join("bin")).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_factorium"), keg.join("bin/factorium")).unwrap();
+    let opt = dir.0.join("brew/opt/factorium");
+    std::fs::create_dir_all(opt.parent().unwrap()).unwrap();
+    let _ = std::fs::remove_file(&opt);
+    std::os::unix::fs::symlink(&keg, &opt).unwrap();
+    let _ = bin(dir);
+    let brew = format!("#!/bin/sh\n[ \"$1\" = --prefix ] && echo '{}'\n", opt.display());
+    std::fs::write(dir.0.join("stubs/brew"), brew).unwrap();
+    keg.join("bin/factorium").canonicalize().unwrap()
+}
+
+/// The command a process runs, as `ps` says it.
+fn command_of(pid: u32) -> String {
+    let out = Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Until `done`, or panics past `secs` (so a daemon that never gets there
+/// fails, not hangs), as long as `daemon` lives.
+fn within(secs: u64, daemon: &mut std::process::Child, what: &str, mut done: impl FnMut() -> bool) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while !done() {
+        assert!(daemon.try_wait().unwrap().is_none(), "the daemon ended before {what}");
+        if std::time::Instant::now() > until {
+            let _ = daemon.kill();
+            panic!("not {what} in {secs}s");
+        }
+        std::thread::sleep(crate::fixture::LOOK);
+    }
+}
+
+#[test]
+fn a_daemon_that_runs_a_newly_installed_binary_keeps_its_lock_and_a_second_is_refused() {
+    let dir = Dir::new();
+    assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    let old = installed(&dir, "0.0.9");
+    let mut daemon = Command::new(&old);
+    for (k, v) in bin(&dir).get_envs() {
+        match v {
+            Some(v) => daemon.env(k, v),
+            None => daemon.env_remove(k),
+        };
+    }
+    let said = std::fs::File::create(dir.0.join("daemon.err")).unwrap();
+    let mut daemon = daemon.arg("run").stdout(Stdio::null()).stderr(said).spawn().unwrap();
+    let pid = dir.0.join("data/factorium/daemon.pid");
+    let me = daemon.id();
+    within(60, &mut daemon, "it ran", || std::fs::read_to_string(&pid).is_ok_and(|p| p.trim() == me.to_string()));
+    installed(&dir, "0.1.0");
+    // It runs the new binary (through the opt link) in its place, as its own pid.
+    let link = dir.0.join("brew/opt/factorium/bin/factorium");
+    within(120, &mut daemon, "its exec", || command_of(me).starts_with(&*link.to_string_lossy()));
+    // The lock came through the exec: it goes on, and holds it.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(daemon.try_wait().unwrap().is_none(), "the new binary was refused its own lock");
+    let mut second = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let ended = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while second.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > ended {
+            let _ = (second.kill(), daemon.kill());
+            panic!("a second daemon ran beside the first");
+        }
+        std::thread::sleep(crate::fixture::LOOK);
+    }
+    let out = second.wait_with_output().unwrap();
+    let refused: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(!out.status.success(), "{refused}");
+    assert_eq!(refused["error"]["message"], format!("a daemon runs already, as pid {me}"), "{refused}");
+    let (ok, stopped) = run(&dir, &["stop"]);
+    assert!(ok && stopped["pid"] == me, "{stopped}");
+    ended_in_order(&dir, daemon);
+}

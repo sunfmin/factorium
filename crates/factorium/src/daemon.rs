@@ -316,14 +316,14 @@ impl App {
     /// the pid file stays right, and its lock stays held. Answers only if it cannot.
     async fn exec(&self, binary: &std::path::Path, lock: &Lock) {
         use std::os::unix::process::CommandExt;
-        let fd = match crate::host::procs::keep_across_exec(lock.file()) {
+        let fd = match crate::host::procs::kept_across_exec(lock.file(), true) {
             Ok(fd) => fd,
             Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
         };
         let _ = self.beside(false, true).await;
         let e =
             std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
-        crate::host::procs::close_on_exec(lock.file());
+        let _ = crate::host::procs::kept_across_exec(lock.file(), false);
         eprintln!("restart as {}: {e}", binary.display());
     }
 
