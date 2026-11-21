@@ -9,9 +9,9 @@
 use serde::Deserializer;
 use serde_json::json;
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::ask::Asked;
 use crate::harness::{Call, Harness};
 use crate::line::Line;
@@ -143,7 +143,8 @@ fn host_model(start: &Start) -> Vec<String> {
     let text = std::fs::read_to_string(start.user_home.join(USER_CONFIG)).unwrap_or_default();
     let Ok(config) = text.parse::<toml::Table>() else { return Vec::new() };
     let keys = HOST_MODEL.into_iter().filter(|key| !(*key == "model" && start.model.is_some()));
-    keys.filter_map(|key| config.get(key).filter(|value| value.is_str()).map(|value| format!("{key}={value}"))).collect()
+    keys.filter_map(|key| config.get(key).filter(|value| value.is_str()).map(|value| format!("{key}={value}")))
+        .collect()
 }
 
 fn rules_files() -> String {
@@ -242,7 +243,6 @@ fn note(value: &serde_json::Value) -> Option<Note> {
     }
 }
 
-
 /// Codex asked one question headless (`codex exec`, read in codex-cli
 /// 0.169.0): the question on stdin, its events as JSON lines. Not kept, no
 /// configuration, rules or project docs read, no memories or carried skills,
@@ -273,10 +273,13 @@ fn asked(out: &str, model: Option<&str>) -> Result<Asked, String> {
     if let Some(failed) = of("turn.failed").next_back() {
         return Err(format!("codex failed: {}", failed["error"]["message"].as_str().unwrap_or(out.trim())));
     }
-    let session = of("thread.started").find_map(|e| e["thread_id"].as_str()).ok_or_else(|| format!("codex named no thread: {out}"))?;
+    let session = of("thread.started")
+        .find_map(|e| e["thread_id"].as_str())
+        .ok_or_else(|| format!("codex named no thread: {out}"))?;
     let usage = &of("turn.completed").next_back().ok_or_else(|| format!("codex completed no turn: {out}"))?["usage"];
     let items = of("item.completed").map(|e| &e["item"]).filter(|i| i["type"] == "agent_message");
-    let text = items.filter_map(|i| i["text"].as_str()).next_back().ok_or_else(|| format!("codex answered nothing: {out}"))?;
+    let text =
+        items.filter_map(|i| i["text"].as_str()).next_back().ok_or_else(|| format!("codex answered nothing: {out}"))?;
     let n = |field: &str| usage[field].as_u64().unwrap_or(0);
     let (tokens_in, tokens_out) = (n("input_tokens"), n("output_tokens"));
     let model = model.unwrap_or("default").to_string();
@@ -358,7 +361,9 @@ impl Kind for Codex {
     }
 
     fn stopped(screen: &[String]) -> Option<Stop> {
-        account_quota(screen).map(Stop::Quota).or_else(|| task_refusal(screen).or_else(|| capacity_stop(screen)).map(Stop::Refused))
+        account_quota(screen)
+            .map(Stop::Quota)
+            .or_else(|| task_refusal(screen).or_else(|| capacity_stop(screen)).map(Stop::Refused))
     }
 
     /// Every JSONL file under [`SESSIONS`]; each file says its worktree.

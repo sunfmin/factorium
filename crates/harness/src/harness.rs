@@ -95,11 +95,12 @@ trait Kind {
 
 /// Lists every harness once, as `Variant in module`, the module's [`Kind`]
 /// being its type of the variant's name: makes `Harness`, `ALL`, and
-/// `each!`, which evaluates a body with `K` that harness's [`Kind`].
+/// `each!`, which evaluates a body with `K` that harness's [`Kind`]. Each
+/// module is declared on its own line below, where cargo-mutants finds its
+/// file (it reads no `mod` a macro makes); one listed here and not there
+/// does not build.
 macro_rules! harnesses {
     ($d:tt $($variant:ident in $module:ident),+ $(,)?) => {
-        $(mod $module;)+
-
         /// A harness a session can be started in.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum Harness { $($variant),+ }
@@ -128,6 +129,12 @@ harnesses! { $
     Grok in grok,
 }
 
+mod claude_code;
+mod codex;
+mod dsh;
+mod grok;
+mod kimi;
+mod pi;
 mod session;
 mod store;
 

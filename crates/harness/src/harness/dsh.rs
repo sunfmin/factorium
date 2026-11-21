@@ -2,9 +2,9 @@
 //! added plugin asks the guard and reports running/idle to the session backend.
 use serde::{Deserialize, Deserializer};
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::Start;

@@ -7,9 +7,9 @@
 
 use serde::{Deserialize, Deserializer};
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::ask::{Asked, Headless};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
@@ -277,7 +277,8 @@ const HEADLESS: Headless = Headless {
 /// What `claude -p --output-format json` printed: its answer in `result`,
 /// unless `is_error`; the tokens of each model it used in `modelUsage`.
 fn asked(out: &str, _model: Option<&str>) -> Result<Asked, String> {
-    let said: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
+    let said: serde_json::Value =
+        serde_json::from_str(out.trim()).map_err(|e| format!("claude-code answered no JSON ({e}): {out}"))?;
     let text = said["result"].as_str().unwrap_or_default().to_string();
     if said["is_error"].as_bool() != Some(false) {
         return Err(format!("claude-code answered an error: {}", if text.is_empty() { out.trim() } else { &text }));
@@ -391,7 +392,10 @@ impl Kind for ClaudeCode {
             ("timestamp", iso.clone().into()),
             ("cwd", cwd.into()),
             ("isSidechain", false.into()),
-            ("message", session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())])),
+            (
+                "message",
+                session::object(vec![("role", "user".into()), ("content", crate::brief::brief_pointer(brief).into())]),
+            ),
         ]);
         let mut body = format!("{user}\n");
         if !open {
@@ -414,7 +418,8 @@ impl Kind for ClaudeCode {
     /// `user` prompt.
     fn prompted(text: &str, said: &str, since: u64) -> Option<bool> {
         Some(text.lines().filter_map(|line| serde_json::from_str::<Typed>(line).ok()).any(|t| {
-            t.took().map(str::trim) == Some(said.trim()) && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
+            t.took().map(str::trim) == Some(said.trim())
+                && session::parse_iso(&t.timestamp).is_some_and(|at| at >= since)
         }))
     }
 }

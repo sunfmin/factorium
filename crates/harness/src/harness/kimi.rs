@@ -5,9 +5,9 @@
 
 use serde::Deserializer;
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{Start, TOLD};
@@ -19,8 +19,7 @@ const SKILLS_DIR: &str = "--skills-dir";
 const MODEL: &str = "--model";
 
 const USER_DIR: &str = "KIMI_CODE_HOME";
-const ENVIRONMENT: [&str; 3] =
-    ["KIMI_CODE_TRUST_WORKSPACE", "KIMI_CODE_NO_AUTO_UPDATE", "KIMI_DISABLE_TELEMETRY"];
+const ENVIRONMENT: [&str; 3] = ["KIMI_CODE_TRUST_WORKSPACE", "KIMI_CODE_NO_AUTO_UPDATE", "KIMI_DISABLE_TELEMETRY"];
 
 const KEPT_LINKS: &[Link] = &[Link { home: ".kimi-code/credentials", kept: "credentials" }];
 
@@ -206,7 +205,8 @@ impl Kind for Kimi {
     fn guards(home: &std::path::Path) -> Option<Vec<String>> {
         let config = std::fs::read_to_string(home.join(CONFIG)).ok().and_then(|text| text.parse::<Toml>().ok());
         let hooks = config.as_ref().and_then(|config| config.get("hooks")).and_then(Toml::as_array);
-        let before = hooks.into_iter().flatten().filter(|hook| hook.get("event").and_then(Toml::as_str) == Some(BEFORE_A_CALL));
+        let before =
+            hooks.into_iter().flatten().filter(|hook| hook.get("event").and_then(Toml::as_str) == Some(BEFORE_A_CALL));
         Some(before.filter_map(|hook| hook.get("command")?.as_str().map(String::from)).collect())
     }
 

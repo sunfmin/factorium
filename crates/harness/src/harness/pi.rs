@@ -10,9 +10,9 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use super::{Dialog, Kind, Link, Login, Stop};
 use super::session::{self, json_lines};
 use super::store::Layout;
+use super::{Dialog, Kind, Link, Login, Stop};
 use crate::harness::{Call, Harness};
 use crate::line::Line;
 use crate::start::{SKILLS, Start};
@@ -218,7 +218,8 @@ impl Kind for Pi {
     fn recorded_turn(cwd: &str, text: &str, _brief: &str) -> Option<Turn> {
         let mut notes = Vec::new();
         for value in json_lines(text) {
-            if value["type"] == "session" && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
+            if value["type"] == "session"
+                && value["cwd"].as_str().is_some_and(|recorded| !session::same_cwd(recorded, cwd))
             {
                 return None;
             }
