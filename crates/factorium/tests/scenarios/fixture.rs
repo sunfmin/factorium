@@ -12,6 +12,7 @@
 mod db;
 mod fakes;
 mod heavy;
+mod line_trace;
 mod read;
 mod sessions;
 mod steps;
