@@ -309,7 +309,7 @@ covers = [
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules, App::take_turn" },
   { action = "StaleRefused", file = "crates/factorium/src/heavy.rs", function = "App::heavy (stale), App::as_installed" },
   { action = "StaleRefused", file = "crates/domain/src/heavy.rs", function = "StartHeavy" },
-  { action = "GivesUp", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (End::keeping)" },
+  { action = "GivesUp", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (End keeps)" },
   { action = "GivesUp", file = "crates/domain/src/heavy.rs", function = "EndHeavy, Heavy::evolve (HeavyEnded)" },
   { action = "Rejoin", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy keep)" },
   { action = "Rejoin", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy, Queue::place, Heavy::evolve (HeavyQueued)" },

@@ -376,18 +376,6 @@ pub struct End {
     pub keeps: bool,
 }
 
-impl End {
-    /// `id` off the queue, its place gone.
-    pub fn off(id: Uuid) -> End {
-        End { id, keeps: false }
-    }
-
-    /// `id` off the queue, its place kept for its asker if it never started.
-    pub fn keeping(id: Uuid) -> End {
-        End { id, keeps: true }
-    }
-}
-
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(match s.entries.iter().find(|e| e.id == p.id) {
         Some(e) => {

@@ -43,10 +43,18 @@ impl crate::App {
     /// The Homebrew link to this process's own binary, if Homebrew installed it.
     pub(crate) fn linked(&self) -> Option<PathBuf> {
         let unknown = self.memory.lock().unwrap().running.is_none();
-        if let Some(me) = unknown.then(|| std::env::current_exe().and_then(|e| e.canonicalize()).ok()).flatten() {
+        if let Some(me) = unknown.then(|| self.exe()).flatten() {
             self.runs_as(&me);
         }
         self.memory.lock().unwrap().running.clone().map(|(_, link)| link)
+    }
+
+    /// The binary this process runs, canonical: as first asked, so a cut's upgrade since (which
+    /// moves the link it ran by, or removes its keg) does not make it name another, or none.
+    pub(crate) fn exe(&self) -> Option<PathBuf> {
+        let mut m = self.memory.lock().unwrap();
+        m.exe = m.exe.take().or_else(|| std::env::current_exe().and_then(|e| e.canonicalize()).ok());
+        m.exe.clone()
     }
 
     /// The link to exec in place of this binary: Homebrew links a version other
