@@ -1,6 +1,7 @@
 //! The gate as the app runs it: green, red or not yet for a tree of a
 //! checkout, run as a heavy command, and recorded against the tree so the
-//! same tree is never gated twice. The one writer of gate records.
+//! same tree is never gated twice. The one writer of gate records, and of
+//! the files that keep each run's whole output.
 
 use factorium_domain::declared::Kind;
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id, record_key};
@@ -8,6 +9,7 @@ use factorium_domain::heavy;
 use factorium_domain::named;
 use factorium_host::{Git, Ran};
 use factum::Uuid;
+use std::path::PathBuf;
 
 use crate::heavy::{Job, Turn};
 use crate::{Answer, App, fail};
@@ -30,13 +32,23 @@ pub(crate) struct Gated {
     pub recorded: bool,
     /// The run, if it ran: `None` when the tree was green already.
     pub ran: Option<Ran>,
+    /// The file that keeps the run's whole output, or why it could not.
+    pub kept: Option<Result<PathBuf, String>>,
 }
 
+/// How many gate runs' whole outputs a checkout keeps, the newest.
+pub(crate) const OUTPUTS_KEPT: usize = 20;
+
 impl Gated {
-    /// Why it is red: the tail of its run.
+    /// Why it is red: the tail of its run, and the file that keeps all of it.
     pub fn why(&self) -> String {
         let Some(ran) = &self.ran else { return String::new() };
-        if ran.timed_out { format!("past its limit\n{}", ran.tail) } else { ran.tail.clone() }
+        let tail = if ran.timed_out { format!("past its limit\n{}", ran.tail) } else { ran.tail.clone() };
+        match &self.kept {
+            Some(Ok(path)) => format!("{tail}\nwhole output: {}", path.display()),
+            Some(Err(e)) => format!("{tail}\nwhole output not kept: {e}"),
+            None => tail,
+        }
     }
 }
 
@@ -51,10 +63,10 @@ impl App {
         let tree = here.tree(rev).map_err(fail("git"))?;
         let recorded = !dirty;
         if recorded && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
-            return Ok(Some(Gated { green: true, tree, recorded, ran: None }));
+            return Ok(Some(Gated { green: true, tree, recorded, ran: None, kept: None }));
         }
         let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
-            return Ok(Some(Gated { green: true, tree, recorded: false, ran: None }));
+            return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: None }));
         };
         let steps = [cmd];
         let job = |what| Job::gate(what, &here.dir, &steps, limit);
@@ -80,6 +92,24 @@ impl App {
             };
             self.submit::<RecordGate>(record).await?;
         }
-        Ok(Some(Gated { green: ran.ok, tree, recorded, ran: Some(ran) }))
+        let commit = here.sha(rev).map(|sha| if dirty { format!("{sha}-dirty") } else { sha });
+        let kept = commit.and_then(|commit| self.keep_output(checkout, kind, &commit, &ran.said));
+        Ok(Some(Gated { green: ran.ok, tree, recorded, ran: Some(ran), kept: Some(kept) }))
+    }
+
+    /// Keeps `said`, the whole output of `checkout`'s `kind` gate on
+    /// `commit`, in a file of its own; removes the oldest past [`OUTPUTS_KEPT`].
+    fn keep_output(&self, checkout: &str, kind: Kind, commit: &str, said: &str) -> Result<PathBuf, String> {
+        let dir = self.data().gate_outputs(checkout);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
+        let path = dir.join(format!("{:013}-{}-{commit}.log", self.now(), named(kind)));
+        std::fs::write(&path, said).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        let mut kept: Vec<PathBuf> =
+            std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
+        kept.sort();
+        for old in &kept[..kept.len().saturating_sub(OUTPUTS_KEPT)] {
+            let _ = std::fs::remove_file(old);
+        }
+        Ok(path)
     }
 }
