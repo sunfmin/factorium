@@ -75,6 +75,9 @@ pub enum Top {
     /// up. A running one is ended with every process it started. Its
     /// owner, if it still asks, queues again behind the rest.
     Unqueue { entry: Uuid },
+    /// The host's heavy queue, for a program of yours that is not a worker.
+    #[command(subcommand)]
+    Heavy(HeavyCmd),
     /// Holds a checkout's landings (`--why`), or releases them (`--release`).
     Hold {
         checkout: String,
@@ -272,6 +275,23 @@ pub enum WorkerCmd {
 }
 
 #[derive(Subcommand)]
+pub enum HeavyCmd {
+    /// Runs a heavy command once the machine has room, by the queue's
+    /// rule, beside workers' and gates' (a line move past its bound goes
+    /// ahead of it, as of a worker's), at a gate's priority. Exits with its
+    /// exit code.
+    Run {
+        /// Runs it at background priority instead: gates get the CPU first.
+        #[arg(long)]
+        background: bool,
+        #[arg(trailing_var_arg = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Answers the queue's depth: how many run and wait, and each entry.
+    Depth,
+}
+
+#[derive(Subcommand)]
 pub enum WatchCmd {
     /// Answers the round running now and every open episode.
     Next,
@@ -349,6 +369,10 @@ impl Top {
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
+            Top::Heavy(h) => match h {
+                HeavyCmd::Run { background, command } => app.heavy_run(&here()?, &line(&command), background).await,
+                HeavyCmd::Depth => app.heavy_depth().await,
+            },
             Top::Hold { checkout, why, release } => {
                 app.hold(&checkout, if release { None } else { why.as_deref() }).await
             }
@@ -372,8 +396,7 @@ impl Top {
                     app.worker_comment(worker_id()?, &text).await
                 }
                 WorkerCmd::Exclusive { background, command } => {
-                    let dir = std::env::current_dir().map_err(|e| Refusal::new("io", e.to_string()))?;
-                    let line = command.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ");
+                    let (dir, line) = (here()?, line(&command));
                     if background {
                         app.worker_exclusive_background(worker_id().ok(), &dir, &line).await
                     } else {
@@ -406,6 +429,16 @@ fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<Strin
     String::from_utf8(bytes)
         .map(Some)
         .map_err(|_| Refusal::new("not_utf8", format!("{} is not UTF-8 text", file.display())))
+}
+
+/// The directory this process runs in: where a heavy command run by hand runs.
+fn here() -> Result<PathBuf, Refusal> {
+    std::env::current_dir().map_err(|e| Refusal::new("io", e.to_string()))
+}
+
+/// The line a heavy command run by hand runs: its words as typed.
+fn line(command: &[String]) -> String {
+    command.iter().map(|w| shell_word(w)).collect::<Vec<_>>().join(" ")
 }
 
 /// `s` as one word of the line `worker exclusive` runs: bare where a shell
