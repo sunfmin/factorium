@@ -10,8 +10,6 @@
 #   models/heavy.sh broken
 #       Checks each broken variant (BrokenVariants in the model) under the
 #       config that checks its property: each must fail on that property.
-#   models/heavy.sh finding
-#       Checks UnqueuedAnswers, which the code breaks (HeavyFinding.cfg).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -27,9 +25,6 @@ case "${1:-}" in
   broken)
     broken models/HeavyQueue.tla models/HeavyStarts.cfg models/HeavyEnds.cfg models/HeavyRules.cfg
     ;;
-  finding)
-    expect "$(check models/HeavyQueue.tla models/HeavyFinding.cfg none)" UnqueuedAnswers "the code (models/HeavyFinding.cfg)"
-    ;;
   *)
-    sed -n '2,14p' "$0"; exit 2 ;;
+    sed -n '2,12p' "$0"; exit 2 ;;
 esac

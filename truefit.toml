@@ -263,11 +263,10 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
-  { action = "Enqueue", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy, when the queue does not hold it)" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
   { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start" },
   { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, oldest, overdue" },
@@ -282,7 +281,7 @@ name = "heavy-ends"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyEnds.cfg"
 limit = 120
-commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
 covers = [
   { action = "NoteRun", file = "crates/domain/src/heavy.rs", function = "NoteRun" },
   { action = "NoteRun", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::look_at (NoteRun)" },
@@ -295,6 +294,8 @@ covers = [
   { action = "NotCutShort", file = "crates/domain/src/heavy.rs", function = "Queue::ends" },
   { action = "HeldEnded", file = "crates/factorium/src/heavy.rs", function = "App::look_at" },
   { action = "UnqueuedRunAnswers", file = "crates/factorium/src/heavy.rs", function = "App::run_held" },
+  { action = "Unqueued", file = "crates/factorium/src/heavy.rs", function = "App::heavy (queued), App::take_turn (unqueued)" },
+  { action = "UnqueuedAnswers", file = "crates/factorium/src/heavy.rs", function = "App::take_turn" },
 ]
 
 [[model]]
@@ -302,7 +303,7 @@ name = "heavy-rules"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRules.cfg"
 limit = 60
-commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
 covers = [
   { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules, App::take_turn" },
@@ -318,7 +319,7 @@ name = "heavy-run"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRun.cfg"
 limit = 60
-commit = "8473bc556050b38cfbed2e7ef5162a0061bfe530"
+commit = "8d3867ed6d210b85bbfa894a21b3a23c0863b595"
 covers = [
   { action = "Next", file = "crates/domain/src/heavy.rs", function = "Heavy::evolve" },
 ]
