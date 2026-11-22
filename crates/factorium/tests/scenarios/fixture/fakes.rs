@@ -324,6 +324,11 @@ pub struct FakeBrew {
     pub ps: String,
     /// What installs and upgrades fail with, if they fail as no lock does.
     pub refuses: Option<String>,
+    /// Install and upgrade leave PATH's `bin/<name>` on the keg before, and
+    /// remove that keg (factorium#244).
+    pub stale_link: bool,
+    /// `brew link --overwrite` leaves the links as they are.
+    pub relink_fails: bool,
 }
 
 impl FakeBrew {
@@ -359,7 +364,7 @@ impl FakeBrew {
                 self.locked -= 1;
                 if let Some(v) = self.tap.get(&formula).filter(|_| self.holder_installs).cloned() {
                     self.installed.insert(formula.clone(), v.clone());
-                    link(root, &formula, &v);
+                    link(root, &formula, &v, false);
                 }
                 let cellar = root.join("brew/Cellar").join(&formula);
                 let err = format!(
@@ -375,20 +380,29 @@ impl FakeBrew {
             ["install" | "upgrade", _] => {
                 if let Some(v) = self.tap.get(&formula).filter(|_| !self.stuck) {
                     self.installed.insert(formula.clone(), v.clone());
-                    link(root, &formula, v);
+                    link(root, &formula, v, self.stale_link);
                 }
                 text(true, format!("==> {} {formula}\n", args[0]))
             }
             ["--prefix", _] => text(true, format!("{}\n", root.join("brew/opt").join(&formula).display())),
+            ["--prefix"] => text(true, format!("{}\n", root.join("brew").display())),
+            ["--cellar", _] => text(true, format!("{}\n", root.join("brew/Cellar").join(&formula).display())),
+            ["link", "--overwrite", _] => {
+                if !self.relink_fails {
+                    link_bin(root, &formula);
+                }
+                text(true, String::new())
+            }
             _ => text(false, String::new()),
         }
     }
 }
 
 /// Homebrew's layout, where a scenario made one for `formula`: version `v`
-/// in the cellar, its binaries copied from the version before, and the opt
-/// link moved to it.
-fn link(root: &Path, formula: &str, v: &str) {
+/// in the cellar, its binaries copied from the version before, the opt link
+/// moved to it, and PATH's links to its binaries; or, `stale`, those left
+/// on the version before, which is removed.
+fn link(root: &Path, formula: &str, v: &str, stale: bool) {
     let cellar = root.join("brew/Cellar").join(formula);
     let opt = root.join("brew/opt").join(formula);
     let Ok(was) = opt.canonicalize() else { return };
@@ -399,6 +413,27 @@ fn link(root: &Path, formula: &str, v: &str) {
         .unwrap();
     std::fs::remove_file(&opt).unwrap();
     std::os::unix::fs::symlink(cellar.join(v), &opt).unwrap();
+    if stale {
+        std::fs::remove_dir_all(was).unwrap();
+    } else {
+        link_bin(root, formula);
+    }
+}
+
+/// Links PATH's `bin/<name>` to each binary of the keg `formula`'s opt link
+/// follows, relative as Homebrew links them, over what was there.
+pub fn link_bin(root: &Path, formula: &str) {
+    let Ok(keg) = root.join("brew/opt").join(formula).canonicalize() else { return };
+    let bin = root.join("brew/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let cellar = root.join("brew/Cellar").canonicalize().unwrap();
+    let kept = keg.strip_prefix(&cellar).unwrap();
+    for program in std::fs::read_dir(keg.join("bin")).into_iter().flatten().flatten() {
+        let link = bin.join(program.file_name());
+        let _ = std::fs::remove_file(&link);
+        let to = Path::new("../Cellar").join(kept).join("bin").join(program.file_name());
+        std::os::unix::fs::symlink(to, link).unwrap();
+    }
 }
 
 /// The machine as a scenario has it.

@@ -184,6 +184,43 @@ async fn a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary() {
     assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()), "the next tick swaps the binary");
 }
 
+/// v0.1.81 counted as installed while PATH's `factorium` still linked the
+/// keg before, which Homebrew had removed: every `factorium` on PATH was
+/// gone (factorium#244). The cut relinks it once.
+#[tokio::test]
+async fn a_cut_whose_path_link_is_left_on_a_removed_keg_relinks_it() {
+    let w = World::new();
+    let bin = w.running_as(&w.app, "web");
+    w.host.brew.lock().unwrap().stale_link = true;
+    let t = cut_one(&w).await;
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "link --overwrite web").count(), 1);
+    let on_path = w.dir.join("brew/bin/factorium").canonicalize().unwrap();
+    assert_eq!(on_path, w.dir.join("brew/Cellar/web/0.1.0/bin/factorium").canonicalize().unwrap());
+    assert_eq!(t.restart.as_deref(), Some(&*bin.to_string_lossy()));
+}
+
+#[tokio::test]
+async fn a_cut_whose_path_link_relinking_does_not_fix_fails_naming_the_link() {
+    let w = World::new();
+    w.running_as(&w.app, "web");
+    {
+        let mut brew = w.host.brew.lock().unwrap();
+        (brew.stale_link, brew.relink_fails) = (true, true);
+    }
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    let link = w.dir.join("brew/bin/factorium");
+    assert!(why.contains(&format!("`{}` points to `../Cellar/web/0.0.9/bin/factorium`", link.display())), "{why}");
+    assert!(why.contains("after `brew link --overwrite web`"), "{why}");
+    let finding = w.findings().await[0]["what"].as_str().unwrap().to_string();
+    assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("brew/bin/factorium"), "{finding}");
+    // Read back, it is not made while the link stays stale.
+    let again = w.tick().await;
+    assert!(!again.lines.iter().any(|l| l["read_back"] == true), "{:?}", again.lines);
+}
+
 /// A version whose store needed a column the host's database lacked: once
 /// swapped in, every tick and command failed (factorium#141).
 #[tokio::test]
