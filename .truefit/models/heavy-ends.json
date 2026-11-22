@@ -1,10 +1,42 @@
 {
-  "commit": "1133c5dfb55ec3ffd16d4d50808638c673bbc00c",
+  "commit": "d1387704c1fe93e4076d405fc4f2912803e9f44b",
   "date": "2026-11-22",
-  "inputs": "8bf656a306189fe9af874307c15be9dd00dbddb7017c90c988909ae6ca1c037f",
+  "inputs": "0c384c51ef1bf77a0ffa7f4faf8359f2e007f73b907f6727f2354481478b8af7",
   "result": "passes",
   "traces": {
-    "accept": [],
-    "reject": []
+    "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-ends/accept/held-run.jsonl",
+        "result": "allowed",
+        "step": null
+      },
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-ends/accept/unqueued-run.jsonl",
+        "result": "allowed",
+        "step": null
+      }
+    ],
+    "reject": [
+      {
+        "breaks": "HeldEnded",
+        "file": ".truefit/traces/heavy-ends/reject/held-look-ends-nothing.jsonl",
+        "result": "disallowed",
+        "step": 9
+      },
+      {
+        "breaks": "NotCutShort",
+        "file": ".truefit/traces/heavy-ends/reject/line-move-cuts-short.jsonl",
+        "result": "disallowed",
+        "step": 8
+      },
+      {
+        "breaks": "UnqueuedRunAnswers",
+        "file": ".truefit/traces/heavy-ends/reject/unqueued-run-answers-ran.jsonl",
+        "result": "disallowed",
+        "step": 7
+      }
+    ]
   }
 }
