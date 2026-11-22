@@ -122,6 +122,7 @@ fn install_fails_naming_the_agent_launchd_never_drops_and_does_not_bootstrap() {
     let user = w.host.service_target("user");
     assert_eq!(e.code, "launchctl", "{e}");
     assert!(e.message.contains(&user), "names the job: {e}");
+    assert!(e.message.contains(" 10 s "), "names the bound: {e}");
     let ran = w.host.ran.lock().unwrap().clone();
     assert!(!ran.iter().any(|r| r.starts_with("launchctl bootstrap")), "{ran:?}");
     let sleeps = ran.iter().filter(|r| r.starts_with("sleep")).count();
