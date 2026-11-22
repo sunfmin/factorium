@@ -189,10 +189,11 @@ impl Projection for Tracker {
         Ok(match e.stream.aggregate.as_str() {
             "checkout" => match decode(e)? {
                 CheckoutEvent::CheckoutAdded(Add { name, path, base, proving, role }) => {
-                    put(CHECKOUTS, row(Checkout { name, path, base, proving, listed: true, role }))
+                    put(CHECKOUTS, row(Checkout { name, path, base, proving, listed: true, role, idle_off: false }))
                 }
                 CheckoutEvent::CheckoutRemoved => merge(CHECKOUTS, json!({ "listed": false })),
                 CheckoutEvent::RoleNamed { role } => merge(CHECKOUTS, json!({ "role": role })),
+                CheckoutEvent::IdleTurned { off } => merge(CHECKOUTS, json!({ "idle_off": off })),
             },
             "issue" => {
                 let event: IssueEvent = decode(e)?;

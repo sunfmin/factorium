@@ -132,6 +132,9 @@ pub struct LineSeen {
     /// Its idle work's last run.
     #[serde(default)]
     pub idle: Idle,
+    /// Its idle work is off on this host: a red last run is no finding.
+    #[serde(default)]
+    pub idle_off: bool,
 }
 
 /// A checkout's local base behind origin's that is not fast-forwarded,
@@ -169,7 +172,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     let mut add =
         |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into(), heard: Vec::new() });
-    for LineSeen { checkout, line, stuck, idle, .. } in &seen.lines {
+    for LineSeen { checkout, line, stuck, idle, idle_off, .. } in &seen.lines {
         if let Some(Stuck { base, path, behind, ours, dirty }) = stuck {
             let why = if *dirty {
                 "it is checked out over changes not committed".to_string()
@@ -190,7 +193,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
                 "find the landing that broke it; open an issue to fix it, or hold landings with `factorium hold`",
             );
         }
-        if let Some(Run { tip, tail, .. }) = idle.red() {
+        if let Some(Run { tip, tail, .. }) = idle.red().filter(|_| !idle_off) {
             add(
                 format!("idle:{checkout}:{tip}"),
                 format!("{checkout}: its idle work is red on base tip {tip}: {tail}"),

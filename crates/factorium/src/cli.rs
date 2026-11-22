@@ -165,13 +165,23 @@ pub enum CheckoutCmd {
         role: Option<String>,
     },
     /// Names a checkout's default role (`--role`), or takes it away
-    /// (`--no-role`), for the workers that start from now.
+    /// (`--no-role`), for the workers that start from now; turns its idle
+    /// work off on this host (`--no-idle`), or back on (`--idle`).
+    #[command(group(clap::ArgGroup::new("edit").required(true).multiple(true)
+        .args(["role", "no_role", "idle", "no_idle"])))]
     Edit {
         name: String,
-        #[arg(long, value_name = "DIR", conflicts_with = "no_role", required_unless_present = "no_role")]
+        #[arg(long, value_name = "DIR", conflicts_with = "no_role")]
         role: Option<String>,
         #[arg(long)]
         no_role: bool,
+        /// Its idle work runs on this host, as the repo's `[idle]` declares.
+        #[arg(long, conflicts_with = "no_idle")]
+        idle: bool,
+        /// Its idle work runs not on this host: no idle run, no `tasks_bound`
+        /// run, no task filed; `factorium idle` by hand still runs it.
+        #[arg(long)]
+        no_idle: bool,
     },
     /// Takes a repo off the list.
     Remove { name: String },
@@ -458,7 +468,10 @@ impl Top {
                 CheckoutCmd::Add { name, path, base, proving, role } => {
                     app.checkout_add(&name, &path, &base, &proving, role.as_deref()).await
                 }
-                CheckoutCmd::Edit { name, role, no_role: _ } => app.checkout_name_role(&name, role.as_deref()).await,
+                CheckoutCmd::Edit { name, role, no_role, idle, no_idle } => {
+                    let role = (role.is_some() || no_role).then_some(role.as_deref());
+                    app.checkout_edit(&name, role, (idle || no_idle).then_some(idle)).await
+                }
                 CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
                 CheckoutCmd::List => app.checkout_list().await,
             },

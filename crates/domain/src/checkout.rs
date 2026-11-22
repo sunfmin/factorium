@@ -17,6 +17,10 @@ pub struct Checkout {
     /// The role directory a worker of an issue that names none starts with
     /// (SPEC.md §1.2); an issue's own role wins.
     pub role: Option<String>,
+    /// Its idle work is off on this host (SPEC.md §1.16): no idle run
+    /// starts for it here and none files its tasks; a run by hand still does.
+    #[serde(default)]
+    pub idle_off: bool,
 }
 
 impl Checkout {
@@ -47,6 +51,10 @@ pub enum CheckoutEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         role: Option<String>,
     },
+    /// Its idle work on this host is off from now, or, `false`, on.
+    IdleTurned {
+        off: bool,
+    },
 }
 
 pub struct Checkouts;
@@ -59,10 +67,11 @@ impl Aggregate for Checkouts {
     fn evolve(state: &mut Checkout, event: CheckoutEvent) {
         match event {
             CheckoutEvent::CheckoutAdded(Add { name, path, base, proving, role }) => {
-                *state = Checkout { name, path, base, proving, listed: true, role };
+                *state = Checkout { name, path, base, proving, listed: true, role, idle_off: false };
             }
             CheckoutEvent::CheckoutRemoved => state.listed = false,
             CheckoutEvent::RoleNamed { role } => state.role = role,
+            CheckoutEvent::IdleTurned { off } => state.idle_off = off,
         }
     }
 }
@@ -115,6 +124,20 @@ command!(NameCheckoutRole, "checkout.name_role", Checkouts, NameRole, |p| checko
         return no("not_listed", format!("{} is not on the list", p.name));
     }
     only(s.role != p.role, CheckoutEvent::RoleNamed { role: p.role.clone() })
+});
+
+/// Checkout `name`'s idle work on this host is off from now, or, `false`, on.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TurnIdle {
+    pub name: String,
+    pub off: bool,
+}
+
+command!(TurnCheckoutIdle, "checkout.turn_idle", Checkouts, TurnIdle, |p| checkout_id(&p.name), |s, p, now| {
+    if !s.listed {
+        return no("not_listed", format!("{} is not on the list", p.name));
+    }
+    only(s.idle_off != p.off, CheckoutEvent::IdleTurned { off: p.off })
 });
 
 fn valid_name(s: &str) -> bool {
