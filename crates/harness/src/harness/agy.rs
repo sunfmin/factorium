@@ -304,8 +304,8 @@ impl Kind for Agy {
         }
     }
 
-    fn stopped(_screen: &[String]) -> Option<Stop> {
-        None
+    fn stopped(screen: &[String]) -> Option<Stop> {
+        quota(screen)
     }
 
     /// Where agy keeps every session, of every worktree: one directory a
@@ -371,4 +371,46 @@ fn spent(text: &str) -> (u64, u64) {
         let n = |field: &str| v[field].as_u64().unwrap_or(0);
         (given + n("input_tokens") + n("cache_read_tokens"), written + n("output_tokens"))
     })
+}
+
+/// What agy prints when its account's quota is spent, and its reset after it.
+const QUOTA: &str = "Individual quota reached.";
+const RESETS: &str = "Resets in ";
+/// How long a limit whose reset agy does not give lasts, ms.
+const UNTOLD_RESET_MS: i64 = 60 * 60 * 1000;
+
+/// agy's quota on its screen (agy, seen 2026-11-22: `⚠ Individual quota
+/// reached. Please upgrade your subscription to increase your limits.
+/// Resets in 2h50m4s.`, then `Error ID: …`): the engine's limit, its words
+/// the lines up to the error's own id, so the same screen read again after
+/// the reset is told from a new limit; reset as it says, else in an hour.
+fn quota(screen: &[String]) -> Option<Stop> {
+    let at = screen.iter().rposition(|line| line.contains(QUOTA))?;
+    let rest: Vec<&str> = screen[at..].iter().take(3).map(|l| l.trim()).collect();
+    let upto = rest.iter().position(|l| l.starts_with("Error ID")).map_or(1, |id| id + 1);
+    let said = rest[..upto].join(" ");
+    let resets_in_ms = rest.join(" ").split(RESETS).nth(1).and_then(duration_ms).unwrap_or(UNTOLD_RESET_MS);
+    Some(Stop::Limit { said, resets_in_ms })
+}
+
+/// The duration `text` opens with, as agy writes one (`2h50m4s`, `45m`,
+/// `1d3h`), in ms; `None` if it opens with none.
+fn duration_ms(text: &str) -> Option<i64> {
+    let (mut total, mut n, mut any) = (0i64, None::<i64>, false);
+    for c in text.chars() {
+        if let Some(d) = c.to_digit(10) {
+            n = Some(n.unwrap_or(0) * 10 + i64::from(d));
+            continue;
+        }
+        let unit = match c {
+            'd' => 86_400_000,
+            'h' => 3_600_000,
+            'm' => 60_000,
+            's' => 1_000,
+            _ => break,
+        };
+        let Some(v) = n.take() else { break };
+        (total, any) = (total + v * unit, true);
+    }
+    any.then_some(total)
 }

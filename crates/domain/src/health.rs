@@ -14,6 +14,10 @@
 //!   ends; nor within a wait it declared on a long command of its own
 //!   (held to two hours), the finding past it naming what it said;
 //! - **quota**: its account used up; the account rests an hour.
+//! - **limit**: its engine at its limit, until the reset its screen gives:
+//!   it waits, parked until then, no finding meanwhile; landing, it is left
+//!   to its landing. The same words read again (its screen after the
+//!   reset) are no limit: the app sees past them.
 //!
 //! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
 //! quiet are neutral: [`crate::neutral::hot`].
@@ -23,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::neutral::hot::Shares;
 use crate::settings::{Setting, Settings, Time};
-use crate::worker::{Status, Worker, WorkerEvent, Workers};
+use crate::worker::{Limit, Status, Worker, WorkerEvent, Workers};
 use crate::{command, no};
 
 pub use crate::neutral::hot::{Load, quiet};
@@ -51,6 +55,8 @@ pub enum Sight {
     Gone,
     /// Its account is used up: the line that says so.
     Quota(String),
+    /// Its engine is at its limit until then (ms): the words that say so.
+    Limit { said: String, until: i64 },
     /// Its harness stopped: the line that says so.
     Stopped(String),
     /// Its harness is not up in its terminal (not yet, or no longer): why.
@@ -105,6 +111,13 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
         Sight::Quota(said) => {
             let until = now + QUOTA_REST_MS;
             return vec![WorkerEvent::UsedUp { said: said.clone(), until }];
+        }
+        Sight::Limit { said, until } => {
+            return if w.status != Status::Working {
+                Vec::new()
+            } else {
+                vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
+            };
         }
         Sight::Stopped(said) => return wait(format!("its harness stopped: {said}")),
         Sight::Down(why) if now - started > UP_BOUND_MS => {
@@ -201,6 +214,10 @@ pub enum Verdict {
     /// Its account is used up, as its screen said: the account rests until
     /// then (ms), and the worker ends.
     UsedUp { said: String, until: i64 },
+    /// Its engine is at its limit, as its screen said, until then (ms): it
+    /// waits, parked until the reset, and its account or harness starts no
+    /// worker before it.
+    Limited { said: String, until: i64 },
 }
 
 impl Verdict {
@@ -211,6 +228,7 @@ impl Verdict {
             match crate::tracker::decode(e) {
                 Ok(WorkerEvent::WentHot { evidence, .. }) => hot = Some(evidence),
                 Ok(WorkerEvent::UsedUp { said, until }) => return Verdict::UsedUp { said, until },
+                Ok(WorkerEvent::WorkerLimited(l)) => return Verdict::Limited { said: l.said, until: l.until },
                 Ok(WorkerEvent::WorkerWaits { why, .. }) => return Verdict::Waits { why, hot },
                 _ => {}
             }
