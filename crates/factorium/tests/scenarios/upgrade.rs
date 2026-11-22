@@ -71,6 +71,13 @@ async fn a_version_from_the_tap_that_fails_its_proof_leaves_the_old_one_running_
     let found = w.finding("daemon:refused:0.1.0").await.expect("the refusal is a finding");
     let what = found["what"].as_str().unwrap();
     assert!(what.contains("factorium 0.1.0") && what.contains("no such column: handed_back"), "{what}");
+
+    // Linked back to the running binary (by hand): nothing is refused.
+    let opt = w.dir.join("brew/opt/factorium");
+    std::fs::remove_file(&opt).unwrap();
+    std::os::unix::fs::symlink(w.dir.join("brew/Cellar/factorium/0.0.9"), &opt).unwrap();
+    w.tick().await;
+    assert_eq!(w.finding("daemon:refused:0.1.0").await, None);
 }
 
 #[tokio::test]

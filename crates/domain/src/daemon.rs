@@ -117,8 +117,7 @@ pub enum DaemonEvent {
     RolledBack { at: i64, rolled_back: RolledBack },
     RollbackOver,
     TickSlow(SlowTick),
-    SwapRefused(Refused),
-    SwapRefusalOver,
+    SwapRefused(Option<Refused>),
     UpgradeTried(Upgrade),
 }
 
@@ -143,8 +142,7 @@ impl Aggregate for Daemons {
             DaemonEvent::RolledBack { rolled_back, .. } => s.rolled_back = Some(rolled_back),
             DaemonEvent::RollbackOver => s.rolled_back = None,
             DaemonEvent::TickSlow(slow) => s.slow = Some(slow),
-            DaemonEvent::SwapRefused(r) => s.refused = Some(r),
-            DaemonEvent::SwapRefusalOver => s.refused = None,
+            DaemonEvent::SwapRefused(r) => s.refused = r,
             DaemonEvent::UpgradeTried(u) => s.upgrade = Some(u),
         }
     }
@@ -209,12 +207,9 @@ pub struct Swap {
 }
 
 command!(NoteSwap, "daemon.swap", Daemons, Swap, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(match (&p.refused, &s.refused) {
-        (Some(r), Some(was)) if r == was => Vec::new(),
-        (Some(r), _) => vec![DaemonEvent::SwapRefused(r.clone())],
-        (None, Some(_)) => vec![DaemonEvent::SwapRefusalOver],
-        (None, None) => Vec::new(),
-    })
+    Ok::<_, factum_core::Rejection>(
+        (p.refused != s.refused).then(|| DaemonEvent::SwapRefused(p.refused.clone())).into_iter().collect(),
+    )
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -226,12 +221,6 @@ pub struct Upgraded {
 command!(NoteUpgrade, "daemon.upgrade", Daemons, Upgraded, |_p| daemon_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
 });
-
-/// Whether a host that does not cut its own formula upgrades it from the tap
-/// `now`: its last try (`last`, ms) was `every` or more ago, or there was none.
-pub fn upgrade_due(last: Option<&Upgrade>, every: i64, now: i64) -> bool {
-    last.is_none_or(|u| now - u.at >= every)
-}
 
 /// What the daemon's own files say of it, as the process edge reads them:
 /// the live pid its pid file names, whether its lock is held, and when it
@@ -288,21 +277,13 @@ mod tests {
     }
 
     #[test]
-    fn an_upgrade_is_due_once_every_since_the_last_try() {
-        assert!(upgrade_due(None, 3_600_000, 0), "never tried");
-        let last = Upgrade { at: 1_000, failed: None };
-        assert!(!upgrade_due(Some(&last), 3_600_000, 3_600_999));
-        assert!(upgrade_due(Some(&last), 3_600_000, 3_601_000));
-    }
-
-    #[test]
     fn a_refused_swap_stands_until_a_link_names_another() {
         let mut s = Daemon::default();
         let r = Refused { version: "0.1.1".into(), why: "doctor failed".into() };
-        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(r.clone()));
+        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(Some(r.clone())));
         Daemons::evolve(&mut s, DaemonEvent::TickDone);
         assert_eq!(s.refused, Some(r));
-        Daemons::evolve(&mut s, DaemonEvent::SwapRefusalOver);
+        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(None));
         assert_eq!(s.refused, None);
     }
 

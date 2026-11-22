@@ -203,6 +203,8 @@ struct Memory {
     proving: Vec<line::Proving>,
     /// The upgrade of the daemon's own formula from the tap, running beside the ticks.
     upgrading: Option<tokio::task::JoinHandle<Result<String, String>>>,
+    /// The linked binary not swapped to, as its proof failed, or none; for the tick to record.
+    refusal: Option<Option<factorium_domain::daemon::Refused>>,
 }
 
 /// The host's clock, as the engine reads it.

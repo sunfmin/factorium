@@ -32,7 +32,7 @@ impl App {
         let Some(formula) = self.own_formula() else { return Ok(None) };
         let last = self.state::<daemon::Daemons>(daemon::daemon_id()).await?.upgrade;
         if self.moves_run()
-            || !daemon::upgrade_due(last.as_ref(), settings.ms(Time::UpgradeEvery), self.now())
+            || last.is_some_and(|u| self.now() - u.at < settings.ms(Time::UpgradeEvery))
             || self.cuts(checkouts, &formula)
         {
             return Ok(None);

@@ -73,35 +73,29 @@ impl crate::App {
             let (me, link) = m.running.clone()?;
             (me, link, m.refused.clone())
         };
-        let to = link.canonicalize().ok().filter(|to| *to != me && Some(to) != refused.as_ref())?;
-        let (fresh, dir) = (self.proofs.of(&to).is_none(), self.data().proofs());
-        let proven = match wait {
-            true => Some(self.proofs.prove(&self.db, &to, &dir)),
-            false => self.proofs.started(&self.db, &to, &dir),
+        let to = link.canonicalize().ok()?;
+        let proven = match (to == me || Some(&to) == refused.as_ref(), wait) {
+            (true, _) => Some(Ok(())),
+            (false, true) => Some(self.proofs.prove(&self.db, &to, &self.data().proofs())),
+            (false, false) => self.proofs.started(&self.db, &to, &self.data().proofs()),
         };
-        if let Some(Err(why)) = proven.as_ref().filter(|_| fresh) {
-            eprintln!("not swapping to {}: {why}", to.display());
+        // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
+        let refusal = proven.clone().map(|p| p.err().map(|why| Refused { version: version_of(&to), why }));
+        let mut m = self.memory.lock().unwrap();
+        if refusal.is_some() && refusal != m.refusal {
+            if let Some(Some(r)) = &refusal {
+                eprintln!("not swapping to {}: {}", to.display(), r.why);
+            }
+            m.refusal = refusal;
         }
-        proven?.ok().map(|()| link)
+        proven?.ok().filter(|()| to != me && Some(&to) != refused.as_ref()).map(|()| link)
     }
 
     /// Records the linked binary the daemon does not swap to, as its proof
-    /// failed, or that none is: once that is known (the link resolves and
-    /// names this binary, the one a rollback left, or one whose proof
-    /// ended), not while its proof runs or this binary is not Homebrew's.
+    /// failed, or that none is, as [`Self::swapped`] last found it.
     pub(crate) async fn note_refusal(&self) -> crate::Answer<()> {
-        let (me, link, left) = {
-            let m = self.memory.lock().unwrap();
-            let Some((me, link)) = m.running.clone() else { return Ok(()) };
-            (me, link, m.refused.clone())
-        };
-        let Ok(to) = link.canonicalize() else { return Ok(()) };
-        let refused = match (to == me || Some(&to) == left.as_ref(), self.proofs.of(&to)) {
-            (true, _) | (false, Some(Ok(()))) => None,
-            (false, Some(Err(why))) => Some(Refused { version: version_of(&to), why }),
-            (false, None) => return Ok(()),
-        };
-        self.submit::<NoteSwap>(Swap { refused }).await.map(drop)
+        let Some(refused) = self.memory.lock().unwrap().refusal.take() else { return Ok(()) };
+        self.submit::<NoteSwap>(Swap { refused }).await
     }
 
     /// The kept binary to exec in place of this one, once its ticks all failed.
