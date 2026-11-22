@@ -5,8 +5,11 @@
 //! has room, or when nothing runs, so it never starves; one start per
 //! reading settled after the last start; and one that holds others up past the hold bound is ended. A
 //! line move past its bound goes ahead of workers' waiting entries. The
-//! rules are those of the newest version that asked: a binary older than it
-//! is refused, however long it has waited (factorium#106). A worker's or a
+//! rules are those of the daemon that runs, set as it starts: a binary
+//! older than it is refused, however long it has waited (factorium#106),
+//! and its waiting entry is passed over, so it holds none up. Not those of
+//! any newer binary that asks: one whose proof failed never runs the
+//! daemon, which would be refused its own gates (factorium#241). A worker's or a
 //! program's entry that left the queue unstarted (its waiter refused, or
 //! gone) keeps its place for the keep bound: the same asker asking the same
 //! command again takes it (factorium#193).
@@ -74,6 +77,10 @@ pub struct Entry {
     /// entry from another process ends them all.
     #[serde(default)]
     pub session: Option<u32>,
+    /// The rules its asker last asked under: waiting under rules older than
+    /// the queue's, it is passed over.
+    #[serde(default)]
+    pub rules: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -81,7 +88,7 @@ pub struct Queue {
     pub entries: Vec<Entry>,
     /// When the last one started: one start per reading.
     pub last_start: i64,
-    /// The newest rules that asked: older ones may not start.
+    /// The rules of the daemon that runs: older ones may not start.
     #[serde(default)]
     pub rules: String,
     /// The places of entries that left unstarted, kept for their askers.
@@ -178,7 +185,18 @@ impl Queue {
         now: i64,
     ) -> Result<(), String> {
         let starts = queue::Starts { last: self.last_start, settle };
-        queue::may_start(&self.entries, starts, id, room, read_at, now)
+        queue::may_start(&self.live(), starts, id, room, read_at, now)
+    }
+
+    /// Whether `e` waits under rules older than the queue's.
+    pub fn stale(&self, e: &Entry) -> bool {
+        e.started_at.is_none() && older(&e.rules, &self.rules)
+    }
+
+    /// Its entries but those waiting under replaced rules: passed over, they
+    /// hold none up, as if gone (factorium#241).
+    fn live(&self) -> Vec<Entry> {
+        self.entries.iter().filter(|e| !self.stale(e)).cloned().collect()
     }
 
     /// The place `what`, asked by `worker` (or a program), takes at `now`: that of its entry
@@ -196,7 +214,7 @@ impl Queue {
 
     /// Whether the running `id` holds others up past `bound` and must end.
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
-        queue::overheld(&self.entries, id, now, bound)
+        queue::overheld(&self.live(), id, now, bound)
     }
 
     /// Why the running `id` must end at `now`, if it must: unqueued, held
@@ -249,6 +267,15 @@ pub enum HeavyEvent {
         /// unstarted: its `queued_at`, not `at`.
         #[serde(default)]
         place: Option<i64>,
+        /// The rules it was queued under.
+        #[serde(default)]
+        rules: String,
+    },
+    /// A queued entry's asker asks under other rules: a binary that execed
+    /// in its place, keeping it.
+    HeavyAsks {
+        id: Uuid,
+        rules: String,
     },
     HeavyStarted {
         id: Uuid,
@@ -266,7 +293,7 @@ pub enum HeavyEvent {
         id: Uuid,
         session: u32,
     },
-    /// A binary with newer rules than any before asked.
+    /// A daemon under other rules than the queue's started.
     HeavyRules {
         version: String,
     },
@@ -281,11 +308,14 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at, place } => {
+            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at, place, rules } => {
                 s.left.retain(|l| !l.of(&what, worker, program));
-                let queued_at = place.unwrap_or(at);
-                let session = None;
-                s.entries.push(Entry { id, what, pid, worker, program, queued_at, started_at: None, bound_at, session })
+                let (queued_at, session, started_at) = (place.unwrap_or(at), None, None);
+                let e = Entry { id, what, pid, worker, program, queued_at, started_at, bound_at, session, rules };
+                s.entries.push(e)
+            }
+            HeavyEvent::HeavyAsks { id, rules } => {
+                s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.rules = rules.clone())
             }
             HeavyEvent::HeavyStarted { id, at } => {
                 s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.started_at = Some(at));
@@ -329,11 +359,15 @@ pub struct Enqueue {
     /// for it, ms: `heavy_keep`.
     #[serde(default)]
     pub keep: i64,
+    /// The rules it asks under: [`RULES`] of the binary that asks.
+    #[serde(default)]
+    pub rules: String,
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
-    if s.entries.iter().any(|e| e.id == p.id) {
-        return Ok(Vec::new());
+    if let Some(e) = s.entries.iter().find(|e| e.id == p.id) {
+        let asks = HeavyEvent::HeavyAsks { id: p.id, rules: p.rules.clone() };
+        return Ok(if e.rules == p.rules { Vec::new() } else { vec![asks] });
     }
     Ok::<_, factum_core::Rejection>(vec![HeavyEvent::HeavyQueued {
         id: p.id,
@@ -344,6 +378,7 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         at: now.0,
         bound_at: p.bound_at,
         place: s.place(&p.what, p.worker, p.program, now.0, p.keep),
+        rules: p.rules.clone(),
     }])
 });
 
@@ -408,8 +443,9 @@ pub struct Rules {
     pub version: String,
 }
 
+// The daemon's own, older ones too: a rollback's binary is refused none of its own gates.
 command!(NoteRules, "heavy.rules", Heavy, Rules, |_p| queue_id(), |s, p, _now| {
-    Ok::<_, factum_core::Rejection>(if older(&s.rules, &p.version) {
+    Ok::<_, factum_core::Rejection>(if s.rules != p.version {
         vec![HeavyEvent::HeavyRules { version: p.version.clone() }]
     } else {
         Vec::new()

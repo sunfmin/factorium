@@ -387,7 +387,8 @@ async fn with_nothing_running_the_oldest_starts_at_once_however_recent_the_last_
 /// Seen 2026-11-18 (factorium#106): two `worker exclusive` of binaries older
 /// than the one installed started 3 ms apart beside a running entry, under
 /// the rules they were built with, which lacked #102's one start per reading.
-/// Refused, a waiter execs the binary Homebrew links now in its place.
+/// Refused, a waiter execs the binary Homebrew links now in its place. The
+/// rules are the daemon's: a newer waiter that asks sets none (factorium#241).
 #[tokio::test]
 async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     let w = World::new();
@@ -422,7 +423,8 @@ async fn a_waiter_under_rules_a_newer_binary_replaced_does_not_start() {
     let looks = async {
         // The busy one runs, both wait: all three asleep on the clock.
         w.until(async || w.queued().await.len() >= 3 && w.clock.asleep() == 3).await;
-        // The upgrade: a settled reading with room, for one start.
+        // The upgrade: the daemon runs the new binary; a settled reading with room, for one start.
+        w.run().under_rules("1.0.1").daemon_start().await.unwrap();
         w.host.reading.lock().unwrap().cpu_busy = 10;
         w.clock.advance(30_000);
         until_file(&w.dir.join("old-asked")).await;

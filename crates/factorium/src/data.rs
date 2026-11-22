@@ -133,10 +133,10 @@ impl Data {
         self.0.join("rollback.json")
     }
 
-    /// A copy of the database, made to prove a binary on (`id` its own),
-    /// kept where it failed for a look.
-    pub fn proof(&self, id: impl std::fmt::Display) -> PathBuf {
-        self.0.join("proofs").join(id.to_string()).join("factorium.db")
+    /// Where binaries are proven: a copy of the database for each, kept
+    /// where it failed for a look, and how each was proven.
+    pub fn proofs(&self) -> PathBuf {
+        self.0.join("proofs")
     }
 
     /// The whole outputs of `checkout`'s gate runs, one file each, named

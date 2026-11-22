@@ -170,7 +170,8 @@ impl App {
         t.watch = self.look_if_due(&settings).await?;
         steps.ended("the watch's look", self.now());
         // Not while a line move runs beside the ticks: a restart would end it.
-        t.restart = (!self.moves_run()).then(|| self.swapped()).flatten().map(|b| b.to_string_lossy().into_owned());
+        t.restart =
+            (!self.moves_run()).then(|| self.swapped(false)).flatten().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
     }
 
