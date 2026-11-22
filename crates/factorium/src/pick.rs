@@ -26,7 +26,9 @@ impl App {
     /// Has the worker's change's mutants picked, and answers the picks, or
     /// why none, by whom, with the commands that run and record them; when
     /// every picker fails, the last one's refusal, and nothing is kept.
-    /// When slimfit lists no candidates no picker is asked: none, and why.
+    /// When slimfit lists no candidates of a change that needs no record of
+    /// its mutants, no picker is asked: none, and why; one that adds source
+    /// lines still has its picker say why none (factorium#247).
     pub async fn worker_pick_mutants(&self, worker: Uuid) -> Answer {
         let (st, diff) = self.change(worker).await?;
         let args = ["check", "--repo", &st.worktree, "--mutants"];
