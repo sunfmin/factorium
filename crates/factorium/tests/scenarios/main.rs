@@ -55,4 +55,5 @@ mod stall;
 mod terminals;
 mod tracker;
 mod unqueue;
+mod upgrade;
 mod watch;

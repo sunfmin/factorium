@@ -61,6 +61,14 @@ impl Brew<'_> {
         }
     }
 
+    /// Upgrades `formula`, installed, to the newest version its tap has once
+    /// `brew update` sees it (factorium#269): answers what brew printed, or
+    /// why it failed. A tap with nothing newer is no failure.
+    pub fn upgrade_newest(&self, formula: &str) -> Result<String, String> {
+        self.brew(&["update", "--quiet"])?;
+        self.brew(&["upgrade", formula])
+    }
+
     /// Whether Homebrew has `version` (a tag such as `v0.1.1`) of `formula`
     /// installed, whoever installed it.
     pub fn has(&self, formula: &str, version: &str) -> bool {

@@ -21,6 +21,7 @@ mod pick;
 mod service;
 mod session;
 mod swap;
+mod upgrade;
 mod watch;
 mod work;
 
@@ -161,6 +162,8 @@ fn model() -> Model {
         .command::<daemon::StartDaemon>()
         .command::<daemon::NoteTick>()
         .command::<daemon::NoteRollback>()
+        .command::<daemon::NoteSwap>()
+        .command::<daemon::NoteUpgrade>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::EndWatch>()
@@ -198,6 +201,8 @@ struct Memory {
     beside: Vec<heavy::Beside>,
     /// The cuts whose installed binary is proven beside the ticks, recorded once it ends.
     proving: Vec<line::Proving>,
+    /// The upgrade of the daemon's own formula from the tap, running beside the ticks.
+    upgrading: Option<tokio::task::JoinHandle<Result<String, String>>>,
 }
 
 /// The host's clock, as the engine reads it.

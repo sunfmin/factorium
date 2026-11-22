@@ -5,7 +5,7 @@
 //! binary's ticks all fail (factorium#143).
 use std::path::{Path, PathBuf};
 
-use factorium_domain::daemon::{NoteRollback, Rollback, RolledBack};
+use factorium_domain::daemon::{NoteRollback, NoteSwap, Refused, Rollback, RolledBack, Swap};
 use factorium_domain::settings::{Setting, Settings};
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +83,25 @@ impl crate::App {
             eprintln!("not swapping to {}: {why}", to.display());
         }
         proven?.ok().map(|()| link)
+    }
+
+    /// Records the linked binary the daemon does not swap to, as its proof
+    /// failed, or that none is: once that is known (the link resolves and
+    /// names this binary, the one a rollback left, or one whose proof
+    /// ended), not while its proof runs or this binary is not Homebrew's.
+    pub(crate) async fn note_refusal(&self) -> crate::Answer<()> {
+        let (me, link, left) = {
+            let m = self.memory.lock().unwrap();
+            let Some((me, link)) = m.running.clone() else { return Ok(()) };
+            (me, link, m.refused.clone())
+        };
+        let Ok(to) = link.canonicalize() else { return Ok(()) };
+        let refused = match (to == me || Some(&to) == left.as_ref(), self.proofs.of(&to)) {
+            (true, _) | (false, Some(Ok(()))) => None,
+            (false, Some(Err(why))) => Some(Refused { version: version_of(&to), why }),
+            (false, None) => return Ok(()),
+        };
+        self.submit::<NoteSwap>(Swap { refused }).await.map(drop)
     }
 
     /// The kept binary to exec in place of this one, once its ticks all failed.
