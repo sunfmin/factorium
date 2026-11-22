@@ -229,6 +229,7 @@ async fn a_landed_worker_whose_issue_close_the_store_refused_has_it_closed_on_th
     let tree = std::path::PathBuf::from(wk["worktree"].as_str().unwrap());
     w.done(&wk, "a", "x").await;
     // The worker is recorded landed; its issue's close is not, as if the daemon died there.
+    w.gated().await;
     w.disk_refuses("IssueClosed", true);
     assert!(w.app.tick().await.is_err(), "the tick stops at the close");
     let issue = w.app.issue_show("web", 1).await.unwrap();

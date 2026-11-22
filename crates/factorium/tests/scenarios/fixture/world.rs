@@ -194,6 +194,14 @@ impl World {
         t
     }
 
+    /// The tick that starts a landing's fast gate beside the ticks, and until that ended: the
+    /// next tick lands it (factorium#231).
+    pub async fn gated(&self) {
+        let t = self.tick_alone().await;
+        assert!(t.landed.is_empty(), "the landing's gate runs beside the ticks: {t:?}");
+        tokio::time::timeout(super::STUCK, self.app.moves_ended()).await.expect("its gate ends");
+    }
+
     /// One tick, as the daemon ticks.
     pub async fn tick_alone(&self) -> Tick {
         let t = self.app.tick().await.unwrap();

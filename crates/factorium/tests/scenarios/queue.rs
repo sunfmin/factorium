@@ -33,8 +33,17 @@ async fn a_gate_run_holding_others_up_past_the_hold_bound_is_ended() {
         };
         tokio::join!(waiter, again).0
     };
+    // The gate runs beside the ticks: a tick that looks at it ends it, the next records it.
+    let ticks = async {
+        let mut t = w.tick_alone().await;
+        while t.landed.is_empty() {
+            tokio::time::sleep(crate::fixture::LOOK).await;
+            t = w.tick_alone().await;
+        }
+        t
+    };
     let (t, after) =
-        tokio::time::timeout(STUCK, async { tokio::join!(w.tick(), others) }).await.expect("the gate is ended");
+        tokio::time::timeout(STUCK, async { tokio::join!(ticks, others) }).await.expect("the gate is ended");
     let red = t.landed[0]["red"].as_str().unwrap();
     assert!(red.contains("held others up past the hold bound of 1800s"), "{red}");
     assert!(!red.contains("past its limit"), "ended by the hold bound, not its own limit: {red}");

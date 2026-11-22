@@ -2,12 +2,14 @@
 //! command — landings, promotions, cuts, issues to bump a pin of another
 //! checkout, workers watched, one start if admission allows, idle work, and
 //! the watch's look. The host and the heavy queue are read once a pass
-//! ([`crate::load`]), after the lines' gates.
+//! ([`crate::load`]), after the lines' gates. No step waits for a heavy run:
+//! those run beside the ticks. Each tick is timed by its steps, and one past
+//! half the hang bound is kept for doctor, naming the step it spent most in.
 
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Ticked};
+use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Step, Ticked};
 use factorium_domain::doctor;
 use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
@@ -47,6 +49,31 @@ pub struct Tick {
     /// The binary to run in place of this one once the tick ends: Homebrew
     /// links another version of the daemon's own formula, whoever cut it.
     pub restart: Option<String>,
+    /// How long the tick took, ms on the app's clock.
+    pub took_ms: i64,
+    /// The step it spent most in.
+    pub longest: Step,
+}
+
+/// A tick's steps as each ends, on the app's clock: the longest so far.
+struct Steps {
+    last: i64,
+    longest: Step,
+}
+
+impl Steps {
+    fn new(now: i64) -> Self {
+        Steps { last: now, longest: Step::default() }
+    }
+
+    /// `step` ended `now`.
+    fn ended(&mut self, step: &str, now: i64) {
+        let ms = now - self.last;
+        if ms > self.longest.ms || self.longest.step.is_empty() {
+            self.longest = Step { step: step.into(), ms };
+        }
+        self.last = now;
+    }
 }
 
 /// How soon a stop between ticks is seen, ms on the app's clock.
@@ -64,10 +91,19 @@ impl App {
     /// One pass of the daemon, recorded: a failing one adds to the run of
     /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
-        let done = self.pass().await;
+        let start = self.now();
+        let mut steps = Steps::new(start);
+        let mut done = self.pass(&mut steps).await;
         let error = done.as_ref().err().map(Refusal::to_string);
         self.proving(error.as_deref()).await;
-        let noted = self.submit::<NoteTick>(Ticked { error }).await;
+        steps.ended("proving the binary", self.now());
+        let took_ms = self.now() - start;
+        let every = self.settings().await.unwrap_or_default().ms(Time::TickEvery);
+        let slow = daemon::slow(took_ms, every).then(|| (took_ms, steps.longest.clone()));
+        if let Ok(t) = &mut done {
+            (t.took_ms, t.longest) = (took_ms, steps.longest);
+        }
+        let noted = self.submit::<NoteTick>(Ticked { error, slow }).await;
         if done.is_err() || noted.is_err() {
             let settings = self.settings().await.unwrap_or_default();
             if let Err(e) = self.look_if_due(&settings).await {
@@ -78,20 +114,25 @@ impl App {
         noted.and(done)
     }
 
-    async fn pass(&self) -> Answer<Tick> {
+    async fn pass(&self, steps: &mut Steps) -> Answer<Tick> {
         let mut t = Tick::default();
         self.engine.settle().await?;
         let settings = self.settings().await?;
+        steps.ended("settling the store", self.now());
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
+        steps.ended("idle work's check and closing landed issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
+        steps.ended("the lines' moves", self.now());
         t.bumped = self.bumps(&checkouts).await?;
+        steps.ended("bumps", self.now());
         // The host and the heavy queue, read once, after the lines' gates
         // ran: the workers' shares, admission and idle work all ask it.
         let load = self.load().await?;
+        steps.ended("reading the host", self.now());
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
         for w in self.live_workers().await? {
@@ -100,6 +141,7 @@ impl App {
                 t.seen.push(seen);
             }
         }
+        steps.ended("watching workers", self.now());
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
             let held = admission::admit(&load.admission(), &load.queue, self.now(), &settings);
@@ -121,13 +163,17 @@ impl App {
         } else {
             self.submit::<NoteAdmission>(Held { why: None }).await?;
         }
+        steps.ended("starting a worker", self.now());
         // Idle work, once the lines and the workers have what they need.
         t.idle.extend(self.idle_start(&checkouts, &load, &settings).await?);
         if admission::disk_short(&load.room(), &settings) {
             self.reclaim();
         }
+        steps.ended("idle work's start", self.now());
         t.resumed = self.resume_parked().await?;
+        steps.ended("resuming parked workers", self.now());
         t.watch = self.look_if_due(&settings).await?;
+        steps.ended("the watch's look", self.now());
         // Not while a line move runs beside the ticks: a restart would end it.
         t.restart = (!self.moves_run()).then(|| self.swapped()).flatten().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
@@ -300,6 +346,11 @@ impl App {
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             let ticked = self.tick().await;
             self.note_ticked();
+            let every = self
+                .settings()
+                .await
+                .map(|s| s.ms(Time::TickEvery))
+                .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             match ticked {
                 Ok(t) => {
                     let did = !t.landed.is_empty()
@@ -307,7 +358,8 @@ impl App {
                         || !t.seen.is_empty()
                         || !t.idle.is_empty()
                         || !t.resumed.is_empty();
-                    if t.started.is_some() || did {
+                    // Each tick that did something or was slow is logged, with its time.
+                    if t.started.is_some() || did || daemon::slow(t.took_ms, every) {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
@@ -322,11 +374,6 @@ impl App {
                 }
             }
             ticks += 1;
-            let every = self
-                .settings()
-                .await
-                .map(|s| s.ms(Time::TickEvery))
-                .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             // On the app's clock, in slices, so a stop between ticks ends the wait.
             let until = self.now() + every;
             while !stop.load(std::sync::atomic::Ordering::Relaxed) && self.now() < until {

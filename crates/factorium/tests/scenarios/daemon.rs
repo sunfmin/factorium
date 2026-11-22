@@ -414,3 +414,29 @@ async fn stop_leaves_the_file_of_a_daemon_that_holds_its_lock_and_has_not_writte
     assert!(pid.exists(), "its holder keeps it");
     drop(held);
 }
+
+/// factorium#231: each tick is timed by its steps. One past half the hang
+/// bound is a finding naming the step it spent most in, kept past the fast
+/// ticks after it, for an hour.
+#[tokio::test]
+async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let quick = w.tick_alone().await;
+    assert!(quick.took_ms < 60_000 && !quick.longest.step.is_empty(), "{quick:?}");
+    // The landing's tick ends the worker: its terminal's close takes 70 s.
+    let clock = w.clock.clone();
+    *w.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| clock.advance(70_000)));
+    w.done(&wk, "a.txt", "a\n").await;
+    let t = w.tick().await;
+    assert_eq!(t.landed[0]["landed"], "web#1", "{t:?}");
+    *w.host.orca.while_closing.lock().unwrap() = None;
+    w.tick_alone().await;
+    let doctor = w.app.doctor().await.unwrap();
+    let found: Vec<&str> = crate::fixture::findings(&doctor).iter().filter_map(|f| f["key"].as_str()).collect();
+    assert!(found.contains(&"daemon:slow-tick:the lines' moves"), "{found:?}");
+    assert!(doctor["slow_tick"]["took_ms"].as_i64().unwrap() >= 70_000, "{}", doctor["slow_tick"]);
+    w.advance(61);
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(!crate::fixture::findings(&doctor).iter().any(|f| f["key"].as_str().unwrap().starts_with("daemon:slow")));
+}
