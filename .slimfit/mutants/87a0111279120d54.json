@@ -1,0 +1,39 @@
+{
+  "tree": "d1387704c1fe93e4076d405fc4f2912803e9f44b+5c3c24732d60208b",
+  "picker": "codex:01a204e5-cdd3-76e2-a00f-2703ea049dd3:default",
+  "author": "claude-code:d78137f1-a95b-5bea-b12d-982d09eca7c5:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/neutral/landing.rs:167:9: replace Owed::overdue -> bool with true",
+        "why": "The merged scenario checks when promotion happens with an uncontested queue, so it may miss a promotion claiming overdue priority as soon as it becomes due.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git.rs:294:9: replace Git::version_tags -> Vec<String> with vec![]",
+        "why": "The merged scenario expects the first release, v0.1.0, which an empty tag list can still produce even when existing releases would be ignored.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git.rs:45:15: delete field clock from struct Git expression in Git::dated",
+        "why": "The scenarios compare commit IDs and advance the test clock for scheduling, so they may miss Git commits using wall-clock timestamps.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/line.rs:59:5: replace why -> String with String::new()",
+        "why": "The merged scenarios assert whether landings, promotions, and cuts happen, leaving room for the explanations of deferred work to disappear.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/line.rs:11: a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound_less_the_hold_bound",
+      "crates/factorium/tests/scenarios/line.rs:499: a_promotion_takes_every_landing_up_to_its_tip"
+    ]
+  }
+}
