@@ -406,7 +406,7 @@ impl App {
             self.blocker(checkout, by.clone()).await?;
         }
         self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, undo }).await?;
-        // Its waiting worker is parked behind it (SPEC §2): back to work once all it waits for is met.
+        // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
             self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
         }

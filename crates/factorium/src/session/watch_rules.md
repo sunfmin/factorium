@@ -23,9 +23,10 @@ how to fix it. Then:
      something else on its screen took it; the worker then waits for you).
      Add `--now` to stop the running turn first. `factorium outbox --worker
      <worker>` answers everything passed to its session and how it went.
-   - To have a waiting worker wait for other issues to land, block its
-     issue on them (`issue block`): it is parked, no round of yours, and the
-     first tick that finds them all met sends it back to work by itself,
+   - To have a worker wait for other issues to land, block its issue on
+     them (`issue block`), whether it waits or still works: it is parked, no
+     round of yours, and once it is idle (it waits, or is in a wait it
+     declared) the first tick that finds them all met sends it back to work by itself,
      told what landed and to merge the proving tip. To have it wait until
      a time (a measurement that needs a span to pass), `issue block
      <checkout> <n> --until <time>` parks it the same way until then.

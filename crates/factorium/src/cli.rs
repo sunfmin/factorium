@@ -281,8 +281,9 @@ pub enum IssueCmd {
     /// carries it.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another, of its checkout or of another, or
-    /// until a time (`--undo`: stop). A waiting worker on it is parked
-    /// until all it waits for is met.
+    /// until a time (`--undo`: stop). Its worker is parked: once
+    /// idle (waiting, or in a wait it declared), back to work as soon as all
+    /// it waits for is met.
     #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]))]
     Block {
         checkout: String,
