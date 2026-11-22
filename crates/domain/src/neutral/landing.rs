@@ -280,9 +280,9 @@ mod tests {
         assert!(l.cut_failed.is_some(), "the same commit holds no fix");
         l.apply(LineEvent::Landed { number: 2, commit: "b".into(), at: 2 });
         l.apply(LineEvent::Promoted { tip: "b".into(), at: 3 });
-        assert_eq!(l.cut_failed, None);
+        assert!(l.cut_failed.is_none());
         let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
         let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
-        assert_eq!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())), Ok(Ok(Due::Cut)));
+        assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
     }
 }
