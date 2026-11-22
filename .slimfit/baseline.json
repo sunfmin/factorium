@@ -3,10 +3,10 @@
     "rust": {
       "prod_lines": 13317,
       "test_lines": 12769,
-      "tests": 413,
+      "tests": 414,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 7857,
+      "covered_lines": 7864,
       "uncovered_lines": 107
     }
   },
@@ -91,8 +91,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 142,
-      "test_seconds": 332.74
+      "uncovered_lines": 135,
+      "test_seconds": 325.031
     }
   }
 }
