@@ -276,6 +276,19 @@ async fn doctor_does_not_list_a_decided_shape_quoted_in_a_fence() {
     assert_eq!(what, [json!("call it guild")]);
 }
 
+/// A body line that starts with inline code (one backtick) opens no fence,
+/// and doctor answers `decided` from that body without failing (factorium#239).
+#[tokio::test]
+async fn doctor_reads_a_body_line_starting_with_inline_code() {
+    let w = World::new();
+    w.checkout("web").await;
+    let body = "`factorium doctor` answers `decided`: the records.\n\n\
+        Decided (session, for Felix): call it guild\nUndo: rename it back";
+    w.app.issue_add("web", "Inline", body, false, &[]).await.unwrap();
+    let what: Vec<_> = w.doctor().await["decided"].as_array().unwrap().iter().map(|d| d["what"].clone()).collect();
+    assert_eq!(what, [json!("call it guild")]);
+}
+
 #[tokio::test]
 async fn an_issue_waits_for_others_of_its_checkout() {
     let w = World::new();

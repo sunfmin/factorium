@@ -53,7 +53,7 @@ pub fn in_body(body: &str) -> Vec<Record> {
 fn fence(line: &str) -> Option<&str> {
     let c = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
     let run = &line[..line.len() - line.trim_start_matches(c).len()];
-    (run.len() >= 3).then_some(&run[..3])
+    (run.len() >= 3).then(|| &run[..3])
 }
 
 /// The record headed by `head`, each field from its own line after it, up to
@@ -120,5 +120,12 @@ mod tests {
         assert_eq!(found[0], kept());
         assert_eq!(found[1].what, "after");
         assert_eq!(in_comment(quoted), None);
+    }
+
+    #[test]
+    fn a_line_starting_with_a_short_run_of_backticks_or_tildes_is_no_fence() {
+        let body = format!("`x` answers it\n``x`` too\n~x\n{RECORD}");
+        assert_eq!(in_body(&body), vec![kept()]);
+        assert!(in_body("`x`\n``x``\n~x").is_empty());
     }
 }
