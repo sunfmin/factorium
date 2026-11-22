@@ -260,6 +260,22 @@ async fn doctor_lists_every_decided_record_newest_first_until_read() {
     assert_eq!(week, [json!("keep hall too")], "7 days back, no more: the rest are 7 days and 1 minute old");
 }
 
+/// A body that quotes the record's shape in a fenced code block is not a
+/// record there; a real one in the same body, outside the fence, is.
+#[tokio::test]
+async fn doctor_does_not_list_a_decided_shape_quoted_in_a_fence() {
+    let w = World::new();
+    w.checkout("web").await;
+    let body = "Write records in this shape:\n\n```\n\
+        Decided (<who>, for Felix): <what, one line>\n\
+        Options: A) …  B) …\n\
+        Undo: <how to take it back>\n```\n\n\
+        Decided (session, for Felix): call it guild\nUndo: rename it back";
+    w.app.issue_add("web", "Shape", body, false, &[]).await.unwrap();
+    let what: Vec<_> = w.doctor().await["decided"].as_array().unwrap().iter().map(|d| d["what"].clone()).collect();
+    assert_eq!(what, [json!("call it guild")]);
+}
+
 #[tokio::test]
 async fn an_issue_waits_for_others_of_its_checkout() {
     let w = World::new();
