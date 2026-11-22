@@ -157,10 +157,9 @@ impl App {
             return Ok(());
         }
         // A nested worktree holding work holds this one, as its own work does: doctor names it.
-        match clear_nested(&git, &c, path) {
-            Err(r) if r.code == "nested_held" => Ok(()),
-            cleared => cleared.and_then(|()| self.remove_worktree(&git, path, &st.branch)),
-        }
+        let Ok(free) = free_nested(&git, &c, path) else { return Ok(()) };
+        drop_nested(&git, free)?;
+        self.remove_worktree(&git, path, &st.branch)
     }
 
     /// The worktree `issue`'s last attempt kept, holding work that is
@@ -254,7 +253,7 @@ impl App {
     /// holds work ([`nested`]): that is kept where it is, and named.
     pub(crate) async fn abandon(&self, c: &Checkout, st: &Started, why: Why<'_>) -> Answer<Abandoned> {
         let (git, path) = (self.host.git(&c.path), Path::new(&st.worktree));
-        clear_nested(&git, c, path)?;
+        drop_nested(&git, free_nested(&git, c, path)?)?;
         let kept = abandoned(&st.branch);
         let (at, comment) = why.said(st.attempt, &kept);
         if let Why::Close(reason) = why {
@@ -280,7 +279,7 @@ impl App {
 
     /// Removes a worker's worktree through Orca, with its terminals, then
     /// whatever git keeps of it and its branch. Orca refuses one that holds
-    /// another git worktree: [`clear_nested`] comes first.
+    /// another git worktree: [`drop_nested`] comes first.
     fn remove_worktree(&self, git: &Git, path: &Path, branch: &str) -> Answer<()> {
         self.host.orca().remove(path).map_err(fail("orca"))?;
         git.forget(path, branch);
@@ -322,17 +321,13 @@ fn held(nested: &[(PathBuf, Option<String>)]) -> Vec<String> {
     nested.iter().filter_map(|(p, why)| Some(format!("{}: {}", p.display(), why.as_ref()?))).collect()
 }
 
-/// Removes the nested worktrees in `path` ([`nested`]), before what it
-/// holds is committed (they are no work of its own) and before Orca removes
-/// it; refused, removing none and naming those that hold work, while any does.
-fn clear_nested(git: &Git, c: &Checkout, path: &Path) -> Answer<()> {
+/// The nested worktrees in `path` ([`nested`]), which may go; refused,
+/// naming those that hold work, while any does.
+fn free_nested(git: &Git, c: &Checkout, path: &Path) -> Answer<Vec<PathBuf>> {
     let inner = nested(git, c, path);
     let held = held(&inner);
     if held.is_empty() {
-        for (inner, _) in inner {
-            git.worktree_remove(&inner).map_err(fail("git"))?;
-        }
-        return Ok(());
+        return Ok(inner.into_iter().map(|(p, _)| p).collect());
     }
     let why = format!(
         "{} holds a nested worktree with work, kept where it is: {}. Commit that elsewhere or remove it, then try again",
@@ -340,6 +335,12 @@ fn clear_nested(git: &Git, c: &Checkout, path: &Path) -> Answer<()> {
         held.join("; ")
     );
     Err(Refusal::new("nested_held", why))
+}
+
+/// Removes the `free` nested worktrees ([`free_nested`]), before what holds
+/// them is committed (they are no work of its own) and before Orca removes it.
+fn drop_nested(git: &Git, free: Vec<PathBuf>) -> Answer<()> {
+    free.iter().try_for_each(|inner| git.worktree_remove(inner).map_err(fail("git")))
 }
 
 /// Whether a worker's worktree at `path`, on `branch`, holds work that is
