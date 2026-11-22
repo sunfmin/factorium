@@ -1,0 +1,10 @@
+{
+  "tree": "0ba31e19fdddd4584db5c3c2338e9cd3e3d16a74+d1fba762150c532c",
+  "lines": 51,
+  "serves": "factorium#224",
+  "considered": "Git::worktrees, Git::worktree_remove, Git::is_ancestor and holds_own in kept.rs (reused); the doctor Orphaned finding (extended, not duplicated); remove_worktree's one scan (moved to callers)",
+  "reviewer": "codex:01a20194-6f6e-7e40-9297-1c9427b59788:default",
+  "author": "claude-code:ed4ee61f-366b-5456-8363-6901638a56ee:opus",
+  "cut": "In crates/factorium/src/kept.rs, let release_worker call clear_nested once and skip removal on nested_held. Keep abandon’s early cleanup and remove the duplicate scan and Checkout parameter from remove_worktree. In crates/factorium/tests/scenarios/kept.rs, use the stand-in case’s direct git worktree add with HEAD and drop the parent-directory setup and separate rev-parse.",
+  "answer": "All made: release_worker calls clear_nested once and skips on nested_held; remove_worktree lost its scan and Checkout; the scenario adds the nested worktree at HEAD directly, drops the rev-parse and the nested parent mkdir (the info/ mkdir stays: the fixture repos have none)"
+}

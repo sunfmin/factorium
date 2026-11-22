@@ -588,3 +588,88 @@ async fn a_daemon_that_died_mid_start_whose_worktree_is_gone_frees_its_issue_wit
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
     assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
 }
+
+/// `web` with attempt 1's worktree left behind by attempt 2 (as
+/// [`discarding_an_older_attempt_s_worktree_names_that_attempt_and_its_kept_branch`]),
+/// holding a git worktree of its own at `.slimfit/out/before`, as slimfit's
+/// comparison makes: detached at the proving tip attempt 1 started from.
+/// Answers attempt 1's worktree and the nested one.
+async fn left_holding_a_comparison(w: &World) -> (PathBuf, PathBuf) {
+    let old = waiting_for_human(w, false).await;
+    let inner = old.join(".slimfit").join("out").join("before");
+    // The repo ignores slimfit's output, as this one's `.gitignore` does.
+    let exclude = w.dir.join("repos").join("web").join(".git").join("info").join("exclude");
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, ".slimfit/out\n").unwrap();
+    w.git(&old, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), "HEAD"]).unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+    (old, inner)
+}
+
+#[tokio::test]
+async fn discard_removes_a_clean_detached_nested_worktree_at_a_proving_commit_in_one_call() {
+    let w = World::new();
+    let (old, inner) = left_holding_a_comparison(&w).await;
+    let discarded = w.app.discard_orphaned(&old).await.unwrap();
+    assert_eq!(discarded["abandoned"], "factorium/web-1-1-abandoned", "{discarded}");
+    assert!(!old.exists() && !inner.exists(), "both go");
+    let repo = w.dir.join("repos").join("web");
+    let listed = w.git(&repo, &["worktree", "list", "--porcelain"]).unwrap();
+    assert!(!listed.contains(".slimfit"), "git forgets the nested one: {listed}");
+}
+
+#[tokio::test]
+async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_it() {
+    let w = World::new();
+    let (old, inner) = left_holding_a_comparison(&w).await;
+    std::fs::write(inner.join("mine.txt"), "work").unwrap();
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert_eq!(refused.code, "nested_held", "{refused:?}");
+    assert!(refused.message.contains(".slimfit/out/before: it has changes not committed"), "{refused:?}");
+    assert!(inner.join("mine.txt").exists() && old.exists(), "nothing is removed");
+    let repo = w.dir.join("repos").join("web");
+    assert!(
+        w.git(&repo, &["rev-parse", "--verify", "refs/heads/factorium/web-1-1-abandoned"]).is_err(),
+        "nothing changed"
+    );
+
+    let real = old.canonicalize().unwrap();
+    let found = w.finding(&format!("worktree:{}", real.display())).await;
+    let found = found.or(w.finding(&format!("worktree:{}", old.display())).await).expect("doctor names it");
+    let what = found["what"].as_str().unwrap();
+    assert!(what.contains(".slimfit/out/before: it has changes not committed"), "{found}");
+
+    // Committed, it is work on no landed line; on a branch, that branch's.
+    w.commit(&inner, "mine.txt", "work");
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert!(refused.message.contains("before: its HEAD is on neither proving nor main"), "{refused:?}");
+    w.git(&inner, &["switch", "--quiet", "-c", "mine"]).unwrap();
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert!(refused.message.contains("before: it is on branch `mine`, not detached"), "{refused:?}");
+
+    // Back at the landed commit, detached and clean, discard goes through.
+    w.git(&inner, &["switch", "--quiet", "--detach", "origin/proving"]).unwrap();
+    w.app.discard_orphaned(&old).await.unwrap();
+    assert!(!old.exists());
+}
+
+#[tokio::test]
+async fn a_landed_worktree_holding_a_nested_one_with_work_stays_and_doctor_names_it() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    let inner = tree.join("before");
+    w.git(&tree, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), "HEAD"]).unwrap();
+    std::fs::write(inner.join("mine.txt"), "work").unwrap();
+    w.commit(&tree, ".gitignore", "before\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed", "landed");
+    assert!(inner.join("mine.txt").exists(), "the nested one's work stays, and its worktree with it");
+    let keys = w.finding_keys().await;
+    let key = keys.iter().find(|k| k.starts_with("worktree:")).expect("doctor names it");
+    let found = w.finding(key).await.unwrap();
+    assert!(found["what"].as_str().unwrap().contains("before: it has changes not committed"), "{found}");
+}

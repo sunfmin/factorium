@@ -180,6 +180,7 @@ const HEADLESS: crate::ask::Headless = crate::ask::Headless {
             --settings '{\"permissions\":{\"deny\":[\"command(*)\",\"read_file(*)\",\"write_file(*)\",\
             \"read_url(*)\",\"execute_url(*)\",\"mcp(*)\"]}}'",
     model: MODEL,
+    again: Some("--conversation"),
     files: asked_files,
     read: asked,
     stand_in: asked_stand_in,

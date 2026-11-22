@@ -184,7 +184,7 @@ impl App {
         let (checkout, number) = (st.checkout.clone(), st.number);
         let keep = match end {
             End::Landed(commit) => {
-                let reason = format!("landed as {commit}");
+                let reason = factorium_domain::issue::landed_as(commit);
                 self.submit::<CloseIssue>(Because { checkout, number, reason }).await?;
                 false
             }

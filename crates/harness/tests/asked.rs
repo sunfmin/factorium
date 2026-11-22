@@ -64,6 +64,7 @@ fn agy_is_asked_on_stdin_as_its_toolless_agent_in_its_own_home() {
         question: "/tmp/pick/question.md",
         answer: "/tmp/pick/answer.json",
         secrets: None,
+        again: None,
     };
     let line = Harness::Agy.ask_line(&ask).unwrap();
     assert!(line.starts_with("exec env -i HOME='/Users/u' PATH='/usr/bin' HOME='/tmp/pick/home' sh -c "), "{line}");
@@ -73,4 +74,33 @@ fn agy_is_asked_on_stdin_as_its_toolless_agent_in_its_own_home() {
     let (_, redirected) = line.split_once(" < ").unwrap();
     assert!(redirected.contains("/tmp/pick/question.md") && redirected.contains("/tmp/pick/answer.json"), "{line}");
     assert!(!line.contains(" -p "), "{line}");
+}
+
+/// A session asked once more is named by its harness's flag for it; Codex
+/// asks an ephemeral session, none kept to ask again.
+#[test]
+fn a_session_is_asked_once_more_by_its_harness_s_flag_and_codex_s_not_at_all() {
+    let mut ask = Ask {
+        command: "x",
+        model: None,
+        home: Path::new("/Users/u"),
+        path: "/usr/bin",
+        user_dir: Path::new("/tmp/pick/home"),
+        question: "/tmp/pick/question.md",
+        answer: "/tmp/pick/answer.json",
+        secrets: None,
+        again: None,
+    };
+    let fresh = Harness::Grok.ask_line(&ask).unwrap();
+    assert!(!fresh.contains("--resume"), "{fresh}");
+    ask.again = Some("s-1");
+    for (harness, flag) in
+        [(Harness::ClaudeCode, "--resume"), (Harness::Grok, "--resume"), (Harness::Agy, "--conversation")]
+    {
+        assert!(harness.asks_again(), "{}", harness.key());
+        let line = harness.ask_line(&ask).unwrap();
+        assert!(line.contains(&format!("{flag} '\\''s-1'\\''")) || line.contains(&format!("{flag} s-1")), "{line}");
+    }
+    assert!(!Harness::Codex.asks_again());
+    assert_eq!(Harness::Codex.ask_line(&ask), None);
 }

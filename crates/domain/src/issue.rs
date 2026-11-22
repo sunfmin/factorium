@@ -39,8 +39,6 @@ pub struct Issue {
     pub comments: Vec<Note>,
     /// The task it was filed for, by idle work (§1.16).
     pub task: Option<Task>,
-    /// When it was closed, in ms (unknown for issues closed before it was kept).
-    pub closed_at: Option<i64>,
     /// What its worker plays and where it runs, as the one who filed it
     /// decided: none, the kit's and the host's choice.
     pub on: On,
@@ -165,9 +163,22 @@ impl Blocker {
     }
 }
 
+/// Why an issue closed when its worker landed it: this, then the commit.
+const LANDED_AS: &str = "landed as ";
+
+/// The reason an issue closes with when it landed as `commit`.
+pub fn landed_as(commit: &str) -> String {
+    format!("{LANDED_AS}{commit}")
+}
+
 impl Issue {
     pub fn opened(&self) -> bool {
         self.number > 0
+    }
+
+    /// The commit it landed as, if it closed so.
+    pub fn landed_as(&self) -> Option<&str> {
+        self.reason.as_deref().filter(|_| self.status == Status::Closed)?.strip_prefix(LANDED_AS)
     }
 
     /// Whether `a` is an issue of its own checkout, waited for until it
@@ -352,7 +363,7 @@ impl Aggregate for Issues {
             IssueEvent::IssueClaimed { claim } => s.claim = Some(claim),
             IssueEvent::IssueUnclaimed => s.claim = None,
             // Closed, it takes no start: no claim is needed.
-            IssueEvent::IssueClosed { at, .. } => (s.worker, s.closed_at, s.claim) = (None, at, None),
+            IssueEvent::IssueClosed { .. } => (s.worker, s.claim) = (None, None),
             IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
             IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }

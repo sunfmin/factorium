@@ -7,7 +7,8 @@
 //! The tasks a run finds are filed as the checkout's issues (§1.16): what
 //! `[idle] tasks` prints is one or more answers shaped as slimfit's `next
 //! --all`, and of each kind the first task is filed, while no issue of that
-//! kind is open. A task closed in the last week is not filed again.
+//! kind is open. A task whose issue closed by landing is held back only
+//! while that landing is not in the tip the run read.
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
@@ -113,9 +114,6 @@ pub struct Task {
     pub files: Vec<String>,
 }
 
-/// How long a closed task is not filed again, in ms.
-pub const AGAIN_MS: i64 = 7 * 24 * 3600 * 1000;
-
 /// An issue to file for a task.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToFile {
@@ -129,8 +127,9 @@ pub struct ToFile {
 /// answers listing `tasks`: `slimfit next --all`'s, and any other's that
 /// names itself in `by` (`./lines.sh --tasks`, SPEC §5; `truefit next
 /// --all`), each maybe after lines of its own (`truefit --version`).
-/// `issues` are the checkout's, open and closed; `now` is in ms.
-pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<ToFile>, String> {
+/// `issues` are the checkout's, open and closed; `in_tip` tells whether a
+/// commit is an ancestor of `tip`.
+pub fn to_file(said: &str, tip: &str, issues: &[Issue], in_tip: impl Fn(&str) -> bool) -> Result<Vec<ToFile>, String> {
     let at = said.find("\n{").map_or(0, |i| i + 1);
     let (by, json) = said.split_at(at);
     let answers = answers(json);
@@ -146,15 +145,18 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], now: i64) -> Result<Vec<
     let open = |kind: &str| {
         issues.iter().any(|i| i.status != IssueStatus::Closed && i.task.as_ref().is_some_and(|t| t.kind == kind))
     };
-    let lately = |task: &Task| {
-        issues.iter().any(|i| i.task.as_ref() == Some(task) && i.closed_at.is_some_and(|at| now - at < AGAIN_MS))
+    // Closed by a landing not yet in the tip read: its fix is on its way to
+    // the base. Closed without one, it holds nothing back (a tool's keep does).
+    let landing = |task: &Task| {
+        issues.iter().any(|i| i.task.as_ref() == Some(task) && i.landed_as().is_some_and(|sha| !in_tip(sha)))
     };
     let mut filed: Vec<ToFile> = Vec::new();
     for (own, t) in tasks {
         let kind = t["kind"].as_str().unwrap_or_default().to_string();
         let files = t["files"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string);
         let task = Task { kind, files: files.collect() };
-        if task.kind.is_empty() || open(&task.kind) || filed.iter().any(|f| f.task.kind == task.kind) || lately(&task) {
+        if task.kind.is_empty() || open(&task.kind) || filed.iter().any(|f| f.task.kind == task.kind) || landing(&task)
+        {
             continue;
         }
         let shown = serde_json::to_string_pretty(t).unwrap_or_default();

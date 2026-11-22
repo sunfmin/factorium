@@ -309,24 +309,44 @@ async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     assert_eq!(w.app.issue_show("web", 2).await.unwrap()["task"]["kind"], "redundant-test");
     assert_eq!(files(&w).await, json!([]), "none while one of its kind is open");
 
-    w.app.issue_close("web", 1, "deepened").await.unwrap();
-    assert_eq!(files(&w).await, json!([4]), "the next of its kind, not the one just closed");
-    assert_eq!(w.app.issue_show("web", 4).await.unwrap()["task"]["files"], json!(["b.rs"]));
-    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
-    w.app.issue_close("web", 4, "deepened").await.unwrap();
-    assert_eq!(files(&w).await, json!([]), "a task closed this week is not filed again");
-    w.advance(24 * 60);
-    assert_eq!(files(&w).await, json!([]), "nor a day on");
-    // a.rs closed with #1 a day and six minutes before that run, and each run
-    // is two minutes on: this one is a week to the minute after that close.
-    w.advance(6 * 24 * 60 - 8);
-    assert_eq!(files(&w).await, json!([5]), "a week on, it is");
+    // Closed by hand, without a landing, it holds nothing back: a verdict
+    // to leave it is the tool's keep in the repo.
+    w.app.issue_close("web", 1, "left as it is").await.unwrap();
+    assert_eq!(files(&w).await, json!([4]), "listed still, it is filed again");
+    assert_eq!(w.app.issue_show("web", 4).await.unwrap()["task"]["files"], json!(["a.rs"]));
 
     std::fs::write(&answer, "no tasks").unwrap();
     w.advance(2);
     let run = ended(&w).await;
     assert_eq!(run["green"], false, "{run}");
     assert!(run["tail"].as_str().unwrap().contains("printed no answer"), "{run}");
+}
+
+/// A task whose issue landed is held back while its landing is on proving
+/// but not in the tip a run reads; the first run whose tip holds it, after
+/// the promotion, files it again if the tool still lists it.
+#[tokio::test]
+async fn a_landed_task_is_held_back_until_its_landing_is_in_the_tip_read() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    // The declaration was pushed to the base alone: proving follows it, as
+    // a promotion would have it.
+    w.git(&w.dir.join("edit"), &["push", "-q", "origin", "main:proving"]).unwrap();
+    w.kit().await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.run().idle_now("web").await.unwrap();
+    // #2 keeps the checkout busy, so only the hand promotes.
+    w.app.settings_set(Some("silent_bound"), Some(100_000)).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.tick().await;
+    let landed = w.lands("web", 1, "a").await.commit;
+    let run = w.run().idle_now("web").await.unwrap();
+    assert_eq!(run["filed"], json!([]), "its landing is not in the tip read: {run}");
+    w.app.promote("web").await.unwrap();
+    let run = w.run().idle_now("web").await.unwrap();
+    assert_eq!(run["tip"], landed.as_str(), "{run}");
+    assert_eq!(run["filed"], json!([3]), "in the tip read and listed still, it is work not done: {run}");
 }
 
 #[tokio::test]

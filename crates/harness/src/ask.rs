@@ -22,6 +22,9 @@ pub(crate) struct Headless {
     pub(crate) flags: &'static str,
     /// Its flag for the model.
     pub(crate) model: &'static str,
+    /// Its flag that asks the session it names once more, in the same
+    /// directory and user directory; `None`: a session asked is not kept.
+    pub(crate) again: Option<&'static str>,
     /// What the fresh user directory of a session asked holds beside its
     /// login, for a harness logged in by a file there: path and text.
     pub(crate) files: fn() -> Result<Files, String>,
@@ -64,12 +67,20 @@ pub struct Ask<'a> {
     pub answer: &'a str,
     /// The secrets file the line reads first and removes (`secrets_file`).
     pub secrets: Option<&'a str>,
+    /// The session asked before, in this directory, that is asked once
+    /// more; `None`: a fresh one.
+    pub again: Option<&'a str>,
 }
 
 impl Harness {
     /// Whether a session of it can be asked headless.
     pub fn asks(self) -> bool {
         self.headless().is_some()
+    }
+
+    /// Whether a session of it asked headless can be asked once more.
+    pub fn asks_again(self) -> bool {
+        self.headless().is_some_and(|h| h.again.is_some())
     }
 
     /// Makes the empty directory `fresh` the user directory of one session
@@ -102,11 +113,16 @@ impl Harness {
 
     /// The shell line that asks a fresh session of it `ask.question`, its
     /// answer written to `ask.answer`: in an environment cleared of the
-    /// asker's, so nothing of the session that asks reaches it. `None`: it
-    /// cannot be asked headless.
+    /// asker's, so nothing of the session that asks reaches it; the session
+    /// `ask.again` names, where there is one. `None`: it cannot be asked
+    /// headless, or not once more.
     pub fn ask_line(self, ask: &Ask) -> Option<String> {
         let h = self.headless()?;
         let line = Line::new().fixed("exec ").launch(&self.command(ask.command)).fixed(" ").fixed(h.flags);
+        let line = match ask.again {
+            Some(session) => line.flag(h.again?, session),
+            None => line,
+        };
         let line = line.flag_if(h.model, ask.model).fixed(" < ").word(ask.question).fixed(" > ").word(ask.answer);
         let inner = match ask.secrets {
             Some(file) => crate::line::secrets_first(file, &line.done()),

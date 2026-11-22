@@ -1,0 +1,10 @@
+{
+  "tree": "900f458ae3dda9f20c146b4fae97b4acb0724eb3+d1fba762150c532c",
+  "lines": 64,
+  "serves": "factorium#226",
+  "considered": "pick::read's and review::read's brace extraction (now one pick::object), the One struct (deleted for a closure in second), ask_in's home setup (kept there, on the fresh ask only), and a replayed fresh ask instead of resuming the session (rejected: it rereads the whole diff, the cost this issue cuts)",
+  "reviewer": "codex:01a201a4-e6f5-7690-9f7a-d75fe24c9787:default",
+  "author": "claude-code:155e3a38-32ba-5d87-8651-e6522ca11fab:opus",
+  "cut": "In crates/factorium/src/pick.rs, delete One and build Taken in a closure in second that captures the harness, author and fallback list, then call that closure from ask_on for either reply. Keep home setup in ask_in and run it only on the fresh ask so both attempts reuse the same paths and error handling. In crates/domain/src/pick.rs and crates/domain/src/review.rs, share the first-to-last-brace JSON extraction and deserialization, keeping each role’s error text and validation.",
+  "answer": "All three made: One deleted, Taken built in a closure in second that ask_on calls for either reply; ask_home runs in ask_in only when again is None; pick::object shared by both readers, each keeping its own validation. What remains past the allowance is the second ask itself (ask_on), the harness's again flag, and the scenarios that prove it."
+}
