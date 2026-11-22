@@ -114,7 +114,7 @@ impl World {
     }
 
     /// Issues waiting for a human as the code before factorium#95 wrote
-    /// them: `parked`, in their events, rows, snapshots and answers.
+    /// them: `parked`, in their events, rows and snapshots.
     pub fn issues_as_code_before_95_wrote_them(&self) {
         self.migrate(
             r#"
@@ -126,9 +126,7 @@ impl World {
                 WHERE json_extract(meta, '$.command') = 'issue.wait_for_human';
             UPDATE "rows:tracker:issues" SET row = json_set(row, '$.status', 'parked')
                 WHERE json_extract(row, '$.status') = 'waiting_for_human';
-            UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');
-            UPDATE answers SET answer = replace(replace(answer, '"IssueWaitingForHuman"', '"IssueParked"'),
-                '"waiting_for_human":', '"parked":');"#,
+            UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');"#,
         );
     }
 
@@ -136,7 +134,7 @@ impl World {
     pub fn names_before_95(&self) -> i64 {
         let count = "SELECT (SELECT count(*) FROM events WHERE kind = 'IssueParked' OR data LIKE '%\"parked\":%' \
                      OR meta LIKE '%issue.park\"%') + (SELECT count(*) FROM \"rows:tracker:issues\" WHERE status = \
-                     'parked') + (SELECT count(*) FROM answers WHERE answer LIKE '%parked%');";
+                     'parked');";
         self.sql().query_row(count, [], |r| r.get(0)).unwrap()
     }
 
