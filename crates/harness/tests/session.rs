@@ -306,3 +306,46 @@ fn an_agy_turn_is_read_from_the_transcript_its_brief_opened() {
     assert_eq!(agy.spent(&home, "/worktree", brief), None);
     let _ = std::fs::remove_dir_all(&kept);
 }
+
+/// A tick looks at every live session's files (factorium#221): a second look
+/// at a long session file unchanged since reads it not at all, even shut to
+/// reading, and still answers its turn and its tokens; once it grows, it is
+/// read again and answers what was added.
+#[test]
+fn a_second_look_at_an_unchanged_session_file_does_not_read_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let claude = Harness::read("claude-code").unwrap();
+    let kept = scratch("unchanged");
+    let home = claude.home(&kept, None, &kept);
+    let brief = "/briefs/w-1-1.md";
+    claude.write_session(&home, "/w", brief, true, 1_800_000_000).unwrap();
+    let file = written(&kept);
+    let output = serde_json::json!({"type": "progress", "cwd": "/w", "isSidechain": false,
+        "timestamp": "2027-01-15T08:00:01Z", "toolUseResult": "x".repeat(64 * 1024)});
+    let long: String = std::iter::repeat_n(format!("{output}\n"), 480).collect();
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push_str(&long);
+    std::fs::write(&file, &text).unwrap();
+    assert!(text.len() > 30_000_000, "{}", text.len());
+
+    let open = Some(Turn::Open { since: 1_800_000_000 });
+    assert_eq!(claude.turn(&home, "/w", brief), open);
+    assert_eq!(claude.spent(&home, "/w", brief), Some((0, 0)));
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(std::fs::read(&file).is_err(), "the file is shut to reading");
+    assert_eq!(claude.turn(&home, "/w", brief), open, "answered unread");
+    assert_eq!(claude.spent(&home, "/w", brief), Some((0, 0)), "answered unread");
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let end = serde_json::json!({"type": "assistant", "cwd": "/w", "isSidechain": false,
+        "timestamp": "2027-01-15T08:00:05Z",
+        "message": {"id": "m", "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 3}}});
+    text.push_str(&format!("{end}\n"));
+    std::fs::write(&file, &text).unwrap();
+    assert_eq!(
+        claude.turn(&home, "/w", brief),
+        Some(Turn::Closed { since: 1_800_000_005, started: Some(1_800_000_000) })
+    );
+    assert_eq!(claude.spent(&home, "/w", brief), Some((2, 3)));
+    let _ = std::fs::remove_dir_all(&kept);
+}

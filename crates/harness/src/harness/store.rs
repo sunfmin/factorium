@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Harness, Kind, session};
+use super::{Harness, Kind, seen, session};
 use crate::start::Home;
 use crate::turn::Turn;
 
@@ -103,14 +103,27 @@ impl Harness {
 }
 
 fn turn<K: Kind>(root: &Path, cwd: &str, brief: &str) -> Option<Turn> {
-    let turns: Vec<Turn> = K::layout(cwd)
-        .sessions(root, cwd)
-        .iter()
-        .filter_map(|f| read(f))
-        .filter(|text| K::could_record(cwd, text, brief))
-        .filter_map(|text| K::recorded_turn(cwd, &text, brief))
-        .collect();
+    let turns: Vec<Turn> =
+        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief, false)?.turn).collect();
     crate::turn::prefer(&turns)
+}
+
+/// What the session file `path` records for the session of `cwd` handed
+/// `brief`, its tokens too when `spent`: read only when it changed since a
+/// look found as much (`seen`).
+fn fact<K: Kind>(path: &Path, cwd: &str, brief: &str, spent: bool) -> Option<seen::Fact> {
+    let session = seen::session(std::any::type_name::<K>(), cwd, brief);
+    let wanted = |f: &seen::Fact| !spent || f.spent.is_some();
+    seen::fact(path, session, wanted, |before| {
+        let text = read(path)?;
+        let turn = match before {
+            Some(before) => before.turn,
+            None if K::could_record(cwd, &text, brief) => K::recorded_turn(cwd, &text, brief),
+            None => None,
+        };
+        let counted = spent.then(|| turn.and(K::SPENT).map(|read_spent| read_spent(&text)));
+        Some(seen::Fact { turn, spent: counted.or(before.and_then(|b| b.spent)) })
+    })
 }
 
 fn prompted<K: Kind>(root: &Path, cwd: &str, brief: &str, said: &str, since: u64) -> Option<bool> {
@@ -128,17 +141,13 @@ fn prompted<K: Kind>(root: &Path, cwd: &str, brief: &str, said: &str, since: u64
 }
 
 fn spent<K: Kind>(root: &Path, cwd: &str, brief: &str) -> Option<(u64, u64)> {
-    let read_spent = K::SPENT?;
-    let texts: Vec<String> = K::layout(cwd)
-        .sessions(root, cwd)
-        .iter()
-        .filter_map(|f| read(f))
-        .filter(|text| K::could_record(cwd, text, brief) && K::recorded_turn(cwd, text, brief).is_some())
-        .collect();
-    if texts.is_empty() {
+    K::SPENT?;
+    let counted: Vec<(u64, u64)> =
+        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief, true)?.spent?).collect();
+    if counted.is_empty() {
         return None;
     }
-    Some(texts.iter().map(|t| read_spent(t)).fold((0, 0), |(i, o), (si, so)| (i + si, o + so)))
+    Some(counted.iter().fold((0, 0), |(i, o), (si, so)| (i + si, o + so)))
 }
 
 fn write_session<K: Kind>(root: &Path, cwd: &str, brief: &str, open: bool, at: u64) -> std::io::Result<()> {
