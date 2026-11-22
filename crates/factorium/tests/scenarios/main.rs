@@ -34,6 +34,7 @@ mod fixtures;
 mod harnesses;
 mod idle;
 mod kept;
+mod limit;
 mod line;
 mod lines;
 mod on;

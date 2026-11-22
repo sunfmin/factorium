@@ -185,11 +185,10 @@ impl App {
             if !self.blockers(&issue).await?.iter().all(|(_, met)| met.is_some()) {
                 continue;
             }
-            // One whose account cannot start now (used up) waits behind
-            // those that can; with none, its start answers why it is held.
-            if let Some(account) = issue.on.account.as_deref()
-                && self.pick(&checkout, Some(account)).await.is_err()
-            {
+            // One that cannot start now (its account used up, or what its
+            // checkout is pinned to at its limit) waits behind those that
+            // can; with none, its start answers why it is held.
+            if self.pick(&checkout, issue.on.account.as_deref()).await.is_err() {
                 held.get_or_insert((checkout, number));
                 continue;
             }
@@ -200,26 +199,35 @@ impl App {
 
     /// Each worker the watch parked behind what its issue waits for, sent
     /// back to work once all of it is met, told what was met and how, and
-    /// to merge the proving tip. Unparked first, so a restart that does not
+    /// to merge the proving tip; and each parked on its engine's limit,
+    /// once it reset. Unparked first, so a restart that does not
     /// reach it leaves it to the watch.
     async fn resume_parked(&self) -> Answer<Vec<Value>> {
         let mut resumed = Vec::new();
         for w in self.rows(tracker::workers(Some(WorkerStatus::Waiting), false)).await? {
-            if !self.state::<Workers>(w.worker).await?.parked {
-                continue;
-            }
-            let met: Option<Vec<String>> = (self.blockers(&self.issue(&w.checkout, w.number).await?).await?)
-                .into_iter()
-                .map(|(name, met)| Some(format!("{name} ({})", met?)))
-                .collect();
-            let Some(met) = met.filter(|m| !m.is_empty()) else { continue };
+            let wk = self.state::<Workers>(w.worker).await?;
+            let text = match wk.waits_on_limit() {
+                // Its engine's limit reset: what was held for it is typed first.
+                Some(limit) if limit.until <= self.now() => {
+                    "Your engine's limit reset. Pick up your issue where you left it.".to_string()
+                }
+                Some(_) => continue,
+                None if !wk.parked => continue,
+                None => {
+                    let met: Option<Vec<String>> = (self.blockers(&self.issue(&w.checkout, w.number).await?).await?)
+                        .into_iter()
+                        .map(|(name, met)| Some(format!("{name} ({})", met?)))
+                        .collect();
+                    let Some(met) = met.filter(|m| !m.is_empty()) else { continue };
+                    let p = self.checkout(&w.checkout).await?.proving;
+                    format!(
+                        "What your issue waited for is met: {}. Merge the proving tip into your branch \
+                         (`git fetch origin {p} && git merge origin/{p}`) before you gate again.",
+                        met.join(", ")
+                    )
+                }
+            };
             self.submit::<Unpark>(Of { worker: w.worker }).await?;
-            let p = self.checkout(&w.checkout).await?.proving;
-            let text = format!(
-                "What your issue waited for is met: {}. Merge the proving tip into your branch \
-                 (`git fetch origin {p} && git merge origin/{p}`) before you gate again.",
-                met.join(", ")
-            );
             let did = self.restart(w.worker, Author::Factorium, &text, false).await;
             resumed.push(did.unwrap_or_else(|r| json!({ "worker": w.worker, "refused": r.to_string() })));
         }

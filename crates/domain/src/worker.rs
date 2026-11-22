@@ -74,7 +74,8 @@ pub struct Worker {
     #[serde(default)]
     pub freed_at: Option<i64>,
     /// Waiting, its issue was blocked: the watch parked it behind what its
-    /// issue waits for, and it goes back to work once all of that is met.
+    /// issue waits for, and it goes back to work once all of that is met;
+    /// or its engine is at its limit, and it goes back at the reset.
     #[serde(default)]
     pub parked: bool,
     /// The tokens its session spent, as its session files said once it
@@ -86,6 +87,28 @@ pub struct Worker {
     /// stays as it was then: no silence is found in it before its bound.
     #[serde(default)]
     pub declared: Option<Declared>,
+    /// The last limit its engine was seen at: kept past its reset, so the
+    /// same words read again are not a new one.
+    #[serde(default)]
+    pub limit: Option<Limit>,
+}
+
+/// A limit its engine reached, as its screen said, until when, and when it
+/// was seen (ms).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Limit {
+    pub said: String,
+    pub until: i64,
+    pub at: i64,
+}
+
+impl Worker {
+    /// The limit it waits on, parked on it since it was seen, until its
+    /// reset: no finding meanwhile.
+    pub fn waits_on_limit(&self) -> Option<&Limit> {
+        let waits = self.parked && self.status == Status::Waiting;
+        self.limit.as_ref().filter(|l| waits && l.at == self.since)
+    }
 }
 
 /// The longest wait a worker can declare: a bound past it is held to it.
@@ -201,6 +224,9 @@ pub enum WorkerEvent {
     Spent(Tokens),
     /// It declared a wait on a long command of its own, until then (ms).
     WaitDeclared(Declared),
+    /// Its engine is at its limit, as its screen said, until then (ms): it
+    /// waits, parked until the reset.
+    WorkerLimited(Limit),
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -223,6 +249,11 @@ impl WorkerEvent {
             WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
             WorkerEvent::WorkerResumed { at } => (Status::Working, None, *at),
             WorkerEvent::WorkerEnded { why, at } => (Status::Ended, Some(why.clone()), *at),
+            WorkerEvent::WorkerLimited(l) => (
+                Status::Waiting,
+                Some(format!("its engine is at its limit, parked until it resets at {} (ms): {}", l.until, l.said)),
+                l.at,
+            ),
             _ => return None,
         };
         Some(Standing { status, why, since })
@@ -265,6 +296,7 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
+            WorkerEvent::WorkerLimited(l) => (s.limit, s.parked) = (Some(l), true),
             _ => {}
         }
     }
@@ -420,8 +452,9 @@ command!(
 );
 
 command!(
-    /// What a parked worker's issue waited for is met: it is no longer
-    /// parked, whether or not its restart reaches it.
+    /// What a parked worker's issue waited for is met, or its engine's
+    /// limit reset: it is no longer parked, whether or not its restart
+    /// reaches it.
     Unpark,
     "worker.unpark",
     Workers,

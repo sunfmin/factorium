@@ -310,3 +310,113 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
     assert_eq!(ran.unwrap()["ok"], true);
     assert_eq!(w.remote_tip("web", "main"), landed);
 }
+
+/// Three workers on `web` ask to land at once, and their line takes a slow
+/// gate's time for each: one lands every 6 min, within the stall bound of
+/// 10 min, so the third waits 18 min for its turn.
+async fn three_wait_their_turn(w: &World) {
+    w.two_at_work().await;
+    w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
+    w.tick().await;
+    for n in 1..=3 {
+        w.done(&w.worker_on("web", n).await, &format!("f{n}"), "x").await;
+    }
+}
+
+/// Doctor's `landing`, in the order the lander takes them: each landing
+/// waiting, as (issue, its landing finding's key, place, of).
+async fn places(w: &World) -> Vec<(String, String, u64, u64)> {
+    let doctor = w.doctor().await;
+    let s = |v: &Value| v.as_str().unwrap().to_string();
+    let line = doctor["landing"].as_array().unwrap().iter();
+    line.map(|l| {
+        (
+            s(&l["issue"]),
+            format!("landing:{}", s(&l["worker"])),
+            l["place"].as_u64().unwrap(),
+            l["of"].as_u64().unwrap(),
+        )
+    })
+    .collect()
+}
+
+#[tokio::test]
+async fn a_landing_waiting_its_turn_behind_a_line_that_moves_is_no_stall_and_doctor_shows_its_place() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    let order = places(&w).await;
+    let seen: Vec<_> = order.iter().map(|(.., place, of)| (*place, *of)).collect();
+    assert_eq!(seen, vec![(1, 3), (2, 3), (3, 3)], "each in its place: {order:?}");
+    for (issue, ..) in &order[..2] {
+        w.advance(6);
+        let t = w.tick().await;
+        assert_eq!(t.landed.len(), 1, "one lands at a time: {:?}", t.landed);
+        assert_eq!(&t.landed[0]["landed"], issue, "first in line lands first");
+    }
+    w.advance(6);
+    // The third has waited 18 min; its line last moved 6 min ago.
+    let keys = w.finding_keys().await;
+    assert!(keys.iter().all(|k| !k.starts_with("landing:")), "it waits its turn behind a line that moves: {keys:?}");
+    let third = &order[2];
+    assert_eq!(places(&w).await, vec![(third.0.clone(), third.1.clone(), 1, 1)], "first in its line");
+    assert_eq!(w.tick().await.landed[0]["landed"], third.0);
+    assert_eq!(places(&w).await, vec![]);
+}
+
+#[tokio::test]
+async fn a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_for_each_landing_in_it() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    let order = places(&w).await;
+    w.advance(6);
+    assert_eq!(w.tick().await.landed[0]["landed"], order[0].0);
+    // The line lands nothing more: no tick gates its next landing.
+    w.advance(10);
+    assert_eq!(w.finding(&order[1].1).await, None, "at the stall bound since the line moved, not past it");
+    w.advance(1);
+    for (issue, key, ..) in &order[1..] {
+        let found = w.finding(key).await.expect("its line has not moved for 11 min");
+        let what = found["what"].as_str().unwrap();
+        assert!(what.contains(issue.as_str()) && what.contains("waited 17 min to land"), "{found}");
+        assert!(what.contains("its line has not moved for 11 min"), "{found}");
+    }
+    assert_eq!(w.finding(&order[0].1).await, None, "it landed");
+    assert_eq!(w.tick().await.landed[0]["landed"], order[1].0, "the line moves");
+    assert_eq!(w.finding(&order[2].1).await, None, "its line moved just now");
+}
+
+#[tokio::test]
+async fn a_line_snapshot_this_code_kept_is_read_and_one_older_code_kept_is_folded_again() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    w.advance(6);
+    w.tick().await;
+    w.advance(6);
+    let stalls = async || w.finding_keys().await.into_iter().filter(|k| k.starts_with("landing:")).count();
+    assert_eq!(stalls().await, 0, "the line moved 6 min ago");
+    // Kept before factorium#222, a snapshot does not say when the line moved: its events do.
+    w.line_snapshots_kept_by("2", 0);
+    assert_eq!(stalls().await, 0, "folded again, the line moved 6 min ago");
+    // Kept by this code, it is read as kept: the line has not moved since 0.
+    w.line_snapshots_kept_by("3", 0);
+    assert_eq!(stalls().await, 2, "as kept, the line has not moved for 12 min");
+}
+
+/// web#2 has asked to land for 11 min, past the stall bound of 10, and no
+/// fast gate runs for it; a slow gate of web started `started` min in.
+fn landing_beside_a_slow_gate(started: i64) -> Vec<String> {
+    use factorium_domain::declared::Kind;
+    use factorium_domain::doctor::{LandingSeen, Seen, findings};
+    use factorium_domain::heavy::{Entry, LineJob, Queue};
+    let min = 60_000;
+    let ask = LandingSeen { worker: "w".into(), checkout: "web".into(), number: 2, since: 0 };
+    let gate = Entry { what: LineJob::Gate(Kind::Slow).of("web"), started_at: Some(started * min), ..Entry::default() };
+    let seen = Seen { landing: vec![ask], queue: Queue { entries: vec![gate], ..Queue::default() }, ..Seen::default() };
+    findings(&seen, &Default::default(), 11 * min).into_iter().map(|f| f.key).collect()
+}
+
+#[test]
+fn a_line_job_started_within_the_stall_bound_moves_the_line_and_one_started_before_does_not() {
+    assert_eq!(landing_beside_a_slow_gate(5), Vec::<String>::new(), "its line moved 6 min ago");
+    assert_eq!(landing_beside_a_slow_gate(0), vec!["landing:w".to_string()], "its line has not moved for 11 min");
+}

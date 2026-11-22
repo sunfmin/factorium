@@ -1,0 +1,15 @@
+{
+  "tree": "346b4931daf394e7368f080312c4793db009f22c+d1fba762150c532c",
+  "picker": "codex:01a20194-4b98-73f2-b00e-dda45aeeab83:default",
+  "author": "claude-code:d99ccd15-f6cc-549b-9856-5521022b7575:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/git.rs:197:30: replace && with || in Git::merge_from",
+        "why": "Both added tests configure a glob, so they can miss a landing that silently resolves conflicts when regenerated is empty.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
