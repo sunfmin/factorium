@@ -32,18 +32,37 @@ pub fn in_comment(text: &str) -> Option<Record> {
     read(head, lines)
 }
 
-/// Every record a body holds, each starting on a `Decided (…` line.
+/// Every record a body holds, each starting on a `Decided (…` line outside
+/// a fenced code block: one inside quotes the shape, it is not a record.
 pub fn in_body(body: &str) -> Vec<Record> {
     let lines: Vec<&str> = body.lines().map(str::trim).collect();
-    (0..lines.len()).filter_map(|i| read(lines[i], lines[i + 1..].iter().copied())).collect()
+    let mut open: Option<&str> = None;
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        match (open, fence(line)) {
+            (None, Some(f)) => open = Some(f),
+            (Some(o), Some(f)) if f == o && line.trim_start_matches(&o[..1]).trim().is_empty() => open = None,
+            (None, None) => found.extend(read(line, lines[i + 1..].iter().copied())),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// The fence a line opens or closes: its run of ``` or ~~~, three or more.
+fn fence(line: &str) -> Option<&str> {
+    let c = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let run = &line[..line.len() - line.trim_start_matches(c).len()];
+    (run.len() >= 3).then_some(&run[..3])
 }
 
 /// The record headed by `head`, each field from its own line after it, up to
-/// the next record or a blank line; none unless `head` is a record's.
+/// the next record, a fence or a blank line; none unless `head` is a record's.
 fn read<'a>(head: &str, rest: impl Iterator<Item = &'a str>) -> Option<Record> {
     let (who, what) = head.strip_prefix(HEAD)?.split_once("):")?;
     let who = who.split_once(", for").map_or(who, |(w, _)| w).trim();
-    let lines: Vec<&str> = rest.take_while(|l| !l.is_empty() && !l.starts_with(HEAD)).collect();
+    let end = |l: &&str| l.is_empty() || l.starts_with(HEAD) || fence(l).is_some();
+    let lines: Vec<&str> = rest.take_while(|l| !end(l)).collect();
     let field = |p: &str| lines.iter().find_map(|l| Some(l.strip_prefix(p)?.trim().to_string()));
     let (options, chose, undo) = (field("Options:"), field("Chose:"), field("Undo:"));
     Some(Record { who: who.into(), what: what.trim().into(), options, chose, undo })
@@ -89,5 +108,17 @@ mod tests {
         assert!(in_body("no record here").is_empty());
         let bare = in_body("Decided (a): x\nDecided (b): y\nUndo: z\n\nUndo: not b's");
         assert_eq!((bare[0].undo.as_deref(), bare[1].undo.as_deref()), (None, Some("z")));
+    }
+
+    #[test]
+    fn a_record_in_a_fenced_block_quotes_the_shape_and_is_none() {
+        let quoted = "```\nDecided (<who>, for Felix): <what>\nUndo: <how>\n```";
+        let tilde = "~~~~text\nDecided (a): x\n```\n~~~ not a closer\nDecided (b): still in\n~~~~";
+        let body = format!("{quoted}\n{tilde}\n{RECORD}\n```\nUndo: quoted\n```\nDecided (c): after");
+        let found = in_body(&body);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0], kept());
+        assert_eq!(found[1].what, "after");
+        assert_eq!(in_comment(quoted), None);
     }
 }

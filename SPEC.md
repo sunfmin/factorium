@@ -209,7 +209,8 @@ not settle or does other than its issue says; the watch, when it decides in
 a round (restart, re-brief, park, close); a second agent (picker, reviewer)
 writes none, its answer's why being its record. Their briefs say so.
 Doctor answers `decided`: every record, in any issue body or comment
-(a comment is one only when its first line starts `Decided (`) of any
+(a comment is one only when its first line starts `Decided (`; a line
+inside a fenced code block, ``` or ~~~, quotes the shape and is none) of any
 checkout, made since the owner last ran `decided --read`, newest first,
 each with its checkout and number, who, what, options, chose, undo and when.
 `factorium decided` answers those of the last 7 days, read or not; `--read`
