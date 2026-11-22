@@ -164,6 +164,7 @@ fn model() -> Model {
         .aggregate::<outbox::Outboxes>()
         .command::<outbox::GiveMessage>()
         .command::<outbox::TryMessage>()
+        .command::<outbox::HoldTakenMessages>()
         .projection(tracker::Tracker)
 }
 

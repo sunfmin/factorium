@@ -9,6 +9,7 @@ use std::path::Path;
 
 use factorium_domain::health::{Observation, Observe, Sight, Verdict};
 use factorium_domain::kit::{AccountNote, HarnessNote, LimitAccount, LimitHarness};
+use factorium_domain::outbox::{HoldTaken, HoldTakenMessages};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
 use factum::{Uuid, Value};
@@ -18,6 +19,11 @@ use super::Session;
 use crate::life::End;
 use crate::load::Share;
 use crate::{Answer, App, Want};
+
+/// How long before its limit is first seen a message its engine took may
+/// have met it instead of being read (agy ends that turn at once on its
+/// quota): one submitted since then is held again, ms.
+const TAKEN_MS: i64 = 10 * 60 * 1000;
 
 impl App {
     /// The watch's session, when it is up, handed its brief, and idle: it
@@ -68,6 +74,11 @@ impl App {
                         self.submit::<LimitHarness>(HarnessNote { harness, until }).await?
                     }
                 };
+                // What it took just before is no proof it read it: held again.
+                let submitted = live.since.max(self.now() - TAKEN_MS);
+                let terminal = live.session.terminal().to_string();
+                let taken = HoldTaken { terminal, submitted, queued: live.since, until };
+                self.submit::<HoldTakenMessages>(taken).await?;
                 Ok(Some(json!({ "worker": worker, "limited": until, "said": said })))
             }
         }

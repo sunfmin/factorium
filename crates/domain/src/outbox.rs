@@ -243,3 +243,36 @@ command!(
         })
     }
 );
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HoldTaken {
+    pub terminal: String,
+    /// Submitted at or after then (ms), or queued at or after `queued`.
+    pub submitted: i64,
+    pub queued: i64,
+    pub until: i64,
+}
+
+command!(
+    /// Its engine was found at its limit: what it took just before is no
+    /// proof it read it (agy takes a message, starts a turn, and ends it at
+    /// once on its quota), so a message submitted since `submitted`, or
+    /// queued since `queued`, is held again, typed at the reset.
+    HoldTakenMessages,
+    "outbox.hold_taken",
+    Outboxes,
+    HoldTaken,
+    |p| outbox_id(&p.terminal),
+    |s, p, _now| {
+        let why = format!("its engine reached its limit as it took it; typed again once it resets at {} (ms)", p.until);
+        let held = Outcome::Held { until: p.until, why };
+        let taken = |m: &&Message| match m.outcome {
+            Some(Outcome::Submitted) => m.at >= p.submitted,
+            Some(Outcome::Queued) => m.at >= p.queued,
+            _ => false,
+        };
+        Ok::<_, factum_core::Rejection>(
+            s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
+        )
+    }
+);

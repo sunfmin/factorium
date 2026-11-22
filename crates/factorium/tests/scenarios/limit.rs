@@ -138,3 +138,29 @@ async fn a_worker_its_reset_does_not_reach_is_the_watch_s() {
     assert_eq!(w.worker_on("web", 1).await["status"], "waiting");
     assert!(finding_keys(&w.app.doctor().await.unwrap()).contains(&key), "no longer parked: the watch's");
 }
+
+/// agy takes a message, starts a turn and ends it at once on its quota
+/// (factorium#223, round 115): `submitted` is no proof it read it. What it
+/// took just before its limit is first seen is held again, and typed at the
+/// reset; what it took long before is not.
+#[tokio::test]
+async fn a_word_submitted_just_before_the_quota_showed_is_typed_again_at_the_reset() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    let tell = |text: &'static str| w.app.watch_tell(id(&wk), text, false);
+    assert_eq!(tell("old word").await.unwrap()["delivery"], "submitted");
+    w.advance(11);
+    assert_eq!(tell("new word").await.unwrap()["delivery"], "submitted");
+    spent(&w, &wk, 1);
+    w.tick().await;
+    let outbox = w.app.outbox_of(Some(id(&wk))).await.unwrap();
+    let outcomes: Vec<Value> =
+        outbox["messages"].as_array().unwrap().iter().map(|m| m["outcome"]["outcome"].clone()).collect();
+    assert_eq!(outcomes[outcomes.len() - 2..], [json!("submitted"), json!("held")], "{outbox}");
+    w.advance(171);
+    assert_eq!(w.tick().await.resumed[0]["resumed"], true);
+    let typed = sent(&w, &wk);
+    let [again, reset] = &typed[typed.len() - 2..] else { unreachable!() };
+    assert!(again.ends_with("new word") && reset.contains("limit reset"), "{typed:?}");
+    assert_eq!(typed.iter().filter(|t| t.ends_with("old word")).count(), 1, "{typed:?}");
+}

@@ -30,6 +30,8 @@ pub(crate) struct Live {
     /// The last limit its engine was seen at, and whether it waits on it.
     pub(crate) limit: Option<w::Limit>,
     pub(crate) on_limit: bool,
+    /// When its status last changed, ms.
+    pub(crate) since: i64,
 }
 
 impl App {
@@ -47,6 +49,7 @@ impl App {
                 started,
                 waiting,
                 on_limit,
+                since: wk.since,
                 limit: wk.limit,
             }),
         }
