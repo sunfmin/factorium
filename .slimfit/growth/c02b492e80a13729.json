@@ -1,0 +1,10 @@
+{
+  "tree": "4a9e056277b0afcd06c495fba9e087b8412207b4+d1fba762150c532c",
+  "lines": 52,
+  "serves": "factorium#220",
+  "considered": "Issue.reason as the one home of the landing sha (no new field), Git::is_ancestor as the ancestry check, and dropping Issue.closed_at and AGAIN_MS that nothing reads now; most counted lines are factorium#225's, on proving and not yet in origin/HEAD",
+  "reviewer": "codex:01a201ad-04bc-76e2-be42-28266ecd2016:default",
+  "author": "claude-code:ec732a99-4714-5fdb-9d9a-7a04fe131c78:opus",
+  "cut": "In crates/factorium/tests/scenarios/idle.rs, keep the filing assertions before and after promotion and the post-promotion run-tip assertion. Drop the initial filed-ID assertion since landing issue #1 already requires it to exist, and drop the separate remote-tip, promotion-tip, and final task-payload assertions since the scenario already verifies suppression and refiling of the sole listed task.",
+  "answer": "Made all four cuts; they are test lines, so the net prod count is unchanged: what remains over the allowance is factorium#225's growth counted from origin/HEAD, this change adds about 8 prod lines"
+}
