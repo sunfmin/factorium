@@ -5,6 +5,13 @@ cd "$(dirname "$0")"
 
 ./checks.sh
 
+# The release script, as far as it goes without publishing (docs/adr/0004):
+# its cut against fakes, then the universal build the tap signs, at
+# Cargo.toml's version.
+sh -n packaging/release.sh
+sh packaging/release-test.sh
+DIST=.slimfit/out/dist packaging/release.sh dry
+
 # The tests run once, instrumented, under slimfit (SPEC.md §6). What
 # `slimfit check` holds is slimfit's, test time among it (`test_seconds`,
 # the tests' CPU time): `slimfit check --help`, `slimfit help mutants-scope`.

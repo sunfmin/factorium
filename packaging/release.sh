@@ -1,17 +1,28 @@
 #!/bin/sh
-# One version of factorium, cut on this Mac: factorium.toml's cut step runs
-# `packaging/release.sh cut $FACTORIUM_VERSION` in a worktree at the base's
-# tip, then factorium tags what it left at HEAD and `brew upgrade`s the
-# formula.
+# One version of factorium (docs/adr/0004): this repo builds it;
+# sunfmin/homebrew-tap's release workflow signs, notarizes and publishes it.
+# factorium.toml's cut step runs `packaging/release.sh cut $FACTORIUM_VERSION`
+# in a clone at the base's tip, then factorium tags what it left at HEAD and
+# `brew upgrade`s the formula.
 #
-#   release.sh cut <vX.Y.Z>   set the version and commit it, build for Apple
-#                             Silicon, check `factorium --version`, package,
-#                             and publish: the archive to the tap's release
-#                             factorium-v<X.Y.Z>, the formula to the tap's
-#                             Formula/factorium.rb
+#   release.sh build <vX.Y.Z> <outdir>
+#                             build aarch64 and x86_64 at the version
+#                             Cargo.toml says (it must be the tag's), check
+#                             `factorium --version` says it, `lipo -create`
+#                             them: <outdir> holds the universal `factorium`
+#                             and the formula `factorium.rb`, its url and
+#                             sha256 left as @URL@ and @SHA256@ for the tap
+#                             to fill in. Signs nothing, needs no secret.
+#   release.sh cut <vX.Y.Z>   set the version in Cargo.toml and commit it,
+#                             build, push the tag to origin, run the tap's
+#                             release.yml on it and wait for that run, bounded
+#                             (RELEASE_WAIT_LIMIT seconds from the cut's start,
+#                             default 1700); publishes nothing from this host
+#   release.sh dry            what the gate runs: build at the version
+#                             Cargo.toml says, check the formula, publish
+#                             nothing
 #
-# The archive is downloaded from the tap (sunfmin/homebrew-tap), as every
-# formula there is. DIST names another directory than dist/.
+# DIST names another directory than dist/.
 set -eu
 cd "$(dirname "$0")/.."
 PATH="$PATH:$HOME/.cargo/bin"
@@ -19,56 +30,65 @@ export PATH
 
 REPO=https://github.com/sunfmin/factorium
 TAP=sunfmin/homebrew-tap
-TARGET=aarch64-apple-darwin
+TARGETS="aarch64-apple-darwin x86_64-apple-darwin"
 DIST=${DIST:-dist}
 
 usage() {
-    echo "usage: release.sh cut <vX.Y.Z>" >&2
+    echo "usage: release.sh build <vX.Y.Z> <outdir> | cut <vX.Y.Z> | dry" >&2
     exit 2
 }
 
-[ "${1:-}" = cut ] || usage
-tag=${2:-}
-case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) usage ;; esac
-version=${tag#v}
-
-# The version, in Cargo.toml and Cargo.lock, committed: the tag goes on it.
-sed -i.bak "s/^version = \".*\"\$/version = \"$version\"/" Cargo.toml
-rm Cargo.toml.bak
-cargo update --quiet --workspace
-said=$(cargo pkgid -p factorium | sed 's/.*[#@]//')
-[ "$said" = "$version" ] || {
-    echo "release: Cargo.toml says $said, not $version" >&2
-    exit 1
-}
-if ! git diff --quiet; then
-    git commit --quiet -am "factorium $version"
-fi
-
-cargo build --release --locked -p factorium --target "$TARGET"
-built=target/$TARGET/release/factorium
-said=$("$built" --version)
-[ "$said" = "factorium $version" ] || {
-    echo "release: $built --version says '$said', not 'factorium $version'" >&2
-    exit 1
+# check_tag <tag>: a version tag vX.Y.Z, or usage.
+check_tag() {
+    case "$1" in
+    v*[!0-9.]* | v*..* | v.* | v*.) usage ;;
+    v[0-9]*.[0-9]*.[0-9]*) ;;
+    *) usage ;;
+    esac
+    case "$1" in v*.*.*.*) usage ;; esac
 }
 
-mkdir -p "$DIST"
-archive=factorium-$version-macos-arm64.tar.gz
-tar -czf "$DIST/$archive" -C "$(dirname "$built")" factorium
-sha=$(shasum -a 256 "$DIST/$archive" | cut -d' ' -f1)
-release=factorium-v$version
-formula=$DIST/factorium.rb
-cat > "$formula" <<FORMULA
+# cargo_version: the version Cargo.toml (and so the binary) says.
+cargo_version() {
+    cargo pkgid -p factorium | sed 's/.*[#@]//'
+}
+
+# build <version> <outdir>: the universal binary and the formula in <outdir>.
+build() {
+    said=$(cargo_version)
+    [ "$said" = "$1" ] || {
+        echo "release: Cargo.toml says $said, not $1" >&2
+        exit 1
+    }
+    rustup target add $TARGETS >/dev/null 2>&1 || true
+    slices=
+    for target in $TARGETS; do
+        cargo build --release --locked --quiet -p factorium --target "$target"
+        slices="$slices target/$target/release/factorium"
+    done
+    rm -rf "$2"
+    mkdir -p "$2"
+    # shellcheck disable=SC2086 # the slices are paths without spaces
+    lipo -create -output "$2/factorium" $slices
+    archs=$(lipo -archs "$2/factorium")
+    [ "$archs" = "x86_64 arm64" ] || {
+        echo "release: $2/factorium holds '$archs', not 'x86_64 arm64'" >&2
+        exit 1
+    }
+    said=$("$2/factorium" --version)
+    [ "$said" = "factorium $1" ] || {
+        echo "release: $2/factorium --version says '$said', not 'factorium $1'" >&2
+        exit 1
+    }
+    cat >"$2/factorium.rb" <<FORMULA
 class Factorium < Formula
   desc "Runs AI coding agents on one machine while nobody watches"
   homepage "$REPO"
-  url "https://github.com/$TAP/releases/download/$release/$archive"
-  sha256 "$sha"
-  version "$version"
+  url "@URL@"
+  sha256 "@SHA256@"
+  version "$1"
 
   depends_on :macos
-  depends_on arch: :arm64
 
   def install
     bin.install "factorium"
@@ -87,24 +107,97 @@ class Factorium < Formula
   end
 end
 FORMULA
-ruby -c "$formula" >/dev/null
+    ruby -c "$2/factorium.rb" >/dev/null
+}
 
-# A release that is there already takes the archive again: a cut that
-# failed half way is run a second time.
-if gh release view "$release" -R "$TAP" >/dev/null 2>&1; then
-    gh release upload "$release" -R "$TAP" --clobber "$DIST/$archive"
-else
-    gh release create "$release" -R "$TAP" --title "factorium $version" \
-        --notes "The binary the formula \`factorium\` installs." "$DIST/$archive"
+# push_tag <tag>: origin has <tag> on HEAD. factorium's own tag step tags
+# HEAD after the cut and fails on a tag origin already holds, so a tag this
+# cut pushed is taken away again when the cut ends, however it ends.
+push_tag() {
+    head=$(git rev-parse HEAD)
+    # An annotated tag's peeled line (^{}) comes after it: the last line is the commit.
+    there=$(git ls-remote origin "refs/tags/$1" "refs/tags/$1^{}" | tail -n1 | cut -f1)
+    if [ -z "$there" ]; then
+        git push --quiet origin "$head:refs/tags/$1"
+        trap 'git push --quiet origin ":refs/tags/$tag"' EXIT
+    elif [ "$there" != "$head" ]; then
+        echo "release: origin's $1 is on $there, not HEAD ($head)" >&2
+        exit 1
+    fi
+}
+
+# latest_run <tag>: the id of the newest run of the tap's release.yml on
+# factorium <tag>, or nothing.
+latest_run() {
+    gh run list -R "$TAP" --workflow release.yml --event workflow_dispatch --limit 50 \
+        --json databaseId,displayTitle \
+        --jq "[.[] | select(.displayTitle == \"factorium $1\") | .databaseId] | max // empty"
+}
+
+case "${1:-}" in
+build)
+    [ $# -eq 3 ] || usage
+    check_tag "$2"
+    build "${2#v}" "$3"
+    echo "release: built factorium ${2#v}, universal, in $3"
+    exit 0
+    ;;
+dry)
+    [ $# -eq 1 ] || usage
+    build "$(cargo_version)" "$DIST"
+    echo "release: dry ok (factorium $(cargo_version), universal, $DIST)"
+    exit 0
+    ;;
+cut) [ $# -eq 2 ] || usage ;;
+*) usage ;;
+esac
+check_tag "$2"
+tag=$2
+version=${tag#v}
+started=$(date +%s)
+# Inside factorium.toml's [cut] limit and the heavy queue's hold bound, both 1800s.
+limit=${RELEASE_WAIT_LIMIT:-1700}
+
+# The version, in Cargo.toml and Cargo.lock, committed: the tag goes on it,
+# and the tap's build at the tag reads it there.
+sed -i.bak "s/^version = \".*\"\$/version = \"$version\"/" Cargo.toml
+rm Cargo.toml.bak
+cargo update --quiet --workspace
+if ! git diff --quiet; then
+    git commit --quiet -am "factorium $version"
 fi
-tap=$(mktemp -d)
-gh repo clone "$TAP" "$tap" -- --quiet --depth 1
-cp "$formula" "$tap/Formula/factorium.rb"
-git -C "$tap" add Formula/factorium.rb
-if git -C "$tap" diff --cached --quiet; then
-    echo "release: the tap's formula is factorium $version already"
-else
-    git -C "$tap" commit --quiet -m "factorium $version"
-    git -C "$tap" push --quiet origin HEAD
-fi
-rm -rf "$tap"
+
+# Built here first: a tag goes out only on a commit that builds at its version.
+build "$version" "$DIST"
+before=$(latest_run "$tag")
+push_tag "$tag"
+gh workflow run release.yml -R "$TAP" -f repo=factorium -f "tag=$tag"
+
+run=
+while :; do
+    run=$(latest_run "$tag")
+    [ -n "$run" ] && [ "$run" != "$before" ] && break
+    [ $(($(date +%s) - started)) -lt "$limit" ] || {
+        echo "release: no release.yml run of factorium $tag in $TAP after ${limit}s" >&2
+        exit 1
+    }
+    sleep 5
+done
+echo "release: waiting for https://github.com/$TAP/actions/runs/$run"
+while :; do
+    state=$(gh run view "$run" -R "$TAP" --json status,conclusion --jq '.status + " " + .conclusion')
+    case "$state" in
+    "completed success") break ;;
+    completed*)
+        echo "release: run $run of factorium $tag ended '$state'" >&2
+        gh run view "$run" -R "$TAP" --log-failed >&2 || true
+        exit 1
+        ;;
+    esac
+    [ $(($(date +%s) - started)) -lt "$limit" ] || {
+        echo "release: run $run of factorium $tag still '$state' after ${limit}s: gh run view $run -R $TAP" >&2
+        exit 1
+    }
+    sleep 15
+done
+echo "release: factorium $tag is published ($(($(date +%s) - started))s)"
