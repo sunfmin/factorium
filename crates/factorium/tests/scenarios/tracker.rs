@@ -244,12 +244,20 @@ async fn doctor_lists_every_decided_record_newest_first_until_read() {
     let week = w.app.decided_view(false).await.unwrap();
     assert_eq!(week["decided"], decided, "the last 7 days, read or not");
     w.app.decided_view(true).await.unwrap();
-    assert_eq!(w.doctor().await["decided"], json!([]), "read");
-    assert_eq!(w.app.decided_view(false).await.unwrap()["decided"], decided, "still in the last 7 days");
+    w.app.issue_comment("web", 1, "Decided (session, for Felix): made as it was read").await.unwrap();
+    assert_eq!(w.doctor().await["decided"], json!([]), "read, up to and at its time");
+    let week = w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().clone();
+    assert_eq!(week[0]["what"], "made as it was read", "still in the last 7 days");
+    assert_eq!(week[1..], decided.as_array().unwrap()[..], "still in the last 7 days");
     w.advance(1);
     w.app.issue_comment("web", 1, "Decided (session, for Felix): keep hall too").await.unwrap();
     let after: Vec<_> = w.doctor().await["decided"].as_array().unwrap().iter().map(|d| d["what"].clone()).collect();
     assert_eq!(after, [json!("keep hall too")], "only what came after the read");
+    w.advance(7 * 24 * 60 - 1);
+    let week: Vec<_> = (w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().iter())
+        .map(|d| d["what"].clone())
+        .collect();
+    assert_eq!(week, [json!("keep hall too")], "7 days back, no more: the rest are 7 days and 1 minute old");
 }
 
 #[tokio::test]

@@ -35,8 +35,7 @@ pub fn in_comment(text: &str) -> Option<Record> {
 /// Every record a body holds, each starting on a `Decided (…` line.
 pub fn in_body(body: &str) -> Vec<Record> {
     let lines: Vec<&str> = body.lines().map(str::trim).collect();
-    let heads = lines.iter().enumerate().filter(|(_, l)| l.starts_with(HEAD)).map(|(i, _)| i);
-    heads.filter_map(|i| read(lines[i], lines[i + 1..].iter().copied())).collect()
+    (0..lines.len()).filter_map(|i| read(lines[i], lines[i + 1..].iter().copied())).collect()
 }
 
 /// The record headed by `head`, each field from its own line after it, up to
@@ -88,5 +87,7 @@ mod tests {
         assert_eq!(found[0], kept());
         assert_eq!((found[1].who.as_str(), found[1].what.as_str()), ("watch", "park it"));
         assert!(in_body("no record here").is_empty());
+        let bare = in_body("Decided (a): x\nDecided (b): y\nUndo: z\n\nUndo: not b's");
+        assert_eq!((bare[0].undo.as_deref(), bare[1].undo.as_deref()), (None, Some("z")));
     }
 }

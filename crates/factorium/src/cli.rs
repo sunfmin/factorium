@@ -64,9 +64,7 @@ pub enum Top {
     /// waiting and who left it so (`watch`, `session`, or `added`
     /// `--waiting-for-human`). Answer one with `issue ready` (do it),
     /// `issue close` (don't), or `issue comment` then `issue ready`; and
-    /// `decided`: every Decided record (an issue's body or comment that
-    /// starts `Decided (<who>, for Felix): <what>`, then `Options:`,
-    /// `Chose:`, `Undo:` lines) made since `decided --read`, newest first.
+    /// `decided`: the Decided records made since `decided --read`.
     Doctor,
     /// Answers the Decided records of the last 7 days, newest first, each
     /// with its issue, who, what, options, chose, undo and when; `--read`
