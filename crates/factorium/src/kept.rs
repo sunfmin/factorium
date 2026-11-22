@@ -153,14 +153,14 @@ impl App {
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
         let path = Path::new(&st.worktree);
-        // A nested worktree holding work holds this one, as its own work does: doctor names it.
-        if remove
-            && !holds_own(&git, path, &st.branch, tip(&git, &c).as_deref())
-            && held(&nested(&git, &c, path)).is_empty()
-        {
-            self.remove_worktree(&git, &c, path, &st.branch)?;
+        if !remove || holds_own(&git, path, &st.branch, tip(&git, &c).as_deref()) {
+            return Ok(());
         }
-        Ok(())
+        // A nested worktree holding work holds this one, as its own work does: doctor names it.
+        match clear_nested(&git, &c, path) {
+            Err(r) if r.code == "nested_held" => Ok(()),
+            cleared => cleared.and_then(|()| self.remove_worktree(&git, path, &st.branch)),
+        }
     }
 
     /// The worktree `issue`'s last attempt kept, holding work that is
@@ -270,7 +270,7 @@ impl App {
         let head = tree.sha("HEAD").map_err(fail("git"))?;
         // Forced: an abandon Orca refused before made it, at an ancestor of HEAD.
         git.run(&["branch", "--no-track", "--force", &kept, &head]).map_err(fail("git"))?;
-        self.remove_worktree(&git, c, path, &st.branch)?;
+        self.remove_worktree(&git, path, &st.branch)?;
         let open = self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.status != Status::Closed);
         if open && !matches!(why, Why::Close(_)) {
             self.note(&st.checkout, st.number, Author::Factorium, &comment).await?;
@@ -279,11 +279,9 @@ impl App {
     }
 
     /// Removes a worker's worktree through Orca, with its terminals, then
-    /// whatever git keeps of it and its branch. The git worktrees nested in
-    /// it go first (Orca refuses to remove one that holds another), when
-    /// none holds work ([`nested`]).
-    fn remove_worktree(&self, git: &Git, c: &Checkout, path: &Path, branch: &str) -> Answer<()> {
-        clear_nested(git, c, path)?;
+    /// whatever git keeps of it and its branch. Orca refuses one that holds
+    /// another git worktree: [`clear_nested`] comes first.
+    fn remove_worktree(&self, git: &Git, path: &Path, branch: &str) -> Answer<()> {
         self.host.orca().remove(path).map_err(fail("orca"))?;
         git.forget(path, branch);
         Ok(())

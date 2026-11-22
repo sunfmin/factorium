@@ -597,13 +597,11 @@ async fn a_daemon_that_died_mid_start_whose_worktree_is_gone_frees_its_issue_wit
 async fn left_holding_a_comparison(w: &World) -> (PathBuf, PathBuf) {
     let old = waiting_for_human(w, false).await;
     let inner = old.join(".slimfit").join("out").join("before");
-    std::fs::create_dir_all(inner.parent().unwrap()).unwrap();
     // The repo ignores slimfit's output, as this one's `.gitignore` does.
     let exclude = w.dir.join("repos").join("web").join(".git").join("info").join("exclude");
     std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
     std::fs::write(&exclude, ".slimfit/out\n").unwrap();
-    let at = w.git(&old, &["rev-parse", "HEAD"]).unwrap();
-    w.git(&old, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), at.trim()]).unwrap();
+    w.git(&old, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), "HEAD"]).unwrap();
     w.app.issue_ready("web", 1).await.unwrap();
     let again = w.tick().await.started.unwrap();
     assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
@@ -644,7 +642,6 @@ async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_i
     assert!(what.contains(".slimfit/out/before: it has changes not committed"), "{found}");
 
     // Committed, it is work on no landed line; on a branch, that branch's.
-    let landed = w.git(&inner, &["rev-parse", "HEAD"]).unwrap();
     w.commit(&inner, "mine.txt", "work");
     let refused = w.app.discard_orphaned(&old).await.unwrap_err();
     assert!(refused.message.contains("before: its HEAD is on neither proving nor main"), "{refused:?}");
@@ -653,7 +650,7 @@ async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_i
     assert!(refused.message.contains("before: it is on branch `mine`, not detached"), "{refused:?}");
 
     // Back at the landed commit, detached and clean, discard goes through.
-    w.git(&inner, &["switch", "--quiet", "--detach", landed.trim()]).unwrap();
+    w.git(&inner, &["switch", "--quiet", "--detach", "origin/proving"]).unwrap();
     w.app.discard_orphaned(&old).await.unwrap();
     assert!(!old.exists());
 }
