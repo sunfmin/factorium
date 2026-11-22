@@ -60,9 +60,11 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut");
     assert_eq!(cut["version"], "v0.1.0");
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok());
-    // The first cut installs it, Homebrew is asked what it has once done, and
-    // where its factorium is, to prove it on the database (it has none).
-    let installs = ["update --quiet", "list --formula web", "install web", "list --versions web", "--prefix web"];
+    // The first cut installs it, Homebrew is asked what it has once done,
+    // where its keg is, to check PATH links into it (it has no programs),
+    // and where its factorium is, to prove it on the database (it has none).
+    let installs =
+        ["update --quiet", "list --formula web", "install web", "list --versions web", "--cellar web", "--prefix web"];
     assert_eq!(w.host.brewed(), installs);
 }
 

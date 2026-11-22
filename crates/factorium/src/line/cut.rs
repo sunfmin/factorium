@@ -96,7 +96,7 @@ impl App {
 
     /// The failed cut of `version` on `c`, read back (factorium#185): its tag
     /// is on origin and, where the repo declares a formula, Homebrew has that
-    /// version, whoever installed it, and it proves. Then the cut is recorded
+    /// version, whoever installed it, links it on PATH, and it proves. Then the cut is recorded
     /// made, and answers what it did; else it stays failed, and answers
     /// nothing. The steps before the tag leave nothing to read back: the tag
     /// is pushed only once they pass.
@@ -108,7 +108,8 @@ impl App {
         let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };
         if let Some(formula) = &cut.formula {
             let (host, f, v) = (self.host.clone(), formula.clone(), version.to_string());
-            let has = tokio::task::spawn_blocking(move || host.brew().has(&f, &v)).await.unwrap_or(false);
+            let has = move || host.brew().has(&f, &v) && host.brew().linked(&f, &v).is_ok();
+            let has = tokio::task::spawn_blocking(has).await.unwrap_or(false);
             if !has || self.proves_formula(formula).await.is_err() {
                 return Ok(None);
             }

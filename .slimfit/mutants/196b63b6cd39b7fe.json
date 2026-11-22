@@ -1,0 +1,21 @@
+{
+  "tree": "3054adb0cdd1ed654aa8273e32dbf210d21af475+d1fba762150c532c",
+  "picker": "codex:01a2031c-0c04-74d1-bce6-b6ec1710da8e:default",
+  "author": "claude-code:ca833f09-4b20-58d8-9268-40f1f05e661d:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/brew.rs:106:27: replace match guard link.exists() with true in Brew<'_>::unlinked",
+        "why": "The failure tests leave a dangling symlink, so they may miss a missing PATH entry being reported as a non-symlink.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/brew.rs:106:27: replace match guard link.exists() with false in Brew<'_>::unlinked",
+        "why": "The failure tests leave a dangling symlink, so they may miss an existing regular file on PATH being reported as missing.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
