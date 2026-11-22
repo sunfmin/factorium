@@ -1,0 +1,21 @@
+{
+  "tree": "c78578bddc982c356839f24267762bbe5e17913a+d1fba762150c532c",
+  "picker": "codex:01a204ee-0a1e-7451-8ce8-4d9c821b7a60:default",
+  "author": "claude-code:35db1f6e-a14d-5f75-97fc-9db6d40a24d1:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/orca.rs:177:23: replace match guard f.code.as_deref() == Some(\"timeout\") with false in Orca<'_>::pressed",
+        "why": "The new scenario exercises a terminal exit, leaving open whether a wait timeout still lets delivery proceed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/orca.rs:170:9: replace Orca<'_>::press -> Result<(), String> with Ok(())",
+        "why": "The new scenario sends Escape through deliver, so it can pass even if standalone press reports success without sending the key.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

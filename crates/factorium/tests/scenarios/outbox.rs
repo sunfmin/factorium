@@ -194,6 +194,35 @@ async fn a_message_its_session_cannot_take_is_refused_to_whoever_asked_and_a_red
     }
 }
 
+/// truefit's orca-claude `refused-after-key`: the interrupt key went, so the
+/// agent's turn is stopped (here its program ends), and Orca refuses what comes after.
+#[tokio::test]
+async fn told_now_when_orca_refuses_once_the_key_went_whoever_asked_hears_the_turn_was_stopped_and_nothing_is_retyped()
+{
+    for kind in [Kind::Tell, Kind::Restart] {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.set_busy(handle, true, false);
+        w.host.orca.fault("refused-after-key", true);
+        let said = kind.say(&w, &wk, true).await;
+        assert_eq!(w.terminal(handle).sent.last().map(String::as_str), Some(ESCAPE), "{kind:?}: the key went");
+        assert!(!w.terminal(handle).busy, "{kind:?}: its turn was stopped");
+        let m = last(&w, &wk).await;
+        assert_eq!(m["outcome"]["outcome"], "not_typed", "{kind:?}");
+        let why = m["outcome"]["why"].as_str().unwrap();
+        assert!(why.contains("terminal_exited") && why.contains("turn was stopped first"), "{kind:?}: {why}");
+        crate::fixture::refused(said, "orca");
+        // Whoever said it heard so: it is not typed again.
+        w.host.orca.fault("refused-after-key", false);
+        let n = w.terminal(handle).sent.len();
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(handle).sent.len(), n, "{kind:?}");
+    }
+}
+
 #[tokio::test]
 async fn before_its_harness_is_up_the_brief_is_held_and_what_comes_after_waits_on_it() {
     for kind in KINDS {
