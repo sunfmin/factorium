@@ -1,0 +1,15 @@
+{
+  "tree": "90ae340a4db21841a1e92f4de610e907c35fc75e+d1fba762150c532c",
+  "picker": "codex:01a201a8-c0ba-79c1-b83f-d6c4aae769bf:default",
+  "author": "claude-code:ed4ee61f-366b-5456-8363-6901638a56ee:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/kept.rs:156:20: replace || with && in App::release_worker",
+        "why": "The nested-worktree scenario can pass even if release stops protecting a worker whose outer worktree itself holds unlanded work.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
