@@ -159,11 +159,14 @@ impl crate::App {
     }
 
     /// Whether the binary `bin` opens this host's database, proven once per
-    /// binary (as [`crate::App::swapped`] asks), off the runtime's threads.
-    pub(crate) async fn proves(&self, bin: &Path) -> Result<(), String> {
-        let bin = bin.canonicalize().map_err(|e| format!("cannot find {}: {e}", bin.display()))?;
-        let (proofs, db, dir) = (self.proofs.clone(), self.db.clone(), self.data().proofs());
-        let proven = tokio::task::spawn_blocking(move || proofs.prove(&db, &bin, &dir));
-        proven.await.unwrap_or_else(|e| Err(format!("proving panicked: {e}")))
+    /// binary (as [`crate::App::swapped`] asks), off the runtime's threads:
+    /// borrowing nothing of the app, so it may run beside the ticks.
+    pub(crate) fn proves(&self, bin: &Path) -> impl Future<Output = Result<(), String>> + Send + 'static {
+        let (proofs, db, dir, bin) = (self.proofs.clone(), self.db.clone(), self.data().proofs(), bin.to_path_buf());
+        async move {
+            let bin = bin.canonicalize().map_err(|e| format!("cannot find {}: {e}", bin.display()))?;
+            let proven = tokio::task::spawn_blocking(move || proofs.prove(&db, &bin, &dir));
+            proven.await.unwrap_or_else(|e| Err(format!("proving panicked: {e}")))
+        }
     }
 }

@@ -11,6 +11,8 @@
 
 mod cut;
 
+pub(crate) use cut::Proving;
+
 use std::path::Path;
 
 use factorium_domain::checkout::Checkout;
@@ -110,7 +112,8 @@ impl App {
             };
             into.extend(self.moved(*moving, ended).await?.ok());
         }
-        let free = |c: &&Checkout| !self.beside_runs(|f| f.moves(&c.name));
+        lines.extend(self.cuts_proven().await?);
+        let free = |c: &&Checkout| !self.beside_runs(|f| f.moves(&c.name)) && !self.cut_proving(&c.name);
         for c in checkouts.iter().filter(free).filter(|c| !landing_ended.contains(&c.name)) {
             landed.extend(self.carry(c, Move::Land, false).await?.ok());
         }
@@ -142,7 +145,7 @@ impl App {
                 self.promote_gated(&c, &self.host.git(&c.path), tip, base, gated).await
             }
             Then::Cut { version, base, dir, steps } => {
-                self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans).await
+                self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans, true).await
             }
         }
     }
