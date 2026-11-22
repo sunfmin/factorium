@@ -1,0 +1,21 @@
+{
+  "tree": "483b3597c366f7ad3e26776932260aa0e55e5d90+5a0a27384e91a3d4",
+  "picker": "codex:01a202fe-4b7c-7252-878b-d10f4fbd1432:default",
+  "author": "claude-code:49f5e9d1-ce7d-5238-9c15-63ee242d19ec:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/pick.rs:121:88: replace == with != in read",
+        "why": "The grouped fixture spells out one candidate, so it misses an unnecessary function lookup for an already listed pick when a second candidate is present.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/pick.rs:118:55: replace && with || in read",
+        "why": "Both new cases use a valid one-line reason, so they miss acceptance of blank or multiline reasons.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

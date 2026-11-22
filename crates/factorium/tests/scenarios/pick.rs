@@ -189,7 +189,7 @@ async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_ta
     });
     let full = json!({"candidates": {"rust": [{"name": KILLS}, {"name": ALSO}]}});
     let pick = |name: &str| format!(r#"{{"picks": [{{"name": "{name}", "why": "w"}}]}}"#);
-    let cases = [(ALSO, true), ("src/a.rs:9:9: not listed", false)];
+    let cases = [(ALSO, true), (KILLS, true), ("src/a.rs:9:9: not listed", false)];
     crate::fixture::each(&cases, |(name, taken)| {
         let (grouped, full, text) = (grouped.to_string(), full.to_string(), pick(name));
         async move {
@@ -209,6 +209,9 @@ async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_ta
             } else {
                 refused(answer, "picker_answer");
             }
+            // A pick the listing spells out asks slimfit for no function's.
+            let asked = w.host.ran.lock().unwrap().iter().any(|r| r.contains("--function"));
+            assert_eq!(asked, *name != KILLS, "{name}");
             // The prompt keeps the grouped listing as slimfit gave it.
             assert!(picker.asked().0.contains(&grouped), "{name}");
         }
