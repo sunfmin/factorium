@@ -104,6 +104,7 @@ fn model() -> Model {
         .command::<checkout::AddCheckout>()
         .command::<checkout::RemoveCheckout>()
         .command::<checkout::NameCheckoutRole>()
+        .command::<checkout::TurnCheckoutIdle>()
         .aggregate::<issue::Issues>()
         .command::<issue::OpenIssue>()
         .command::<issue::EditIssue>()

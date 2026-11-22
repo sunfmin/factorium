@@ -42,7 +42,8 @@ impl App {
             let cuts = self.declared(&git, &c.fetched_base()).is_ok_and(|d| d.cut.is_some());
             let stuck = crate::line::stuck_base(&c, &git);
             let idle = self.state::<Idles>(idle_id(&c.name)).await?;
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle });
+            let idle_off = c.idle_off;
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off });
         }
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;

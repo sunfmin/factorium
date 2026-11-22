@@ -4,7 +4,9 @@
 
 use std::path::Path;
 
-use factorium_domain::checkout::{Add, AddCheckout, NameCheckoutRole, NameRole, Named, RemoveCheckout};
+use factorium_domain::checkout::{
+    Add, AddCheckout, NameCheckoutRole, NameRole, Named, RemoveCheckout, TurnCheckoutIdle, TurnIdle,
+};
 use factorium_domain::heavy;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
@@ -53,6 +55,15 @@ impl App {
     pub async fn checkout_name_role(&self, name: &str, role: Option<&str>) -> Answer {
         self.role_here(role)?;
         self.submit::<NameCheckoutRole>(NameRole { name: name.into(), role: role.map(String::from) }).await?;
+        Ok(json!(self.checkout(name).await?))
+    }
+
+    /// `checkout edit --no-idle`/`--idle`: turns the checkout's idle work
+    /// off on this host, or back on. Off, the daemon starts no idle run of
+    /// it here, the `tasks_bound` run neither, and files none of its tasks;
+    /// `factorium idle` still runs it. The repo's `[idle]` is left as it is.
+    pub async fn checkout_turn_idle(&self, name: &str, on: bool) -> Answer {
+        self.submit::<TurnCheckoutIdle>(TurnIdle { name: name.into(), off: !on }).await?;
         Ok(json!(self.checkout(name).await?))
     }
 

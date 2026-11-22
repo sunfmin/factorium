@@ -369,6 +369,46 @@ async fn tasks_overdue_by_tasks_bound_are_filed_on_a_host_never_idle() {
     assert_eq!(run["filed"], json!([2]), "past `every` and `tasks_bound`: {run}");
 }
 
+/// A checkout whose idle work is off on this host (factorium#271) starts
+/// no idle run here, on an idle host or past `tasks_bound`, so files no
+/// task, and its red last run is no finding; `factorium idle` still runs
+/// and files. Turned back on, the next tick starts it.
+#[tokio::test]
+async fn idle_work_turned_off_on_a_host_runs_only_by_hand_there() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    w.kit().await;
+    w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
+    std::fs::write(&answer, "no tasks").unwrap();
+    let run = w.run().idle_now("web").await.unwrap();
+    assert_eq!(run["green"], false, "{run}");
+    let idle_found =
+        |d: &Value| d["findings"].as_array().unwrap().iter().any(|f| f["key"].as_str().unwrap().starts_with("idle:"));
+    assert!(idle_found(&w.app.doctor().await.unwrap()), "red, it is a finding while on");
+
+    let off = w.app.checkout_turn_idle("web", false).await.unwrap();
+    assert_eq!(off["idle_off"], true, "{off}");
+    assert_eq!(w.app.checkout_list().await.unwrap()[0]["idle_off"], true, "the list shows it");
+    assert!(!idle_found(&w.app.doctor().await.unwrap()), "off, its red run is no finding");
+    std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
+    w.advance(2);
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "idle host, past `every`: off, none starts");
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    w.advance(700);
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "past `tasks_bound`: off, none starts");
+    assert_eq!(w.queued().await, Vec::<String>::new());
+    assert_eq!(w.app.issue_list(Some("web"), false).await.unwrap(), json!([]), "no task filed");
+
+    let run = w.run().idle_now("web").await.unwrap();
+    assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "by hand it runs: {run}");
+
+    w.app.checkout_turn_idle("web", true).await.unwrap();
+    assert_eq!(w.app.checkout_list().await.unwrap()[0]["idle_off"], false);
+    w.advance(700);
+    assert!(started(&w.tick().await.idle), "on again, past `tasks_bound`, it starts");
+    ended(&w).await;
+}
+
 /// Idle work runs through the one heavy run (factorium#136): `unqueue` ends
 /// its whole process tree as it does any running entry's — a later step's
 /// too, its session noted at a tick — and the next tick finds it gone,

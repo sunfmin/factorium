@@ -101,7 +101,8 @@ impl App {
         Ok(Ok(numbers))
     }
 
-    /// Starts the idle work due longest of `checkouts`, if none runs: due
+    /// Starts the idle work due longest of `checkouts` whose idle work is
+    /// on here (`checkout edit --no-idle` turns it off), if none runs: due
     /// `every` after the last run while the host is idle, or its tasks alone
     /// once overdue by `tasks_bound`, idle or not.
     pub(crate) async fn idle_start(
@@ -118,7 +119,7 @@ impl App {
         let idle = host_idle(&workers, &load.queue, admission::room(&load.room(), settings)).is_ok();
         // Due by what the base declared as last fetched: no fetch while none is due.
         let mut due = Vec::new();
-        for c in checkouts {
+        for c in checkouts.iter().filter(|c| !c.idle_off) {
             let git = self.host.git(&c.path);
             let Some(work) = self.declared(&git, &c.fetched_base()).ok().and_then(|d| d.idle) else {
                 continue;
