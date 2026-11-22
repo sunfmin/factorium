@@ -124,3 +124,90 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     let skills = w.data().root().join("role/issues/web-2-1").join(SKILLS);
     assert!(skills.is_dir() && std::fs::read_dir(&skills).unwrap().count() == 0, "no skills of its own");
 }
+
+/// A role directory under the world's home, with rules `rules` and skill `skill`.
+fn role_at(w: &World, name: &str, rules: &str, skill: &str) -> String {
+    let role = w.host.home().join("roles").join(name);
+    std::fs::create_dir_all(role.join(SKILLS).join(skill)).unwrap();
+    std::fs::write(role.join(RULES), rules).unwrap();
+    std::fs::write(role.join(SKILLS).join(skill).join("SKILL.md"), format!("{skill}\n")).unwrap();
+    role.to_string_lossy().into_owned()
+}
+
+#[tokio::test]
+async fn an_issue_filed_with_no_role_is_edited_to_name_one_and_its_next_worker_starts_as_it() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    let role = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+
+    let shown = w.app.issue_name_role("web", 1, Some(&role)).await.unwrap();
+    assert_eq!(shown["role"], json!(role), "issue show answers the role as edited");
+    let said = shown["comments"][0].clone();
+    assert_eq!(said["by"], "factorium");
+    assert!(said["text"].as_str().unwrap().contains(&format!("from no role to `{role}`")), "{said}");
+
+    w.tick().await;
+    let start = w.data().root().join("role/issues/web-1-1");
+    let rules = std::fs::read_to_string(start.join(RULES)).unwrap();
+    assert!(rules.ends_with("You are the ios-app-coder.\n"), "{rules}");
+    assert_eq!(std::fs::read_to_string(start.join(SKILLS).join("xcode/SKILL.md")).unwrap(), "xcode\n");
+    let brief = std::fs::read_to_string(w.data().brief("web-1-1")).unwrap();
+    assert!(brief.contains("changed this issue's role from no role"), "its brief carries why: {brief}");
+}
+
+#[tokio::test]
+async fn a_live_worker_keeps_the_role_it_started_with_and_the_next_attempt_takes_the_edited_one() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let first = role_at(&w, "first", "You are the first.\n", "one");
+    let on = On { role: Some(first.clone()), account: None };
+    w.app.issue_add_on("web", "t", "", false, &[], on).await.unwrap();
+    w.tick().await;
+    let wk = w.worker_on("web", 1).await;
+    let start = w.data().root().join("role/issues/web-1-1");
+    let rules_before = std::fs::read_to_string(start.join(RULES)).unwrap();
+
+    let second = role_at(&w, "second", "You are the second.\n", "two");
+    w.app.issue_name_role("web", 1, Some(&second)).await.unwrap();
+    w.tick().await;
+    assert_eq!(w.worker_on("web", 1).await["id"], wk["id"], "the edit restarts no one");
+    assert_eq!(std::fs::read_to_string(start.join(RULES)).unwrap(), rules_before);
+    assert!(start.join(SKILLS).join("one/SKILL.md").is_file(), "its start directory is as it was");
+
+    // The attempt that starts after the edit starts with the new role.
+    w.app.issue_wait_for_human("web", 1, "again").await.unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    w.tick().await;
+    let next = w.data().root().join("role/issues/web-1-2");
+    assert!(std::fs::read_to_string(next.join(RULES)).unwrap().ends_with("You are the second.\n"));
+    assert!(next.join(SKILLS).join("two/SKILL.md").is_file());
+}
+
+#[tokio::test]
+async fn no_role_takes_the_role_away_and_a_missing_or_relative_dir_is_refused_as_at_add() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let role = role_at(&w, "r", "You are r.\n", "s");
+    w.app.issue_add_on("web", "t", "", false, &[], On { role: Some(role.clone()), account: None }).await.unwrap();
+
+    refused(w.app.issue_name_role("web", 1, Some("roles/r")).await, "no_role");
+    let missing = w.host.home().join("roles/none").to_string_lossy().into_owned();
+    refused(w.app.issue_name_role("web", 1, Some(&missing)).await, "no_role");
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(
+        (shown["role"].clone(), shown["comments"].clone()),
+        (json!(role), json!([])),
+        "a refusal changes nothing"
+    );
+
+    let shown = w.app.issue_name_role("web", 1, None).await.unwrap();
+    assert_eq!(shown["role"], json!(null));
+    assert!(shown["comments"][0]["text"].as_str().unwrap().contains(&format!("from `{role}` to no role")));
+    w.tick().await;
+    let line = w.terminal(w.worker_on("web", 1).await["terminal"].as_str().unwrap()).line;
+    assert!(!line.contains("role/issues"), "it starts in the worker's own directory: {line}");
+}
