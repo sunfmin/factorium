@@ -1,0 +1,6 @@
+{
+  "tree": "9a663e9048452cf0757a00217dea2c8f93164c9f+d1fba762150c532c",
+  "picker": "codex:01a20364-bdaa-7eb3-a345-4b68536ecfa6:default",
+  "author": "claude-code:9f7aaeaa-0569-517e-b4ea-4c3f9633ae3f:opus",
+  "none": "The tests cover forwarding candidates, both outcomes for empty listings, and accepting only the no-mutants refusal, so every listed mutant would change an asserted outcome."
+}
