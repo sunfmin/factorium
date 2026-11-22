@@ -267,14 +267,9 @@ pub enum HeavyEvent {
         /// unstarted: its `queued_at`, not `at`.
         #[serde(default)]
         place: Option<i64>,
-        /// The rules it was queued under.
+        /// The rules it was queued under. Queued again under other rules (a
+        /// binary that execed in its place), it keeps its place, and takes these.
         #[serde(default)]
-        rules: String,
-    },
-    /// A queued entry's asker asks under other rules: a binary that execed
-    /// in its place, keeping it.
-    HeavyAsks {
-        id: Uuid,
         rules: String,
     },
     HeavyStarted {
@@ -309,13 +304,13 @@ impl Aggregate for Heavy {
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
             HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at, place, rules } => {
+                if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
+                    return e.rules = rules;
+                }
                 s.left.retain(|l| !l.of(&what, worker, program));
                 let (queued_at, session, started_at) = (place.unwrap_or(at), None, None);
                 let e = Entry { id, what, pid, worker, program, queued_at, started_at, bound_at, session, rules };
                 s.entries.push(e)
-            }
-            HeavyEvent::HeavyAsks { id, rules } => {
-                s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.rules = rules.clone())
             }
             HeavyEvent::HeavyStarted { id, at } => {
                 s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.started_at = Some(at));
@@ -365,9 +360,9 @@ pub struct Enqueue {
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
-    if let Some(e) = s.entries.iter().find(|e| e.id == p.id) {
-        let asks = HeavyEvent::HeavyAsks { id: p.id, rules: p.rules.clone() };
-        return Ok(if e.rules == p.rules { Vec::new() } else { vec![asks] });
+    // Queued already under these rules: nothing to do.
+    if s.entries.iter().any(|e| e.id == p.id && e.rules == p.rules) {
+        return Ok(Vec::new());
     }
     Ok::<_, factum_core::Rejection>(vec![HeavyEvent::HeavyQueued {
         id: p.id,

@@ -134,19 +134,13 @@ fn on_host(db: &Path, bin: &Path, dir: &Path) -> Proven {
 fn copy_of(db: &Path, copy: &Path) -> Result<(), String> {
     use rusqlite::OpenFlags;
     std::fs::create_dir_all(copy.parent().unwrap_or(Path::new("."))).map_err(|e| e.to_string())?;
-    let live =
+    let mut live =
         rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
     live.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
-    let (interrupt, (done, given_up)) = (live.get_interrupt_handle(), std::sync::mpsc::channel::<()>());
-    let bound = std::thread::spawn(move || {
-        if given_up.recv_timeout(COPY_LIMIT).is_err_and(|e| e == std::sync::mpsc::RecvTimeoutError::Timeout) {
-            interrupt.interrupt();
-        }
-    });
-    let copied = live.execute("VACUUM INTO ?1", [copy.to_string_lossy()]);
-    drop(done);
-    let _ = bound.join();
-    copied.map(drop).map_err(|e| match e.sqlite_error_code() {
+    // Past the bound, the progress handler answers true: SQLite interrupts the copy.
+    let deadline = std::time::Instant::now() + COPY_LIMIT;
+    live.progress_handler(1000, Some(move || std::time::Instant::now() > deadline)).map_err(|e| e.to_string())?;
+    live.execute("VACUUM INTO ?1", [copy.to_string_lossy()]).map(drop).map_err(|e| match e.sqlite_error_code() {
         Some(rusqlite::ErrorCode::OperationInterrupted) => format!("given up past {}s", COPY_LIMIT.as_secs()),
         _ => e.to_string(),
     })
