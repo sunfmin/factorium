@@ -21,6 +21,20 @@ async fn timed(w: &World) -> Value {
 }
 
 #[test]
+fn a_duration_is_read_in_seconds_minutes_or_hours_and_a_bare_number_is_minutes() {
+    assert_eq!(when::duration_ms("90s"), Ok(90_000));
+    assert_eq!(when::duration_ms("45m"), Ok(45 * 60_000));
+    assert_eq!(when::duration_ms("2h"), Ok(2 * 3_600_000));
+    assert_eq!(when::duration_ms("60"), Ok(60 * 60_000), "a bare number is minutes");
+    assert_eq!(when::duration_ms(" 3 h "), Ok(3 * 3_600_000), "spaces around it and its unit");
+    assert_eq!(when::duration_ms(&format!("{}h", i64::MAX / 1_000)), Ok(i64::MAX), "past an i64, the most it holds");
+    for bad in ["2d", "soon", "", "h", "1.5h", "m45"] {
+        let e = when::duration_ms(bad).unwrap_err();
+        assert!(e.contains(&format!("`{bad}`")) && e.contains("`45m`"), "{bad}: {e}");
+    }
+}
+
+#[test]
 fn a_time_is_read_with_its_offset_and_shown_in_utc() {
     let at = when::parse("2026-11-23T14:34:37+09:00").unwrap();
     assert_eq!(when::utc(at), "2026-11-23T05:34:37Z");
