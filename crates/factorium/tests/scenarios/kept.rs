@@ -643,8 +643,17 @@ async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_i
     let what = found["what"].as_str().unwrap();
     assert!(what.contains(".slimfit/out/before: it has changes not committed"), "{found}");
 
-    // Once its work is gone elsewhere, discard goes through.
-    std::fs::remove_file(inner.join("mine.txt")).unwrap();
+    // Committed, it is work on no landed line; on a branch, that branch's.
+    let landed = w.git(&inner, &["rev-parse", "HEAD"]).unwrap();
+    w.commit(&inner, "mine.txt", "work");
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert!(refused.message.contains("before: its HEAD is on neither proving nor main"), "{refused:?}");
+    w.git(&inner, &["switch", "--quiet", "-c", "mine"]).unwrap();
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert!(refused.message.contains("before: it is on branch `mine`, not detached"), "{refused:?}");
+
+    // Back at the landed commit, detached and clean, discard goes through.
+    w.git(&inner, &["switch", "--quiet", "--detach", landed.trim()]).unwrap();
     w.app.discard_orphaned(&old).await.unwrap();
     assert!(!old.exists());
 }

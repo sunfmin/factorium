@@ -156,7 +156,7 @@ impl App {
         // A nested worktree holding work holds this one, as its own work does: doctor names it.
         if remove
             && !holds_own(&git, path, &st.branch, tip(&git, &c).as_deref())
-            && held_nested(&git, &c, path).is_empty()
+            && held(&nested(&git, &c, path)).is_empty()
         {
             self.remove_worktree(&git, &c, path, &st.branch)?;
         }
@@ -207,7 +207,7 @@ impl App {
                 };
                 let (checkout, path, branch) = (c.name.clone(), path.display().to_string(), branch.unwrap_or_default());
                 let kept = abandoned(&branch);
-                let nested = held_nested(&self.host.git(&c.path), &c, Path::new(&path));
+                let nested = held(&nested(&self.host.git(&c.path), &c, Path::new(&path)));
                 found.push(Orphaned { checkout, number, attempt, path, branch, kept, why, nested });
             }
         }
@@ -251,7 +251,7 @@ impl App {
     /// which a comment says as `why` does (a close's comes first; a closed
     /// issue takes no other), and the worktree goes, with its terminals.
     /// Refused, before anything changes, while a nested worktree in it
-    /// holds work ([`held_nested`]): that is kept where it is, and named.
+    /// holds work ([`nested`]): that is kept where it is, and named.
     pub(crate) async fn abandon(&self, c: &Checkout, st: &Started, why: Why<'_>) -> Answer<Abandoned> {
         let (git, path) = (self.host.git(&c.path), Path::new(&st.worktree));
         clear_nested(&git, c, path)?;
@@ -303,41 +303,24 @@ fn tip(git: &Git, c: &Checkout) -> Option<String> {
 /// is held.
 fn nested(git: &Git, c: &Checkout, path: &Path) -> Vec<(PathBuf, Option<String>)> {
     let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    let outer = real(path);
-    let Ok(trees) = git.worktrees() else { return Vec::new() };
-    let landed = |sha: &str| {
-        [c.fetched_base(), format!("refs/remotes/origin/{}", c.proving)].iter().any(|r| git.is_ancestor(sha, r))
-    };
+    let tips = [c.fetched_base(), format!("refs/remotes/origin/{}", c.proving)];
     let why = |p: &Path, branch: Option<String>| {
         let here = git.at(p);
-        if let Some(b) = branch {
-            return Some(format!("it is on branch `{b}`, not detached"));
-        }
-        match here.dirty() {
-            Ok(false) => {}
-            Ok(true) => return Some("it has changes not committed".into()),
-            Err(e) => return Some(format!("its changes cannot be read: {e}")),
-        }
-        match here.sha("HEAD") {
-            Ok(sha) if landed(&sha) => None,
-            Ok(sha) => {
-                Some(format!("its HEAD {} is on neither {} nor {}", &sha[..sha.len().min(8)], c.proving, c.base))
-            }
-            Err(e) => Some(format!("its HEAD cannot be read: {e}")),
+        let landed = here.sha("HEAD").is_ok_and(|sha| tips.iter().any(|t| git.is_ancestor(&sha, t)));
+        match branch {
+            Some(b) => Some(format!("it is on branch `{b}`, not detached")),
+            None if here.dirty().unwrap_or(true) => Some("it has changes not committed".into()),
+            None if !landed => Some(format!("its HEAD is on neither {} nor {}", c.proving, c.base)),
+            None => None,
         }
     };
+    let (outer, trees) = (real(path), git.worktrees().unwrap_or_default());
     let inside = trees.into_iter().filter(|(p, _)| p.exists() && real(p) != outer && real(p).starts_with(&outer));
     inside.map(|(p, b)| (p.clone(), why(&p, b))).collect()
 }
 
-/// The nested worktrees in `path` that hold work ([`nested`]), each as
-/// `<path>: <why>`.
-fn held_nested(git: &Git, c: &Checkout, path: &Path) -> Vec<String> {
-    named(&nested(git, c, path))
-}
-
-/// Of `nested`, those that hold work, each as `<path>: <why>`.
-fn named(nested: &[(PathBuf, Option<String>)]) -> Vec<String> {
+/// Of `nested` ([`nested`]), those that hold work, each as `<path>: <why>`.
+fn held(nested: &[(PathBuf, Option<String>)]) -> Vec<String> {
     nested.iter().filter_map(|(p, why)| Some(format!("{}: {}", p.display(), why.as_ref()?))).collect()
 }
 
@@ -346,7 +329,7 @@ fn named(nested: &[(PathBuf, Option<String>)]) -> Vec<String> {
 /// it; refused, removing none and naming those that hold work, while any does.
 fn clear_nested(git: &Git, c: &Checkout, path: &Path) -> Answer<()> {
     let inner = nested(git, c, path);
-    let held = named(&inner);
+    let held = held(&inner);
     if held.is_empty() {
         for (inner, _) in inner {
             git.worktree_remove(&inner).map_err(fail("git"))?;

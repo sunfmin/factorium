@@ -247,17 +247,20 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         );
     }
     for Orphaned { path, branch, kept, why, nested, .. } in &seen.orphaned {
-        let what = format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}");
-        let discard =
-            format!("remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on `{kept}`");
-        if nested.is_empty() {
-            add(format!("worktree:{path}"), what, &discard);
-            continue;
-        }
+        let (held, first) = match nested.is_empty() {
+            true => (String::new(), ""),
+            false => (
+                format!("; a worktree nested in it holds work: {}", nested.join("; ")),
+                "first move or remove that, then ",
+            ),
+        };
         add(
             format!("worktree:{path}"),
-            format!("{what}; discard cannot remove the worktree nested in it, which holds work: {}", nested.join("; ")),
-            &format!("commit what the nested worktree holds elsewhere or remove it, then {discard}"),
+            format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}{held}"),
+            &format!(
+                "{first}remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
+                 `{kept}`"
+            ),
         );
     }
     for Unclosed { handle, title, why } in &seen.unclosed {
