@@ -1,0 +1,10 @@
+{
+  "tree": "005cd2016abd26c35dea92ea484bc12b14dd081b+d1fba762150c532c",
+  "lines": 204,
+  "serves": "factorium#223",
+  "considered": "The account quota path (Sight::Quota, UsedUp, LimitAccount), which ends the worker, reused where it can: LimitAccount for an agy account, the Kits aggregate for the harness limit; the blocker park (parked, Park/Unpark, resume_parked), reused for the limit park and its wakeup; the outbox's NotTyped hold, weighed and set aside for a Held outcome, since NotTyped refuses the sender at once and would send a factorium word's worker to the watch.",
+  "reviewer": "codex:01a20181-361e-7a62-a6a2-3b67c68068a2:default",
+  "author": "claude-code:2cdedec8-65b6-515a-8a90-8c1221d71fcf:opus",
+  "cut": "In crates/factorium/src/daemon.rs, have the quota and blocker branches supply their restart text to the same unpark, restart, and refusal handling, then delete resume_limited. In crates/factorium/src/session/mod.rs and session/outbox.rs, pass the parsed Stop to new_limit so see parses the screen once while delivery keeps the same stale-limit check. In crates/domain/src/worker.rs and health.rs, use the existing Limit struct as the WorkerLimited payload and store it directly. In crates/domain/src/kit.rs, reuse HarnessNote as the HarnessLimited payload and keep the existing event variants in their original format.",
+  "answer": "All four made (005cd20): resume_parked takes the restart text from either park and does one unpark, restart and refusal; see hands its parsed Stop to new_limit; WorkerLimited carries Limit; HarnessLimited carries HarnessNote, the other variants back on one line. An earlier review's cuts were made too (cc7646a): the limit parks by Unpark's flag, no Unlimit."
+}
