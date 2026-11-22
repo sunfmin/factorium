@@ -74,17 +74,16 @@ pub struct ReadySeen {
 /// heavy queue's wait) and, when no issue's harness or account can start,
 /// the kit's. Empty when no issue may start yet, or one could start now.
 pub fn unstarted(seen: &Seen, s: &Settings, now: i64) -> Vec<String> {
-    let ready: Vec<&ReadySeen> = seen.ready.iter().filter(|r| !r.waits).collect();
-    if ready.is_empty() {
+    let mut ready = seen.ready.iter().filter(|r| !r.waits).peekable();
+    if ready.peek().is_none() {
         return Vec::new();
     }
     let mut why = admission::holds(&seen.reading, &seen.queue, now, s);
-    if ready.iter().all(|r| r.kit.is_some()) {
-        for r in ready {
-            let kit = format!("kit: {}", r.kit.as_deref().unwrap_or_default());
-            if !why.contains(&kit) {
-                why.push(kit);
-            }
+    // Each issue's kit answer, or none once one issue's kit can start.
+    let kit: Option<Vec<&String>> = ready.map(|r| r.kit.as_ref()).collect();
+    for kit in kit.into_iter().flatten().map(|k| format!("kit: {k}")) {
+        if !why.contains(&kit) {
+            why.push(kit);
         }
     }
     why

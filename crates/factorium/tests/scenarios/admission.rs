@@ -528,7 +528,7 @@ fn every_reason_admission_holds_is_named_and_the_kit_only_when_no_issue_can_star
         waits: false,
         kit: Some("codex: every account is used up".into()),
     };
-    let queued = Entry { what: "cargo test".into(), queued_at: 0, ..Entry::default() };
+    let queued = Entry { what: "cargo test".into(), queued_at: 1_000_000, ..Entry::default() };
     let seen = Seen {
         ready: vec![used("web#1"), used("web#2")],
         reading: Reading { cpu_busy: 10, memory_free: 3, disk_free: 500 * GIB, workers_cpu: 90 },
@@ -537,7 +537,7 @@ fn every_reason_admission_holds_is_named_and_the_kit_only_when_no_issue_can_star
     };
     let s = Default::default();
     assert_eq!(
-        unstarted(&seen, &s, 301_000),
+        unstarted(&seen, &s, 1_301_000),
         [
             "memory: 3% free, under 15%",
             "workers: 90% of the CPU, over their 80%",
@@ -545,10 +545,12 @@ fn every_reason_admission_holds_is_named_and_the_kit_only_when_no_issue_can_star
             "kit: codex: every account is used up",
         ]
     );
+    // Waited its bound and no longer: the queue holds nothing.
+    assert!(!unstarted(&seen, &s, 1_300_000).iter().any(|w| w.starts_with("queue")));
     // One issue the kit can start: the kit holds nothing.
     let mut one = seen.clone();
     one.ready.push(ReadySeen { issue: "web#3".into(), ..ReadySeen::default() });
-    assert!(!unstarted(&one, &s, 301_000).iter().any(|w| w.starts_with("kit")));
+    assert!(!unstarted(&one, &s, 1_301_000).iter().any(|w| w.starts_with("kit")));
     // Room, and an issue the kit can start: nothing holds.
     let room = Reading { memory_free: 50, disk_free: 500 * GIB, ..Reading::default() };
     let free = Seen { ready: vec![ReadySeen::default()], reading: room, ..Seen::default() };
