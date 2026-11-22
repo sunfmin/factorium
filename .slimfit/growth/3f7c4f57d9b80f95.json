@@ -1,0 +1,10 @@
+{
+  "tree": "4bc9754f828e466723fb639e46d125d9e3f4ea1a+d1fba762150c532c",
+  "lines": 59,
+  "serves": "factorium#268",
+  "considered": "the refused-done re-key (a DoneRefused event, a command, a doctor field, a key per refusal), deleted for the one re-round path; restart's code, which the tell to a waiting worker now calls instead of a second resume path; the episode's existing round field, kept as 'round started' beside the new count and round end",
+  "reviewer": "codex:01a20542-a716-7853-b060-1caa05f1b27b:default",
+  "author": "claude-code:a0692a61-4fc4-5947-a36a-609816bb4736:opus",
+  "cut": "In crates/domain/src/watch.rs, borrow the timed-out round from `s.round` and reuse it to admit a replacement and exclude the same episode from that look. Select the minimum eligible episode by the existing sort key instead of collecting and sorting candidates. In crates/factorium/tests/scenarios/watch.rs, merge the two reported-round retry scenarios into one that checks the refused `done`, the full cooldown, and the second brief’s report and reminder. Review based on the supplied diff because repository access was unavailable.",
+  "answer": "Made all three: LookNow borrows the timed-out round from s.round, admits the next round on it, and excludes its episode; the due episode is picked with min_by_key, with no collect and sort; the refused-done and the retry scenarios are now one, which checks the refused done, the full round_again, and the second brief's report and its still-there line. What is left is the mechanism the issue asks for: two settings, the episode's round count and round end, due and unresolved, the re-round brief, and doctor's unresolved list."
+}
