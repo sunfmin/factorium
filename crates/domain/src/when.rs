@@ -30,39 +30,28 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 pub fn parse(s: &str) -> Result<i64, String> {
     let bad = || format!("`{s}` is no time: name one as 2026-11-23T14:34:37+09:00 (or Z), or in ms");
     let t = s.trim();
-    if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
-        return t.parse().map_err(|_| bad());
+    if let Ok(ms) = t.parse() {
+        return Ok(ms);
     }
-    let num = |a: usize, b: usize| t.get(a..b).filter(|p| p.bytes().all(|c| c.is_ascii_digit()))?.parse::<i64>().ok();
-    let sep = |i: usize, c: &[u8]| t.as_bytes().get(i).is_some_and(|b| c.contains(b));
-    if !(sep(4, b"-") && sep(7, b"-") && sep(10, b"Tt ") && sep(13, b":") && sep(16, b":")) {
-        return Err(bad());
-    }
-    let (Some(y), Some(mo), Some(d), Some(h), Some(mi), Some(se)) =
-        (num(0, 4), num(5, 7), num(8, 10), num(11, 13), num(14, 16), num(17, 19))
-    else {
-        return Err(bad());
-    };
-    let mut rest = t.get(19..).ok_or_else(bad)?;
-    if let Some(frac) = rest.strip_prefix('.') {
-        rest = frac.trim_start_matches(|c: char| c.is_ascii_digit());
-    }
-    let offset = match rest {
-        "Z" | "z" => 0,
-        o if o.len() == 6 && (o.starts_with('+') || o.starts_with('-')) && &o[3..4] == ":" => {
-            let (oh, om) = (o[1..3].parse::<i64>().map_err(|_| bad())?, o[4..6].parse::<i64>().map_err(|_| bad())?);
-            let sign = if o.starts_with('-') { -1 } else { 1 };
-            sign * (oh * 3600 + om * 60)
+    let (stamp, rest) = t.split_at_checked(19).ok_or_else(bad)?;
+    let fields: Result<Vec<i64>, _> = stamp.split(['-', 'T', 't', ' ', ':']).map(str::parse).collect();
+    let [y, mo, d, h, mi, se] = fields.map_err(|_| bad())?[..] else { return Err(bad()) };
+    let rest = rest.strip_prefix('.').map_or(rest, |f| f.trim_start_matches(|c: char| c.is_ascii_digit()));
+    let offset = match rest.split_at_checked(1) {
+        Some(("Z" | "z", "")) => 0,
+        Some((sign @ ("+" | "-"), hm)) => {
+            let (oh, om) = hm.split_once(':').ok_or_else(bad)?;
+            let (oh, om): (i64, i64) = (oh.parse().map_err(|_| bad())?, om.parse().map_err(|_| bad())?);
+            (oh * 3600 + om * 60) * if sign == "-" { -1 } else { 1 }
         }
         _ => return Err(bad()),
     };
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let days_in = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    if !(1..=12).contains(&mo) || d < 1 || d > days_in[(mo - 1) as usize] || h > 23 || mi > 59 || se > 59 {
+    // A date that is none (the 30th of February) comes back as another.
+    let days = days_from_civil(y, mo, d);
+    if !(1..=12).contains(&mo) || civil_from_days(days) != (y, mo, d) || h > 23 || mi > 59 || se > 59 {
         return Err(bad());
     }
-    let secs = days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + se - offset;
-    Ok(secs * 1000)
+    Ok((days * 86_400 + h * 3600 + mi * 60 + se - offset) * 1000)
 }
 
 /// `ms` since the epoch as UTC, to the second: `2026-11-23T05:34:37Z`.
