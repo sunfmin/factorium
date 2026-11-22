@@ -107,10 +107,11 @@ async fn a_picker_that_says_none_is_worth_one_answers_the_record_of_that() {
 
 #[tokio::test]
 async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_none_with_why() {
-    // A change of tests and config alone, as slimfit answers it, and as it
-    // refuses one of examples (slimfit#77).
-    let refused = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\n INFO No mutants to filter", "fix": "f"}]}"#;
-    let cases = [r#"{"candidates": {"rust": []}, "next": "n"}"#, refused];
+    // A change of tests and config alone, as slimfit answers it: no
+    // candidate, no source line added, no test removed.
+    let none = r#"{"candidates": {"rust": []}, "landing": {"lines": 0}, "next": "n"}"#;
+    let removed_elsewhere = r#"{"candidates": {"rust": []}, "landing": {"lines": 0, "removed_tests": {"rust": []}}}"#;
+    let cases = [none, removed_elsewhere];
     crate::fixture::each(&cases, |listing| async move {
         let w = World::new();
         w.checkout("web").await;
@@ -138,6 +139,41 @@ async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_no
         w.app.worker_done(id(&wk)).await.unwrap();
         let tick = w.tick().await;
         assert!(tick.landed.iter().any(|l| l["landed"] == "web#1"), "{tick:?}");
+    });
+}
+
+#[tokio::test]
+async fn a_change_that_adds_source_lines_slimfit_lists_no_candidates_of_has_its_picker_say_why_none() {
+    // factorium#246: one added line (a `+ use<>` bound) whose listing is
+    // empty, as slimfit answers it without its landing, and with; a removed
+    // test; and slimfit's refusal that the tool listed none (slimfit#77).
+    let refused = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\n INFO No mutants to filter", "fix": "f"}]}"#;
+    let cases = [
+        r#"{"candidates": {"rust": []}, "next": "n"}"#,
+        r#"{"candidates": {"rust": []}, "landing": {"lines": 1}}"#,
+        r#"{"candidates": {"rust": []}, "landing": {"lines": 0, "removed_tests": {"rust": ["a.rs:1: a"]}}}"#,
+        refused,
+    ];
+    crate::fixture::each(&cases, |listing| async move {
+        let none = r#"{"none": "a bound on a return type: nothing a mutant can flip"}"#;
+        let (w, wk, picker) = changed(None, "", none).await;
+        w.slimfit(GOAL, listing);
+        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+
+        // Asked the goal, the diff and what slimfit listed.
+        let (asked, _, _) = picker.asked();
+        assert!(asked.starts_with(GOAL) && asked.contains("+fn a(x: u8)") && asked.contains(listing), "{asked}");
+        // The record the gate holds: a none with why, naming a picker other than the author.
+        let (picker_id, author) = ("claude-code:s-1:claude-opus-5-5", format!("claude-code:{}:default", id(&wk)));
+        assert_eq!((answer["picker"].as_str(), answer["author"].as_str()), (Some(picker_id), Some(author.as_str())));
+        assert_ne!(picker_id, author);
+        let next = answer["next"].as_str().unwrap();
+        let ratchet = format!(
+            "slimfit ratchet --picker '{picker_id}' --author '{author}' --no-mutants 'a bound on a return type: nothing a mutant can flip'"
+        );
+        assert!(next.contains(&ratchet), "{next}");
+        let kept = kept(&w).await;
+        assert!(kept[0]["text"].as_str().unwrap().ends_with("; none picked"), "{kept:?}");
     });
 }
 

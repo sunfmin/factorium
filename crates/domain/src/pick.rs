@@ -62,28 +62,36 @@ pub fn again(why: &str, form: &str) -> String {
     format!("Your answer was not taken: {why}.\n\n{}", how(form))
 }
 
-/// Why none is picked when slimfit lists no candidates: no picker is asked.
+/// Why none is picked when slimfit lists no candidates of a change that
+/// needs no record of its mutants: no picker is asked.
 pub const UNLISTED: &str = "slimfit lists no candidates";
 
 /// slimfit's `check --mutants`, as it answered (`ok`, what it printed):
-/// its listing, or `None` when it lists no candidate — an empty one, or
-/// its refusal that the tool listed no mutants of the change (slimfit#77);
-/// else why it is not a listing.
+/// what the picker is given — its listing, or, when it lists no candidate
+/// (an empty one, or its refusal that the tool listed no mutants of the
+/// change, slimfit#77), what it printed, since the gate still wants a
+/// record of none when the change adds source lines (factorium#247); `None`
+/// only when it lists none and its `landing` says the change adds no source
+/// line and removes no test, so no record is due; else why it is not a
+/// listing.
 pub fn listing(ok: bool, out: &str) -> Result<Option<Value>, String> {
     let said: Value = serde_json::from_str(out).map_err(|e| format!("{e}: {out}"))?;
     let unlisted = |e: &Value| e["fault"].as_str().is_some_and(|f| f.contains("listed no mutants of the change"));
     let faults = said["error"].as_array().filter(|f| !f.is_empty());
+    let landing = &said["landing"];
+    let removes = landing["removed_tests"].as_object().is_some_and(|r| r.values().any(|t| t != &json!([])));
+    let due = landing["lines"].as_u64() != Some(0) || removes;
     match ok {
-        true if names(&said).is_empty() => Ok(None),
+        true if names(&said).is_empty() && !due => Ok(None),
         true => Ok(Some(said)),
-        false if faults.is_some_and(|f| f.iter().all(unlisted)) => Ok(None),
+        false if faults.is_some_and(|f| f.iter().all(unlisted)) => Ok(Some(said)),
         false => Err(out.trim().to_string()),
     }
 }
 
-/// The worker's answer when slimfit lists no candidates — none, why, no
-/// picker, `author` and the ratchet that follows — and the line its issue
-/// keeps.
+/// The worker's answer when slimfit lists no candidates of a change that
+/// needs no record — none, why, no picker, `author` and the ratchet that
+/// follows — and the line its issue keeps.
 pub fn unlisted(author: &str) -> (Value, String) {
     let next = "factorium worker exclusive -- slimfit ratchet; commit .slimfit/ with the change";
     let said = json!({ "none": UNLISTED, "picker": null, "author": author, "next": next });
