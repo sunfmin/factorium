@@ -144,6 +144,7 @@ mod dsh;
 mod grok;
 mod kimi;
 mod pi;
+mod seen;
 mod session;
 mod store;
 

@@ -1,0 +1,6 @@
+{
+  "tree": "ec64e994fd1d59695cf5f2daa9971aec335f6a61+d1fba762150c532c",
+  "picker": "codex:01a20162-0b32-7c50-9cb3-983d9bc705d8:default",
+  "author": "claude-code:19cb4a32-b9fa-5eec-8b54-6589921f95f8:opus",
+  "none": "The added test checks cache hits for two sessions while the file is unreadable, caching after the file grows, and both nonzero token totals, so every buildable candidate should be caught."
+}
