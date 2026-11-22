@@ -259,15 +259,23 @@ impl App {
         Ok(held)
     }
 
-    /// Each worker the watch parked behind what its issue waits for, sent
-    /// back to work once all of it is met, told what was met and how, and
-    /// to merge the proving tip; and each parked on its engine's limit,
-    /// once it reset. Unparked first, so a restart that does not
-    /// reach it leaves it to the watch.
+    /// Each worker the watch parked behind what its issue waits for, idle
+    /// (waiting, or in a wait it declared), sent back to work once all of
+    /// it is met, told what was met and how, and to merge the proving tip;
+    /// and each parked on its engine's limit, once it reset. Unparked
+    /// first, so a restart that does not reach it leaves it to the watch.
     async fn resume_parked(&self) -> Answer<Vec<Value>> {
         let mut resumed = Vec::new();
-        for w in self.rows(tracker::workers(Some(WorkerStatus::Waiting), false)).await? {
+        for w in self.rows(tracker::workers(None, false)).await? {
             let wk = self.state::<Workers>(w.worker).await?;
+            let idle = match wk.status {
+                WorkerStatus::Waiting => true,
+                WorkerStatus::Working => wk.declared.is_some(),
+                _ => false,
+            };
+            if !idle {
+                continue;
+            }
             let text = match wk.waits_on_limit() {
                 // Its engine's limit reset: what was held for it is typed first.
                 Some(limit) if limit.until <= self.now() => {

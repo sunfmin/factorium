@@ -89,9 +89,10 @@ pub struct Worker {
     /// from no earlier.
     #[serde(default)]
     pub freed_at: Option<i64>,
-    /// Waiting, its issue was blocked: the watch parked it behind what its
-    /// issue waits for, and it goes back to work once all of that is met;
-    /// or its engine is at its limit, and it goes back at the reset.
+    /// Its issue was blocked: the watch parked it behind what its issue
+    /// waits for, and once it is idle (waiting, or in a wait it declared)
+    /// it goes back to work as soon as all of that is met; or, waiting, its
+    /// engine is at its limit, and it goes back at the reset.
     #[serde(default)]
     pub parked: bool,
     /// The tokens its session spent, as its session files said once it
@@ -226,7 +227,7 @@ pub enum WorkerEvent {
         text: String,
         at: i64,
     },
-    /// Waiting, its issue was blocked.
+    /// Its issue was blocked, while it waited or worked.
     WorkerParked,
     /// No longer parked: what its issue waited for was met, or it was
     /// sent back to work.
@@ -240,6 +241,8 @@ pub enum WorkerEvent {
     Spent(Tokens),
     /// It declared a wait on a long command of its own, until then (ms).
     WaitDeclared(Declared),
+    /// Sent back to work within the wait it declared: the wait is over.
+    WaitEnded,
     /// Its engine is at its limit, as its screen said, until then (ms): it
     /// waits, parked until the reset.
     WorkerLimited(Limit),
@@ -312,6 +315,7 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
+            WorkerEvent::WaitEnded => s.declared = None,
             WorkerEvent::WorkerLimited(l) => (s.limit, s.parked) = (Some(l), true),
             _ => {}
         }
@@ -440,7 +444,8 @@ command!(
 );
 
 command!(
-    /// The watch sends a waiting worker back to work.
+    /// The watch sends a waiting worker back to work; one working within a
+    /// wait it declared, the wait is over.
     Resume,
     "worker.resume",
     Workers,
@@ -448,19 +453,24 @@ command!(
     |p| p.worker,
     |s, p, now| {
         live(s)?;
-        Ok(if s.status == Status::Waiting { vec![WorkerEvent::WorkerResumed { at: now.0 }] } else { Vec::new() })
+        Ok(match s.status {
+            Status::Waiting => vec![WorkerEvent::WorkerResumed { at: now.0 }],
+            Status::Working if s.declared.is_some() => vec![WorkerEvent::WaitEnded],
+            _ => Vec::new(),
+        })
     }
 );
 
 command!(
-    /// Its issue was blocked: a waiting worker is parked behind what its
-    /// issue waits for. One that does not wait is not.
+    /// Its issue was blocked: its worker is parked behind what its issue
+    /// waits for, waiting now or working, to go back once it is idle (it
+    /// waits, or is in a wait it declared) and all of that is met.
     Park,
     "worker.park",
     Workers,
     Of,
     |p| p.worker,
-    |s, _p, _now| Ok::<_, Rejection>(if s.status == Status::Waiting && !s.parked {
+    |s, _p, _now| Ok::<_, Rejection>(if s.started.is_some() && s.status != Status::Ended && !s.parked {
         vec![WorkerEvent::WorkerParked]
     } else {
         Vec::new()
