@@ -1,0 +1,15 @@
+{
+  "tree": "91208538b7014e6637448d5f6321ca545a663def+d1fba762150c532c",
+  "picker": "codex:01a20298-f2d5-7ed1-8a1d-1782f9a9768a:default",
+  "author": "claude-code:5afa6210-1d2f-532d-9ef0-c10434b849ee:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/decided.rs:44:42: replace && with || in in_body",
+        "why": "The tests include a different fence marker inside an open block but never a same-marker fence with trailing text, which this mutant would wrongly accept as a closer.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
