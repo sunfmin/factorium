@@ -25,8 +25,7 @@ impl App {
     /// proving branch it lacks is made at `base`. `role`, its default role
     /// ([`App::checkout_name_role`]), is checked as an issue's is.
     pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str, role: Option<&str>) -> Answer {
-        let role = role.map(String::from);
-        self.role_here(role.as_deref())?;
+        self.role_here(role)?;
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
         let git = self.host.git(&path);
@@ -39,10 +38,12 @@ impl App {
             path: path.to_string_lossy().into_owned(),
             base: base.into(),
             proving: proving.into(),
-            role,
+            role: role.map(Into::into),
         };
         self.submit::<AddCheckout>(&add).await?;
-        Ok(json!(add))
+        let mut added = json!(add);
+        added["role"] = json!(add.role);
+        Ok(added)
     }
 
     /// `checkout edit --role`/`--no-role`: names `role`, a directory by its

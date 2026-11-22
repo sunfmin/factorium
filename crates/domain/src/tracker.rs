@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::checkout::{Checkout, CheckoutEvent};
+use crate::checkout::{Add, Checkout, CheckoutEvent};
 use crate::issue::{IssueEvent, Standing, Status as IssueStatus};
 use crate::worker::{self, Status as WorkerStatus, WorkerEvent};
 
@@ -188,7 +188,7 @@ impl Projection for Tracker {
             |table: &str, fields: Value| vec![RowOp::Merge { table: table.into(), key: key.to_string(), fields }];
         Ok(match e.stream.aggregate.as_str() {
             "checkout" => match decode(e)? {
-                CheckoutEvent::CheckoutAdded { name, path, base, proving, role } => {
+                CheckoutEvent::CheckoutAdded(Add { name, path, base, proving, role }) => {
                     put(CHECKOUTS, row(Checkout { name, path, base, proving, listed: true, role }))
                 }
                 CheckoutEvent::CheckoutRemoved => merge(CHECKOUTS, json!({ "listed": false })),

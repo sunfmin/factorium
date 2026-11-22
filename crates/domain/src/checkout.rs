@@ -16,7 +16,6 @@ pub struct Checkout {
     pub listed: bool,
     /// The role directory a worker of an issue that names none starts with
     /// (SPEC.md §1.2); an issue's own role wins.
-    #[serde(default)]
     pub role: Option<String>,
 }
 
@@ -41,18 +40,11 @@ impl Checkout {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum CheckoutEvent {
-    CheckoutAdded {
-        name: String,
-        path: String,
-        base: String,
-        proving: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        role: Option<String>,
-    },
+    CheckoutAdded(Add),
     CheckoutRemoved,
     /// Its default role from now: a directory, or, `None`, none.
     RoleNamed {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         role: Option<String>,
     },
 }
@@ -66,7 +58,7 @@ impl Aggregate for Checkouts {
 
     fn evolve(state: &mut Checkout, event: CheckoutEvent) {
         match event {
-            CheckoutEvent::CheckoutAdded { name, path, base, proving, role } => {
+            CheckoutEvent::CheckoutAdded(Add { name, path, base, proving, role }) => {
                 *state = Checkout { name, path, base, proving, listed: true, role };
             }
             CheckoutEvent::CheckoutRemoved => state.listed = false,
@@ -82,7 +74,7 @@ pub struct Add {
     pub base: String,
     pub proving: String,
     /// Its default role, a directory by its absolute path.
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
 }
 
@@ -96,8 +88,7 @@ command!(AddCheckout, "checkout.add", Checkouts, Add, |p| checkout_id(&p.name), 
     if p.base == p.proving {
         return no("proving_is_base", "the proving branch must be another branch than the base");
     }
-    let Add { name, path, base, proving, role } = p.clone();
-    Ok(vec![CheckoutEvent::CheckoutAdded { name, path, base, proving, role }])
+    Ok(vec![CheckoutEvent::CheckoutAdded(p.clone())])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
