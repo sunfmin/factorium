@@ -1,0 +1,6 @@
+{
+  "tree": "c39f3d234ec69647be8f00e3bc36a0ca6af8ec70+d1fba762150c532c",
+  "picker": "codex:01a202cc-3237-7ec0-8ae1-a63c418b34b7:default",
+  "author": "claude-code:716f7fef-e646-54e9-aaf1-da8340c28520:opus",
+  "none": "The fence tests already require quoted records to be skipped and ordinary records to be read, while the new short-prefix cases expose incorrect run lengths that panic or turn inline code into a fence."
+}
