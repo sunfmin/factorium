@@ -198,12 +198,12 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
                  passed, tries again",
             );
         }
-        if let Some((version, why)) = &line.cut_failed {
+        if let Some(line::CutFailure { version, why, .. }) = &line.cut_failed {
             add(
                 format!("cut:{checkout}:{version}"),
                 format!("{checkout}: cutting {version} failed: {why}"),
                 "fix the step that failed (an issue if it is the repo's); each tick reads it back and clears this once it \
-                 holds, or the next cut tries again",
+                 holds; the next promotion of a newer commit owes the cut again, or a cut by hand tries it now",
             );
         }
     }

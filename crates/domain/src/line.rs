@@ -9,7 +9,7 @@
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
-pub use crate::neutral::landing::{Bounds, Due, Landing, Line, LineEvent, Move, NotDue, Owed};
+pub use crate::neutral::landing::{Bounds, CutFailure, Due, Landing, Line, LineEvent, Move, NotDue, Owed};
 use crate::settings::{Settings, Time};
 use crate::worker::Status;
 use crate::{command, line_id, no};
@@ -63,7 +63,7 @@ pub fn why(not: NotDue) -> String {
         NotDue::Busy => "the checkout is busy and its oldest landing waits within the promotion bound less the hold bound".into(),
         NotDue::Red { tip, why } => format!("the slow gate is red on the proving tip {tip}: {why}"),
         NotDue::NothingToCut => "nothing promoted since the last cut".into(),
-        NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand tries again: {why}"),
+        NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand, or the next promotion of a newer commit, tries again: {why}"),
         NotDue::Unsettled => {
             "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound less the hold bound"
                 .into()
@@ -137,7 +137,9 @@ command!(RecordCut, "line.cut", Lines, Cut, |p| line_id(&p.checkout), |s, p, now
         return no("nothing_to_cut", "nothing promoted since the last cut");
     }
     Ok(vec![match &p.failed {
-        Some(why) => LineEvent::CutFailed { version: p.version.clone(), why: why.clone() },
+        Some(why) => {
+            LineEvent::CutFailed { version: p.version.clone(), why: why.clone(), commit: Some(p.commit.clone()) }
+        }
         None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: Some(now.0) },
     }])
 });

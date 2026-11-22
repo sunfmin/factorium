@@ -23,8 +23,8 @@ pub struct Line {
     /// The proving tip whose slow gate went red, while it is the tip.
     pub red: Option<(String, String)>,
     pub version: Option<String>,
-    /// The version whose cut failed, and why, until a cut succeeds.
-    pub cut_failed: Option<(String, String)>,
+    /// The cut that failed, until a cut succeeds or a newer commit is promoted.
+    pub cut_failed: Option<CutFailure>,
     /// Landings held, and why.
     pub held: Option<String>,
     /// When it last moved: a landing, a promotion or a cut, ms.
@@ -32,8 +32,18 @@ pub struct Line {
     pub moved: Option<i64>,
 }
 
+/// A cut that failed: its version, why, and the base commit it was taken
+/// from (none in cuts recorded before factorium#251).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CutFailure {
+    pub version: String,
+    pub why: String,
+    pub commit: Option<String>,
+}
+
 /// What happened on a line. A cut's `at` is none in cuts recorded before
-/// factorium#222.
+/// factorium#222, a failed cut's `commit` (the base it was cut from) in those
+/// before factorium#251.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
@@ -41,7 +51,7 @@ pub enum LineEvent {
     PromotionRed { tip: String, why: String },
     Promoted { tip: String, at: i64 },
     CutMade { version: String, commit: String, at: Option<i64> },
-    CutFailed { version: String, why: String },
+    CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
     LandingsReleased,
 }
@@ -60,6 +70,10 @@ impl Line {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
                 s.uncut.extend(s.unpromoted.drain(..n));
+                // A newer commit on the base may hold the fix: its cut is owed again (factorium#251).
+                if s.cut_failed.as_ref().is_some_and(|f| f.commit.as_ref() != Some(&tip)) {
+                    s.cut_failed = None;
+                }
                 (s.promoted, s.red, s.moved) = (Some(tip), None, Some(at));
             }
             LineEvent::CutMade { version, at, .. } => {
@@ -67,7 +81,7 @@ impl Line {
                 s.moved = s.moved.max(at);
                 (s.version, s.cut_failed) = (Some(version), None);
             }
-            LineEvent::CutFailed { version, why } => s.cut_failed = Some((version, why)),
+            LineEvent::CutFailed { version, why, commit } => s.cut_failed = Some(CutFailure { version, why, commit }),
             LineEvent::LandingsHeld { why } => s.held = Some(why),
             LineEvent::LandingsReleased => s.held = None,
         }
@@ -107,7 +121,8 @@ pub enum NotDue {
         why: String,
     },
     NothingToCut,
-    /// Cutting this version failed, and why; a cut by hand tries again.
+    /// Cutting this version failed, and why; a cut by hand, or the next
+    /// promotion of a newer commit, tries again.
     CutFailed {
         version: String,
         why: String,
@@ -238,13 +253,36 @@ impl Line {
         let Some(owed) = self.owed(Move::Cut, look.now, &look.bounds) else {
             return Err(NotDue::NothingToCut);
         };
-        if let Some((version, why)) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
-            return Err(NotDue::CutFailed { version: version.clone(), why: why.clone() });
+        if let Some(f) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
+            return Err(NotDue::CutFailed { version: f.version.clone(), why: f.why.clone() });
         }
         let settled = look.idle && self.unpromoted.is_empty();
         if !(look.by_hand || settled || owed.due()) {
             return Err(NotDue::Unsettled);
         }
         Ok(Due::Cut)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A failed cut is owed again only once a commit other than the one it was cut from is promoted.
+    #[test]
+    fn a_failed_cut_waits_for_a_newer_promotion() {
+        let mut l = Line::default();
+        l.apply(LineEvent::Landed { number: 1, commit: "a".into(), at: 0 });
+        l.apply(LineEvent::Promoted { tip: "a".into(), at: 0 });
+        let (version, why, commit) = ("v0.1.0".to_string(), "x".to_string(), Some("a".to_string()));
+        l.apply(LineEvent::CutFailed { version, why, commit });
+        l.apply(LineEvent::Promoted { tip: "a".into(), at: 1 });
+        assert!(l.cut_failed.is_some(), "the same commit holds no fix");
+        l.apply(LineEvent::Landed { number: 2, commit: "b".into(), at: 2 });
+        l.apply(LineEvent::Promoted { tip: "b".into(), at: 3 });
+        assert!(l.cut_failed.is_none());
+        let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
+        let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
+        assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
     }
 }

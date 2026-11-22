@@ -113,6 +113,18 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     assert!(w.findings().await[0]["what"].as_str().unwrap().contains("cutting v0.1.0 failed"));
     assert!(w.tick().await.lines.is_empty(), "not tried again on every tick");
     assert!(w.host.brewed().is_empty());
+    // The fix lands and is promoted: the settled line cuts again by itself (factorium#251).
+    w.push_by_hand("web", "proving", "factorium.toml", "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"true\"]\n");
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let t = {
+        let wk = worker(&w.app).await;
+        w.done(&wk, "b", "y").await;
+        w.tick().await
+    };
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("cut again after the promotion");
+    assert_eq!((cut["version"].as_str(), cut["failed"].as_str()), (Some("v0.1.0"), None), "{cut}");
+    assert!(w.findings().await.is_empty(), "{:?}", w.findings().await);
 }
 
 /// Lands, promotes and cuts one change of `web`, whose cut installs the
