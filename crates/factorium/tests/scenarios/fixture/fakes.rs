@@ -63,6 +63,10 @@ pub struct FakeOrca {
     pub opens_at_shell: Mutex<bool>,
     /// Orca refuses to type at terminals while set ([`FakeOrca::fault`]).
     refuse_send: Mutex<bool>,
+    /// While set, a terminal's program ends at the key typed at it, and Orca
+    /// refuses what comes after, as it does for one exited
+    /// ([`FakeOrca::fault`]).
+    key_ends: Mutex<bool>,
     /// While set, `orca` prints no answer, only this on stderr (its runtime is down).
     pub down: Mutex<Option<String>>,
     /// The repos and worktrees Orca holds, by id.
@@ -111,8 +115,10 @@ fn flag<'a>(args: &[&'a str], name: &str) -> &'a str {
 /// `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as real Orca
 /// 1.4.267 answers it: `send-refused`, a terminal it will not type at (as
 /// one closed); `remove-refused`, a worktree it will not remove (as a
-/// directory it does not hold).
-pub const ORCA_FAULTS: [&str; 2] = ["send-refused", "remove-refused"];
+/// directory it does not hold); `refused-after-key`, a terminal that takes
+/// a key and then refuses the wait for it and the text after (as one whose
+/// program the key ended).
+pub const ORCA_FAULTS: [&str; 3] = ["send-refused", "remove-refused", "refused-after-key"];
 
 impl FakeOrca {
     /// Sets, or clears, the failure `name` (one of [`ORCA_FAULTS`]).
@@ -120,6 +126,7 @@ impl FakeOrca {
         let flag = match name {
             "send-refused" => &self.refuse_send,
             "remove-refused" => &self.refuse_rm,
+            "refused-after-key" => &self.key_ends,
             _ => panic!("no Orca fault {name}: {ORCA_FAULTS:?}"),
         };
         *flag.lock().unwrap() = on;
@@ -266,10 +273,13 @@ impl FakeOrca {
                 let handle = flag(args, "--terminal");
                 let Some(term) = t.get_mut(handle) else { return error("terminal_handle_stale") };
                 let status = if term.alive { "running" } else { "exited" };
+                let ended = *self.key_ends.lock().unwrap() && !term.alive;
                 match verb {
                     "read" => {
                         answer(json!({ "terminal": { "handle": handle, "status": status, "tail": term.screen } }))
                     }
+                    "wait" if ended => error("terminal_exited"),
+                    "send" if ended => error("terminal_not_writable"),
                     "wait" if term.background && flag(args, "--for") == "tui-idle" => error("timeout"),
                     "wait" => answer(json!({ "terminal": { "handle": handle, "status": status }, "satisfied": true })),
                     "send" if *self.refuse_send.lock().unwrap() => error("terminal_not_writable"),
@@ -278,6 +288,7 @@ impl FakeOrca {
                         term.sent.push(text.into());
                         if !enter && text == ESCAPE {
                             term.busy = false;
+                            term.alive = !*self.key_ends.lock().unwrap();
                             if term.dialog {
                                 (term.dialog, term.screen) = (false, vec![UP.into()]);
                             }

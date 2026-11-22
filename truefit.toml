@@ -155,6 +155,30 @@ normalise = [
   { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
   { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
 ]
+# What factorium handles after a step took effect (fakes::ORCA_FAULTS): a
+# tell sent now whose interrupt key went, so the agent's turn is stopped,
+# and Orca then refuses the wait for its prompt or the text (the message
+# is not typed, and whoever said it hears the turn was stopped). The rest
+# of Orca's refusals are the orca stand-in's.
+faults = ["refused-after-key"]
+
+# Orca refuses once the key went: the real terminal a program the key
+# ends, as no Claude Code can be made to end at its interrupt key.
+[[standin.case]]
+name = "refused-after-key"
+fault = "refused-after-key"
+stdin = """
+{"scratch": "truefit-refused-after-key"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-refused-after-key", "truefit-refused-after-key", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "stty raw -echo; dd bs=1 count=1 >/dev/null 2>&1; exit"], "keep": {"terminal": "/ok"}}
+{"run": ["sleep", "3"], "only": "real"}
+{"orca": "deliver", "args": ["{terminal}", "Told now: reply NOW-SEEN and nothing else.", "\\u001b"]}
+{"orca": "screen", "args": ["{terminal}"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"scratch": "truefit-refused-after-key"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
 
 [[standin.case]]
 name = "busy-tell"
