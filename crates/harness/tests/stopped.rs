@@ -25,8 +25,9 @@ fn kimi_s_five_hour_usage_limit_is_its_quota_wrapped_or_not() {
 }
 
 /// agy's quota is its engine's limit, reset as its screen says, its words
-/// with the error's id; wrapped, the reset is read on the next row; with
-/// no reset given, in an hour. On another harness's screen it is not.
+/// with the error's id; wrapped, the reset is read on the next row. With no
+/// reset given, its account is used up. On another harness's screen it is
+/// not.
 #[test]
 fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
     let agy = Harness::read("agy").unwrap();
@@ -40,7 +41,7 @@ fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
     let wrapped = screen(&[&line[..cut], &line[cut..]]);
     assert_eq!(agy.stopped(&wrapped), limit(line[..cut].trim(), at), "wrapped");
     let untold = "⚠ Individual quota reached. Please upgrade your subscription.";
-    assert_eq!(agy.stopped(&screen(&[untold])), limit(untold, 3_600_000), "no reset given");
+    assert_eq!(agy.stopped(&screen(&[untold])), Some(Stop::Quota(untold.into())), "no reset given");
     let days = "⚠ Individual quota reached. Resets in 1d3h.";
     assert_eq!(agy.stopped(&screen(&[days])), limit(days, 27 * 3_600_000), "in days");
     assert_eq!(agy.stopped(&screen(&["> fix it", "~/w"])), None);

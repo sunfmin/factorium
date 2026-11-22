@@ -377,21 +377,23 @@ fn spent(text: &str) -> (u64, u64) {
 /// What agy prints when its account's quota is spent, and its reset after it.
 const QUOTA: &str = "Individual quota reached.";
 const RESETS: &str = "Resets in ";
-/// How long a limit whose reset agy does not give lasts, ms.
-const UNTOLD_RESET_MS: i64 = 60 * 60 * 1000;
 
-/// agy's quota on its screen (agy, seen 2026-11-22: `⚠ Individual quota
-/// reached. Please upgrade your subscription to increase your limits.
-/// Resets in 2h50m4s.`, then `Error ID: …`): the engine's limit, its words
-/// the lines up to the error's own id, so the same screen read again after
-/// the reset is told from a new limit; reset as it says, else in an hour.
+/// agy's quota on its screen (agy 1.5.14, seen on five horizon-labs
+/// workers' screens 2026-11-22: `⚠ Individual quota reached. Please upgrade
+/// your subscription to increase your limits. Resets in 2h50m4s.`, wrapped
+/// at the width, then `Error ID: …`): its words the lines up to the error's
+/// own id, so the same screen read again after the reset is told from a new
+/// limit. With its reset, the engine's limit until then; without, the
+/// account is used up.
 fn quota(screen: &[String]) -> Option<Stop> {
     let at = screen.iter().rposition(|line| line.contains(QUOTA))?;
     let rest: Vec<&str> = screen[at..].iter().take(3).map(|l| l.trim()).collect();
     let upto = rest.iter().position(|l| l.starts_with("Error ID")).map_or(1, |id| id + 1);
     let said = rest[..upto].join(" ");
-    let resets_in_ms = rest.join(" ").split(RESETS).nth(1).and_then(duration_ms).unwrap_or(UNTOLD_RESET_MS);
-    Some(Stop::Limit { said, resets_in_ms })
+    Some(match rest.join(" ").split(RESETS).nth(1).and_then(duration_ms) {
+        Some(resets_in_ms) => Stop::Limit { said, resets_in_ms },
+        None => Stop::Quota(said),
+    })
 }
 
 /// The duration `text` opens with, as agy writes one (`2h50m4s`, `45m`,

@@ -178,3 +178,67 @@ async fn a_worker_whose_harness_stopped_waits_for_the_watch() {
     let t = w.tick().await;
     assert!(t.seen[0]["waits"].as_str().unwrap().starts_with("its harness stopped: Selected model"), "{t:?}");
 }
+
+/// agy's quota as five horizon-labs workers' screens showed it
+/// (factorium#232), wrapped at the terminal's width, its reset given or not.
+fn wrapped_quota(resets: bool) -> Vec<&'static str> {
+    let limits = if resets { "limits. Resets in 2h50m4s." } else { "limits." };
+    vec![
+        "⚠ Individual quota reached. Please upgrade your subscription to increase your",
+        limits,
+        "Error ID: baec577a-f31f-4b6e-8719-29962abbe30f-121",
+        "────────────────────────────────────────",
+        ">",
+        "? for shortcuts                                     auto · Gemini 4 Neon · high",
+    ]
+}
+
+/// A worker already waiting for the watch when its screen shows agy's
+/// quota (factorium#232: hung, or a word that did not reach it, both the
+/// spent engine's doing) is parked until the reset all the same: limited in
+/// doctor, no finding, and back at work on the first tick past the reset.
+#[tokio::test]
+async fn a_worker_waiting_for_the_watch_at_agy_s_quota_is_parked_until_the_reset() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    w.app.worker_escalate(id(&wk), "hung").await.unwrap();
+    let key = format!("worker:{}", wk["worker"].as_str().unwrap());
+    assert!(finding_keys(&w.app.doctor().await.unwrap()).contains(&key));
+    w.set_screen(wk["terminal"].as_str().unwrap(), &wrapped_quota(true));
+
+    let until = w.app_now() + RESETS_IN;
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["limited"], json!(until), "{t:?}");
+    let d = w.app.doctor().await.unwrap();
+    assert!(!finding_keys(&d).contains(&key), "{d}");
+    assert_eq!(
+        (d["limited"][0]["worker"].clone(), d["limited"][0]["until"].clone()),
+        (wk["worker"].clone(), json!(until))
+    );
+
+    w.clock.advance(until - w.app_now() - 1);
+    assert!(w.tick().await.resumed.is_empty(), "not before the reset");
+    w.clock.advance(1);
+    assert_eq!(w.tick().await.resumed[0]["resumed"], true);
+    assert_eq!(w.worker_on("web", 1).await["status"], "working");
+    assert_eq!(w.app.doctor().await.unwrap()["limited"], json!([]));
+}
+
+/// agy's quota with no reset says its account is used up (SPEC §1.7): the
+/// worker ends, its issue to start again, and agy on the host's own login
+/// starts no worker for an hour; no finding meanwhile.
+#[tokio::test]
+async fn agy_s_quota_with_no_reset_ends_its_worker_and_rests_agy_an_hour() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    w.set_screen(wk["terminal"].as_str().unwrap(), &wrapped_quota(false));
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["ended"], "quota", "{t:?}");
+    assert!(t.started.is_none(), "agy rests: {t:?}");
+    let key = format!("worker:{}", wk["worker"].as_str().unwrap());
+    assert!(!finding_keys(&w.app.doctor().await.unwrap()).contains(&key));
+    w.advance(59);
+    assert!(w.tick().await.started.is_none(), "within the hour");
+    w.advance(1);
+    assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1");
+}

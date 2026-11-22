@@ -12,6 +12,7 @@ use factorium_domain::kit::{AccountNote, HarnessNote, LimitAccount, LimitHarness
 use factorium_domain::outbox::{HoldTaken, HoldTakenMessages};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
+use factorium_domain::worker::Started;
 use factum::{Uuid, Value};
 use serde_json::json;
 
@@ -36,14 +37,13 @@ impl App {
 
     /// Looks at one live worker, with its `share` of the host: the
     /// observation is recorded and decided on in one command, and what it
-    /// decided is carried out. Answers what it found, if anything.
+    /// decided is carried out. One waiting for the watch is looked at too:
+    /// its engine may be spent. Answers what it found, if anything.
     pub(crate) async fn worker_health(&self, worker: Uuid, share: Share, s: &Settings) -> Answer<Option<Value>> {
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
         // Its brief held is tried again even while it waits: it is its brief.
         self.retry(&live.session).await?;
-        if self.live_or_none(worker, Want::Working).await?.is_none() {
-            return Ok(None);
-        }
+        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
         let past = live.limit.as_ref().map(|l| l.said.as_str());
         let Some(sight) = self.see(&live.session, past) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
@@ -58,22 +58,14 @@ impl App {
                 Ok(Some(json!({ "worker": worker, "waits": why })))
             }
             Verdict::UsedUp { said, until } => {
-                if let Some(account) = &live.started.account {
-                    self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await?;
-                }
+                self.rest(&live.started, until).await?;
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
                 Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))
             }
             // Parked until the reset; its account, or its harness on the host's
             // own login, starts no worker before it.
             Verdict::Limited { said, until } => {
-                match &live.started.account {
-                    Some(account) => self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await?,
-                    None => {
-                        let harness = live.started.harness.clone();
-                        self.submit::<LimitHarness>(HarnessNote { harness, until }).await?
-                    }
-                };
+                self.rest(&live.started, until).await?;
                 // What it took just before is no proof it read it: held again.
                 let submitted = live.since.max(self.now() - TAKEN_MS);
                 let terminal = live.session.terminal().to_string();
@@ -81,6 +73,15 @@ impl App {
                 self.submit::<HoldTakenMessages>(taken).await?;
                 Ok(Some(json!({ "worker": worker, "limited": until, "said": said })))
             }
+        }
+    }
+
+    /// Worker `st`'s account, or its harness on the host's own login, starts
+    /// no worker before `until` (ms).
+    async fn rest(&self, st: &Started, until: i64) -> Answer<()> {
+        match &st.account {
+            Some(account) => self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await,
+            None => self.submit::<LimitHarness>(HarnessNote { harness: st.harness.clone(), until }).await,
         }
     }
 

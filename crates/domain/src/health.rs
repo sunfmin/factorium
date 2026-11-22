@@ -19,6 +19,10 @@
 //!   to its landing. The same words read again (its screen after the
 //!   reset) are no limit: the app sees past them.
 //!
+//! A worker waiting for the watch, not parked, is judged on these two
+//! alone: the watch can do nothing for a spent engine, and its finding
+//! (hung, a word that did not reach it) is the spent engine's doing.
+//!
 //! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
 //! quiet are neutral: [`crate::neutral::hot`].
 
@@ -97,28 +101,40 @@ command!(
         if s.started.is_none() {
             return no("no_worker", "no such worker");
         }
-        Ok(if matches!(s.status, Status::Ended | Status::Waiting) { Vec::new() } else { judge(s, p, now.0) })
+        Ok(match s.status {
+            Status::Ended => Vec::new(),
+            Status::Waiting if s.parked => Vec::new(),
+            Status::Waiting => spent(s, &p.sight, now.0).unwrap_or_default(),
+            _ => judge(s, p, now.0),
+        })
     }
 );
 
+/// What `sight` makes of worker `w` at `now` if it says its engine is
+/// spent: its account used up, or at its limit (landing, it is left to its
+/// landing); `None` if it says neither.
+fn spent(w: &Worker, sight: &Sight, now: i64) -> Option<Vec<WorkerEvent>> {
+    Some(match sight {
+        Sight::Quota(said) => vec![WorkerEvent::UsedUp { said: said.clone(), until: now + QUOTA_REST_MS }],
+        Sight::Limit { .. } if w.status == Status::Landing => Vec::new(),
+        Sight::Limit { said, until } => {
+            vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
+        }
+        _ => return None,
+    })
+}
+
 /// What `o` makes of worker `w` at `now`.
 fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
+    if let Some(events) = spent(w, &o.sight, now) {
+        return events;
+    }
     let s = &o.settings;
     let wait = |why: String| vec![WorkerEvent::WorkerWaits { why, at: now }];
     let started = w.started.as_ref().map_or(now, |st| st.at);
     let screen = match &o.sight {
         Sight::Gone => return wait("its session's terminal is gone".into()),
-        Sight::Quota(said) => {
-            let until = now + QUOTA_REST_MS;
-            return vec![WorkerEvent::UsedUp { said: said.clone(), until }];
-        }
-        Sight::Limit { said, until } => {
-            return if w.status != Status::Working {
-                Vec::new()
-            } else {
-                vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
-            };
-        }
+        Sight::Quota(_) | Sight::Limit { .. } => return Vec::new(),
         Sight::Stopped(said) => return wait(format!("its harness stopped: {said}")),
         Sight::Down(why) if now - started > UP_BOUND_MS => {
             let after = (now - started) / 60_000;
