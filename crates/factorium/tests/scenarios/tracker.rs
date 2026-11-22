@@ -22,7 +22,7 @@ async fn a_checkout_is_listed_with_its_branches_and_real_path_and_gets_its_provi
     let list = w.app.checkout_list().await.unwrap();
     assert_eq!(
         list,
-        json!([{ "name": "web", "path": std::fs::canonicalize(&web).unwrap(), "base": "main", "proving": "proving", "role": null }])
+        json!([{ "name": "web", "path": std::fs::canonicalize(&web).unwrap(), "base": "main", "proving": "proving", "role": null, "idle_off": false }])
     );
     assert_eq!(w.remote_tip("web", "proving"), w.remote_tip("web", "main"));
 }

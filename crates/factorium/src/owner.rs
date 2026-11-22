@@ -58,11 +58,25 @@ impl App {
         Ok(json!(self.checkout(name).await?))
     }
 
+    /// `checkout edit`: names its role (`Some`) as [`App::checkout_name_role`]
+    /// does, then turns its idle work on or off (`Some`) as
+    /// [`App::checkout_turn_idle`] does; answers the checkout.
+    pub async fn checkout_edit(&self, name: &str, role: Option<Option<&str>>, idle: Option<bool>) -> Answer {
+        let mut answer = self.checkout(name).await.map(|c| json!(c));
+        if let Some(role) = role {
+            answer = self.checkout_name_role(name, role).await;
+        }
+        if let Some(on) = idle.filter(|_| answer.is_ok()) {
+            answer = self.checkout_turn_idle(name, on).await;
+        }
+        answer
+    }
+
     /// `checkout edit --no-idle`/`--idle`: turns the checkout's idle work
     /// off on this host, or back on. Off, the daemon starts no idle run of
     /// it here, the `tasks_bound` run neither, and files none of its tasks;
     /// `factorium idle` still runs it. The repo's `[idle]` is left as it is.
-    pub async fn checkout_turn_idle(&self, name: &str, on: bool) -> Answer {
+    async fn checkout_turn_idle(&self, name: &str, on: bool) -> Answer {
         self.submit::<TurnCheckoutIdle>(TurnIdle { name: name.into(), off: !on }).await?;
         Ok(json!(self.checkout(name).await?))
     }

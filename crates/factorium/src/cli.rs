@@ -469,14 +469,8 @@ impl Top {
                     app.checkout_add(&name, &path, &base, &proving, role.as_deref()).await
                 }
                 CheckoutCmd::Edit { name, role, no_role, idle, no_idle } => {
-                    let mut answer = None;
-                    if role.is_some() || no_role {
-                        answer = Some(app.checkout_name_role(&name, role.as_deref()).await);
-                    }
-                    if (idle || no_idle) && !answer.as_ref().is_some_and(Result::is_err) {
-                        answer = Some(app.checkout_turn_idle(&name, idle).await);
-                    }
-                    answer.expect("clap requires one")
+                    let role = (role.is_some() || no_role).then_some(role.as_deref());
+                    app.checkout_edit(&name, role, (idle || no_idle).then_some(idle)).await
                 }
                 CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
                 CheckoutCmd::List => app.checkout_list().await,

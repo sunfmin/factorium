@@ -386,8 +386,11 @@ async fn idle_work_turned_off_on_a_host_runs_only_by_hand_there() {
         |d: &Value| d["findings"].as_array().unwrap().iter().any(|f| f["key"].as_str().unwrap().starts_with("idle:"));
     assert!(idle_found(&w.app.doctor().await.unwrap()), "red, it is a finding while on");
 
-    let off = w.app.checkout_turn_idle("web", false).await.unwrap();
-    assert_eq!(off["idle_off"], true, "{off}");
+    let refused = w.app.checkout_edit("web", Some(Some("roles/r")), Some(false)).await.unwrap_err();
+    assert_eq!(refused.code, "no_role", "a refused role turns nothing");
+    assert_eq!(w.app.checkout_edit("nowhere", None, Some(false)).await.unwrap_err().code, "no_checkout");
+    let off = w.app.checkout_edit("web", None, Some(false)).await.unwrap();
+    assert_eq!((off["idle_off"].clone(), off["role"].clone()), (json!(true), json!(null)), "{off}");
     assert_eq!(w.app.checkout_list().await.unwrap()[0]["idle_off"], true, "the list shows it");
     assert!(!idle_found(&w.app.doctor().await.unwrap()), "off, its red run is no finding");
     std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
@@ -402,7 +405,7 @@ async fn idle_work_turned_off_on_a_host_runs_only_by_hand_there() {
     let run = w.run().idle_now("web").await.unwrap();
     assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "by hand it runs: {run}");
 
-    w.app.checkout_turn_idle("web", true).await.unwrap();
+    w.app.checkout_edit("web", Some(None), Some(true)).await.unwrap();
     assert_eq!(w.app.checkout_list().await.unwrap()[0]["idle_off"], false);
     w.advance(700);
     assert!(started(&w.tick().await.idle), "on again, past `tasks_bound`, it starts");
