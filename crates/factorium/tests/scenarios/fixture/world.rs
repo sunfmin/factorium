@@ -384,6 +384,7 @@ impl World {
         let opt = self.dir.join("brew/opt").join(formula);
         std::fs::create_dir_all(opt.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(bin.parent().unwrap().parent().unwrap(), &opt).unwrap();
+        super::fakes::link_bin(&self.dir, formula);
         self.host.brew.lock().unwrap().installed.insert(formula.into(), "0.0.9".into());
         (bin.canonicalize().unwrap(), opt.join("bin/factorium"))
     }

@@ -89,35 +89,42 @@ impl App {
     }
 
     /// Every Decided record made after `since` (ms), in any issue's body or
-    /// comment of any checkout, newest first: read from the issue, its one home.
+    /// comment of any checkout, newest first, each with its number (`id`):
+    /// read from the issue, its one home. Any record without a number takes
+    /// one first ([`App::number_decided`]).
     pub(crate) async fn decided(&self, since: i64) -> Answer<Vec<Value>> {
+        self.number_decided().await?;
         let mut found = Vec::new();
-        for r in self.rows(tracker::issues(None, true)).await? {
-            let i = self.issue(&r.checkout, r.number).await?;
-            let issue = format!("{}#{}", i.checkout, i.number);
-            let mut records: Vec<_> =
-                (i.comments.iter()).filter_map(|n| Some((n.at?, decided::in_comment(&n.text)?))).collect();
-            let in_body = decided::in_body(&i.body);
-            if !in_body.is_empty() {
-                // A body's records were made when it was filed.
-                let stream = StreamId::new(Issues::NAME, issue_id(&i.checkout, i.number));
-                let filed = self.engine.history(&stream).await?.first().map_or(0, |e| e.meta.now.0);
-                records.extend(in_body.into_iter().map(|d| (filed, d)));
-            }
-            for (at, d) in records.into_iter().filter(|(at, _)| *at > since) {
-                let mut v = json!(d);
-                v["issue"] = json!(issue);
-                (v["at"], v["utc"]) = (json!(at), json!(factorium_domain::when::utc(at)));
-                found.push(v);
-            }
+        for f in self.records().await?.into_iter().filter(|f| f.at.is_some_and(|at| at > since)) {
+            let at = f.at.unwrap_or_default();
+            let mut v = json!(f.record);
+            v["id"] = json!(f.id.map(decided::name));
+            v["issue"] = json!(format!("{}#{}", f.checkout, f.number));
+            (v["at"], v["utc"]) = (json!(at), json!(factorium_domain::when::utc(at)));
+            found.push(v);
         }
-        found.sort_by_key(|d| std::cmp::Reverse(d["at"].as_i64()));
+        // Newest first; of one time, the later number first.
+        found.sort_by_key(|d| std::cmp::Reverse((d["at"].as_i64(), d["id"].as_str().and_then(decided::parse))));
         Ok(found)
     }
 
     /// `decided`: the Decided records of the last 7 days, newest first; with
-    /// `read`, marks every one made until now read, so doctor lists none of them.
-    pub async fn decided_view(&self, read: bool) -> Answer {
+    /// `read`, marks every one made until now read, so doctor lists none of
+    /// them; with `id` (`D17`, or `17`), that one record, whatever its age
+    /// and whether it was read.
+    pub async fn decided_view(&self, read: bool, id: Option<&str>) -> Answer {
+        if let Some(name) = id {
+            let Some(n) = decided::parse(name) else {
+                return Err(crate::Refusal::new(
+                    "bad_id",
+                    format!("`{name}`: name a Decided record as D<n>, e.g. D17"),
+                ));
+            };
+            let all = self.decided(i64::MIN).await?;
+            let one = all.into_iter().find(|d| d["id"] == json!(decided::name(n)));
+            return one
+                .ok_or_else(|| crate::Refusal::new("no_record", format!("no Decided record is {}", decided::name(n))));
+        }
         if read {
             self.submit::<watch::MarkDecidedRead>(watch::ReadDecided {}).await?;
             let w = self.state::<watch::Watches>(watch::watch_id()).await?;

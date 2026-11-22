@@ -216,6 +216,25 @@ each with its checkout and number, who, what, options, chose, undo and when.
 `factorium decided` answers those of the last 7 days, read or not; `--read`
 (the owner's: the watch's brief says it never runs it) marks every one until now read. Nothing copies a record
 out of its issue.
+Each record has a number, `D<n>`, for the owner to say: one sequence for the
+host (all checkouts), 1, 2, 3, …, kept on a stream of its own that gives
+each number once. A record takes the next when it enters its issue — a
+comment that is one (its event holds the number; a comment that is a record
+and has none is refused), or a body's at `issue add` and `issue edit` (the
+event that sets the body holds a mark for each of its records: the number
+and the record's head, who and what). An edit keeps the number of each
+record whose head stays as it was, whatever else of it changes, and gives
+the next to each one new; a number whose record an edit removed is not given
+again, and no other moves. Records made before numbers were given take
+theirs once, oldest first by when they were made (a body's, when its issue
+was filed), before any new one takes the next: an open issue's as an event
+of its issue; a closed one takes no event (its stream has ended), so the
+sequence's stream places them, each named by its issue and its place in it
+(a comment's index, a body record's head), never copied. Doctor's
+`decided` and `decided` answer each record's `id`; `decided D17` (or `17`)
+answers that one record, whatever its age and whether it was read, and one
+that names no record is refused. `issue show` answers `decided` on each
+comment that is a record, and the body's records' numbers as `decided`.
 
 ## 3. One database
 
@@ -241,7 +260,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `decided [--read]` (the Decided records, §2), `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `decided [D<n>] [--read]` (the Decided records, §2; `D<n>`, that one record), `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `review-growth`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 

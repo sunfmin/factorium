@@ -67,11 +67,14 @@ pub enum Top {
     /// `decided`: the Decided records made since `decided --read`.
     Doctor,
     /// Answers the Decided records of the last 7 days, newest first, each
-    /// with its issue, who, what, options, chose, undo and when; `--read`
-    /// marks every one made until now read, so doctor's `decided` leaves
-    /// them out.
+    /// with its number (`id`, D<n>), issue, who, what, options, chose, undo
+    /// and when; `decided D17` (or `17`) answers that one record, whatever
+    /// its age and whether it was read; `--read` marks every one made until
+    /// now read, so doctor's `decided` leaves them out.
     Decided {
-        #[arg(long)]
+        /// One record's number: `D17`, or `17`.
+        id: Option<String>,
+        #[arg(long, conflicts_with = "id")]
         read: bool,
     },
     /// Removes a worker's worktree that no open issue's attempt owns, as
@@ -476,7 +479,7 @@ impl Top {
             Top::Workers { all } => app.workers(all).await,
             Top::Outbox { worker } => app.outbox_of(worker).await,
             Top::Doctor => app.doctor_here().await,
-            Top::Decided { read } => app.decided_view(read).await,
+            Top::Decided { id, read } => app.decided_view(read, id.as_deref()).await,
             Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,

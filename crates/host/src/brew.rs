@@ -19,9 +19,10 @@ impl Brew<'_> {
     }
 
     /// Installs or upgrades `formula` to `version` (a tag such as `v0.1.1`);
-    /// answers what brew printed, or why Homebrew has not that version once
-    /// done. Another brew holding the formula's lock is waited for: once it
-    /// frees, the version installed is what counts, whoever installed it.
+    /// answers what brew printed, or why Homebrew has not that version, or
+    /// does not link it, once done. Another brew holding the formula's lock
+    /// is waited for: once it frees, the version installed is what counts,
+    /// whoever installed it.
     pub fn upgrade(&self, formula: &str, version: &str) -> Result<String, String> {
         let upgrade = || {
             let _ = self.brew(&["update", "--quiet"]);
@@ -51,7 +52,7 @@ impl Brew<'_> {
                 }
             };
             if self.has(formula, version) {
-                return Ok(said);
+                return self.linked(formula, version).map(|()| said);
             }
         }
         match locked {
@@ -64,6 +65,50 @@ impl Brew<'_> {
     /// installed, whoever installed it.
     pub fn has(&self, formula: &str, version: &str) -> bool {
         names(&self.listed(formula), version)
+    }
+
+    /// Whether every program in `formula`'s keg of `version` is what PATH
+    /// finds: `<brew --prefix>/bin/<name>` resolves into that keg. A keg in
+    /// the cellar whose link is missing or stale (factorium#244) is linked
+    /// once with `brew link --overwrite`; answers why, naming each link and
+    /// where it points, when that leaves one still outside the keg.
+    pub fn linked(&self, formula: &str, version: &str) -> Result<(), String> {
+        if self.unlinked(formula, version)?.is_empty() {
+            return Ok(());
+        }
+        let said = self.brew(&["link", "--overwrite", formula]).err().map(|e| format!(" ({e})")).unwrap_or_default();
+        let left = self.unlinked(formula, version)?;
+        if left.is_empty() {
+            return Ok(());
+        }
+        let v = version.strip_prefix('v').unwrap_or(version);
+        Err(format!(
+            "Homebrew has {formula} {v} in its cellar, but {} after `brew link --overwrite {formula}`{said}",
+            left.join("; ")
+        ))
+    }
+
+    /// Each program in `formula`'s keg of `version` whose PATH link does not
+    /// resolve into that keg, as `` `<link>` points to `<target>` ``.
+    fn unlinked(&self, formula: &str, version: &str) -> Result<Vec<String>, String> {
+        let cellar = self.brew(&["--cellar", formula])?;
+        let keg = Path::new(cellar.trim()).join(version.strip_prefix('v').unwrap_or(version));
+        let Ok(programs) = std::fs::read_dir(keg.join("bin")) else { return Ok(Vec::new()) };
+        let bin = Path::new(self.brew(&["--prefix"])?.trim()).join("bin");
+        let keg = keg.canonicalize().unwrap_or(keg);
+        let mut names: Vec<_> = programs.flatten().map(|p| p.file_name()).collect();
+        names.sort();
+        let stale = |name| {
+            let link = bin.join(name);
+            let into = link.canonicalize().is_ok_and(|to| to.starts_with(&keg));
+            let to = match std::fs::read_link(&link) {
+                Ok(to) => format!("points to `{}`", to.display()),
+                Err(_) if link.exists() => "is not a link".to_string(),
+                Err(_) => "is missing".to_string(),
+            };
+            (!into).then(|| format!("`{}` {to}", link.display()))
+        };
+        Ok(names.into_iter().filter_map(stale).collect())
     }
 
     fn listed(&self, formula: &str) -> String {
