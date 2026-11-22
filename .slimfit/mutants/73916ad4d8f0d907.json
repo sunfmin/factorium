@@ -1,0 +1,6 @@
+{
+  "tree": "4246d8e2e5d59acf2c32cfefecb9628325a293d9+d1fba762150c532c",
+  "picker": "codex:01a20597-d56a-7621-bdc8-c84c98f7ae24:default",
+  "author": "claude-code:3c7b4d38-7bcc-592c-bc78-f2a69dd2b711:opus",
+  "none": "The tests exercise both settings through the CLI, checkout listing, automatic scheduling, and doctor, and the remaining candidates are whole-body replacements or checkout projection deletions that would break those same scenarios or fail to compile."
+}
