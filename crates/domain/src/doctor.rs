@@ -149,6 +149,10 @@ pub struct Stuck {
     pub dirty: bool,
 }
 
+/// How long a slow tick stays a finding, ms: long enough for the watch's
+/// looks and the owner to see it.
+const SLOW_TICK_SHOWN: i64 = 3_600_000;
+
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
     for WaitingSeen { worker: id, issue, why, heard, .. } in
@@ -228,6 +232,20 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "daemon:ticks".into(),
             format!("the daemon's last {} ticks failed: {}", failing.ticks, failing.error),
             "find what the error names (a program, a repo, the database) and fix it; daemon.log has every tick",
+        );
+    }
+    if let Some(slow) = seen.daemon.slow.as_ref().filter(|s| now - s.at < SLOW_TICK_SHOWN) {
+        add(
+            format!("daemon:slow-tick:{}", slow.longest.step),
+            format!(
+                "a daemon tick took {} s, past half the hang bound, {} min ago; it spent {} s in {}",
+                slow.took_ms / 1000,
+                (now - slow.at) / 60_000,
+                slow.longest.ms / 1000,
+                slow.longest.step
+            ),
+            "find what that step waits for (a child process, the network, a lock: `sample` the daemon while it \
+             runs) and move it beside the ticks, as the lines' gates are; twice as slow reads as a hung daemon",
         );
     }
     if let Some(r) = &seen.daemon.rolled_back {

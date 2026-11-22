@@ -16,9 +16,9 @@ use crate::{Answer, App, fail};
 
 /// What a gate is run on.
 pub(crate) enum At<'a> {
-    /// A commit of the line's clone: the daemon asks once per tick; by hand
-    /// it waits its turn. `bound_at`: when the move it is for falls due however busy.
-    Commit { rev: &'a str, by_hand: bool, bound_at: Option<i64> },
+    /// A commit of the line's clone, gated by hand: it waits its turn. `bound_at`: when the move
+    /// it is for falls due however busy.
+    Commit { rev: &'a str, bound_at: Option<i64> },
     /// A commit of the line's clone the daemon gates beside its ticks, for the line's move
     /// `moving`: it asks once per tick and, let start, answers not yet until
     /// [`App::gate_ran`] records how it ran.
@@ -70,9 +70,8 @@ impl App {
         let steps = [cmd];
         let job = |what| Job::gate(what, &here.dir, &steps, limit);
         let (job, turn) = match at {
-            At::Commit { by_hand, bound_at, .. } => {
-                let turn = if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) };
-                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), turn)
+            At::Commit { bound_at, .. } => {
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), Turn::Wait)
             }
             At::Beside { bound_at, moving, .. } => {
                 let key = Some(record_key(checkout, &tree, kind));

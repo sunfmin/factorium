@@ -91,12 +91,11 @@ pub(crate) enum Asker {
 pub(crate) enum Turn {
     /// Waits for it: a CLI command.
     Wait,
-    /// Asks once, keeping its place under `key` until a tick's [`App::asking_once`] does not ask
-    /// again: the daemon, whose tick never waits.
-    Once(String),
     /// Asks once and, let start, runs beside the daemon's ticks ([`App::beside`]), kept with what
-    /// it is `for` as one. With a `key`, it keeps its place under it as [`Turn::Once`] does: a
-    /// line's move. Without one, refused, it leaves the queue: idle work. One that `yields` gives way.
+    /// it is `for` as one: the daemon's one way, so no tick waits for a run (factorium#231). With
+    /// a `key`, it keeps its place under it until a tick's [`App::asking_once`] does not ask
+    /// again: a line's move. Without one, refused, it leaves the queue: idle work. One that
+    /// `yields` gives way.
     Beside { key: Option<String>, yields: bool, of: For },
 }
 
@@ -160,7 +159,7 @@ impl App {
     }
 
     /// Runs `job` when its turn comes: how each step ran, up to the first that failed. `None`:
-    /// [`Turn::Once`] or [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
+    /// [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
     /// once it started: a tick's [`App::beside`] answers how it ran, with what it is for.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
         // A waiter's own binary, noted before it waits: refused as stale, it finds what to exec (factorium#193).
@@ -174,7 +173,7 @@ impl App {
                 Some(place) => (place, true),
                 None => (Uuid::now_v7(), false),
             },
-            Turn::Once(key) | Turn::Beside { key: Some(key), .. } => {
+            Turn::Beside { key: Some(key), .. } => {
                 let id = factorium_domain::id(&format!("heavy:{key}"));
                 self.memory.lock().unwrap().asked.insert(id);
                 (id, false)
@@ -189,14 +188,14 @@ impl App {
                         return Err(r);
                     }
                     // The daemon execs the installed binary after this tick.
-                    Turn::Once(_) | Turn::Beside { .. } => false,
+                    Turn::Beside { .. } => false,
                 },
                 took => took?,
             };
             match (took, &turn) {
                 (true, _) => break,
                 (false, Turn::Wait) => self.clock.sleep(POLL).await,
-                (false, Turn::Once(_) | Turn::Beside { key: Some(_), .. }) => {
+                (false, Turn::Beside { key: Some(_), .. }) => {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
                 }
@@ -222,7 +221,7 @@ impl App {
         ran.map(Some)
     }
 
-    /// One tick's asks of the queue: `asks` asks with [`Turn::Once`], and
+    /// One tick's asks of the queue: `asks` asks with a keyed [`Turn::Beside`], and
     /// then the daemon's waiting jobs it did not ask for again leave the
     /// queue, as what they were for is no longer due. A failed `asks` keeps
     /// its asks for the next tick's scope.

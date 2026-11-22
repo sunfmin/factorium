@@ -33,6 +33,7 @@ async fn a_daemon_gone_after_recording_a_landing_lands_it_again_and_closes_its_i
     // The landing is recorded; the store takes nothing after it, as if the daemon died there.
     w.disk_refuses("SessionClosed", true);
     w.done(&wk, "a", "x").await;
+    w.gated().await;
     assert!(w.app.tick().await.is_err(), "the tick stops after recording the landing");
     w.disk_refuses("SessionClosed", false);
     let pushed = w.remote_tip("web", "proving");
