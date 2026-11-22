@@ -1,0 +1,38 @@
+{
+  "tree": "e1a11e89bce60a9b3c1370d1392f99d9469f1c08+d1fba762150c532c",
+  "picker": "codex:01a20593-3f85-78e0-8e21-412de92f8941:default",
+  "author": "claude-code:9fd85990-59c4-59b3-a164-7a172dec3d8b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/issue.rs:429:9: replace <impl Aggregate for Issues>::upcasts -> Vec<(&'static str, Upcast)> with vec![]",
+        "why": "The fixture exercises legacy names, so replay could still pass with upcasts disabled for older event shapes.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:356:13: delete match arm IssueEvent::IssueOpened{..} | IssueEvent::IssueReadied in IssueEvent::standing",
+        "why": "The test checks the ready command response but never lists the issue afterward to verify the projected transition.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:425:9: replace <impl Aggregate for Issues>::ending -> bool with false",
+        "why": "The compatibility scenario uses only waiting and ready issues, so it leaves closed-stream handling unobserved.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:72:29: replace && with || in On::is_none",
+        "why": "The legacy fixture may still pass if a partially populated On value is omitted from storage because every issue is opened without one.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/tracker.rs:312: the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names"
+    ]
+  }
+}
