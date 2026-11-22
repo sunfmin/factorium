@@ -173,7 +173,8 @@ pub(crate) struct Opened {
     pub(crate) terminal: String,
     pub(crate) brief: PathBuf,
     pub(crate) typed: Option<String>,
-    /// The watch's: the hash of the rules it was briefed with.
+    /// The watch's: the hash of the rules it was briefed with; a worker's
+    /// with a role: the hash of what its role gave it ([`role_dir`]).
     pub(crate) rules: Option<String>,
 }
 
@@ -238,7 +239,7 @@ impl App {
     /// Opens a terminal running a session of `role` on `pick`, its brief
     /// written for it.
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
-        let mut rules_hash = None;
+        let rules_hash;
         let (dir, worktree, brief, title, mut env) = match role {
             Role::Worker { id, worktree, name, title, brief, role } => {
                 let path = self.data().brief(name);
@@ -248,7 +249,7 @@ impl App {
                     None => self.data().worker_role(),
                     Some(_) => self.data().issue_role(name),
                 };
-                role_dir(&dir, role.map(Path::new)).map_err(io)?;
+                rules_hash = role_dir(&dir, role.map(Path::new)).map_err(io)?;
                 (dir, worktree.to_path_buf(), path, title.to_string(), vec![(WORKER_ENV, id.to_string())])
             }
             Role::Watch => {
@@ -353,12 +354,14 @@ fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String
 /// Makes `dir` the directory a worker's session starts in: its rules
 /// ([`RULES`]) the worker's, then, where its issue names a role, that role's
 /// own rules; its skills ([`factorium_harness::SKILLS`]) the role's, by a
-/// link, else none. The role's directory is read, never written.
-fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<()> {
+/// link, else none. The role's directory is read, never written. Answers,
+/// where there is a role, a hash of what it gave: its rules and every file
+/// under its skills, read through the link now ([`role_hash`]).
+fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<Option<String>> {
     let skills = dir.join(factorium_harness::SKILLS);
     let Some(role) = role else {
         std::fs::create_dir_all(&skills)?;
-        return std::fs::write(dir.join(RULES), WORKER_RULES);
+        return std::fs::write(dir.join(RULES), WORKER_RULES).map(|()| None);
     };
     let own = std::fs::read_to_string(role.join(RULES)).unwrap_or_default();
     std::fs::create_dir_all(skills.parent().expect("a parent"))?;
@@ -367,13 +370,52 @@ fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<()> {
         theirs if theirs.is_dir() => std::os::unix::fs::symlink(theirs, &skills)?,
         _ => std::fs::create_dir_all(&skills)?,
     }
-    std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))
+    std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))?;
+    role_hash(own.as_bytes(), &skills).map(Some)
 }
 
-/// A hash of `rules` that is the same from one build to the next (64-bit
-/// FNV-1a), as hex.
+/// A hash of a role's `rules` and of every file under `skills`, followed
+/// through links: each file's path under `skills` and its bytes, in path
+/// order, each part led by its length so no two contents read alike.
+fn role_hash(rules: &[u8], skills: &Path) -> std::io::Result<String> {
+    let mut files = Vec::new();
+    files_under(skills, Path::new(""), &mut files)?;
+    files.sort();
+    let mut all = Vec::new();
+    let mut part = |bytes: &[u8]| {
+        all.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        all.extend_from_slice(bytes);
+    };
+    part(rules);
+    for rel in files {
+        part(rel.to_string_lossy().as_bytes());
+        part(&std::fs::read(skills.join(&rel))?);
+    }
+    Ok(hash_of(&all))
+}
+
+/// Each file under `dir/rel`, by its path under `dir`, links followed.
+fn files_under(dir: &Path, rel: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir.join(rel))? {
+        let rel = rel.join(entry?.file_name());
+        if std::fs::metadata(dir.join(&rel))?.is_dir() {
+            files_under(dir, &rel, files)?;
+        } else {
+            files.push(rel);
+        }
+    }
+    Ok(())
+}
+
+/// A hash of `rules` that is the same from one build to the next.
 fn rules_hash_of(rules: &str) -> String {
-    let h = rules.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    hash_of(rules.as_bytes())
+}
+
+/// A hash of `bytes` that is the same from one build to the next (64-bit
+/// FNV-1a), as hex.
+fn hash_of(bytes: &[u8]) -> String {
+    let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3));
     format!("{h:016x}")
 }
 

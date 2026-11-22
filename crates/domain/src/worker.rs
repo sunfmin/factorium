@@ -37,6 +37,22 @@ pub struct Started {
     pub base: String,
     /// When it started, in ms.
     pub at: i64,
+    /// The role it started with; `None`: none (factorium#250).
+    #[serde(default)]
+    pub role: Option<StartedRole>,
+}
+
+/// The role an attempt started with, as it was at its start: a role
+/// directory is linked live, so what it holds may change under the worker.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StartedRole {
+    /// The role's directory.
+    pub dir: String,
+    /// Whose it is: `"issue"` or `"checkout"` (the checkout's default).
+    pub from: String,
+    /// A hash of what the role gave it: its rules and every file under its
+    /// skills, read through the link at the start.
+    pub hash: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
