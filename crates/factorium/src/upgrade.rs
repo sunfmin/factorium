@@ -45,9 +45,10 @@ impl App {
     }
 
     /// The formula Homebrew installed this daemon's binary from, as its link
-    /// names it (`<prefix>/opt/<formula>/bin/<name>`), if it did.
+    /// names it (`<prefix>/opt/<formula>/bin/<name>`), if it did: as the
+    /// daemon noted it at start, asking brew nothing more.
     fn own_formula(&self) -> Option<String> {
-        let link = self.linked()?;
+        let link = self.memory.lock().unwrap().running.clone()?.1;
         Some(link.parent()?.parent()?.file_name()?.to_string_lossy().into_owned())
     }
 
