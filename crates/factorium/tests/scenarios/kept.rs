@@ -588,3 +588,63 @@ async fn a_daemon_that_died_mid_start_whose_worktree_is_gone_frees_its_issue_wit
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["worker"], json!(null), "the issue is free");
     assert!(restarted.tick().await.unwrap().started.is_some(), "it starts again");
 }
+
+/// `web` with attempt 1's worktree left behind by attempt 2 (as
+/// [`discarding_an_older_attempt_s_worktree_names_that_attempt_and_its_kept_branch`]),
+/// holding a git worktree of its own at `.slimfit/out/before`, as slimfit's
+/// comparison makes: detached at the proving tip attempt 1 started from.
+/// Answers attempt 1's worktree and the nested one.
+async fn left_holding_a_comparison(w: &World) -> (PathBuf, PathBuf) {
+    let old = waiting_for_human(w, false).await;
+    let inner = old.join(".slimfit").join("out").join("before");
+    std::fs::create_dir_all(inner.parent().unwrap()).unwrap();
+    // The repo ignores slimfit's output, as this one's `.gitignore` does.
+    let exclude = w.dir.join("repos").join("web").join(".git").join("info").join("exclude");
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, ".slimfit/out\n").unwrap();
+    let at = w.git(&old, &["rev-parse", "HEAD"]).unwrap();
+    w.git(&old, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), at.trim()]).unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    let again = w.tick().await.started.unwrap();
+    assert_eq!(again["worker"], json!(factorium_domain::worker_id("web", 1, 2)));
+    (old, inner)
+}
+
+#[tokio::test]
+async fn discard_removes_a_clean_detached_nested_worktree_at_a_proving_commit_in_one_call() {
+    let w = World::new();
+    let (old, inner) = left_holding_a_comparison(&w).await;
+    let discarded = w.app.discard_orphaned(&old).await.unwrap();
+    assert_eq!(discarded["abandoned"], "factorium/web-1-1-abandoned", "{discarded}");
+    assert!(!old.exists() && !inner.exists(), "both go");
+    let repo = w.dir.join("repos").join("web");
+    let listed = w.git(&repo, &["worktree", "list", "--porcelain"]).unwrap();
+    assert!(!listed.contains(".slimfit"), "git forgets the nested one: {listed}");
+}
+
+#[tokio::test]
+async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_it() {
+    let w = World::new();
+    let (old, inner) = left_holding_a_comparison(&w).await;
+    std::fs::write(inner.join("mine.txt"), "work").unwrap();
+    let refused = w.app.discard_orphaned(&old).await.unwrap_err();
+    assert_eq!(refused.code, "nested_held", "{refused:?}");
+    assert!(refused.message.contains(".slimfit/out/before: it has changes not committed"), "{refused:?}");
+    assert!(inner.join("mine.txt").exists() && old.exists(), "nothing is removed");
+    let repo = w.dir.join("repos").join("web");
+    assert!(
+        w.git(&repo, &["rev-parse", "--verify", "refs/heads/factorium/web-1-1-abandoned"]).is_err(),
+        "nothing changed"
+    );
+
+    let real = old.canonicalize().unwrap();
+    let found = w.finding(&format!("worktree:{}", real.display())).await;
+    let found = found.or(w.finding(&format!("worktree:{}", old.display())).await).expect("doctor names it");
+    let what = found["what"].as_str().unwrap();
+    assert!(what.contains(".slimfit/out/before: it has changes not committed"), "{found}");
+
+    // Once its work is gone elsewhere, discard goes through.
+    std::fs::remove_file(inner.join("mine.txt")).unwrap();
+    w.app.discard_orphaned(&old).await.unwrap();
+    assert!(!old.exists());
+}

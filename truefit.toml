@@ -49,6 +49,8 @@ normalise = [
   { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
   # Orca's id of a refused prompt, for a retry factorium never makes.
   { pattern = ' Terminal prompt request ID: [^"]*', replace = "" },
+  # Where the nested worktree Orca refuses for is.
+  { pattern = 'registered worktree: [^"]*/truefit-[a-z-]+/', replace = "registered worktree: <worktree>/" },
 ]
 # What factorium handles after a step took effect (fakes::ORCA_FAULTS): a
 # message given to a session's outbox that Orca will not type (it stays
@@ -108,6 +110,21 @@ stdin = """
 {"orca": "close", "args": ["{terminal}"]}
 {"orca": "remove", "args": ["{worktree}"]}
 {"scratch": "truefit-send-refused"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
+# A worktree that holds another git worktree (slimfit's comparison one):
+# Orca refuses to remove it, naming the nested one, until that goes.
+[[standin.case]]
+name = "nested-worktree"
+stdin = """
+{"scratch": "truefit-nested-worktree"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-nested-worktree", "truefit-nested-worktree", "{sha}"], "keep": {"worktree": "/ok"}}
+{"run": ["git", "-C", "{worktree}", "worktree", "add", "--quiet", "--detach", "{worktree}/.slimfit/out/before", "HEAD"], "read": "ok"}
+{"orca": "remove", "args": ["{worktree}"]}
+{"run": ["git", "-C", "{worktree}", "worktree", "remove", "--force", "{worktree}/.slimfit/out/before"], "read": "ok"}
+{"orca": "remove", "args": ["{worktree}"]}
+{"scratch": "truefit-nested-worktree"}
 {"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 

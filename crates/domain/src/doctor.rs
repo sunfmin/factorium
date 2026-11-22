@@ -56,6 +56,10 @@ pub struct Orphaned {
     /// The branch removing it keeps what it holds on.
     pub kept: String,
     pub why: String,
+    /// The git worktrees nested in it that discard cannot remove, each as
+    /// `<path>: <why>`: they hold work, which is kept where it is.
+    #[serde(default)]
+    pub nested: Vec<String>,
 }
 
 /// A worker that waits for the watch.
@@ -242,14 +246,18 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             &format!("close it: `orca terminal close --terminal {handle}`"),
         );
     }
-    for Orphaned { path, branch, kept, why, .. } in &seen.orphaned {
+    for Orphaned { path, branch, kept, why, nested, .. } in &seen.orphaned {
+        let what = format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}");
+        let discard =
+            format!("remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on `{kept}`");
+        if nested.is_empty() {
+            add(format!("worktree:{path}"), what, &discard);
+            continue;
+        }
         add(
             format!("worktree:{path}"),
-            format!("worktree {path} ({branch}) is a worker's, but no open issue's attempt owns it: {why}"),
-            &format!(
-                "remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
-                 `{kept}`"
-            ),
+            format!("{what}; discard cannot remove the worktree nested in it, which holds work: {}", nested.join("; ")),
+            &format!("commit what the nested worktree holds elsewhere or remove it, then {discard}"),
         );
     }
     for Unclosed { handle, title, why } in &seen.unclosed {

@@ -152,8 +152,13 @@ impl App {
     pub(crate) async fn release_worker(&self, st: &Started, remove: bool) -> Answer<()> {
         let c = self.checkout(&st.checkout).await?;
         let git = self.host.git(&c.path);
-        if remove && !holds_own(&git, Path::new(&st.worktree), &st.branch, tip(&git, &c).as_deref()) {
-            self.remove_worktree(&git, Path::new(&st.worktree), &st.branch)?;
+        let path = Path::new(&st.worktree);
+        // A nested worktree holding work holds this one, as its own work does: doctor names it.
+        if remove
+            && !holds_own(&git, path, &st.branch, tip(&git, &c).as_deref())
+            && held_nested(&git, &c, path).is_empty()
+        {
+            self.remove_worktree(&git, &c, path, &st.branch)?;
         }
         Ok(())
     }
@@ -202,7 +207,8 @@ impl App {
                 };
                 let (checkout, path, branch) = (c.name.clone(), path.display().to_string(), branch.unwrap_or_default());
                 let kept = abandoned(&branch);
-                found.push(Orphaned { checkout, number, attempt, path, branch, kept, why });
+                let nested = held_nested(&self.host.git(&c.path), &c, Path::new(&path));
+                found.push(Orphaned { checkout, number, attempt, path, branch, kept, why, nested });
             }
         }
         Ok(found)
@@ -244,14 +250,17 @@ impl App {
     /// changes are committed, its branch is kept as `<branch>-abandoned`,
     /// which a comment says as `why` does (a close's comes first; a closed
     /// issue takes no other), and the worktree goes, with its terminals.
+    /// Refused, before anything changes, while a nested worktree in it
+    /// holds work ([`held_nested`]): that is kept where it is, and named.
     pub(crate) async fn abandon(&self, c: &Checkout, st: &Started, why: Why<'_>) -> Answer<Abandoned> {
+        let (git, path) = (self.host.git(&c.path), Path::new(&st.worktree));
+        clear_nested(&git, c, path)?;
         let kept = abandoned(&st.branch);
         let (at, comment) = why.said(st.attempt, &kept);
         if let Why::Close(reason) = why {
             self.note(&st.checkout, st.number, Author::Factorium, &comment).await?;
             self.close(&st.checkout, st.number, reason, true).await?;
         }
-        let (git, path) = (self.host.git(&c.path), Path::new(&st.worktree));
         let tree = git.at(path);
         if tree.dirty().map_err(fail("git"))? {
             tree.run(&["add", "-A"]).map_err(fail("git"))?;
@@ -261,7 +270,7 @@ impl App {
         let head = tree.sha("HEAD").map_err(fail("git"))?;
         // Forced: an abandon Orca refused before made it, at an ancestor of HEAD.
         git.run(&["branch", "--no-track", "--force", &kept, &head]).map_err(fail("git"))?;
-        self.remove_worktree(&git, path, &st.branch)?;
+        self.remove_worktree(&git, c, path, &st.branch)?;
         let open = self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.status != Status::Closed);
         if open && !matches!(why, Why::Close(_)) {
             self.note(&st.checkout, st.number, Author::Factorium, &comment).await?;
@@ -270,8 +279,11 @@ impl App {
     }
 
     /// Removes a worker's worktree through Orca, with its terminals, then
-    /// whatever git keeps of it and its branch.
-    fn remove_worktree(&self, git: &Git, path: &Path, branch: &str) -> Answer<()> {
+    /// whatever git keeps of it and its branch. The git worktrees nested in
+    /// it go first (Orca refuses to remove one that holds another), when
+    /// none holds work ([`nested`]).
+    fn remove_worktree(&self, git: &Git, c: &Checkout, path: &Path, branch: &str) -> Answer<()> {
+        clear_nested(git, c, path)?;
         self.host.orca().remove(path).map_err(fail("orca"))?;
         git.forget(path, branch);
         Ok(())
@@ -282,6 +294,71 @@ impl App {
 /// policy: what a worktree holds cannot be read against it, so it is held.
 fn tip(git: &Git, c: &Checkout) -> Option<String> {
     git.fetch(&c.proving).ok()
+}
+
+/// The git worktrees of `c` registered inside the worktree at `path`, each
+/// with why it holds work (`None`: it does not, and may go). One goes only
+/// when it is clean and detached at a commit on `c`'s proving or base branch
+/// as last fetched, as slimfit's comparison worktree is. What cannot be read
+/// is held.
+fn nested(git: &Git, c: &Checkout, path: &Path) -> Vec<(PathBuf, Option<String>)> {
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let outer = real(path);
+    let Ok(trees) = git.worktrees() else { return Vec::new() };
+    let landed = |sha: &str| {
+        [c.fetched_base(), format!("refs/remotes/origin/{}", c.proving)].iter().any(|r| git.is_ancestor(sha, r))
+    };
+    let why = |p: &Path, branch: Option<String>| {
+        let here = git.at(p);
+        if let Some(b) = branch {
+            return Some(format!("it is on branch `{b}`, not detached"));
+        }
+        match here.dirty() {
+            Ok(false) => {}
+            Ok(true) => return Some("it has changes not committed".into()),
+            Err(e) => return Some(format!("its changes cannot be read: {e}")),
+        }
+        match here.sha("HEAD") {
+            Ok(sha) if landed(&sha) => None,
+            Ok(sha) => {
+                Some(format!("its HEAD {} is on neither {} nor {}", &sha[..sha.len().min(8)], c.proving, c.base))
+            }
+            Err(e) => Some(format!("its HEAD cannot be read: {e}")),
+        }
+    };
+    let inside = trees.into_iter().filter(|(p, _)| p.exists() && real(p) != outer && real(p).starts_with(&outer));
+    inside.map(|(p, b)| (p.clone(), why(&p, b))).collect()
+}
+
+/// The nested worktrees in `path` that hold work ([`nested`]), each as
+/// `<path>: <why>`.
+fn held_nested(git: &Git, c: &Checkout, path: &Path) -> Vec<String> {
+    named(&nested(git, c, path))
+}
+
+/// Of `nested`, those that hold work, each as `<path>: <why>`.
+fn named(nested: &[(PathBuf, Option<String>)]) -> Vec<String> {
+    nested.iter().filter_map(|(p, why)| Some(format!("{}: {}", p.display(), why.as_ref()?))).collect()
+}
+
+/// Removes the nested worktrees in `path` ([`nested`]), before what it
+/// holds is committed (they are no work of its own) and before Orca removes
+/// it; refused, removing none and naming those that hold work, while any does.
+fn clear_nested(git: &Git, c: &Checkout, path: &Path) -> Answer<()> {
+    let inner = nested(git, c, path);
+    let held = named(&inner);
+    if held.is_empty() {
+        for (inner, _) in inner {
+            git.worktree_remove(&inner).map_err(fail("git"))?;
+        }
+        return Ok(());
+    }
+    let why = format!(
+        "{} holds a nested worktree with work, kept where it is: {}. Commit that elsewhere or remove it, then try again",
+        path.display(),
+        held.join("; ")
+    );
+    Err(Refusal::new("nested_held", why))
 }
 
 /// Whether a worker's worktree at `path`, on `branch`, holds work that is
