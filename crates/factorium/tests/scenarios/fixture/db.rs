@@ -43,6 +43,17 @@ impl World {
         self.migrate(&format!("ALTER TABLE events RENAME COLUMN {column} TO {column}_before;"));
     }
 
+    /// A newer binary, a CLI call of it, appended an event of `kind`, which
+    /// this code does not know, to an issue's stream (`DecidedNumbered`,
+    /// v0.1.83, factorium#252).
+    pub fn an_event_a_newer_binary_wrote(&self, kind: &str) {
+        self.migrate(&format!(
+            "INSERT INTO events (id, stream, version, kind, type_version, data, meta) \
+             SELECT lower(hex(randomblob(16))), stream, MAX(version) + 1, '{kind}', 1, '{{}}', meta \
+             FROM events WHERE stream = (SELECT stream FROM events WHERE kind = 'IssueOpened' LIMIT 1);"
+        ));
+    }
+
     /// Every stream has a snapshot older code left, of no use to this code.
     pub fn snapshots_older_code_left(&self) {
         self.migrate(

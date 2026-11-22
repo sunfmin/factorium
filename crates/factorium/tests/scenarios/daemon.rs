@@ -354,6 +354,36 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     assert_eq!(kept(&w), [("0.1.1".into(), binary("0.1.1"))]);
 }
 
+/// v0.1.83 linked, a CLI call of it wrote `DecidedNumbered` before the
+/// daemon, on 0.1.82, swapped; its store could not read it, so every tick
+/// failed, and the swap, a step of the tick, never came (factorium#252).
+/// A failed tick still swaps once the linked binary is proven.
+#[tokio::test]
+async fn a_daemon_whose_ticks_fail_on_an_event_a_newer_binary_wrote_still_swaps_to_it() {
+    let w = World::new();
+    let link0 = w.running_as(&w.app, "factorium");
+    w.checkout("web").await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    assert_eq!(w.tick().await.restart, None);
+    // The newer binary linked, and one of its CLI calls writes first.
+    link(&w, "0.1.0");
+    w.an_event_a_newer_binary_wrote("FromANewerVersion");
+    let begun = std::time::Instant::now();
+    let restart = loop {
+        w.advance(5);
+        let ticked = w.app.tick().await;
+        let why = ticked.as_ref().expect_err("its store cannot read the event").to_string();
+        assert!(why.contains("FromANewerVersion"), "{why}");
+        // It ticks on, and does not go back to the kept binary of its own version.
+        if let Some(to) = w.app.after(&ticked) {
+            break to;
+        }
+        assert!(begun.elapsed() < crate::fixture::STUCK, "the proof ends");
+        tokio::time::sleep(crate::fixture::LOOK).await;
+    };
+    assert_eq!(restart, link0, "it swaps to the linked binary by itself");
+}
+
 #[tokio::test]
 async fn a_swap_whose_first_tick_is_good_keeps_the_new_binary() {
     let w = World::new();
@@ -465,8 +495,11 @@ async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() 
 fn a_tick_is_logged_once_it_did_something_or_was_slow() {
     use factorium::Tick;
     let one = || vec![json!({})];
-    assert!(!Tick::default().logged(), "quick, with nothing done");
-    assert!(Tick { slow: true, ..Tick::default() }.logged(), "slow, with nothing done");
+    assert_eq!(Tick::default().line(), None, "quick, with nothing done");
+    assert!(
+        Tick { slow: true, ..Tick::default() }.line().is_some_and(|l| l.contains("\"slow\":true")),
+        "slow, with nothing done"
+    );
     let did = [
         Tick { started: Some(json!({})), ..Tick::default() },
         Tick { landed: one(), ..Tick::default() },
@@ -476,6 +509,6 @@ fn a_tick_is_logged_once_it_did_something_or_was_slow() {
         Tick { resumed: one(), ..Tick::default() },
     ];
     for t in did {
-        assert!(t.logged(), "{t:?}");
+        assert!(t.line().is_some(), "{t:?}");
     }
 }

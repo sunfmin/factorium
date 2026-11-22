@@ -310,7 +310,13 @@ asks: the processes that ask take turns on its lock, and how it went is
 kept beside the copies for the next (a copy that failed, or a `doctor`
 past its limit, is not kept). The daemon's tick only starts that proof, on
 a thread of its own, and a later tick swaps once it passed: no tick waits
-on it. A cut of the formula proves
+on it. A new event kind may be written first by any process of the
+version that adds it, a CLI call before the daemon swapped among them: a
+daemon of an older version whose store cannot read it fails its ticks,
+and a failed tick still starts that proof and swaps once it passed (not
+while a line move runs beside the ticks), since the newer binary alone
+reads the store; a rollback's kept binary is gone back to only when no
+link to swap to is proven (factorium#252). A cut of the formula proves
 it right after the install (the daemon's cut beside its ticks, recorded on
 the tick after the proof ended); one that fails is a failed cut, its why the
 error and the copy's path (kept for a look), and the old binary runs on. So no session
