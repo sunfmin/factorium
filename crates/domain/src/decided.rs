@@ -289,6 +289,13 @@ mod tests {
         assert_eq!((s.last, s.swept), (3, true), "swept stays");
     }
 
+    /// The sequence's stream is the one every binary gives from: another
+    /// would give each number again.
+    #[test]
+    fn the_sequence_s_stream_stays_the_same() {
+        assert_eq!(numbers_id().to_string(), "b5346f80-045a-50f9-8d8f-78026838caa6");
+    }
+
     #[test]
     fn a_name_is_d_and_its_number() {
         assert_eq!(name(17), "D17");
