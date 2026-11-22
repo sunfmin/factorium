@@ -51,6 +51,8 @@ normalise = [
   { pattern = ' Terminal prompt request ID: [^"]*', replace = "" },
   # Where the nested worktree Orca refuses for is.
   { pattern = 'registered worktree: [^"]*/truefit-[a-z-]+/', replace = "registered worktree: <worktree>/" },
+  # Where a case's worktree is, in the git steps run in it.
+  { pattern = '"/[^"]*/truefit-nested-worktree', replace = '"<worktree>' },
 ]
 # What factorium handles after a step took effect (fakes::ORCA_FAULTS): a
 # message given to a session's outbox that Orca will not type (it stays
