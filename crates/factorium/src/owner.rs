@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use factorium_domain::checkout::{Add, AddCheckout, Named, RemoveCheckout};
+use factorium_domain::checkout::{Add, AddCheckout, NameCheckoutRole, NameRole, Named, RemoveCheckout};
 use factorium_domain::heavy;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
@@ -22,8 +22,11 @@ impl App {
 
     /// Puts a repo on the list. `base` is where promotions land, `proving`
     /// where landings land. The repo needs an `origin` holding `base`; a
-    /// proving branch it lacks is made at `base`.
-    pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str) -> Answer {
+    /// proving branch it lacks is made at `base`. `role`, its default role
+    /// ([`App::checkout_name_role`]), is checked as an issue's is.
+    pub async fn checkout_add(&self, name: &str, path: &Path, base: &str, proving: &str, role: Option<&str>) -> Answer {
+        let role = role.map(String::from);
+        self.role_here(role.as_deref())?;
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
         let git = self.host.git(&path);
@@ -36,9 +39,20 @@ impl App {
             path: path.to_string_lossy().into_owned(),
             base: base.into(),
             proving: proving.into(),
+            role,
         };
         self.submit::<AddCheckout>(&add).await?;
         Ok(json!(add))
+    }
+
+    /// `checkout edit --role`/`--no-role`: names `role`, a directory by its
+    /// absolute path, as the role a worker of the checkout's issues that
+    /// name none starts with from now, or, `None`, none. An issue's own role
+    /// wins; a live worker keeps the directory it started in.
+    pub async fn checkout_name_role(&self, name: &str, role: Option<&str>) -> Answer {
+        self.role_here(role)?;
+        self.submit::<NameCheckoutRole>(NameRole { name: name.into(), role: role.map(String::from) }).await?;
+        Ok(json!(self.checkout(name).await?))
     }
 
     pub async fn checkout_remove(&self, name: &str) -> Answer {

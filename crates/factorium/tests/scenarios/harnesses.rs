@@ -118,7 +118,7 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         let repo = w.repo("web");
         w.commit(&repo, RULES, "Always run the linter.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
-        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving", None).await.unwrap();
         let (wk, line, dir, env, args) = started(&w, h).await;
         let kept = w.data().kept(key);
         let home = h.home(&w.host.home(), None, &kept);
@@ -265,7 +265,7 @@ async fn each_harness_starts_as_it_is_written() {
         let repo = w.repo("web");
         w.commit(&repo, RULES, "Always run the \"linter\" \\ first.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
-        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving", None).await.unwrap();
         w.app.kit_set(&[format!("{key}=given@model-1")]).await.unwrap();
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;

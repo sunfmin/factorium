@@ -188,10 +188,11 @@ impl Projection for Tracker {
             |table: &str, fields: Value| vec![RowOp::Merge { table: table.into(), key: key.to_string(), fields }];
         Ok(match e.stream.aggregate.as_str() {
             "checkout" => match decode(e)? {
-                CheckoutEvent::CheckoutAdded { name, path, base, proving } => {
-                    put(CHECKOUTS, row(Checkout { name, path, base, proving, listed: true }))
+                CheckoutEvent::CheckoutAdded { name, path, base, proving, role } => {
+                    put(CHECKOUTS, row(Checkout { name, path, base, proving, listed: true, role }))
                 }
                 CheckoutEvent::CheckoutRemoved => merge(CHECKOUTS, json!({ "listed": false })),
+                CheckoutEvent::RoleNamed { role } => merge(CHECKOUTS, json!({ "role": role })),
             },
             "issue" => {
                 let event: IssueEvent = decode(e)?;

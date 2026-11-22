@@ -144,7 +144,7 @@ impl World {
     /// A repo on the checkout list, with the usual branches.
     pub async fn checkout(&self, name: &str) -> PathBuf {
         let path = self.repo(name);
-        self.app.checkout_add(name, &path, "main", "proving").await.unwrap();
+        self.app.checkout_add(name, &path, "main", "proving", None).await.unwrap();
         path
     }
 
