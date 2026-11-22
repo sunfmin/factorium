@@ -1,0 +1,21 @@
+{
+  "tree": "1d72d6dd37ad6f2a49e6684777e83f7296925d6e+d1fba762150c532c",
+  "picker": "codex:01a20265-d836-7491-ac7b-49de93795215:default",
+  "author": "claude-code:5e421a80-4ea6-50d5-8d5b-09783ede3ca4:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/doctor.rs:107:69: replace > with >= in App::decided",
+        "why": "The tests put records before and after the read, with no record at the exact read timestamp.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/decided.rs:46:62: replace && with || in read",
+        "why": "Every record followed by another record already has all its fields, so the tests would miss a missing field being borrowed from the next record.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
