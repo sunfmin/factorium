@@ -131,6 +131,11 @@ pub fn untaken() -> Rows<IssueRow> {
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
+/// The issues of every checkout that wait for a person.
+pub fn asking() -> Rows<IssueRow> {
+    Rows::of(Query::table(ISSUES).filter("status", Op::Eq, IssueStatus::WaitingForHuman))
+}
+
 /// The last-numbered issue of `checkout`.
 pub fn last_issue(checkout: &str) -> Rows<IssueRow> {
     Rows::of(Query::table(ISSUES).filter("checkout", Op::Eq, checkout).order_by("number", true).limit(1))
@@ -150,7 +155,7 @@ pub fn workers(status: Option<WorkerStatus>, all: bool) -> Rows<WorkerRow> {
 pub struct Tracker;
 
 /// An event as its aggregate's own type.
-pub(crate) fn decode<E: DeserializeOwned>(e: &Event) -> Result<E, String> {
+pub fn decode<E: DeserializeOwned>(e: &Event) -> Result<E, String> {
     let tagged = if e.data.is_null() { json!({ "type": e.kind }) } else { json!({ "type": e.kind, "data": e.data }) };
     serde_json::from_value(tagged).map_err(|err| format!("{}: {err}", e.kind))
 }

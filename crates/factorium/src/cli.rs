@@ -57,8 +57,13 @@ pub enum Top {
         #[arg(long)]
         worker: Option<Uuid>,
     },
-    /// Answers the findings, each with its fix; the reading; and what the
-    /// watch's reports leave to the owner.
+    /// Answers the findings, each with its fix; the reading; what the
+    /// watch's reports leave to the owner (`human`); and `asks`: every issue
+    /// that waits for a person, oldest first, with its title, its question
+    /// (its body's first line after any "Based on …" line), when it started
+    /// waiting and who left it so (`watch`, `session`, or `added`
+    /// `--waiting-for-human`). Answer one with `issue ready` (do it),
+    /// `issue close` (don't), or `issue comment` then `issue ready`.
     Doctor,
     /// Removes a worker's worktree that no open issue's attempt owns, as
     /// doctor names it, with its terminals: what it holds that is nowhere

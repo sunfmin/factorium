@@ -157,6 +157,49 @@ async fn an_issue_waiting_for_a_human_is_listed_so_until_readied() {
     assert_eq!(w.app.issue_list(None, false).await.unwrap()[0]["status"], "ready");
 }
 
+/// doctor's `asks`: every issue left to a person, oldest first, with its
+/// question and who left it so, until `issue ready` or `issue close`.
+#[tokio::test]
+async fn doctor_asks_every_issue_left_to_a_person_oldest_first_until_readied_or_closed() {
+    let w = World::new();
+    w.checkout("web").await;
+    let body = "Based on proving 1a2b.\n\nShip the new login now?\nIt is behind a flag.";
+    w.app.issue_add("web", "Ship login", body, true, &[]).await.unwrap();
+    w.advance(1);
+    w.app.issue_add("web", "Pay for runners", "Buy two more?", false, &[]).await.unwrap();
+    let watch = factorium::App::open(&w.db, factorium::Caller::Watch.by(), w.host.clone()).unwrap();
+    watch.issue_wait_for_human("web", 2, "it costs money").await.unwrap();
+    w.advance(1);
+    w.app.issue_add("web", "Rename", "Call it guild?", false, &[]).await.unwrap();
+    w.app.issue_wait_for_human("web", 3, "a name is the owner's").await.unwrap();
+    let asks = w.doctor().await["asks"].clone();
+    let shown: Vec<_> = (asks.as_array().unwrap().iter())
+        .map(|a| (a["issue"].clone(), a["title"].clone(), a["question"].clone(), a["by"].clone(), a["why"].clone()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (json!("web#1"), json!("Ship login"), json!("Ship the new login now?"), json!("added"), json!(null)),
+            (json!("web#2"), json!("Pay for runners"), json!("Buy two more?"), json!("watch"), json!("it costs money")),
+            (
+                json!("web#3"),
+                json!("Rename"),
+                json!("Call it guild?"),
+                json!("session"),
+                json!("a name is the owner's")
+            ),
+        ],
+        "{asks}"
+    );
+    let since: Vec<_> = asks.as_array().unwrap().iter().map(|a| a["since"].as_i64().unwrap()).collect();
+    assert!(since[0] < since[1] && since[1] < since[2], "{asks}");
+    assert!(asks[0]["utc"].as_str().is_some(), "{asks}");
+    w.app.issue_ready("web", 1).await.unwrap();
+    w.app.issue_close("web", 2, "not now").await.unwrap();
+    let left: Vec<_> = w.doctor().await["asks"].as_array().unwrap().iter().map(|a| a["issue"].clone()).collect();
+    assert_eq!(left, [json!("web#3")]);
+}
+
 #[tokio::test]
 async fn an_issue_waits_for_others_of_its_checkout() {
     let w = World::new();
