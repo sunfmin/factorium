@@ -18,7 +18,7 @@ use factorium_domain::tracker;
 use factum::Value;
 use serde_json::json;
 
-use crate::heavy::{Job, Turn};
+use crate::heavy::{For, Job, Turn};
 use crate::load::Load;
 use crate::{Answer, App, LineClone, fail};
 
@@ -40,8 +40,11 @@ impl App {
     pub(crate) async fn idle_check(&self) -> Answer<Option<Value>> {
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
         let busy = host_idle(&workers, &Default::default(), Ok(())).is_err();
-        let Some((idle, ended)) = self.beside(busy, false).await? else { return Ok(None) };
-        let Running { checkout, tip, at, steps, limit, tasks } = idle;
+        let Some((For::Idle(idle), ended)) = self.beside(|f| matches!(f, For::Idle(_)), busy, false).await?.pop()
+        else {
+            return Ok(None);
+        };
+        let Running { checkout, tip, at, steps, limit, tasks } = *idle;
         let rans = match ended {
             Ok(rans) => rans,
             Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),
@@ -93,7 +96,7 @@ impl App {
         load: &Load,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
-        if self.beside_runs() {
+        if self.beside_runs(|f| matches!(f, For::Idle(_))) {
             return Ok(None);
         }
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
@@ -126,7 +129,8 @@ impl App {
         let job = Job::idle(idle::job(&c.name), &here.dir, &work.steps, work.limit);
         let (checkout, steps, limit, at) = (c.name.clone(), work.steps.clone(), work.limit, self.now());
         let idle = Box::new(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
-        if self.heavy(job, Turn::Beside { yields: !overdue, idle }).await?.is_none() {
+        let turn = Turn::Beside { key: None, yields: !overdue, of: For::Idle(idle) };
+        if self.heavy(job, turn).await?.is_none() {
             return Ok(None);
         }
         Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))

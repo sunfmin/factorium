@@ -174,7 +174,28 @@ impl World {
         self.clock.now()
     }
 
+    /// A tick, and while a line move it started runs beside the ticks, once
+    /// that ended, the tick that finishes it: what they did, as one.
     pub async fn tick(&self) -> Tick {
+        let mut t = self.tick_alone().await;
+        while self.app.moves_run() {
+            self.app.moves_ended().await;
+            let n = self.tick_alone().await;
+            t.seen.extend(n.seen);
+            t.landed.extend(n.landed);
+            t.closed.extend(n.closed);
+            t.lines.extend(n.lines);
+            t.idle.extend(n.idle);
+            t.started = t.started.or(n.started);
+            t.resumed.extend(n.resumed);
+            t.bumped.extend(n.bumped);
+            (t.held, t.watch, t.restart) = (n.held, n.watch.or(t.watch), n.restart);
+        }
+        t
+    }
+
+    /// One tick, as the daemon ticks.
+    pub async fn tick_alone(&self) -> Tick {
         let t = self.app.tick().await.unwrap();
         self.ticks.lock().unwrap().push(self.last_seq());
         t

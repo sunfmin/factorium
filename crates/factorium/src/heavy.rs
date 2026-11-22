@@ -1,7 +1,7 @@
 //! The heavy-command queue as the app uses it, and the one way to run a
 //! heavy command: queue it, wait for its turn (the CLI), ask once (the
-//! daemon, which asks again next tick) or ask once and run beside the
-//! daemon's ticks (idle work), run its steps noting each one's session, end
+//! daemon, which asks again next tick) or ask and run beside the daemon's
+//! ticks (idle work, and a line's promotion gate and cut), run its steps noting each one's session, end
 //! it if it holds others up past the hold bound, and take it off the queue.
 
 use std::future::Future;
@@ -27,7 +27,7 @@ use crate::{Answer, App, Refusal};
 const POLL: u64 = 500;
 
 /// A heavy command: its steps run in `dir` one after another, each under `limit`, until one fails.
-/// Beside the ticks, `limit` is the whole run's, on the app's clock. Its kind's constructor picks
+/// Idle work's `limit` is the whole run's, on the app's clock. Its kind's constructor picks
 /// its priority (SPEC §1.9), limit and env.
 pub(crate) struct Job<'a> {
     what: String,
@@ -41,6 +41,8 @@ pub(crate) struct Job<'a> {
     steps: &'a [String],
     env: Vec<(String, String)>,
     limit: Duration,
+    /// `limit` is the whole run's, on the app's clock: idle work's.
+    whole: bool,
     priority: Priority,
 }
 
@@ -62,7 +64,7 @@ impl<'a> Job<'a> {
     }
     /// Idle work's `steps` in its clone `dir`, all within `limit` s on the app's clock: in the background.
     pub(crate) fn idle(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
-        Job::new(what, dir, steps, Duration::from_secs(limit), Priority::Background)
+        Job { whole: true, ..Job::new(what, dir, steps, Duration::from_secs(limit), Priority::Background) }
     }
     /// The job of a program of the owner's that is not a worker: it yields as a worker's does.
     pub(crate) fn of_program(self) -> Self {
@@ -73,7 +75,8 @@ impl<'a> Job<'a> {
         Job { worker, bound_at, ..self }
     }
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
-        Job { what, worker: None, program: false, bound_at: None, dir, steps, env: Vec::new(), limit, priority }
+        let env = Vec::new();
+        Job { what, worker: None, program: false, bound_at: None, dir, steps, env, limit, whole: false, priority }
     }
 }
 
@@ -91,13 +94,27 @@ pub(crate) enum Turn {
     /// Asks once, keeping its place under `key` until a tick's [`App::asking_once`] does not ask
     /// again: the daemon, whose tick never waits.
     Once(String),
-    /// Asks once and, let start, runs beside the daemon's ticks ([`App::beside`]):
-    /// idle work, kept with the run as one. Refused, it leaves the queue. One that `yields` gives way.
-    Beside { yields: bool, idle: Box<crate::idle::Running> },
+    /// Asks once and, let start, runs beside the daemon's ticks ([`App::beside`]), kept with what
+    /// it is `for` as one. With a `key`, it keeps its place under it as [`Turn::Once`] does: a
+    /// line's move. Without one, refused, it leaves the queue: idle work. One that `yields` gives way.
+    Beside { key: Option<String>, yields: bool, of: For },
 }
 
-/// The run beside the ticks and the idle work it is, kept as one.
-pub(crate) struct Beside(Running, crate::idle::Running);
+/// What a run beside the ticks is for: what is left to do once its steps end.
+pub(crate) enum For {
+    Idle(Box<crate::idle::Running>),
+    Line(Box<crate::line::Moving>),
+}
+
+impl For {
+    /// Whether it is a move of `checkout`'s line.
+    pub(crate) fn moves(&self, checkout: &str) -> bool {
+        matches!(self, For::Line(m) if m.checkout == checkout)
+    }
+}
+
+/// A run beside the ticks and what it is for, kept as one.
+pub(crate) struct Beside(Running, For);
 
 /// A job's steps running on a thread of their own, as entry `id`: beside
 /// the ticks, within `deadline` on the app's clock; ended once it must, `why`.
@@ -144,20 +161,20 @@ impl App {
 
     /// Runs `job` when its turn comes: how each step ran, up to the first that failed. `None`:
     /// [`Turn::Once`] or [`Turn::Beside`], and not its turn yet. [`Turn::Beside`] answers no runs
-    /// once it started: a tick's [`App::beside`] answers how it ran, with its idle work.
+    /// once it started: a tick's [`App::beside`] answers how it ran, with what it is for.
     pub(crate) async fn heavy(&self, job: Job<'_>, turn: Turn) -> Answer<Option<Vec<Ran>>> {
         // A waiter's own binary, noted before it waits: refused as stale, it finds what to exec (factorium#193).
         let _ = matches!(turn, Turn::Wait).then(|| self.exe());
         // `queued`: its entry was queued before this ask, so one the queue
         // no longer holds was unqueued.
         let (id, mut queued) = match &turn {
-            Turn::Beside { .. } => (Uuid::now_v7(), false),
+            Turn::Beside { key: None, .. } => (Uuid::now_v7(), false),
             // A waiter that execs the installed binary keeps its place.
             Turn::Wait => match std::env::var(PLACE).ok().and_then(|p| p.parse().ok()) {
                 Some(place) => (place, true),
                 None => (Uuid::now_v7(), false),
             },
-            Turn::Once(key) => {
+            Turn::Once(key) | Turn::Beside { key: Some(key), .. } => {
                 let id = factorium_domain::id(&format!("heavy:{key}"));
                 self.memory.lock().unwrap().asked.insert(id);
                 (id, false)
@@ -179,22 +196,24 @@ impl App {
             match (took, &turn) {
                 (true, _) => break,
                 (false, Turn::Wait) => self.clock.sleep(POLL).await,
-                (false, Turn::Once(_)) => {
+                (false, Turn::Once(_) | Turn::Beside { key: Some(_), .. }) => {
                     self.memory.lock().unwrap().queued.insert(id);
                     return Ok(None);
                 }
-                (false, Turn::Beside { .. }) => {
+                (false, Turn::Beside { key: None, .. }) => {
                     return self.submit::<EndHeavy>(End { id, keeps: false }).await.map(|()| None);
                 }
             }
         }
-        if let Turn::Beside { yields, idle } = turn {
-            let mut run = self.run_steps(id, &job, Some(yields)).await?;
+        if let Turn::Beside { yields, of, .. } = turn {
+            let mut run = self.run_steps(id, &job, yields).await?;
+            // Started, it is the tick's [`App::beside`]'s: no tick's asks end it.
+            self.memory.lock().unwrap().queued.remove(&id);
             // Its first session noted before this answers: an unqueue from then on ends it.
             if let Some(session) = run.sessions.recv().await {
                 self.submit::<NoteRun>(Runs { id, session }).await?;
             }
-            self.memory.lock().unwrap().beside = Some(Beside(run, *idle));
+            self.memory.lock().unwrap().beside.push(Beside(run, of));
             return Ok(Some(Vec::new()));
         }
         let ran = self.run_held(id, &job).await;
@@ -245,45 +264,77 @@ impl App {
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
     }
 
-    /// The job beside the ticks, once it ended, off the queue: the idle work it is, and how its
-    /// steps ran or why it was ended before. `None`: it runs on, or none runs. `end`: the daemon
-    /// stops or is replaced, and it must not outlive it.
+    /// The jobs beside the ticks that `pick` picks, once each ended, off the queue: what each is
+    /// for, and how its steps ran or why it was ended before. Those that run on are kept. `busy`:
+    /// one that yields gives way. `end`: the daemon stops or is replaced, and none may outlive it.
     pub(crate) async fn beside(
         &self,
+        pick: impl Fn(&For) -> bool,
         busy: bool,
         end: bool,
-    ) -> Answer<Option<(crate::idle::Running, Result<Vec<Ran>, Ends>)>> {
-        let Some(mut b) = self.memory.lock().unwrap().beside.take() else { return Ok(None) };
-        let looked = self.look_at(&mut b.0, busy || end).await;
-        b.0.stop.fetch_or(end, Ordering::Relaxed);
-        if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.run.is_finished())) {
-            self.memory.lock().unwrap().beside = Some(b);
-            return looked.map(|()| None);
+    ) -> Answer<Vec<(For, Result<Vec<Ran>, Ends>)>> {
+        let picked: Vec<Beside> = {
+            let mut m = self.memory.lock().unwrap();
+            let (picked, kept) = std::mem::take(&mut m.beside).into_iter().partition(|b| pick(&b.1));
+            m.beside = kept;
+            picked
+        };
+        let (mut ended, mut failed, mut picked) = (Vec::new(), None, picked.into_iter());
+        while let Some(mut b) = picked.next() {
+            let looked = self.look_at(&mut b.0, busy || end).await;
+            b.0.stop.fetch_or(end, Ordering::Relaxed);
+            if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.run.is_finished())) {
+                self.memory.lock().unwrap().beside.push(b);
+                failed = failed.or(looked.err());
+                continue;
+            }
+            let Beside(r, of) = b;
+            let (id, why, rans) = (r.id, r.why, self.ran(r).await);
+            // Failing, those not yet looked at are kept for the next tick.
+            let rans = match (self.submit::<EndHeavy>(End { id, keeps: false }).await, rans) {
+                (Ok(()), Ok(rans)) => rans,
+                (Err(e), _) | (_, Err(e)) => {
+                    self.memory.lock().unwrap().beside.extend(picked);
+                    return Err(e);
+                }
+            };
+            ended.push((
+                of,
+                match why {
+                    Some(w @ Ends::Unqueued) => Err(w),
+                    Some(w @ Ends::GaveWay) if rans.iter().any(|r| !r.ok) => Err(w),
+                    _ => Ok(rans),
+                },
+            ));
         }
-        let Beside(r, idle) = b;
-        let (id, why, rans) = (r.id, r.why, self.ran(r).await);
-        self.submit::<EndHeavy>(End { id, keeps: false }).await?;
-        let rans = rans?;
-        Ok(Some((
-            idle,
-            match why {
-                Some(w @ Ends::Unqueued) => Err(w),
-                Some(w @ Ends::GaveWay) if rans.iter().any(|r| !r.ok) => Err(w),
-                _ => Ok(rans),
-            },
-        )))
+        failed.map_or(Ok(ended), Err)
     }
 
-    /// Whether a job runs beside the ticks: one at a time.
-    pub(crate) fn beside_runs(&self) -> bool {
-        self.memory.lock().unwrap().beside.is_some()
+    /// Whether a job that `pick` picks runs beside the ticks.
+    pub(crate) fn beside_runs(&self, pick: impl Fn(&For) -> bool) -> bool {
+        self.memory.lock().unwrap().beside.iter().any(|b| pick(&b.1))
     }
 
-    /// Until the job beside the ticks, if one runs, has ended its steps: the next tick's
+    /// Until each job beside the ticks that runs now has ended its steps: the next tick's
     /// [`App::beside`] finds it ended. A scenario waits on this, not on ticks in a loop.
     pub async fn beside_ended(&self) {
-        let ended = self.memory.lock().unwrap().beside.as_ref().map(|b| b.0.ended.clone());
-        if let Some(mut ended) = ended {
+        self.ended_beside(|_| true).await
+    }
+
+    /// Until each line move beside the ticks that runs now has ended its steps.
+    pub async fn moves_ended(&self) {
+        self.ended_beside(|f| matches!(f, For::Line(_))).await
+    }
+
+    /// Whether a line move runs beside the ticks.
+    pub fn moves_run(&self) -> bool {
+        self.beside_runs(|f| matches!(f, For::Line(_)))
+    }
+
+    async fn ended_beside(&self, pick: impl Fn(&For) -> bool) {
+        let ended: Vec<_> =
+            self.memory.lock().unwrap().beside.iter().filter(|b| pick(&b.1)).map(|b| b.0.ended.clone()).collect();
+        for mut ended in ended {
             // Nothing is sent on it: it answers once its sender is dropped.
             let _ = ended.changed().await;
         }
@@ -334,7 +385,7 @@ impl App {
     /// Taken off the queue (an unqueue, which ends that session), it ends
     /// too, refused as `unqueued`; ended still queued, it was held.
     async fn run_held(&self, id: Uuid, job: &Job<'_>) -> Answer<Vec<Ran>> {
-        let mut r = self.run_steps(id, job, None).await?;
+        let mut r = self.run_steps(id, job, false).await?;
         loop {
             tokio::select! {
                 session = r.sessions.recv() => match session {
@@ -354,10 +405,10 @@ impl App {
     }
 
     /// Starts `job`'s steps as the started entry `id`, one after another until one fails, each
-    /// within the job's limit or, beside the ticks (whether it `yields`), all within it on the app's clock.
-    async fn run_steps(&self, id: Uuid, job: &Job<'_>, beside: Option<bool>) -> Answer<Running> {
-        let (hold_ms, yields) = (self.settings().await?.ms(Time::HoldBound), beside == Some(true));
-        let deadline = beside.map(|_| self.now().saturating_add(job.limit.as_millis() as i64));
+    /// within the job's limit or, idle work's, all within it on the app's clock. One that `yields` gives way.
+    async fn run_steps(&self, id: Uuid, job: &Job<'_>, yields: bool) -> Answer<Running> {
+        let hold_ms = self.settings().await?.ms(Time::HoldBound);
+        let deadline = job.whole.then(|| self.now().saturating_add(job.limit.as_millis() as i64));
         let (stop, (session, sessions)) = (Arc::new(AtomicBool::new(false)), tokio::sync::mpsc::unbounded_channel());
         let (dir, steps, env, priority) = (job.dir.to_path_buf(), job.steps.to_vec(), job.env.clone(), job.priority);
         let (ended, clock, limit) = (stop.clone(), self.clock.clone(), deadline.map_or(job.limit, |_| Duration::MAX));

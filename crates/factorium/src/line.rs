@@ -3,7 +3,10 @@
 //! fast-forwards the base branch to the proving tip once the slow gate is
 //! green; a cut makes a version from the base tip ([`cut`]). Each push
 //! requires the tip it read. Each runs in its own clone of the checkout
-//! under the data directory.
+//! under the data directory. The daemon runs a promotion's slow gate and a
+//! cut's steps beside its ticks ([`Moving`]): the next tick finds how they
+//! ended and finishes the move. A checkout's moves go one at a time: none
+//! of its moves is carried while one of them runs beside the ticks.
 
 mod cut;
 
@@ -12,16 +15,18 @@ use std::path::Path;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::doctor::Stuck;
+use factorium_domain::heavy::Ends;
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
 use factorium_domain::settings::Setting;
 use factorium_domain::worker::{self as w, Workers};
-use factorium_host::{Git, Lag};
+use factorium_host::{Git, Lag, Ran};
 use factum::Uuid;
 use serde_json::{Value, json};
 
-use crate::gate::At;
+use crate::gate::{At, Gated};
+use crate::heavy::For;
 use crate::life::End;
 use crate::lock::{self, Taken};
 use crate::{Answer, App, LineClone, Want, fail};
@@ -50,25 +55,66 @@ pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
 pub(crate) type Did = Result<Value, String>;
 
 /// Why a move that is due did not run this tick.
-const QUEUED: &str = "waits its turn in the heavy-command queue";
+const QUEUED: &str = "waits its turn in the heavy-command queue, or runs beside the ticks";
+
+/// A line's move whose heavy command runs beside the daemon's ticks, of `checkout`: what is
+/// left to do once its steps end.
+pub(crate) struct Moving {
+    pub(crate) checkout: String,
+    then: Then,
+}
+
+enum Then {
+    /// The promotion of the proving `tip` over `base`, its slow gate run in the clone `dir`,
+    /// holding the checkout's promotion lock.
+    Promote { tip: String, base: String, dir: std::path::PathBuf, _lock: std::sync::Arc<std::fs::File> },
+    /// The cut of `version` from `base`, its `steps` run in the clone `dir`.
+    Cut { version: String, base: String, dir: std::path::PathBuf, steps: Vec<String> },
+}
 
 impl App {
-    /// The tick's pass over the lines: each checkout's landing, then each
-    /// one's promotion and cut as its line says each is due, then its local
-    /// base following origin's as last fetched, whatever left it behind.
-    /// Answers what landed, and what else moved.
+    /// The tick's pass over the lines: each move that ran beside the ticks
+    /// and ended, finished; each checkout's landing, then each one's
+    /// promotion and cut as its line says each is due, but none of a
+    /// checkout whose move runs on; then its local base following origin's
+    /// as last fetched, whatever left it behind. Answers what landed, and
+    /// what else moved.
     pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<(Vec<Value>, Vec<Value>)> {
         let (mut landed, mut lines) = (Vec::new(), Vec::new());
-        for c in checkouts {
+        for (of, ended) in self.beside(|f| matches!(f, For::Line(_)), false, false).await? {
+            let For::Line(moving) = of else { continue };
+            lines.extend(self.moved(*moving, ended).await?.ok());
+        }
+        let free = |c: &&Checkout| !self.beside_runs(|f| f.moves(&c.name));
+        for c in checkouts.iter().filter(free) {
             landed.extend(self.carry(c, Move::Land, false).await?.ok());
         }
         for c in checkouts {
             for mv in [Move::Promote, Move::Cut] {
-                lines.extend(self.carry(c, mv, false).await?.ok());
+                if free(&c) {
+                    lines.extend(self.carry(c, mv, false).await?.ok());
+                }
             }
             lines.extend(follow_base(c, &self.host.git(&c.path), &c.fetched_base()));
         }
         Ok((landed, lines))
+    }
+
+    /// Finishes `moving`, whose steps ran beside the ticks and `ended` so: unqueued while they
+    /// ran, it is due again.
+    async fn moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
+        let c = self.checkout(&moving.checkout).await?;
+        let Ok(rans) = ended else { return Ok(Err(format!("a move of {} was unqueued while it ran", c.name))) };
+        match moving.then {
+            Then::Promote { tip, base, dir, _lock } => {
+                let ran = rans.into_iter().next().expect("one step");
+                let gated = self.gate_ran(&c.name, &self.host.git(&dir), &tip, false, Kind::Slow, ran).await?;
+                self.promote_gated(&c, &self.host.git(&c.path), tip, base, gated).await
+            }
+            Then::Cut { version, base, dir, steps } => {
+                self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans).await
+            }
+        }
     }
 
     /// Carries out `mv` on `c` if its line says it is due now.
@@ -179,11 +225,11 @@ impl App {
         // One promotion of a checkout at a time: a second would reset the
         // clone under the running one's slow gate.
         let who = if by_hand { "`factorium promote`" } else { "the daemon's promotion" };
-        let _running = match lock::take(
+        let running = match lock::take(
             &self.data().promotion_lock(&c.name),
             &format!("{who} of {tip}, pid {}", std::process::id()),
         ) {
-            Ok(running) => running,
+            Ok(running) => std::sync::Arc::new(running),
             Err(taken) => {
                 let held = match taken {
                     Taken::Held(held) if held.is_empty() => "another promotion".into(),
@@ -194,8 +240,21 @@ impl App {
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
-        let at = At::Commit { rev: &tip, by_hand, bound_at };
+        let at = if by_hand {
+            At::Commit { rev: &tip, by_hand, bound_at }
+        } else {
+            let (dir, _lock) = (here.dir.clone(), running.clone());
+            let then = Then::Promote { tip: tip.clone(), base: base.clone(), dir, _lock };
+            let moving = Moving { checkout: c.name.clone(), then };
+            At::Beside { rev: &tip, bound_at, moving: Box::new(moving) }
+        };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(Err(QUEUED.into())) };
+        self.promote_gated(c, git, tip, base, gated).await
+    }
+
+    /// Promotes the proving `tip` of `c` over `base` as its slow gate says: red, it is recorded
+    /// red; green, the base is fast-forwarded to it.
+    async fn promote_gated(&self, c: &Checkout, git: &Git, tip: String, base: String, gated: Gated) -> Answer<Did> {
         let behind = git.is_ancestor(&base, &tip);
         let red = (!gated.green).then(|| gated.why());
         let promotion = line::Promotion { checkout: c.name.clone(), tip: tip.clone(), base: base.clone(), red, behind };

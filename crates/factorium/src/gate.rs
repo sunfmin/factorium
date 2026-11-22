@@ -11,7 +11,7 @@ use factorium_host::{Git, Ran};
 use factum::Uuid;
 use std::path::PathBuf;
 
-use crate::heavy::{Job, Turn};
+use crate::heavy::{For, Job, Turn};
 use crate::{Answer, App, fail};
 
 /// What a gate is run on.
@@ -19,6 +19,10 @@ pub(crate) enum At<'a> {
     /// A commit of the line's clone: the daemon asks once per tick; by hand
     /// it waits its turn. `bound_at`: when the move it is for falls due however busy.
     Commit { rev: &'a str, by_hand: bool, bound_at: Option<i64> },
+    /// A commit of the line's clone the daemon gates beside its ticks, for the line's move
+    /// `moving`: it asks once per tick and, let start, answers not yet until
+    /// [`App::gate_ran`] records how it ran.
+    Beside { rev: &'a str, bound_at: Option<i64>, moving: Box<crate::line::Moving> },
     /// A worker's worktree as it stands, waiting its turn. A dirty one is
     /// run but not recorded: its tree is no commit's.
     Worktree { worker: Uuid, number: u64 },
@@ -53,13 +57,12 @@ impl App {
     /// is green already. `None`: not its turn yet; ask again next tick.
     pub(crate) async fn gate(&self, checkout: &str, here: &Git, at: At<'_>, kind: Kind) -> Answer<Option<Gated>> {
         let (rev, dirty) = match at {
-            At::Commit { rev, .. } => (rev, false),
+            At::Commit { rev, .. } | At::Beside { rev, .. } => (rev, false),
             At::Worktree { .. } => ("HEAD", here.dirty().map_err(fail("git"))?),
         };
         let tree = here.tree(rev).map_err(fail("git"))?;
-        let recorded = !dirty;
-        if recorded && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
-            return Ok(Some(Gated { green: true, tree, recorded, ran: None, kept: String::new() }));
+        if !dirty && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
+            return Ok(Some(Gated { green: true, tree, recorded: true, ran: None, kept: String::new() }));
         }
         let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: String::new() }));
@@ -71,12 +74,33 @@ impl App {
                 let turn = if by_hand { Turn::Wait } else { Turn::Once(record_key(checkout, &tree, kind)) };
                 (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), turn)
             }
+            At::Beside { bound_at, moving, .. } => {
+                let key = Some(record_key(checkout, &tree, kind));
+                let turn = Turn::Beside { key, yields: false, of: For::Line(moving) };
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), turn)
+            }
             At::Worktree { worker, number } => {
                 (job(format!("{} gate of {checkout}#{number}", named(kind))).of(Some(worker), None), Turn::Wait)
             }
         };
-        let Some(mut rans) = self.heavy(job, turn).await? else { return Ok(None) };
+        let beside = matches!(turn, Turn::Beside { .. });
+        let Some(mut rans) = self.heavy(job, turn).await?.filter(|_| !beside) else { return Ok(None) };
         let ran = rans.pop().expect("one step");
+        self.gate_ran(checkout, here, rev, dirty, kind, ran).await.map(Some)
+    }
+
+    /// Records how the `kind` gate of `checkout` ran on `rev` in `here` (unless `dirty`: its tree
+    /// is no commit's), and keeps its whole output; answers what it says.
+    pub(crate) async fn gate_ran(
+        &self,
+        checkout: &str,
+        here: &Git,
+        rev: &str,
+        dirty: bool,
+        kind: Kind,
+        ran: Ran,
+    ) -> Answer<Gated> {
+        let (tree, recorded) = (here.tree(rev).map_err(fail("git"))?, !dirty);
         if recorded {
             let record = GateRan {
                 checkout: checkout.into(),
@@ -92,7 +116,7 @@ impl App {
         let kept = commit.and_then(|commit| self.keep_output(checkout, kind, &commit, &ran.said));
         let kept =
             kept.map_or_else(|e| format!("whole output not kept: {e}"), |p| format!("whole output: {}", p.display()));
-        Ok(Some(Gated { green: ran.ok, tree, recorded, ran: Some(ran), kept }))
+        Ok(Gated { green: ran.ok, tree, recorded, ran: Some(ran), kept })
     }
 
     /// Keeps `said`, the whole output of `checkout`'s `kind` gate on

@@ -1,13 +1,16 @@
-//! The cut: a version from the base tip, its steps in one heavy turn, then
-//! the tag and the formula's install; recorded once, done or failed.
+//! The cut: a version from the base tip, its steps in one heavy turn (the
+//! daemon's beside its ticks), then the tag and the formula's install;
+//! recorded once, done or failed.
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::heavy::LineJob;
 use factorium_domain::line::{self, next_version};
 use serde_json::{Value, json};
 
-use super::{Did, QUEUED};
-use crate::heavy::{Job, Turn};
+use factorium_host::{Git, Ran};
+
+use super::{Did, Moving, QUEUED, Then};
+use crate::heavy::{For, Job, Turn};
 use crate::{Answer, App, LineClone, fail};
 
 impl App {
@@ -20,28 +23,51 @@ impl App {
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().first().map(String::as_str));
         let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
+        // The steps share the clone, so they take one turn of the queue.
+        let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
+        let turn = if by_hand {
+            Turn::Wait
+        } else {
+            let key = Some(format!("cut:{}:{version}:{base}", c.name));
+            let (version, base, dir, steps) = (version.clone(), base.clone(), here.dir.clone(), cut.steps.clone());
+            let then = Then::Cut { version, base, dir, steps };
+            Turn::Beside { key, yields: false, of: For::Line(Box::new(Moving { checkout: c.name.clone(), then })) }
+        };
+        let Some(rans) = self.heavy(job, turn).await?.filter(|_| by_hand) else { return Ok(Err(QUEUED.into())) };
+        self.cut_ran(c, &here, &version, &base, &cut.steps, rans).await
+    }
+
+    /// Finishes the cut of `version` of `c` from `base`, whose `steps` ran in the clone `here`
+    /// so: tagged and installed once they all passed, recorded made or failed.
+    pub(super) async fn cut_ran(
+        &self,
+        c: &Checkout,
+        here: &Git,
+        version: &str,
+        base: &str,
+        steps: &[String],
+        rans: Vec<Ran>,
+    ) -> Answer<Did> {
+        let declared = self.declared(here, base)?;
+        let formula = declared.cut.and_then(|cut| cut.formula);
         let record = |commit: &str, failed: Option<String>| line::Cut {
             checkout: c.name.clone(),
-            version: version.clone(),
+            version: version.into(),
             commit: commit.into(),
             failed,
         };
-        // The steps share the clone, so they take one turn of the queue.
-        let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
-        let turn = if by_hand { Turn::Wait } else { Turn::Once(format!("cut:{}:{version}:{base}", c.name)) };
-        let Some(rans) = self.heavy(job, turn).await? else { return Ok(Err(QUEUED.into())) };
         // Each step after the queue, in turn; the first that fails is why the
         // cut failed, and every way it fails is recorded the one way.
         let done = async {
             if let Some(ran) = rans.last().filter(|r| !r.ok) {
-                return Err(format!("step `{}` failed:\n{}", cut.steps[rans.len() - 1], ran.tail));
+                return Err(format!("step `{}` failed:\n{}", steps[rans.len() - 1], ran.tail));
             }
-            let tagged = here.sha("HEAD").and_then(|t| here.tag_pushed(&version, &t).map(|_| t));
+            let tagged = here.sha("HEAD").and_then(|t| here.tag_pushed(version, &t).map(|_| t));
             let tagged = tagged.map_err(|e| format!("tagging failed: {e}"))?;
-            let Some(formula) = &cut.formula else { return Ok((tagged, None)) };
+            let Some(formula) = &formula else { return Ok((tagged, None)) };
             // The daemon's own formula: it sees the new link once the tick ends.
             // It waits, up to 90s, for a tap pushed seconds ago: off the runtime's threads.
-            let (host, f, v) = (self.host.clone(), formula.clone(), version.clone());
+            let (host, f, v) = (self.host.clone(), formula.clone(), version.to_string());
             let up = tokio::task::spawn_blocking(move || host.brew().upgrade(&f, &v));
             let up = up.await.unwrap_or_else(|e| Err(format!("brew panicked: {e}")));
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
@@ -51,7 +77,7 @@ impl App {
         let (tagged, installed) = match done.await {
             Ok(done) => done,
             Err(why) => {
-                self.submit::<line::RecordCut>(record(&base, Some(why.clone()))).await?;
+                self.submit::<line::RecordCut>(record(base, Some(why.clone()))).await?;
                 return Ok(Ok(json!({ "cut": c.name, "version": version, "failed": why })));
             }
         };

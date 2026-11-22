@@ -128,7 +128,8 @@ impl App {
         }
         t.resumed = self.resume_parked().await?;
         t.watch = self.look_if_due(&settings).await?;
-        t.restart = self.swapped().map(|b| b.to_string_lossy().into_owned());
+        // Not while a line move runs beside the ticks: a restart would end it.
+        t.restart = (!self.moves_run()).then(|| self.swapped()).flatten().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
     }
 
@@ -324,7 +325,7 @@ impl App {
                 self.clock.sleep(STOP_POLL).await;
             }
         }
-        let _ = self.beside(false, true).await;
+        let _ = self.beside(|_| true, false, true).await;
         let _ = std::fs::remove_file(self.data().ticked());
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
@@ -371,7 +372,7 @@ impl App {
             Ok(fd) => fd,
             Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
         };
-        let _ = self.beside(false, true).await;
+        let _ = self.beside(|_| true, false, true).await;
         let e =
             std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
         let _ = crate::host::procs::kept_across_exec(held, false);
