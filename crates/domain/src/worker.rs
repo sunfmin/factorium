@@ -108,9 +108,6 @@ pub struct Worker {
     /// same words read again are not a new one.
     #[serde(default)]
     pub limit: Option<Limit>,
-    /// When it last asked to land while it waited, and was refused, ms.
-    #[serde(default)]
-    pub done_refused: Option<i64>,
 }
 
 /// A limit its engine reached, as its screen said, until when, and when it
@@ -249,10 +246,6 @@ pub enum WorkerEvent {
     /// Its engine is at its limit, as its screen said, until then (ms): it
     /// waits, parked until the reset.
     WorkerLimited(Limit),
-    /// It asked to land while it waited for the watch, and was refused.
-    DoneRefused {
-        at: i64,
-    },
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -324,7 +317,6 @@ impl Aggregate for Workers {
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
             WorkerEvent::WaitEnded => s.declared = None,
             WorkerEvent::WorkerLimited(l) => (s.limit, s.parked) = (Some(l), true),
-            WorkerEvent::DoneRefused { at } => s.done_refused = Some(at),
             _ => {}
         }
     }
@@ -377,13 +369,6 @@ on_worker!(AskLanding, "worker.done", Of, |s, p, now| {
         Status::Landing => Ok(Vec::new()),
         _ => no("waiting", "the worker waits for the watch"),
     }
-});
-
-// A waiting worker's `done` was refused: it works again, which the watch
-// is to look at anew.
-on_worker!(RefuseLanding, "worker.done_refused", Of, |s, p, now| {
-    live(s)?;
-    only(s.status == Status::Waiting, WorkerEvent::DoneRefused { at: now.0 })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

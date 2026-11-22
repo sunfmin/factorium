@@ -92,13 +92,7 @@ impl App {
             let why = format!("check out your branch {} again: landing takes it", st.branch);
             return Err(Refusal::new("off_branch", why));
         }
-        if let Err(r) = self.submit::<w::AskLanding>(w::Of { worker }).await {
-            // Refused while it waits: the watch takes another round on it.
-            if r.code == "waiting" {
-                self.submit::<w::RefuseLanding>(w::Of { worker }).await?;
-            }
-            return Err(r);
-        }
+        self.submit::<w::AskLanding>(w::Of { worker }).await?;
         let said = "Landing is queued. Stop here: if it is red you will be told why in this terminal; if it is green your session ends.";
         Ok(json!({ "landing": true, "said": said }))
     }

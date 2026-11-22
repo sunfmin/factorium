@@ -513,8 +513,8 @@ async fn a_waiting_worker_the_watch_s_tell_reaches_works_again_and_its_done_land
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
-/// A worker refused `done` because it still waits is a new finding: the
-/// watch's round on its wait is past, and it takes another.
+/// A worker refused `done` because it still waits stands as found: past
+/// `round_again`, the watch takes another round on it, its key unchanged.
 #[tokio::test]
 async fn a_done_refused_while_the_worker_waits_gets_the_watch_another_round() {
     let w = World::new();
@@ -527,13 +527,12 @@ async fn a_done_refused_while_the_worker_waits_gets_the_watch_another_round() {
     assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "its wait had its round");
     w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
     crate::fixture::refused(w.app.worker_done(id(&wk)).await, "waiting");
-    w.advance(5);
+    w.advance(25);
     w.tick().await;
     let next = w.app.watch_next().await.unwrap();
     assert_eq!(next["round"]["n"], 2, "{next}");
-    assert!(next["episode"]["what"].as_str().unwrap().contains("was refused"), "{next}");
     let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
-    assert!(round.contains("round 2") && round.contains("worker done"), "{round}");
+    assert!(round.contains("round 2") && round.contains("Answered: v2."), "{round}");
 }
 
 /// The round's action did not end what it found: `round_again` after it

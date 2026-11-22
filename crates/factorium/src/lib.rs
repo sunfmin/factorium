@@ -128,7 +128,6 @@ fn model() -> Model {
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()
         .command::<worker::Resume>()
-        .command::<worker::RefuseLanding>()
         .command::<worker::Park>()
         .command::<worker::Unpark>()
         .command::<worker::EndWorker>()

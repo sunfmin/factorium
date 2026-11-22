@@ -170,7 +170,9 @@ impl App {
         }
         // Its engine is at its limit: it stays parked, and the reset sends it back.
         if let Outcome::Held { until, .. } = &delivery {
-            return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "until": until }));
+            return Ok(
+                json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "until": until, "missed": delivery.why() }),
+            );
         }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
