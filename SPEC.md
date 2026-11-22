@@ -131,6 +131,12 @@ leaves it out: the daemon runs the look.
    issue closed or unknown, or not its last started attempt's — is a
    doctor finding, fixed by `discard <worktree>`, which removes it the
    same way.
+   A git worktree registered inside a worker's worktree (slimfit's
+   comparison worktree, `.slimfit/out/before`) goes first when it holds
+   no work: clean and detached at a commit on the proving or base branch.
+   One that holds work is kept where it is: the removal (landed, closed,
+   started over or discarded) changes nothing, a discard or close is
+   refused naming it and why, and doctor's finding names it.
 7. Promotion and cut follow on their own (§1.13, §1.14); idle work runs
    when nothing else does (§1.16).
 8. A checkout whose proving tip pins another checkout by git rev in its
