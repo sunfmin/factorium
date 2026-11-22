@@ -156,10 +156,7 @@ pub enum KitEvent {
         until: i64,
     },
     /// The host's own login of a harness is at its limit until then (ms).
-    HarnessLimited {
-        harness: String,
-        until: i64,
-    },
+    HarnessLimited(HarnessNote),
 }
 
 pub struct Kits;
@@ -175,7 +172,7 @@ impl Aggregate for Kits {
             KitEvent::CheckoutPinned { checkout, harness: Some(h) } => _ = s.pins.insert(checkout, h),
             KitEvent::CheckoutPinned { checkout, harness: None } => _ = s.pins.remove(&checkout),
             KitEvent::AccountLimited { name, until } => s.accounts.entry(name).or_default().limited_until = Some(until),
-            KitEvent::HarnessLimited { harness, until } => _ = s.limits.insert(harness, until),
+            KitEvent::HarnessLimited(n) => _ = s.limits.insert(n.harness, n.until),
         }
     }
 }
@@ -235,7 +232,7 @@ command!(
     HarnessNote,
     |_p| kit_id(),
     |s, p, now| Ok::<_, factum_core::Rejection>(if s.limits.get(&p.harness).is_none_or(|u| *u < p.until) {
-        vec![KitEvent::HarnessLimited { harness: p.harness.clone(), until: p.until }]
+        vec![KitEvent::HarnessLimited(p.clone())]
     } else {
         Vec::new()
     })

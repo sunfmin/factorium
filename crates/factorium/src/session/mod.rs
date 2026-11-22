@@ -102,10 +102,11 @@ impl App {
         match s.harness.stopped(&screen) {
             Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
             Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
-            _ => {}
-        }
-        if let Some((said, until)) = self.new_limit(s, &screen, past) {
-            return Some(Sight::Limit { said, until });
+            stop => {
+                if let Some((said, until)) = self.new_limit(stop, past) {
+                    return Some(Sight::Limit { said, until });
+                }
+            }
         }
         if let Some(why) = s.harness.not_up(&screen) {
             return Some(Sight::Down(why));
@@ -117,11 +118,11 @@ impl App {
         })
     }
 
-    /// The limit `screen`, session `s`'s, says its engine is at, but in other
-    /// words than `past` (a limit seen before, still on it): those words and
-    /// when it resets, in ms.
-    fn new_limit(&self, s: &Session, screen: &[String], past: Option<&str>) -> Option<(String, i64)> {
-        match s.harness.stopped(screen) {
+    /// The limit a session's screen says its engine is at (its `stop`), but
+    /// in other words than `past` (a limit seen before, still on it): those
+    /// words and when it resets, in ms.
+    fn new_limit(&self, stop: Option<Stop>, past: Option<&str>) -> Option<(String, i64)> {
+        match stop {
             Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
                 Some((said, self.now() + resets_in_ms))
             }

@@ -226,11 +226,7 @@ pub enum WorkerEvent {
     WaitDeclared(Declared),
     /// Its engine is at its limit, as its screen said, until then (ms): it
     /// waits, parked until the reset.
-    WorkerLimited {
-        said: String,
-        until: i64,
-        at: i64,
-    },
+    WorkerLimited(Limit),
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -253,10 +249,10 @@ impl WorkerEvent {
             WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
             WorkerEvent::WorkerResumed { at } => (Status::Working, None, *at),
             WorkerEvent::WorkerEnded { why, at } => (Status::Ended, Some(why.clone()), *at),
-            WorkerEvent::WorkerLimited { said, until, at } => (
+            WorkerEvent::WorkerLimited(l) => (
                 Status::Waiting,
-                Some(format!("its engine is at its limit, parked until it resets at {until} (ms): {said}")),
-                *at,
+                Some(format!("its engine is at its limit, parked until it resets at {} (ms): {}", l.until, l.said)),
+                l.at,
             ),
             _ => return None,
         };
@@ -300,9 +296,7 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
-            WorkerEvent::WorkerLimited { said, until, at } => {
-                (s.limit, s.parked) = (Some(Limit { said, until, at }), true)
-            }
+            WorkerEvent::WorkerLimited(l) => (s.limit, s.parked) = (Some(l), true),
             _ => {}
         }
     }

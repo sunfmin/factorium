@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::neutral::hot::Shares;
 use crate::settings::{Setting, Settings, Time};
-use crate::worker::{Status, Worker, WorkerEvent, Workers};
+use crate::worker::{Limit, Status, Worker, WorkerEvent, Workers};
 use crate::{command, no};
 
 pub use crate::neutral::hot::{Load, quiet};
@@ -116,7 +116,7 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
             return if w.status != Status::Working {
                 Vec::new()
             } else {
-                vec![WorkerEvent::WorkerLimited { said: said.clone(), until: *until, at: now }]
+                vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
             };
         }
         Sight::Stopped(said) => return wait(format!("its harness stopped: {said}")),
@@ -228,7 +228,7 @@ impl Verdict {
             match crate::tracker::decode(e) {
                 Ok(WorkerEvent::WentHot { evidence, .. }) => hot = Some(evidence),
                 Ok(WorkerEvent::UsedUp { said, until }) => return Verdict::UsedUp { said, until },
-                Ok(WorkerEvent::WorkerLimited { said, until, .. }) => return Verdict::Limited { said, until },
+                Ok(WorkerEvent::WorkerLimited(l)) => return Verdict::Limited { said: l.said, until: l.until },
                 Ok(WorkerEvent::WorkerWaits { why, .. }) => return Verdict::Waits { why, hot },
                 _ => {}
             }

@@ -108,7 +108,7 @@ impl App {
             Some(l) => l.until,
             None => {
                 let Term::Running(screen) = self.host.orca().screen(&s.terminal) else { return None };
-                self.new_limit(s, &screen, limit.map(|l| l.said.as_str()))?.1
+                self.new_limit(s.harness.stopped(&screen), limit.map(|l| l.said.as_str()))?.1
             }
         };
         Some(Outcome::Held { until, why: format!("its engine is at its limit until it resets at {until} (ms)") })
