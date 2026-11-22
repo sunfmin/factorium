@@ -76,9 +76,12 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     );
     assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "no round for it");
 
-    // A word for it meanwhile is held too.
+    // A word for it meanwhile is held too, and a comment on its issue.
     let told = w.app.watch_tell(id(&wk), "go on", false).await.unwrap();
     assert_eq!((told["delivery"].clone(), sent(&w, &wk).len()), (json!("held"), typed), "{told}");
+    assert!(told["missed"].as_str().unwrap().contains("at its limit"), "{told}");
+    let shown = w.app.issue_comment("web", 1, "use v2").await.unwrap();
+    assert_eq!(shown["delivery"], "held", "{shown}");
 
     // At the reset, to the ms, back to work: what was held first, then the
     // word of the reset.
@@ -89,8 +92,9 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     assert!(t.started.is_some(), "the harness is free again: {t:?}");
     assert_eq!(w.worker_on("web", 1).await["status"], "working");
     let now_typed = sent(&w, &wk);
-    let [red, word, reset] = &now_typed[now_typed.len() - 3..] else { unreachable!() };
+    let [red, word, comment, reset] = &now_typed[now_typed.len() - 4..] else { unreachable!() };
     assert!(red.contains("landing was red") && word.ends_with("go on"), "{now_typed:?}");
+    assert!(comment.ends_with("use v2"), "{now_typed:?}");
     assert!(reset.contains("limit reset"), "{now_typed:?}");
     assert_eq!(w.app.doctor().await.unwrap()["limited"], json!([]));
 
