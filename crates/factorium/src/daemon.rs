@@ -53,23 +53,21 @@ pub struct Tick {
     pub took_ms: i64,
     /// The step it spent most in.
     pub longest: Step,
+    /// Past half the hang bound.
+    pub slow: bool,
 }
 
 impl Tick {
-    /// Whether it did something: landed, moved a line, saw, started or
-    /// resumed a worker, or moved idle work.
-    pub fn acted(&self) -> bool {
-        self.started.is_some()
+    /// Whether daemon.log has it, with its time: it was slow, or did something (landed, moved a
+    /// line, saw, started or resumed a worker, or moved idle work).
+    pub fn logged(&self) -> bool {
+        self.slow
+            || self.started.is_some()
             || !self.landed.is_empty()
             || !self.lines.is_empty()
             || !self.seen.is_empty()
             || !self.idle.is_empty()
             || !self.resumed.is_empty()
-    }
-
-    /// Whether daemon.log has it, with its time: it did something, or was slow.
-    pub fn logged(&self, tick_every: i64) -> bool {
-        self.acted() || daemon::slow(self.took_ms, tick_every)
     }
 }
 
@@ -98,7 +96,7 @@ impl App {
         let every = self.settings().await.unwrap_or_default().ms(Time::TickEvery);
         let slow = daemon::slow(took_ms, every).then(|| (took_ms, steps.longest.clone()));
         if let Ok(t) = &mut done {
-            (t.took_ms, t.longest) = (took_ms, steps.longest);
+            (t.took_ms, t.longest, t.slow) = (took_ms, steps.longest, slow.is_some());
         }
         let noted = self.submit::<NoteTick>(Ticked { error, slow }).await;
         if done.is_err() || noted.is_err() {
@@ -343,14 +341,9 @@ impl App {
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             let ticked = self.tick().await;
             self.note_ticked();
-            let every = self
-                .settings()
-                .await
-                .map(|s| s.ms(Time::TickEvery))
-                .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             match ticked {
                 Ok(t) => {
-                    if t.logged(every) {
+                    if t.logged() {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {
@@ -365,6 +358,11 @@ impl App {
                 }
             }
             ticks += 1;
+            let every = self
+                .settings()
+                .await
+                .map(|s| s.ms(Time::TickEvery))
+                .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             // On the app's clock, in slices, so a stop between ticks ends the wait.
             let until = self.now() + every;
             while !stop.load(std::sync::atomic::Ordering::Relaxed) && self.now() < until {

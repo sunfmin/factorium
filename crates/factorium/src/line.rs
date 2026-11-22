@@ -79,7 +79,6 @@ enum Then {
 #[derive(Clone)]
 struct Landing {
     worker: Uuid,
-    number: u64,
     /// The proving tip it merged onto, which its push requires.
     tip: String,
     /// The worker's branch head it merged: moved since, it lands again.
@@ -215,7 +214,7 @@ impl App {
                 return self.red(red).await.map(Ok);
             }
         };
-        let landing = Landing { worker, number: st.number, tip, head, merged, message, regenerated };
+        let landing = Landing { worker, tip, head, merged, message, regenerated };
         let then = Then::Land { landing: landing.clone(), dir: here.dir.clone() };
         let moving = Box::new(Moving { checkout: c.name.clone(), then });
         let at = At::Beside { rev: &landing.merged, bound_at: None, moving };
@@ -227,12 +226,12 @@ impl App {
     /// proving is pushed to the merge. Not once the worker no longer asks to land, or its branch
     /// moved since the merge: it lands again on a later tick.
     async fn land_gated(&self, c: &Checkout, here: &Git, landing: Landing, gated: Gated) -> Answer<Did> {
-        let Landing { worker, number, tip, head, merged, message, regenerated } = landing;
+        let Landing { worker, tip, head, merged, message, regenerated } = landing;
         let wk = self.state::<Workers>(worker).await?;
         if wk.status != w::Status::Landing {
             return Ok(Err(format!("worker {worker} no longer asks to land")));
         }
-        let branch = wk.started.as_ref().map(|st| st.branch.as_str()).unwrap_or_default();
+        let (branch, number) = wk.started.as_ref().map(|st| (st.branch.as_str(), st.number)).unwrap_or_default();
         if self.host.git(&c.path).sha(branch).ok().as_deref() != Some(head.as_str()) {
             return Ok(Err(format!("the branch of worker {worker} moved while its gate ran: it lands again")));
         }
