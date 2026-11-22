@@ -14,19 +14,12 @@ use super::{Did, Moving, QUEUED, Then};
 use crate::heavy::{For, Job, Turn};
 use crate::{Answer, App, LineClone, fail};
 
-/// A cut of `version` of `checkout` from `base`.
-#[derive(Clone)]
-struct Cut {
-    checkout: String,
-    version: String,
-    base: String,
-}
-
 /// A cut tagged at `tagged` and its `formula` installed, whose binary's
 /// proof (factorium#141) runs beside the daemon's ticks (factorium#242): a
 /// `doctor` of a slow binary has up to 120 s, past half the hang bound.
 pub(crate) struct Proving {
-    cut: Cut,
+    /// As recorded failed: its commit the base.
+    cut: line::Cut,
     tagged: String,
     formula: String,
     proven: tokio::sync::watch::Receiver<Option<Result<(), String>>>,
@@ -90,34 +83,36 @@ impl App {
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
             Ok((tagged, Some((formula.clone(), self.proves_formula(formula)))))
         };
-        let cut = Cut { checkout: c.name.clone(), version: version.into(), base: base.into() };
-        let (tagged, installed) = match done.await {
+        let cut = line::Cut { checkout: c.name.clone(), version: version.into(), commit: base.into(), failed: None };
+        let made = match done.await {
             Ok((tagged, Some((formula, Some(proof))))) if beside => {
                 let (tx, proven) = tokio::sync::watch::channel(None);
                 tokio::spawn(async move { tx.send_replace(Some(proof.await)) });
                 self.memory.lock().unwrap().proving.push(Proving { cut, tagged, formula, proven });
                 return Ok(Err("its installed binary is being proven beside the ticks".into()));
             }
-            Ok((tagged, Some((formula, Some(proof))))) => (tagged, proof.await.map(|()| Some(formula))),
-            Ok((tagged, installed)) => (tagged, Ok(installed.map(|(f, _)| f))),
-            Err(why) => (String::new(), Err(why)),
+            Ok((tagged, Some((formula, Some(proof))))) => proof.await.map(|()| (tagged, Some(formula))),
+            Ok((tagged, installed)) => Ok((tagged, installed.map(|(f, _)| f))),
+            Err(why) => Err(why),
         };
-        self.cut_recorded(cut, &tagged, installed).await
+        self.cut_recorded(cut, made).await
     }
 
-    /// Records `cut` made at `tagged`, its formula `installed` (if it declares one), or failed why.
-    async fn cut_recorded(&self, cut: Cut, tagged: &str, installed: Result<Option<String>, String>) -> Answer<Did> {
-        let Cut { checkout, version, base } = cut;
-        let (commit, failed) = match &installed {
-            Ok(_) => (tagged.to_string(), None),
-            Err(why) => (base, Some(why.clone())),
+    /// Records `cut` made at the tagged commit, its formula installed (if it declares one), or
+    /// failed why.
+    async fn cut_recorded(&self, mut cut: line::Cut, made: Result<(String, Option<String>), String>) -> Answer<Did> {
+        let did = match made {
+            Ok((tagged, installed)) => {
+                cut.commit = tagged;
+                json!({ "cut": cut.checkout, "version": cut.version, "commit": cut.commit, "installed": installed })
+            }
+            Err(why) => {
+                cut.failed = Some(why.clone());
+                json!({ "cut": cut.checkout, "version": cut.version, "failed": why })
+            }
         };
-        let record = line::Cut { checkout: checkout.clone(), version: version.clone(), commit: commit.clone(), failed };
-        self.submit::<line::RecordCut>(record).await?;
-        Ok(Ok(match installed {
-            Ok(installed) => json!({ "cut": checkout, "version": version, "commit": commit, "installed": installed }),
-            Err(why) => json!({ "cut": checkout, "version": version, "failed": why }),
-        }))
+        self.submit::<line::RecordCut>(cut).await?;
+        Ok(Ok(did))
     }
 
     /// Each cut whose proof ran beside the ticks and ended, recorded as it
@@ -130,8 +125,8 @@ impl App {
                 let Some(i) = m.proving.iter().position(|p| p.proven.borrow().is_some()) else { return Ok(did) };
                 m.proving.remove(i)
             };
-            let proven = p.proven.borrow().clone().expect("ended").map(|()| Some(p.formula.clone()));
-            match self.cut_recorded(p.cut.clone(), &p.tagged, proven).await {
+            let proven = p.proven.borrow().clone().expect("ended");
+            match self.cut_recorded(p.cut.clone(), proven.map(|()| (p.tagged.clone(), Some(p.formula.clone())))).await {
                 Ok(d) => did.extend(d.ok()),
                 Err(e) => {
                     self.memory.lock().unwrap().proving.push(p);

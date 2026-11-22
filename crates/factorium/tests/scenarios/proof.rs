@@ -28,14 +28,14 @@ echo 'Error: no such column: handed_back'; exit 1
 /// Ticks until one asks for the restart onto the newer binary, each within
 /// `tick_bound`: answers how many it took.
 async fn ticks_until_restart(w: &World, tick_bound: Duration) -> usize {
-    ticks_until(w, tick_bound, |t| t.restart.is_some()).await.len()
+    ticks_until(w, tick_bound, |t| t.restart.is_some()).await.0
 }
 
-/// Ticks until one is `done`, each within `tick_bound`: answers them all. A
+/// Ticks until one is `done`, each within `tick_bound`: answers how many it took, and that one. A
 /// tick that blocks on a proof cannot be timed out on its own runtime: past
 /// [`STUCK`] a watchdog ends the run, red, so it never holds the heavy queue
 /// (factorium#241's old copy never ended).
-async fn ticks_until(w: &World, tick_bound: Duration, done: impl Fn(&Tick) -> bool) -> Vec<Tick> {
+async fn ticks_until(w: &World, tick_bound: Duration, done: impl Fn(&Tick) -> bool) -> (usize, Tick) {
     let (_done, watched) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = watched.recv_timeout(STUCK) {
@@ -43,20 +43,19 @@ async fn ticks_until(w: &World, tick_bound: Duration, done: impl Fn(&Tick) -> bo
             std::process::exit(101);
         }
     });
-    let (begun, mut ticks) = (Instant::now(), Vec::new());
-    loop {
+    let begun = Instant::now();
+    for ticks in 1.. {
         let at = Instant::now();
         let t = w.tick_alone().await;
-        assert!(at.elapsed() < tick_bound, "tick {} waited on the proof: {:?}", ticks.len() + 1, at.elapsed());
+        assert!(at.elapsed() < tick_bound, "tick {ticks} waited on the proof: {:?}", at.elapsed());
         assert!(!t.slow, "{t:?}");
-        let ended = done(&t);
-        ticks.push(t);
-        if ended {
-            return ticks;
+        if done(&t) {
+            return (ticks, t);
         }
         assert!(begun.elapsed() < STUCK, "the proof ends within its bound");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    unreachable!()
 }
 
 #[tokio::test]
@@ -146,12 +145,10 @@ async fn cut_proven_beside_the_ticks(w: &World, script: &str) -> (Value, Option<
     w.done(&wk, "a", "x").await;
     let begun = Instant::now();
     let cut = |t: &Tick| t.lines.iter().find(|l| l["cut"] == "web").cloned();
-    let ticks = ticks_until(w, Duration::from_secs(3), |t| cut(t).is_some()).await;
+    let (ticks, last) = ticks_until(w, Duration::from_secs(3), |t| cut(t).is_some()).await;
     assert!(begun.elapsed() >= Duration::from_secs(6), "recorded once its proof ended: {:?}", begun.elapsed());
-    let proving = ticks.iter().rev().skip(1).take_while(|t| cut(t).is_none()).count();
-    assert!(proving > 1, "ticks came while it was proven: {proving}");
-    let last = ticks.last().unwrap();
-    (cut(last).unwrap(), last.restart.clone())
+    assert!(ticks - 1 > 1, "ticks came while it was proven: {}", ticks - 1);
+    (cut(&last).unwrap(), last.restart)
 }
 
 /// Seen in factorium#241: a cut's proof ran in the tick that finished the
