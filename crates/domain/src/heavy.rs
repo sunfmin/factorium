@@ -155,6 +155,12 @@ impl Queue {
         queue::oldest(&self.entries)
     }
 
+    /// When the newest of `checkout`'s line jobs that run now started, if one runs.
+    pub fn started(&self, checkout: &str) -> Option<i64> {
+        let jobs = [LineJob::Gate(Kind::Fast), LineJob::Gate(Kind::Slow), LineJob::Cut].map(|j| j.of(checkout));
+        self.running().filter(|e| jobs.contains(&e.what)).filter_map(|e| e.started_at).max()
+    }
+
     /// Whether the line job `job` of `checkout` runs now.
     pub fn runs(&self, checkout: &str, job: LineJob) -> bool {
         let what = job.of(checkout);

@@ -25,9 +25,9 @@ impl Aggregate for Lines {
         s.apply(event)
     }
 
-    /// "2": what is uncut keeps which issue landed.
+    /// "3": the line keeps when it last moved.
     fn code() -> &'static str {
-        "2"
+        "3"
     }
 }
 
@@ -138,7 +138,7 @@ command!(RecordCut, "line.cut", Lines, Cut, |p| line_id(&p.checkout), |s, p, now
     }
     Ok(vec![match &p.failed {
         Some(why) => LineEvent::CutFailed { version: p.version.clone(), why: why.clone() },
-        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone() },
+        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: Some(now.0) },
     }])
 });
 

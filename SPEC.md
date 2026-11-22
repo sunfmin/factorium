@@ -148,8 +148,11 @@ to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a 
 for one reason past the host's span. So does a line that stopped:
 whatever it owes is done within its bound or is a finding — a heavy
 queue that starts nothing past `stall_bound` (or whose oldest waits past
-`hold_bound` and `stall_bound` more), a landing no gate runs for past
-`stall_bound`, the oldest unpromoted landing past `promotion_bound` with
+`hold_bound` and `stall_bound` more), a landing no gate runs for on a
+line that has not moved for `stall_bound` (no landing, promotion, cut or
+line job started on its checkout in that time, nor its own ask: one that
+waits its turn behind landings that move is no stall, and `doctor` lists
+it under `landing` with its place in its checkout's line), the oldest unpromoted landing past `promotion_bound` with
 no promotion running, the oldest uncut promotion past `cut_bound` with no
 cut running. A waiting worker whose issue the watch blocks is parked: on the first tick
 that finds everything its issue waits for met, as step 1 defines met, it is

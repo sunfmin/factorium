@@ -51,6 +51,17 @@ impl World {
         );
     }
 
+    /// Each line has a snapshot kept by code `code` that says it last moved
+    /// at `moved`, ms, and holds nothing.
+    pub fn line_snapshots_kept_by(&self, code: &str, moved: i64) {
+        self.migrate(&format!(
+            "INSERT OR REPLACE INTO snapshots (stream, version, code, state) \
+             SELECT stream, MAX(version), '{code}', json_object('unpromoted', json_array(), 'uncut', json_array(), \
+                 'promoted', NULL, 'red', NULL, 'version', NULL, 'cut_failed', NULL, 'held', NULL, 'moved', {moved}) \
+             FROM events WHERE stream IN (SELECT stream FROM events WHERE kind = 'Landed') GROUP BY stream;"
+        ));
+    }
+
     /// The issues' comments as the first version of their event wrote them:
     /// text alone, no author nor time.
     pub fn comments_as_their_first_version_wrote_them(&self) {
