@@ -27,20 +27,28 @@ pub(crate) struct Live {
     pub(crate) started: Started,
     pub(crate) session: Session,
     pub(crate) waiting: bool,
-    /// The last limit its engine was seen at.
+    /// The last limit its engine was seen at, and whether it waits on it.
     pub(crate) limit: Option<w::Limit>,
+    pub(crate) on_limit: bool,
 }
 
 impl App {
     /// Worker `worker`, live as `want` accepts it, with its session: one read.
     pub(crate) async fn live(&self, worker: Uuid, want: Want) -> Answer<Live> {
         let wk = self.state::<Workers>(worker).await?;
+        let on_limit = wk.waits_on_limit().is_some();
         let started = wk.started.ok_or_else(|| Refusal::new("no_worker", format!("no worker {worker}")))?;
         let waiting = wk.status == Status::Waiting;
         match want {
             _ if wk.status == Status::Ended => Err(Refusal::new("ended", "this worker has ended")),
             Want::Working if waiting => Err(Refusal::new("waiting", "this worker waits for the watch")),
-            _ => Ok(Live { session: Self::worker_session(worker, &started)?, started, waiting, limit: wk.limit }),
+            _ => Ok(Live {
+                session: Self::worker_session(worker, &started)?,
+                started,
+                waiting,
+                on_limit,
+                limit: wk.limit,
+            }),
         }
     }
 

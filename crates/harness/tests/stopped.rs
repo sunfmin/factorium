@@ -41,6 +41,8 @@ fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
     assert_eq!(agy.stopped(&wrapped), limit(line[..cut].trim(), at), "wrapped");
     let untold = "⚠ Individual quota reached. Please upgrade your subscription.";
     assert_eq!(agy.stopped(&screen(&[untold])), limit(untold, 3_600_000), "no reset given");
+    let days = "⚠ Individual quota reached. Resets in 1d3h.";
+    assert_eq!(agy.stopped(&screen(&[days])), limit(days, 27 * 3_600_000), "in days");
     assert_eq!(agy.stopped(&screen(&["> fix it", "~/w"])), None);
     assert_eq!(Harness::read("pi").unwrap().stopped(&screen(&[line])), None, "not pi's");
 }

@@ -14,7 +14,7 @@ use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
-use factorium_domain::worker::{Of, Status as WorkerStatus, Unlimit, Unpark, Workers};
+use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
@@ -247,7 +247,7 @@ impl App {
     /// so a restart that does not reach it leaves it to the watch.
     async fn resume_limited(&self, worker: factum::Uuid) -> Value {
         let did = async {
-            self.submit::<Unlimit>(Of { worker }).await?;
+            self.submit::<Unpark>(Of { worker }).await?;
             let text = "Your engine's limit reset. Pick up your issue where you left it.";
             self.restart(worker, Author::Factorium, text, false).await
         };

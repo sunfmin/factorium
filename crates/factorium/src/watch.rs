@@ -187,7 +187,7 @@ impl App {
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
         // Parked on its engine's limit, it is held and typed at the reset.
-        if live.waiting && !live.limit.as_ref().is_some_and(|l| l.waits) {
+        if live.waiting && !live.on_limit {
             return Ok(("watch", None));
         }
         let d = self.tell(&live.session, Sender::Comment, text, false).await?;

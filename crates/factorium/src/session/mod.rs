@@ -102,11 +102,10 @@ impl App {
         match s.harness.stopped(&screen) {
             Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
             Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
-            Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
-                return Some(Sight::Limit { said, until: self.now() + resets_in_ms });
-            }
-            Some(Stop::Limit { .. }) => {}
-            None => {}
+            _ => {}
+        }
+        if let Some((said, until)) = self.new_limit(s, &screen, past) {
+            return Some(Sight::Limit { said, until });
         }
         if let Some(why) = s.harness.not_up(&screen) {
             return Some(Sight::Down(why));
@@ -116,6 +115,18 @@ impl App {
             Some(Turn::Closed { since, .. }) => Sight::Closed(Some(since as i64 * 1000)),
             None => Sight::Closed(None),
         })
+    }
+
+    /// The limit `screen`, session `s`'s, says its engine is at, but in other
+    /// words than `past` (a limit seen before, still on it): those words and
+    /// when it resets, in ms.
+    fn new_limit(&self, s: &Session, screen: &[String], past: Option<&str>) -> Option<(String, i64)> {
+        match s.harness.stopped(screen) {
+            Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
+                Some((said, self.now() + resets_in_ms))
+            }
+            _ => None,
+        }
     }
 
     /// What worker session `st` spent, as its session files say now; `None`:

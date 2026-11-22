@@ -74,7 +74,8 @@ pub struct Worker {
     #[serde(default)]
     pub freed_at: Option<i64>,
     /// Waiting, its issue was blocked: the watch parked it behind what its
-    /// issue waits for, and it goes back to work once all of that is met.
+    /// issue waits for, and it goes back to work once all of that is met;
+    /// or its engine is at its limit, and it goes back at the reset.
     #[serde(default)]
     pub parked: bool,
     /// The tokens its session spent, as its session files said once it
@@ -92,24 +93,21 @@ pub struct Worker {
     pub limit: Option<Limit>,
 }
 
-/// A limit its engine reached, as its screen said, until when (ms), and
-/// whether it waits on it: parked until the reset, no finding meanwhile.
+/// A limit its engine reached, as its screen said, until when, and when it
+/// was seen (ms).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Limit {
     pub said: String,
     pub until: i64,
-    pub waits: bool,
+    pub at: i64,
 }
 
 impl Worker {
-    /// The limit it waits on, parked until its reset.
+    /// The limit it waits on, parked on it since it was seen, until its
+    /// reset: no finding meanwhile.
     pub fn waits_on_limit(&self) -> Option<&Limit> {
-        self.limit.as_ref().filter(|l| l.waits && self.status == Status::Waiting)
-    }
-
-    /// The limit its engine is at now, if one is.
-    pub fn limited(&self, now: i64) -> Option<&Limit> {
-        self.limit.as_ref().filter(|l| l.until > now)
+        let waits = self.parked && self.status == Status::Waiting;
+        self.limit.as_ref().filter(|l| waits && l.at == self.since)
     }
 }
 
@@ -233,9 +231,6 @@ pub enum WorkerEvent {
         until: i64,
         at: i64,
     },
-    /// Its engine's limit reset: no longer parked on it, whether or not its
-    /// restart reaches it.
-    WorkerUnlimited,
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -293,10 +288,7 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerLanded { commit, .. } => s.landed = Some(commit),
             WorkerEvent::WorkerWaits { .. } => (s.over_since, s.quiet) = (None, None),
             WorkerEvent::WorkerResumed { .. } => {
-                (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false);
-                if let Some(l) = &mut s.limit {
-                    l.waits = false;
-                }
+                (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false)
             }
             WorkerEvent::WorkerParked => s.parked = true,
             WorkerEvent::WorkerUnparked => s.parked = false,
@@ -308,11 +300,8 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
-            WorkerEvent::WorkerLimited { said, until, .. } => s.limit = Some(Limit { said, until, waits: true }),
-            WorkerEvent::WorkerUnlimited => {
-                if let Some(l) = &mut s.limit {
-                    l.waits = false;
-                }
+            WorkerEvent::WorkerLimited { said, until, at } => {
+                (s.limit, s.parked) = (Some(Limit { said, until, at }), true)
             }
             _ => {}
         }
@@ -469,8 +458,9 @@ command!(
 );
 
 command!(
-    /// What a parked worker's issue waited for is met: it is no longer
-    /// parked, whether or not its restart reaches it.
+    /// What a parked worker's issue waited for is met, or its engine's
+    /// limit reset: it is no longer parked, whether or not its restart
+    /// reaches it.
     Unpark,
     "worker.unpark",
     Workers,
@@ -557,19 +547,4 @@ command!(
         live(s)?;
         Ok(vec![WorkerEvent::Spent(p.tokens)])
     }
-);
-
-command!(
-    /// Its engine's limit reset: a worker parked on it is no longer, whether
-    /// or not its restart reaches it.
-    Unlimit,
-    "worker.unlimit",
-    Workers,
-    Of,
-    |p| p.worker,
-    |s, _p, _now| Ok::<_, Rejection>(if s.limit.as_ref().is_some_and(|l| l.waits) {
-        vec![WorkerEvent::WorkerUnlimited]
-    } else {
-        Vec::new()
-    })
 );

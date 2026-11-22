@@ -123,7 +123,6 @@ fn model() -> Model {
         .command::<worker::Resume>()
         .command::<worker::Park>()
         .command::<worker::Unpark>()
-        .command::<worker::Unlimit>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()
         .command::<worker::NoteSpent>()

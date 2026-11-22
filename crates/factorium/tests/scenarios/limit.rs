@@ -76,16 +76,22 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     );
     assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "no round for it");
 
-    // At the reset, back to work: the red first, then the word of the reset.
-    w.advance(1);
+    // A word for it meanwhile is held too.
+    let told = w.app.watch_tell(id(&wk), "go on", false).await.unwrap();
+    assert_eq!((told["delivery"].clone(), sent(&w, &wk).len()), (json!("held"), typed), "{told}");
+
+    // At the reset, to the ms, back to work: what was held first, then the
+    // word of the reset.
+    w.clock.advance(until - w.app_now());
     let t = w.tick().await;
     assert_eq!(t.resumed.len(), 1, "{t:?}");
     assert_eq!(t.resumed[0]["resumed"], true, "{t:?}");
     assert!(t.started.is_some(), "the harness is free again: {t:?}");
     assert_eq!(w.worker_on("web", 1).await["status"], "working");
-    let typed = sent(&w, &wk);
-    let [red, reset] = &typed[typed.len() - 2..] else { unreachable!() };
-    assert!(red.contains("landing was red") && reset.contains("limit reset"), "{typed:?}");
+    let now_typed = sent(&w, &wk);
+    let [red, word, reset] = &now_typed[now_typed.len() - 3..] else { unreachable!() };
+    assert!(red.contains("landing was red") && word.ends_with("go on"), "{now_typed:?}");
+    assert!(reset.contains("limit reset"), "{now_typed:?}");
     assert_eq!(w.app.doctor().await.unwrap()["limited"], json!([]));
 
     // Its old quota, still on its screen, is no new limit; a new one is.
@@ -111,4 +117,20 @@ async fn a_checkout_not_pinned_starts_its_next_worker_on_another_harness_while_a
     w.app.issue_add("web", "two", "", false, &[]).await.unwrap();
     let t = w.tick().await;
     assert_eq!(t.started.unwrap()["harness"], "claude-code");
+}
+
+#[tokio::test]
+async fn a_worker_its_reset_does_not_reach_is_the_watch_s() {
+    let w = World::new();
+    let wk = w.working("agy=agy", "t").await;
+    spent(&w, &wk, 1);
+    w.tick().await;
+    let key = format!("worker:{}", wk["worker"].as_str().unwrap());
+    assert!(!finding_keys(&w.app.doctor().await.unwrap()).contains(&key));
+    w.host.orca.fault("send-refused", true);
+    w.advance(171);
+    let t = w.tick().await;
+    assert!(t.resumed[0]["refused"].is_string(), "{t:?}");
+    assert_eq!(w.worker_on("web", 1).await["status"], "waiting");
+    assert!(finding_keys(&w.app.doctor().await.unwrap()).contains(&key), "no longer parked: the watch's");
 }

@@ -11,7 +11,7 @@ use factorium_domain::outbox::{
 };
 use factorium_domain::watch::{Watches, watch_id};
 use factorium_domain::worker as w;
-use factorium_harness::{Stop, Turn};
+use factorium_harness::Turn;
 use factorium_host::{Delivery, Term};
 use factum::Uuid;
 use serde_json::json;
@@ -108,12 +108,7 @@ impl App {
             Some(l) => l.until,
             None => {
                 let Term::Running(screen) = self.host.orca().screen(&s.terminal) else { return None };
-                match s.harness.stopped(&screen) {
-                    Some(Stop::Limit { said, resets_in_ms }) if limit.is_none_or(|l| l.said != said) => {
-                        self.now() + resets_in_ms
-                    }
-                    _ => return None,
-                }
+                self.new_limit(s, &screen, limit.map(|l| l.said.as_str()))?.1
             }
         };
         Some(Outcome::Held { until, why: format!("its engine is at its limit until it resets at {until} (ms)") })
