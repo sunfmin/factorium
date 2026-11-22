@@ -75,6 +75,14 @@ impl App {
         let parked: Vec<Value> = (seen.waiting.iter().filter(|w| !w.parked.is_empty()))
             .map(|w| json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "waits_for": w.parked }))
             .collect();
+        let mut declared = Vec::new();
+        for w in self.rows(tracker::workers(Some(worker::Status::Working), false)).await? {
+            let wk = self.state::<worker::Workers>(w.worker).await?;
+            if let Some(d) = wk.declared.filter(|d| d.until >= self.now()) {
+                let issue = format!("{}#{}", w.checkout, w.number);
+                declared.push(json!({ "worker": w.worker, "issue": issue, "why": d.why, "until": d.until }));
+            }
+        }
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         Ok(json!({
@@ -89,6 +97,8 @@ impl App {
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
             "reading": reading,
+            // Working workers waiting on a long command of their own, as they declared, until when (ms).
+            "waiting": declared,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
         }))
     }

@@ -303,7 +303,9 @@ fn worker_brief(
          it. Run `factorium worker gate` to run the repo's fast gate, as often as you like. When the work is \
          committed and the gate is green, run `factorium worker done`: factorium merges your branch onto the \
          proving branch and runs the gate there. To keep a record on your issue (measurements, what you found), run \
-         `factorium worker comment --text \"…\"`: it calls no one, so go on. If you cannot go on without a \
+         `factorium worker comment --text \"…\"`: it calls no one, so go on. Before a long wait on a background \
+         command of your own (a download), run `factorium worker waiting --why \"<what>\" --until <45m|2h>`, or \
+         you are reported silent 30 min after your turn ends. If you cannot go on without a \
          decision or something you lack, run `factorium worker escalate \"what you need\"` and stop.\n"
     ));
     b

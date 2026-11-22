@@ -282,6 +282,17 @@ pub enum WorkerCmd {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Says you wait on a long command of your own (a background download),
+    /// kept as a comment on your issue: you are not found silent until
+    /// `--until` from now (held to 2h). Past it you are, with what you said.
+    Waiting {
+        /// What you wait for.
+        #[arg(long)]
+        why: String,
+        /// How long: `90s`, `45m`, `2h`; a bare number is minutes.
+        #[arg(long, value_parser = duration_ms)]
+        until: i64,
+    },
     /// Files an issue your issue asks for (a follow-up), as `issue add`
     /// does, on any checkout on the list; your issue keeps the record
     /// ("filed <checkout>#<n>") and the filed one names you. Answers it,
@@ -448,6 +459,7 @@ impl Top {
                     };
                     app.worker_comment(worker_id()?, &text).await
                 }
+                WorkerCmd::Waiting { why, until } => app.worker_waiting(worker_id()?, &why, until).await,
                 WorkerCmd::File { checkout, title, body_file, blocked_by, independent } => {
                     let body = body_text(None, Some(body_file))?.unwrap_or_default();
                     app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by, independent).await
@@ -470,6 +482,15 @@ impl Top {
             Top::Run | Top::Guard { .. } => unreachable!("main.rs answers it"),
         }
     }
+}
+
+/// A duration given as `90s`, `45m` or `2h` (a bare number is minutes), in ms.
+fn duration_ms(s: &str) -> Result<i64, String> {
+    let t = s.trim();
+    let units = [('s', 1_000), ('m', 60_000), ('h', 3_600_000)];
+    let (n, per) = units.iter().find_map(|&(u, per)| Some((t.strip_suffix(u)?, per))).unwrap_or((t, 60_000));
+    let n: i64 = n.trim().parse().map_err(|_| format!("`{s}` is not a duration such as `90s`, `45m` or `2h`"))?;
+    Ok(n.saturating_mul(per))
 }
 
 /// The body given by `--body`, or read as UTF-8 text from `--body-file`
@@ -505,5 +526,20 @@ fn shell_word(s: &str) -> String {
         s.into()
     } else {
         factorium_harness::quoted(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration_ms;
+
+    #[test]
+    fn a_duration_is_read_in_seconds_minutes_or_hours_and_a_bare_number_is_minutes() {
+        assert_eq!(duration_ms("90s"), Ok(90_000));
+        assert_eq!(duration_ms("45m"), Ok(45 * 60_000));
+        assert_eq!(duration_ms("2h"), Ok(2 * 3_600_000));
+        assert_eq!(duration_ms("60"), Ok(60 * 60_000));
+        assert!(duration_ms("2d").is_err());
+        assert!(duration_ms("soon").is_err());
     }
 }
