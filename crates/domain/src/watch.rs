@@ -339,25 +339,16 @@ command!(LookNow, "watch.look", Watches, Look, |_p| watch_id(), |s, p, now| {
     for k in &gone {
         ev.push(WatchEvent::EpisodeClosed { key: (*k).clone() });
     }
-    let mut running = s.round.clone();
-    let mut ended = None;
-    if let Some(r) = &running
-        && now.0 - r.at > p.bound
-    {
+    let timed_out = s.round.as_ref().filter(|r| now.0 - r.at > p.bound);
+    if let Some(r) = timed_out {
         ev.push(WatchEvent::RoundEnded { n: r.n, why: "past its bound".into() });
-        (ended, running) = (Some(r.episode.clone()), None);
     }
-    if running.is_none() && p.ready {
-        let mut fresh: Vec<((bool, i64), &String)> = s
-            .episodes
-            .iter()
-            .filter(|(k, e)| e.due(now.0, p.again, p.rounds_max) && !gone.contains(k) && ended.as_ref() != Some(k))
-            .map(|(k, e)| ((e.round.is_some(), e.ended.as_ref().map_or(e.opened_at, |d| d.at)), k))
-            .collect();
-        fresh.sort();
-        let next = fresh
-            .first()
-            .map(|(_, k)| (*k).clone())
+    if (s.round.is_none() || timed_out.is_some()) && p.ready {
+        let ended = timed_out.map(|r| &r.episode);
+        let next = (s.episodes.iter())
+            .filter(|(k, e)| e.due(now.0, p.again, p.rounds_max) && !gone.contains(k) && ended != Some(*k))
+            .min_by_key(|(_, e)| (e.round.is_some(), e.ended.as_ref().map_or(e.opened_at, |d| d.at)))
+            .map(|(k, _)| k.clone())
             .or_else(|| p.found.iter().find(|f| !s.episodes.contains_key(&f.key)).map(|f| f.key.clone()));
         if let Some(episode) = next {
             ev.push(WatchEvent::RoundStarted { n: s.rounds + 1, episode, at: now.0 });

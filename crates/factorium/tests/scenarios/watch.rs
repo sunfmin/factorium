@@ -513,37 +513,18 @@ async fn a_waiting_worker_the_watch_s_tell_reaches_works_again_and_its_done_land
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
-/// A worker refused `done` because it still waits stands as found: past
-/// `round_again`, the watch takes another round on it, its key unchanged.
+/// The round's action did not end what it found (here: the worker, still
+/// waiting, is refused `done`, its key unchanged): `round_again` after the
+/// report, the next look starts another round, carrying that report.
 #[tokio::test]
-async fn a_done_refused_while_the_worker_waits_gets_the_watch_another_round() {
+async fn a_finding_still_standing_after_its_round_gets_another_carrying_the_last_report() {
     let w = World::new();
     let wk = escalated(&w).await;
     w.advance(5);
     w.tick().await;
     w.app.watch_report("Answered: v2.", None).await.unwrap();
-    w.advance(5);
-    w.tick().await;
-    assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "its wait had its round");
     w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
     crate::fixture::refused(w.app.worker_done(id(&wk)).await, "waiting");
-    w.advance(25);
-    w.tick().await;
-    let next = w.app.watch_next().await.unwrap();
-    assert_eq!(next["round"]["n"], 2, "{next}");
-    let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
-    assert!(round.contains("round 2") && round.contains("Answered: v2."), "{round}");
-}
-
-/// The round's action did not end what it found: `round_again` after it
-/// was reported, the next look starts another round, carrying the report.
-#[tokio::test]
-async fn a_finding_still_standing_after_its_round_gets_another_carrying_the_last_report() {
-    let w = World::new();
-    escalated(&w).await;
-    w.advance(5);
-    w.tick().await;
-    w.app.watch_report("Read its terminal; nothing to fix.", None).await.unwrap();
     w.advance(25);
     w.tick().await;
     assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "not before round_again");
@@ -551,8 +532,7 @@ async fn a_finding_still_standing_after_its_round_gets_another_carrying_the_last
     w.tick().await;
     assert_eq!(w.app.watch_next().await.unwrap()["round"]["n"], 2);
     let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
-    assert!(round.contains("round 2") && round.contains("Read its terminal; nothing to fix."), "{round}");
-    assert!(round.contains("still there"), "{round}");
+    assert!(round.contains("round 2") && round.contains("Answered: v2.") && round.contains("still there"), "{round}");
 }
 
 /// Past `rounds_max` rounds on one finding, no round starts; doctor shows
