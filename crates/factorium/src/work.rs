@@ -1,4 +1,4 @@
-//! A worker's own commands: `factorium worker gate|done|escalate|comment|file|exclusive`.
+//! A worker's own commands: `factorium worker gate|done|escalate|comment|waiting|file|exclusive`.
 //! The worker is named by `FACTORIUM_WORKER`, which its session was
 //! started with.
 
@@ -106,6 +106,20 @@ impl App {
         let st = self.live(worker, Want::Any).await?.started;
         self.note(&st.checkout, st.number, Author::Worker(worker), text).await?;
         Ok(json!({ "commented": true, "checkout": st.checkout, "number": st.number }))
+    }
+
+    /// Declares a wait on a long command of the worker's own (a download it
+    /// runs in the background): no silence is found in it until `for_ms`
+    /// from now, held to two hours. Kept on its issue, as its comment.
+    pub async fn worker_waiting(&self, worker: Uuid, why: &str, for_ms: i64) -> Answer {
+        let st = self.live(worker, Want::Working).await?.started;
+        self.submit::<w::DeclareWait>(w::Declare { worker, why: why.into(), for_ms }).await?;
+        let d = self.state::<Workers>(worker).await?.declared.expect("a wait just declared");
+        let mins = (d.until - d.at) / 60_000;
+        let text = format!("waits {mins} min for: {why}");
+        self.note(&st.checkout, st.number, Author::Worker(worker), &text).await?;
+        let said = "Not found silent before then. Past it, the watch is told what you said.";
+        Ok(json!({ "waiting": d.why, "until": d.until, "minutes": mins, "said": said }))
     }
 
     /// Files an issue the worker's issue asks for, as `issue add` does (on

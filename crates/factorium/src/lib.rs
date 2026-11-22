@@ -126,6 +126,7 @@ fn model() -> Model {
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()
         .command::<worker::NoteSpent>()
+        .command::<worker::DeclareWait>()
         .command::<health::Observe>()
         .aggregate::<gate::Gates>()
         .command::<gate::RecordGate>()

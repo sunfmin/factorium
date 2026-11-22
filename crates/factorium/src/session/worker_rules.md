@@ -25,6 +25,11 @@ Your brief (the file you were handed) says what the issue is.
   the owner asked you to put in a comment), run
   `factorium worker comment --text "…"` (or pipe it on stdin). It changes
   nothing else and calls no one; go on working.
+- Before a long wait on a background command of your own (a download, a
+  long run), run `factorium worker waiting --why "<what>" --until <45m|2h>`.
+  Otherwise a turn ended 30 min without `factorium worker done` is reported
+  silent to the watch. It is held to 2h; past it you are reported, with
+  what you said.
 - When your issue asks you to file follow-up issues, run
   `factorium worker file <checkout> <title> --body-file <f>
   [--blocked-by <[checkout#]N[@cut]>]…` for each: it files the issue (on
