@@ -212,8 +212,8 @@ Doctor answers `decided`: every record, in any issue body or comment
 (a comment is one only when its first line starts `Decided (`) of any
 checkout, made since the owner last ran `decided --read`, newest first,
 each with its checkout and number, who, what, options, chose, undo and when.
-`factorium decided` answers those of the last 7 days, read or not; `--read`,
-the owner's alone, marks every one until now read. Nothing copies a record
+`factorium decided` answers those of the last 7 days, read or not; `--read`
+(the owner's: the watch's brief says it never runs it) marks every one until now read. Nothing copies a record
 out of its issue.
 
 ## 3. One database

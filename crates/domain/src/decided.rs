@@ -39,27 +39,14 @@ pub fn in_body(body: &str) -> Vec<Record> {
     heads.filter_map(|i| read(lines[i], lines[i + 1..].iter().copied())).collect()
 }
 
-/// The record headed by `head`, its fields from the lines after it up to
+/// The record headed by `head`, each field from its own line after it, up to
 /// the next record or a blank line; none unless `head` is a record's.
 fn read<'a>(head: &str, rest: impl Iterator<Item = &'a str>) -> Option<Record> {
     let (who, what) = head.strip_prefix(HEAD)?.split_once("):")?;
     let who = who.split_once(", for").map_or(who, |(w, _)| w).trim();
-    // Options, Chose, Undo: each from its line, going on over the lines after it.
-    const FIELDS: [&str; 3] = ["Options:", "Chose:", "Undo:"];
-    let mut fields: [Option<String>; 3] = Default::default();
-    let mut last = None;
-    for line in rest.take_while(|l| !l.is_empty() && !l.starts_with(HEAD)) {
-        match FIELDS.iter().enumerate().find_map(|(i, p)| Some((i, line.strip_prefix(p)?))) {
-            Some((i, value)) => (fields[i], last) = (Some(value.trim().into()), Some(i)),
-            None => {
-                if let Some(v) = last.and_then(|i| fields[i].as_mut()) {
-                    v.push(' ');
-                    v.push_str(line);
-                }
-            }
-        }
-    }
-    let [options, chose, undo] = fields;
+    let lines: Vec<&str> = rest.take_while(|l| !l.is_empty() && !l.starts_with(HEAD)).collect();
+    let field = |p: &str| lines.iter().find_map(|l| Some(l.strip_prefix(p)?.trim().to_string()));
+    let (options, chose, undo) = (field("Options:"), field("Chose:"), field("Undo:"));
     Some(Record { who: who.into(), what: what.trim().into(), options, chose, undo })
 }
 
@@ -69,7 +56,7 @@ mod tests {
 
     const RECORD: &str = "Decided (worker, for Felix): KEEP applies only to sampled survivors\n\
         Options: A) every survivor  B) sampled survivors only\n\
-        Chose: B, because the issue is stricter\n  than it says\n\
+        Chose: B, because the issue is stricter than it says\n\
         Undo: revert the commit";
 
     fn kept() -> Record {

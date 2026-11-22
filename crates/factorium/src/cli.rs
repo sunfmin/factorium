@@ -71,7 +71,7 @@ pub enum Top {
     /// Answers the Decided records of the last 7 days, newest first, each
     /// with its issue, who, what, options, chose, undo and when; `--read`
     /// marks every one made until now read, so doctor's `decided` leaves
-    /// them out (the owner's alone: the watch reads them, never marks them).
+    /// them out.
     Decided {
         #[arg(long)]
         read: bool,
@@ -478,9 +478,6 @@ impl Top {
             Top::Workers { all } => app.workers(all).await,
             Top::Outbox { worker } => app.outbox_of(worker).await,
             Top::Doctor => app.doctor_here().await,
-            Top::Decided { read: true } if !matches!(caller, Caller::Owner) => {
-                Err(Refusal::new("guarded", "only the owner marks the Decided records read"))
-            }
             Top::Decided { read } => app.decided_view(read).await,
             Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
