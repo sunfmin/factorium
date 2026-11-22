@@ -136,6 +136,11 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!(timed["not_before"]["ms"], until["not_before"]["ms"], "{timed}");
     let (ok, answer) = run(&dir, &["issue", "block", "web", "2", "--until"]);
     assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("no_time")), "{answer}");
+    // A role named at edit, changed with the title, then taken away.
+    let role = dir.0.to_str().unwrap();
+    let named = issue(&["edit", "web", "3", "--role", role, "--title", "Recount it"]);
+    assert_eq!((named["role"].clone(), named["title"].clone()), (json!(role), json!("Recount it")), "{named}");
+    assert_eq!(issue(&["edit", "web", "3", "--no-role"])["role"], json!(null));
     issue(&["close", "web", "3", "--reason", "only shown"]);
     let wall = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
     let before = wall();
