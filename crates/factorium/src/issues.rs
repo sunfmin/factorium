@@ -1,18 +1,29 @@
 //! The tracker: every `issue` command, and the issue reads and notes the
 //! daemon, the line, the watch and a worker's life share.
 
+use factorium_domain::decided;
 use factorium_domain::issue::*;
 use factorium_domain::issue_id;
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::tracker::{self, shown};
 use factorium_domain::when;
-use factum::Command;
+use factum::{Aggregate, Command};
 use serde_json::json;
 
 use crate::kept::Why;
 use crate::life::End;
 use crate::{Answer, App, Refusal};
+
+/// A Decided record as [`App::records`] finds it.
+pub(crate) struct Found {
+    pub checkout: String,
+    pub number: u64,
+    pub at: Option<i64>,
+    pub place: Place,
+    pub id: Option<u64>,
+    pub record: decided::Record,
+}
 
 impl App {
     /// Makes an issue numbered one past the checkout's last, waiting from
@@ -63,6 +74,7 @@ impl App {
 
     /// Opens `open` as the checkout's next issue; answers its number.
     pub(crate) async fn open_issue(&self, mut open: Open) -> Answer<u64> {
+        open.decided = self.give_numbers(decided::in_body(&open.body).len()).await?;
         loop {
             let last = self.rows(tracker::last_issue(&open.checkout)).await?;
             open.number = last.first().map_or(0, |r| r.number) + 1;
@@ -87,7 +99,8 @@ impl App {
     }
 
     pub async fn issue_show(&self, checkout: &str, number: u64) -> Answer {
-        let i = self.issue(checkout, number).await?;
+        let i =
+            self.issue(checkout, number).await?.numbered(&self.state::<decided::Numbers>(decided::numbers_id()).await?);
         Ok(json!({
             "checkout": i.checkout,
             "number": i.number,
@@ -104,13 +117,24 @@ impl App {
             "role": i.on.role,
             "account": i.on.account,
             "spent": self.issue_spent(&i).await?,
-            "comments": i.comments.iter().map(|c| json!({ "text": c.text, "by": c.by.to_string(), "at": c.at })).collect::<Vec<_>>(),
+            "decided": i.decided.iter().map(|m| decided::name(m.id)).collect::<Vec<_>>(),
+            "comments": i.comments.iter().map(|c| {
+                let mut shown = json!({ "text": c.text, "by": c.by.to_string(), "at": c.at });
+                if let Some(id) = c.decided {
+                    shown["decided"] = json!(decided::name(id));
+                }
+                shown
+            }).collect::<Vec<_>>(),
         }))
     }
 
     pub async fn issue_edit(&self, checkout: &str, number: u64, title: Option<&str>, body: Option<&str>) -> Answer {
-        let edit = Edit { checkout: checkout.into(), number, title: title.map(Into::into), body: body.map(Into::into) };
-        self.submit::<EditIssue>(edit).await?;
+        // A record the edit adds takes the next number; one it keeps keeps its
+        // own. Another edit that came first refuses it (`no_numbers`): edit again.
+        let i = self.issue(checkout, number).await?;
+        let fresh = self.give_numbers(unnumbered(&i, body.unwrap_or(&i.body))).await?;
+        let (title, body) = (title.map(Into::into), body.map(Into::into));
+        self.submit::<EditIssue>(Edit { checkout: checkout.into(), number, title, body, fresh }).await?;
         self.issue_show(checkout, number).await
     }
 
@@ -248,8 +272,103 @@ impl App {
     /// it: by the owner, its workers, the watch, and factorium. Recording
     /// passes it to no one.
     pub(crate) async fn note(&self, checkout: &str, number: u64, by: Author, text: &str) -> Answer<()> {
-        self.submit::<CommentIssue>(Comment { checkout: checkout.into(), number, text: text.into(), by }).await?;
+        self.issue(checkout, number).await?;
+        let record = decided::in_comment(text).is_some();
+        let decided = self.give_numbers(usize::from(record)).await?.first().copied();
+        let comment = Comment { checkout: checkout.into(), number, text: text.into(), by, decided };
+        self.submit::<CommentIssue>(comment).await?;
         Ok(())
+    }
+
+    /// The next `count` numbers of the host's Decided records, once the
+    /// records made before numbers were given have theirs ([`App::number_decided`]).
+    pub(crate) async fn give_numbers(&self, count: usize) -> Answer<Vec<u64>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        if !self.state::<decided::Numbers>(decided::numbers_id()).await?.swept {
+            self.number_decided().await?;
+        }
+        self.numbers(count, false).await
+    }
+
+    /// `count` numbers given, as the sequence recorded them.
+    async fn numbers(&self, count: usize, sweep: bool) -> Answer<Vec<u64>> {
+        let events = self.decide::<decided::GiveNumbers>(decided::Give { count: count as u64, sweep }).await?;
+        let mut given = Vec::new();
+        for e in &events {
+            if let Ok(decided::NumbersEvent::NumbersGiven { from, count, .. }) = tracker::decode(e) {
+                given.extend(from..from + count);
+            }
+        }
+        Ok(given)
+    }
+
+    /// Numbers every Decided record that has none, oldest first by when it
+    /// was made (a body's, when its issue was filed): once for the records
+    /// made before numbers were given, and after for any whose numbering
+    /// did not finish. An open issue takes its numbers as its own event; a
+    /// closed one takes none, so the sequence places them (SPEC §2).
+    pub(crate) async fn number_decided(&self) -> Answer<()> {
+        let swept = self.state::<decided::Numbers>(decided::numbers_id()).await?.swept;
+        let mut open: Vec<_> = self.records().await?.into_iter().filter(|f| f.id.is_none()).collect();
+        if open.is_empty() && swept {
+            return Ok(());
+        }
+        open.sort_by_key(|f| f.at.unwrap_or(0));
+        let ids = self.numbers(open.len(), true).await?;
+        let mut placed = std::collections::BTreeMap::new();
+        for (f, id) in open.into_iter().zip(ids) {
+            let key = (f.checkout.clone(), f.number);
+            let n = placed.entry(key).or_insert_with(|| decided::Numbering {
+                checkout: f.checkout,
+                number: f.number,
+                body: Vec::new(),
+                comments: Vec::new(),
+            });
+            match f.place {
+                Place::Body => n.body.push(decided::Mark::of(&f.record, id)),
+                Place::Comment(c) => n.comments.push((c, id)),
+            }
+        }
+        let mut closed = Vec::new();
+        for n in placed.into_values() {
+            match self.submit::<NumberDecided>(n.clone()).await {
+                Err(r) if r.code == "ended" => closed.push(n),
+                done => done?,
+            }
+        }
+        self.submit::<decided::PlaceNumbers>(decided::Place { placed: closed }).await
+    }
+
+    /// Every Decided record of every issue of any checkout, its numbers
+    /// placed outside it among them ([`Issue::numbered`]): with when it was
+    /// made (a body's, when its issue was filed; a comment's, if known).
+    pub(crate) async fn records(&self) -> Answer<Vec<Found>> {
+        let given = self.state::<decided::Numbers>(decided::numbers_id()).await?;
+        let mut found = Vec::new();
+        for r in self.rows(tracker::issues(None, true)).await? {
+            let i = self.issue(&r.checkout, r.number).await?.numbered(&given);
+            let records = i.records();
+            let filed = match records.first() {
+                Some((Place::Body, ..)) => Some(self.filed(&i).await?),
+                _ => None,
+            };
+            for (place, id, record) in records {
+                let at = match place {
+                    Place::Body => filed,
+                    Place::Comment(c) => i.comments[c].at,
+                };
+                found.push(Found { checkout: r.checkout.clone(), number: r.number, at, place, id, record });
+            }
+        }
+        Ok(found)
+    }
+
+    /// When (ms) `issue` was filed: its first event's time.
+    pub(crate) async fn filed(&self, issue: &Issue) -> Answer<i64> {
+        let stream = factum::StreamId::new(Issues::NAME, issue_id(&issue.checkout, issue.number));
+        Ok(self.engine.history(&stream).await?.first().map_or(0, |e| e.meta.now.0))
     }
 
     /// Makes issue `number` wait for `by`, an issue of its checkout or of

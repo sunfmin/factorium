@@ -5,6 +5,7 @@ use factum_core::{Aggregate, Rejection, Upcast, Uuid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::decided::{self, Mark, Numbering};
 use crate::idle::Task;
 use crate::{command, issue_id, named, no};
 
@@ -39,6 +40,9 @@ pub struct Issue {
     pub attempts: u32,
     /// The one record of what was said about it, oldest first.
     pub comments: Vec<Note>,
+    /// The numbers of the Decided records its body holds (SPEC §2).
+    #[serde(default)]
+    pub decided: Vec<Mark>,
     /// The task it was filed for, by idle work (§1.16).
     pub task: Option<Task>,
     /// What its worker plays and where it runs, as the one who filed it
@@ -95,6 +99,9 @@ pub struct Note {
     pub text: String,
     pub by: Author,
     pub at: Option<i64>,
+    /// Its number, if it is a Decided record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided: Option<u64>,
 }
 
 /// An issue of another checkout an issue waits for. It is met once that
@@ -263,10 +270,16 @@ pub enum IssueEvent {
         task: Option<Task>,
         #[serde(default, skip_serializing_if = "On::is_none")]
         on: On,
+        /// The numbers of the Decided records its body holds.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        decided: Vec<Mark>,
     },
+    /// Its title and body now; `decided`, the numbers of the body's records.
     IssueEdited {
         title: String,
         body: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        decided: Vec<Mark>,
     },
     BlockedBy {
         number: u64,
@@ -304,6 +317,15 @@ pub enum IssueEvent {
         text: String,
         by: Author,
         at: Option<i64>,
+        /// Its number, if it is a Decided record.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decided: Option<u64>,
+    },
+    /// Records made before records were numbered take theirs: the body's
+    /// (`body`, added to its marks) and comments' (by index).
+    DecidedNumbered {
+        body: Vec<Mark>,
+        comments: Vec<(usize, u64)>,
     },
 }
 
@@ -348,10 +370,10 @@ impl Aggregate for Issues {
     fn evolve(s: &mut Issue, event: IssueEvent) {
         let standing = event.standing();
         match event {
-            IssueEvent::IssueOpened { checkout, number, title, body, task, on, .. } => {
-                *s = Issue { checkout, number, title, body, task, on, ..Issue::default() };
+            IssueEvent::IssueOpened { checkout, number, title, body, task, on, decided, .. } => {
+                *s = Issue { checkout, number, title, body, task, on, decided, ..Issue::default() };
             }
-            IssueEvent::IssueEdited { title, body } => (s.title, s.body) = (title, body),
+            IssueEvent::IssueEdited { title, body, decided } => (s.title, s.body, s.decided) = (title, body, decided),
             // An own-checkout issue waited for until it closes is written as
             // `BlockedBy` and `Unblocked`; any other as `…Across`.
             IssueEvent::BlockedBy { number } => {
@@ -378,7 +400,8 @@ impl Aggregate for Issues {
             IssueEvent::IssueUnclaimed => s.claim = None,
             // Closed, it takes no start: no claim is needed.
             IssueEvent::IssueClosed { .. } => (s.worker, s.claim) = (None, None),
-            IssueEvent::IssueCommented { text, by, at } => s.comments.push(Note { text, by, at }),
+            IssueEvent::IssueCommented { text, by, at, decided } => s.comments.push(Note { text, by, at, decided }),
+            IssueEvent::DecidedNumbered { body, comments } => s.place(&body, &comments),
             IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }
         if let Some(Standing { status, reason }) = standing {
@@ -426,6 +449,9 @@ pub struct Open {
     /// The role and account its worker is to start with.
     #[serde(default)]
     pub on: On,
+    /// The numbers for the Decided records its body holds, in order.
+    #[serde(default)]
+    pub decided: Vec<u64>,
 }
 
 command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.number), |s, p, now| {
@@ -438,6 +464,9 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
     if p.title.trim().is_empty() {
         return no("no_title", "an issue needs a title");
     }
+    let Some(decided) = decided::remarked(&decided::in_body(&p.body), &[], &p.decided) else {
+        return no("no_numbers", "a number is needed for each Decided record its body holds");
+    };
     let mut events = vec![IssueEvent::IssueOpened {
         checkout: p.checkout.clone(),
         number: p.number,
@@ -446,6 +475,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         waiting_for_human: p.waiting_for_human,
         task: p.task.clone(),
         on: p.on.clone(),
+        decided,
     }];
     let mut opened = Issue::default();
     Issues::evolve(&mut opened, events[0].clone());
@@ -480,6 +510,14 @@ pub struct Edit {
     pub number: u64,
     pub title: Option<String>,
     pub body: Option<String>,
+    /// Numbers for the body's Decided records that have none yet, in order.
+    #[serde(default)]
+    pub fresh: Vec<u64>,
+}
+
+/// How many of `body`'s Decided records need a number, edited into `issue`.
+pub fn unnumbered(issue: &Issue, body: &str) -> usize {
+    decided::numbers(&decided::in_body(body), &issue.decided).iter().filter(|n| n.is_none()).count()
 }
 
 on_issue!(EditIssue, "issue.edit", Edit, |s, p, now| {
@@ -490,7 +528,11 @@ on_issue!(EditIssue, "issue.edit", Edit, |s, p, now| {
     } else if title == s.title && body == s.body {
         Ok(Vec::new())
     } else {
-        Ok(vec![IssueEvent::IssueEdited { title, body }])
+        // A record whose head stays keeps its number; one new takes a fresh one.
+        let Some(decided) = decided::remarked(&decided::in_body(&body), &s.decided, &p.fresh) else {
+            return no("no_numbers", "the body changed since its numbers were given: number it again");
+        };
+        Ok(vec![IssueEvent::IssueEdited { title, body, decided }])
     }
 });
 
@@ -622,13 +664,76 @@ pub struct Comment {
     pub number: u64,
     pub text: String,
     pub by: Author,
+    /// Its number, if it is a Decided record.
+    #[serde(default)]
+    pub decided: Option<u64>,
 }
 
 on_issue!(CommentIssue, "issue.comment", Comment, |s, p, now| {
     if p.text.trim().is_empty() {
         return no("no_text", "a comment needs text");
     }
-    Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0) }])
+    let record = decided::in_comment(&p.text).is_some();
+    if record && p.decided.is_none() {
+        return no("no_numbers", "a Decided record needs its number");
+    }
+    let decided = p.decided.filter(|_| record);
+    Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0), decided }])
+});
+
+/// Where a Decided record is in its issue: its body, or comment `i`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    Body,
+    Comment(usize),
+}
+
+impl Issue {
+    /// Each Decided record it holds, its body's then its comments', with
+    /// where it is and its number, if it has one.
+    pub fn records(&self) -> Vec<(Place, Option<u64>, decided::Record)> {
+        let body = decided::in_body(&self.body);
+        let ids = decided::numbers(&body, &self.decided);
+        let comments = (self.comments.iter().enumerate())
+            .filter_map(|(i, n)| Some((Place::Comment(i), n.decided, decided::in_comment(&n.text)?)));
+        body.into_iter().zip(ids).map(|(r, id)| (Place::Body, id, r)).chain(comments).collect()
+    }
+
+    /// Numbers its records: `body`'s marks, and comments' by index.
+    fn place(&mut self, body: &[Mark], comments: &[(usize, u64)]) {
+        self.decided.extend(body.iter().cloned());
+        for &(i, id) in comments {
+            if let Some(c) = self.comments.get_mut(i) {
+                c.decided.get_or_insert(id);
+            }
+        }
+    }
+
+    /// The issue with the numbers `given` placed for its records outside
+    /// it: an issue closed before records were numbered takes no event.
+    pub fn numbered(mut self, given: &decided::Given) -> Issue {
+        let at = (self.checkout.clone(), self.number);
+        for n in given.placed.iter().filter(|n| (n.checkout.as_str(), n.number) == (at.0.as_str(), at.1)) {
+            self.place(&n.body, &n.comments);
+        }
+        self
+    }
+}
+
+// Only what still has no number takes one: a sweep that raced another gives none twice.
+on_issue!(NumberDecided, "issue.number_decided", Numbering, |s, p, now| {
+    let mut open: Vec<_> = s.records().into_iter().filter(|(_, id, _)| id.is_none()).collect();
+    let mut take = |at: Place, m: Option<&Mark>| {
+        let i = open.iter().position(|(p, _, r)| *p == at && m.is_none_or(|m| r.marked_by(m)));
+        i.map(|i| open.remove(i)).is_some()
+    };
+    let body: Vec<Mark> = p.body.iter().filter(|m| take(Place::Body, Some(m))).cloned().collect();
+    let comments: Vec<_> = p.comments.iter().filter(|(i, _)| take(Place::Comment(*i), None)).copied().collect();
+    Ok(if body.is_empty() && comments.is_empty() {
+        Vec::new()
+    } else {
+        vec![IssueEvent::DecidedNumbered { body, comments }]
+    })
 });
 
 /// Who left an issue to a person: the watch, a session (the owner, or a
@@ -686,13 +791,14 @@ mod tests {
             waiting_for_human,
             task: None,
             on: On::default(),
+            decided: Vec::new(),
         };
         let wait = || IssueEvent::IssueWaitingForHuman { reason: "why".into() };
         assert_eq!(asked([(opened(true), 5, watch)]), Some((5, Asker::Added)));
         assert_eq!(asked([(opened(false), 5, owner), (wait(), 7, watch)]), Some((7, Asker::Watch)));
         let again = [(opened(true), 1, owner), (IssueEvent::IssueReadied, 2, owner), (wait(), 3, owner)];
         assert_eq!(asked(again), Some((3, Asker::Session)));
-        let commented = IssueEvent::IssueCommented { text: "x".into(), by: Author::Owner, at: None };
+        let commented = IssueEvent::IssueCommented { text: "x".into(), by: Author::Owner, at: None, decided: None };
         assert_eq!(asked([(opened(true), 1, owner), (commented, 2, watch)]), Some((1, Asker::Added)));
         assert_eq!(asked([(opened(true), 1, owner), (IssueEvent::IssueReadied, 2, owner)]), None);
     }

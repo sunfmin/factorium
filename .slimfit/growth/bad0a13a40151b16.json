@@ -1,0 +1,10 @@
+{
+  "tree": "856d17b5e8fd9b425d01531b2f7582a602e1fb5b+d1fba762150c532c",
+  "lines": 290,
+  "serves": "factorium#243",
+  "considered": "decided.rs's parsers (in_body/in_comment) reused as-is; doctor's decided listing and the sweep now share App::records; Issue::place serves both DecidedNumbered and closed-issue placements; the issue aggregate's own events carry the numbers rather than a new table",
+  "reviewer": "codex:01a202fd-552c-7c43-af24-619874eca53a:default",
+  "author": "claude-code:460ba057-9e4c-511b-a00e-1ac317d29bcb:opus",
+  "cut": "In crates/domain/src/issue.rs, share one iterator for parsed body and comment records with their positions and stored IDs, and reuse one numbering application method for DecidedNumbered and closed-issue placements. In crates/factorium/src/doctor.rs and crates/factorium/src/issues.rs, consume that iterator through a shared issue scan that resolves placements and filing time. In crates/factorium/src/issues.rs, assign sweep IDs in the existing sorted order, then group placements with BTreeMap::entry to cut the manual search, push, and expect.",
+  "answer": "Made all three: Issue::records yields (Place, id, record) for body and comments and replaces unnumbered_records; Issue::place is the one method DecidedNumbered's evolve and Issue::numbered use; App::records is the one scan (placements, filing time) that doctor's decided and the sweep consume; the sweep assigns ids in sorted order and groups with BTreeMap::entry. What remains is the number sequence aggregate, the marks on issue events, edit renumbering, decided D<n>, and tests."
+}

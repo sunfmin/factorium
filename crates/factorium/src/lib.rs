@@ -96,7 +96,8 @@ pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// command is registered here, beside the engine (docs/adr/0001).
 fn model() -> Model {
     use factorium_domain::{
-        checkout, daemon, gate, health, heavy, idle, issue, kit, line, outbox, settings, tracker, watch, worker,
+        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, tracker, watch,
+        worker,
     };
     Model::new()
         .aggregate::<checkout::Checkouts>()
@@ -114,6 +115,10 @@ fn model() -> Model {
         .command::<issue::ClaimIssue>()
         .command::<issue::UnclaimIssue>()
         .command::<issue::CommentIssue>()
+        .command::<issue::NumberDecided>()
+        .aggregate::<decided::Numbers>()
+        .command::<decided::GiveNumbers>()
+        .command::<decided::PlaceNumbers>()
         .aggregate::<worker::Workers>()
         .command::<worker::StartWorker>()
         .command::<worker::AskLanding>()
