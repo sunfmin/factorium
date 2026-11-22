@@ -88,7 +88,8 @@ impl App {
         for row in self.rows(tracker::issues(Some(checkout), true)).await? {
             issues.push(self.issue(checkout, row.number).await?);
         }
-        let found = match idle::to_file(&said, tip, &issues, self.now()) {
+        let git = self.host.git(&self.checkout(checkout).await?.path);
+        let found = match idle::to_file(&said, tip, &issues, |sha| git.is_ancestor(sha, tip)) {
             Ok(found) => found,
             Err(why) => return Ok(Err(why)),
         };

@@ -190,6 +190,20 @@ impl FakeOrca {
                 if *self.refuse_rm.lock().unwrap() {
                     return error("selector_not_found");
                 }
+                // Orca refuses a worktree that holds another git registers.
+                let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+                let listed = git_of(root, &path, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+                let inner = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).map(PathBuf::from);
+                if let Some(inner) =
+                    inner.into_iter().find(|p| real(p) != real(&path) && real(p).starts_with(real(&path)))
+                {
+                    let message = format!(
+                        "Refusing to delete worktree because it contains another registered worktree: {}",
+                        inner.display()
+                    );
+                    let error = json!({ "id": Uuid::now_v7().to_string(), "ok": false, "error": { "code": "refused", "message": message } });
+                    return said(false, error);
+                }
                 if path.exists()
                     && let Err(e) = git_of(root, &path, &["worktree", "remove", "--force", &path.to_string_lossy()])
                 {
