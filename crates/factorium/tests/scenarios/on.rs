@@ -275,3 +275,42 @@ async fn checkout_edit_names_or_clears_the_default_and_a_worker_then_starts_with
     let line = w.terminal(w.worker_on("web", 1).await["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("role/issues"), "it starts in the worker's own directory: {line}");
 }
+
+#[tokio::test]
+async fn each_attempt_answers_the_role_it_started_with_and_a_hash_of_what_that_role_gave_it() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    // Under a home of its own the role's path differs between runs: its hash does not.
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+
+    // A skill file of the role changes during the first attempt: the second starts with it.
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    w.app.issue_wait_for_human("web", 1, "again").await.unwrap();
+    w.app.issue_ready("web", 1).await.unwrap();
+    w.tick().await;
+
+    let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
+    let (one, two) = (&spent["attempts"][0], &spent["attempts"][1]);
+    let role = json!({ "dir": ios, "from": "checkout" });
+    assert_eq!((one["role"].clone(), two["role"].clone()), (role.clone(), role), "{spent}");
+    // The same content hashes the same from one build to the next: FNV-1a of the rules, then each
+    // skill file's path and bytes, each led by its length as 8 little-endian bytes.
+    assert_eq!(one["role_hash"], json!("2b87fcb63ebf6484"), "{spent}");
+    assert_ne!(one["role_hash"], two["role_hash"], "{spent}");
+}
+
+#[tokio::test]
+async fn an_attempt_with_no_role_answers_null_for_its_role_and_hash() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.app.issue_add("web", "Plain", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
+    let one = &spent["attempts"][0];
+    assert_eq!((one["role"].clone(), one["role_hash"].clone()), (json!(null), json!(null)), "{spent}");
+    assert!(one.as_object().unwrap().contains_key("role_hash"), "{spent}");
+}

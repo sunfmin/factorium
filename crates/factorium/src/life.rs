@@ -12,7 +12,7 @@ use factorium_domain::issue::{
 };
 use factorium_domain::outbox::Outcome;
 use factorium_domain::tracker;
-use factorium_domain::worker::{self as w, Started, Status, Workers};
+use factorium_domain::worker::{self as w, Started, StartedRole, Status, Workers};
 use factorium_domain::worker_id;
 use factum::Uuid;
 use serde_json::json;
@@ -231,15 +231,21 @@ impl App {
         let (path, branch, resumed) = (next.path, next.branch, next.resumed);
         let title = format!("{}#{}", c.name, issue.number);
         let brief = worker_brief(c, issue, &branch, resumed.as_ref());
+        let role_for = c.role_for(issue.on.role.as_deref());
         let role = Role::Worker {
             id: worker,
             worktree: &path,
             name: &name,
             title: &title,
             brief: &brief,
-            role: c.role_for(issue.on.role.as_deref()).map(|(r, _)| r),
+            role: role_for.map(|(r, _)| r),
         };
         let opened = self.open_session(role, pick)?;
+        let role = role_for.zip(opened.rules).map(|((dir, from), hash)| StartedRole {
+            dir: dir.into(),
+            from: from.into(),
+            hash,
+        });
         let started = Started {
             checkout: c.name.clone(),
             number: issue.number,
@@ -253,6 +259,7 @@ impl App {
             brief: opened.brief.to_string_lossy().into_owned(),
             base: tip,
             at: 0,
+            role,
         };
         Ok((started, opened.typed))
     }
