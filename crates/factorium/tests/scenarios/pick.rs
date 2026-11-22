@@ -391,9 +391,21 @@ async fn a_second_agent_that_answers_prose_is_asked_once_more_and_its_json_then_
 #[tokio::test]
 async fn a_second_agent_that_answers_prose_twice_hands_the_question_to_the_next_harness() {
     let prose = "No mutant is worth running: the diff edits no production code.";
-    let cases = [("picker", PICKS), ("reviewer", AS_IS)];
-    crate::fixture::each(&cases, |(role, claude_says)| async move {
-        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", "", prose, claude_says).await;
+    let off =
+        |role: &str| format!("the {role} answered no JSON object; asked again: the {role} answered no JSON object");
+    // Its stand-in knows it is run again by `$n`; one that fails then fails the second ask.
+    let cases = [
+        ("picker", PICKS, "", off("picker")),
+        ("reviewer", AS_IS, "", off("reviewer")),
+        (
+            "picker",
+            PICKS,
+            "[ -n \"$n\" ] && exit 3",
+            "the picker answered no JSON object; asked again: the grok picker exited Some(3)".into(),
+        ),
+    ];
+    crate::fixture::each(&cases, |(role, claude_says, then, twice)| async move {
+        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", then, prose, claude_says).await;
         let answer = match *role {
             "picker" => w.app.worker_pick_mutants(id(&wk)).await,
             _ => w.app.worker_review_growth(id(&wk)).await,
@@ -404,8 +416,7 @@ async fn a_second_agent_that_answers_prose_twice_hands_the_question_to_the_next_
         assert_eq!(answer[*role], "claude-code:s-1:claude-opus-5-5", "{answer}");
         // Claude Code took it at the first ask.
         assert_eq!(answer["asked_again"], false);
-        let twice = format!("the {role} answered no JSON object; asked again: the {role} answered no JSON object");
-        assert!(answer["fell_back"][0]["why"].as_str().unwrap().starts_with(&twice), "{answer}");
+        assert!(answer["fell_back"][0]["why"].as_str().unwrap().starts_with(twice.as_str()), "{answer}");
         let kept = kept(&w).await;
         let text = kept[0]["text"].as_str().unwrap();
         let did = if *role == "picker" { "picked" } else { "reviewed" };
