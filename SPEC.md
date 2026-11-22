@@ -180,7 +180,10 @@ held, not typed; it is no finding (doctor lists it as `limited`, with the
 reset); its account, or its harness on the host's own login, starts no
 worker before the reset; and the first tick past the reset sends it back,
 what was held typed first. Its quota still on its screen after that is no
-new limit.
+new limit. A worker waiting for the watch is read for these two as well
+(a used-up account, a limit with its reset): its finding, hung or a word
+that did not reach it, is the spent engine's doing. A used-up account on
+the host's own login rests its harness the hour.
 The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
 which `doctor` shows. Beside it doctor answers `asks`: every issue of every
