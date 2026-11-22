@@ -191,3 +191,20 @@ async fn a_branch_that_moves_while_its_landings_gate_runs_lands_again_with_what_
     let files = w.git(&w.dir.join("remotes/web.git"), &["ls-tree", "--name-only", commit]).unwrap();
     assert!(files.lines().any(|f| f == "late"), "with what it added: {files}");
 }
+
+/// A worker that no longer asks to land once its landing's gate ends (it
+/// went to the watch meanwhile) is not landed.
+#[tokio::test]
+async fn a_worker_that_no_longer_asks_to_land_once_its_gate_ends_is_not_landed() {
+    let w = World::new();
+    let dir = w.dir.join("long");
+    let one = declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
+    let proving = w.remote_tip("web", "proving");
+    w.tick_alone().await;
+    until_file(&dir.join("started")).await;
+    w.app.worker_escalate(crate::fixture::id(&one), "stuck").await.unwrap();
+    std::fs::write(dir.join("release"), "").unwrap();
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
+    assert!(w.tick_alone().await.landed.is_empty());
+    assert_eq!(w.remote_tip("web", "proving"), proving, "nothing pushed");
+}
