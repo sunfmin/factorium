@@ -1,0 +1,21 @@
+{
+  "tree": "e1632e2a7eb26c6289b89c45ce497df1ac94dd6f+d1fba762150c532c",
+  "picker": "grok:01a200a0-c358-7e51-aaaf-4fe5d38014d5:grok-4.7-build",
+  "author": "claude-code:fc367610-bc68-5a03-935f-a93f8e3c27d4:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/service.rs:68:32: replace / with % in App::service_unload",
+        "why": "100 % 10 is 0, so the timeout error says 0 s instead of 10 s, and the never-drops test checks only the code and the target name.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/service.rs:68:32: replace / with * in App::service_unload",
+        "why": "100 * 10 is 1000, so the timeout error says 1000 s instead of 10 s, and no test asserts that figure.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
