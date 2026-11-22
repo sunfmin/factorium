@@ -648,7 +648,7 @@ pub fn asked(history: impl IntoIterator<Item = (IssueEvent, i64, bool)>) -> Opti
     let mut last = None;
     for (event, at, by_watch) in history {
         let Some(standing) = event.standing() else { continue };
-        last = (standing.status == Status::WaitingForHuman).then(|| match (event, by_watch) {
+        last = (standing.status == Status::WaitingForHuman).then_some(match (event, by_watch) {
             (IssueEvent::IssueOpened { .. }, _) => (at, Asker::Added),
             (_, true) => (at, Asker::Watch),
             _ => (at, Asker::Session),
