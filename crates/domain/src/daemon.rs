@@ -224,6 +224,9 @@ mod tests {
         let running = Probe { pid: Some(7), locked: true, ticked: Some(0) };
         assert_eq!(down(&running, 10_000, 120_000), None, "the two-minute floor");
         assert!(down(&running, 10_000, 120_001).unwrap().contains("not ticked for 120 s: it hangs"));
+        let later = Probe { ticked: Some(5_000), ..running.clone() };
+        assert_eq!(down(&later, 10_000, 125_000), None, "silence counts from its last tick");
+        assert!(down(&later, 10_000, 125_001).is_some());
         assert_eq!(down(&running, 60_000, 300_000), None, "five ticks, past the floor");
         assert!(down(&Probe::default(), 10_000, 0).unwrap().contains("names no live process"));
         assert!(down(&Probe { locked: false, ..running.clone() }, 10_000, 0).unwrap().contains("its lock"));
