@@ -358,7 +358,8 @@ async fn a_second_agent_that_answers_prose_is_asked_once_more_and_its_json_then_
     let prose = "I'll read the rest of the candidates first.";
     let cases = ["picker", "reviewer"];
     crate::fixture::each(&cases, |role| async move {
-        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", "", prose, PICKS).await;
+        // Each ask takes 0.3s at least.
+        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", "sleep 0.3", prose, PICKS).await;
         let json = if *role == "picker" { PICKS } else { AS_IS };
         grok.then_answers(Harness::Grok, &again("grok-4.7-build", json));
         let began = std::time::Instant::now();
@@ -367,9 +368,9 @@ async fn a_second_agent_that_answers_prose_is_asked_once_more_and_its_json_then_
             _ => w.app.worker_review_growth(id(&wk)).await,
         }
         .unwrap();
-        // Both asks' time, summed: no more than the whole call took.
+        // Both asks' time, summed: 0.6s at least, and no more than the whole call took.
         let took_ms = answer["took_ms"].as_u64().unwrap();
-        assert!(took_ms > 0 && u128::from(took_ms) <= began.elapsed().as_millis(), "{answer}");
+        assert!(took_ms >= 600 && u128::from(took_ms) <= began.elapsed().as_millis(), "{answer}");
 
         // Taken of grok, asked again, both asks' tokens counted.
         assert_eq!(answer[*role], "grok:t-1:grok-4.7-build", "{answer}");
