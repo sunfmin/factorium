@@ -245,4 +245,9 @@ async fn a_worker_s_decided_record_shows_up_in_doctor_s_decided() {
     assert_eq!(decided[0]["issue"], "web#1");
     assert_eq!(decided[0]["who"], "worker");
     assert_eq!(decided[0]["chose"], "B, because a survivor not sampled was never judged");
+    let two = "Decided (watch, for Felix): bare\nDecided (watch, for Felix): full\nUndo: z";
+    w.app.issue_add("web", "Two", two, false, &[]).await.unwrap();
+    let decided = w.doctor().await["decided"].clone();
+    let undo: Vec<_> = decided.as_array().unwrap().iter().map(|d| (d["what"].clone(), d["undo"].clone())).collect();
+    assert!(undo.contains(&(json!("bare"), json!(null))), "no field from the next record: {decided}");
 }
