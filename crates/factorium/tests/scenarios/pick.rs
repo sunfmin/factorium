@@ -177,6 +177,45 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
 }
 
 #[tokio::test]
+async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_taken() {
+    // slimfit#99: past its budget a listing spells out some candidates of
+    // each function; `--function` lists one function's in full.
+    const ALSO: &str = "src/a.rs:1:22: replace a -> bool with true";
+    let grouped = json!({
+        "candidates": {"rust": [{"name": KILLS, "file": "src/a.rs", "function": "a"}]},
+        "functions": {"rust": [{"file": "src/a.rs", "function": "a", "mutants": 2, "removed": []},
+                               {"file": "src/b.rs", "function": "b", "mutants": 1, "removed": []}]},
+        "removed_tests": {"rust": []}
+    });
+    let full = json!({"candidates": {"rust": [{"name": KILLS}, {"name": ALSO}]}});
+    let pick = |name: &str| format!(r#"{{"picks": [{{"name": "{name}", "why": "w"}}]}}"#);
+    let cases = [(ALSO, true), ("src/a.rs:9:9: not listed", false)];
+    crate::fixture::each(&cases, |(name, taken)| {
+        let (grouped, full, text) = (grouped.to_string(), full.to_string(), pick(name));
+        async move {
+            let (w, wk, picker) = changed(None, "", &text).await;
+            let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-1"}});
+            w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
+            let dir = worktree(&wk).display().to_string();
+            {
+                let mut said = w.host.slimfit.lock().unwrap();
+                said.insert("check".into(), grouped.clone());
+                // Only the function the pick's file holds is asked for.
+                said.insert(format!("check --repo {dir} --mutants --function src/a.rs: a"), full);
+            }
+            let answer = w.app.worker_pick_mutants(id(&wk)).await;
+            if *taken {
+                assert_eq!(answer.unwrap()["picks"], json!([{ "name": name, "why": "w" }]));
+            } else {
+                refused(answer, "picker_answer");
+            }
+            // The prompt keeps the grouped listing as slimfit gave it.
+            assert!(picker.asked().0.contains(&grouped), "{name}");
+        }
+    });
+}
+
+#[tokio::test]
 async fn a_kit_with_no_harness_that_can_be_asked_refuses_to_pick() {
     let w = World::new();
     let wk = w.working("pi=pi", "t").await;

@@ -109,17 +109,26 @@ pub fn object<T: serde::de::DeserializeOwned>(text: &str, role: &str) -> Result<
 
 /// The picker's answer `text` taken against slimfit's `listing`: its one
 /// JSON object (fenced or not), picks of listed names only, each why one
-/// line; or why it is not taken, in one line, without the text.
-pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
+/// line; or why it is not taken, in one line, without the text. A grouped
+/// listing (`functions`) spells out only some of its candidates: a pick it
+/// does not is taken when slimfit lists it in full, as `full` answers the
+/// `--function` listing of the functions named (`<file>: <function>`).
+pub fn read(text: &str, listing: &Value, full: impl Fn(&[String]) -> Result<Value, String>) -> Result<Picked, String> {
     let said: Said = object(text, "picker")?;
     let one_line = |why: &str| !why.trim().is_empty() && !why.contains('\n');
-    let listed = names(listing);
+    let mut listed: Vec<String> = names(listing).into_iter().map(String::from).collect();
+    let unspelled: Vec<&str> =
+        said.picks.iter().map(|p| p.name.as_str()).filter(|n| !listed.iter().any(|l| l == n)).collect();
+    let within = functions(listing, &unspelled);
+    if !within.is_empty() {
+        listed.extend(names(&full(&within)?).into_iter().map(String::from));
+    }
     match (said.picks.is_empty(), said.none) {
         (true, Some(why)) if one_line(&why) => Ok(Picked::None(why.trim().into())),
         (false, None) if said.picks.len() <= MOST => {
             let mut picks = Vec::new();
             for p in said.picks {
-                if !listed.contains(&p.name.as_str()) {
+                if !listed.contains(&p.name) {
                     return Err(format!("the picker picked `{}`, which slimfit does not list", p.name));
                 }
                 if !one_line(&p.why) {
@@ -131,6 +140,18 @@ pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
         }
         _ => Err(format!("the picker answered neither 1 to {MOST} picks nor one line of why none")),
     }
+}
+
+/// The functions of a grouped `listing` (`{"functions": {suite: [{"file",
+/// "function", …}]}}`) that may hold the `picked` names, as `--function`
+/// takes them: those in the file a name starts with (`<file>:<line>:…`).
+fn functions(listing: &Value, picked: &[&str]) -> Vec<String> {
+    let suites = listing["functions"].as_object().into_iter().flat_map(|s| s.values());
+    let all = suites.filter_map(Value::as_array).flatten();
+    let in_file =
+        |f: &&Value| f["file"].as_str().is_some_and(|file| picked.iter().any(|n| n.starts_with(&format!("{file}:"))));
+    let key = |f: &Value| Some(format!("{}: {}", f["file"].as_str()?, f["function"].as_str()?));
+    all.filter(in_file).filter_map(key).collect()
 }
 
 /// What the line an issue keeps says of an answer taken on the second ask.
