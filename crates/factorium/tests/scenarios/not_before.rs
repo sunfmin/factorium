@@ -24,17 +24,18 @@ async fn timed(w: &World) -> Value {
 fn a_time_is_read_with_its_offset_and_shown_in_utc() {
     let at = when::parse("2026-11-23T14:34:37+09:00").unwrap();
     assert_eq!(when::utc(at), "2026-11-23T05:34:37Z");
-    assert_eq!(when::parse("2026-11-23 05:34:37.250Z"), Ok(at), "a space for the T, its fraction dropped");
+    assert_eq!(when::parse("2026-11-23 05:34:37.250Z"), Ok(at + 250), "a space for the T, to the ms");
+    assert_eq!(when::utc(at + 250), "2026-11-23T05:34:37Z", "shown to the second");
+    assert_eq!(when::utc(i64::MAX), "9999-12-30T22:00:00Z", "past the range, its end");
     assert_eq!(when::parse(&at.to_string()), Ok(at), "ms since the epoch");
     assert_eq!(when::utc(1_800_000_000_000), "2027-01-15T08:00:00Z");
     assert_eq!(when::utc(when::parse("2024-02-29T23:59:59-00:30").unwrap()), "2024-03-01T00:29:59Z");
     let bad = [
         "tomorrow",
         "2026-11-23T14:34:37",
-        "2026-11-23T14:34:37+0900",
         "2026-11-23T14:34:37+xx:00",
         "2026-11-23T14:34:37 Z",
-        "1-1-1-1-1-1-1-1-1-1Z",
+        "99999999999999999",
         "2026-02-30T00:00:00Z",
         "2026-13-01T00:00:00Z",
         "2026-11-23T24:00:00Z",

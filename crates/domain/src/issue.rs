@@ -27,7 +27,6 @@ pub struct Issue {
     /// The issues it waits for, of its checkout or of others.
     pub waits: Vec<Across>,
     /// The time (ms) it waits for: no worker takes it before then.
-    #[serde(default)]
     pub not_before: Option<i64>,
     /// Why it waits for a person, or why it is closed.
     pub reason: Option<String>,
