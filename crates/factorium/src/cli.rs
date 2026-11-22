@@ -486,17 +486,10 @@ impl Top {
 
 /// A duration given as `90s`, `45m` or `2h` (a bare number is minutes), in ms.
 fn duration_ms(s: &str) -> Result<i64, String> {
-    let (n, unit) = match s.trim().char_indices().last() {
-        Some((i, c)) if c.is_ascii_alphabetic() => (&s.trim()[..i], c),
-        _ => (s.trim(), 'm'),
-    };
-    let per = match unit {
-        's' => 1_000,
-        'm' => 60_000,
-        'h' => 3_600_000,
-        _ => return Err(format!("`{s}`: give seconds, minutes or hours, as `90s`, `45m`, `2h`")),
-    };
-    let n: i64 = n.trim().parse().map_err(|_| format!("`{s}` is not a duration such as `45m`"))?;
+    let t = s.trim();
+    let units = [('s', 1_000), ('m', 60_000), ('h', 3_600_000)];
+    let (n, per) = units.iter().find_map(|&(u, per)| Some((t.strip_suffix(u)?, per))).unwrap_or((t, 60_000));
+    let n: i64 = n.trim().parse().map_err(|_| format!("`{s}` is not a duration such as `90s`, `45m` or `2h`"))?;
     Ok(n.saturating_mul(per))
 }
 
