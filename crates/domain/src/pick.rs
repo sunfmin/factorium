@@ -97,6 +97,16 @@ fn names(listing: &Value) -> Vec<&str> {
     suites.filter_map(Value::as_array).flatten().filter_map(|c| c["name"].as_str()).collect()
 }
 
+/// The one JSON object in the `text` a second agent answered as `role`
+/// (fenced or not), from its first `{` to its last `}`, as `T`; or why
+/// not, in one line, without the text.
+pub fn object<T: serde::de::DeserializeOwned>(text: &str, role: &str) -> Result<T, String> {
+    let (from, to) = (text.find('{'), text.rfind('}'));
+    let object = from.zip(to).and_then(|(from, to)| text.get(from..=to));
+    let object = object.ok_or_else(|| format!("the {role} answered no JSON object"))?;
+    serde_json::from_str(object).map_err(|e| format!("the {role}'s answer is not as asked ({e})"))
+}
+
 /// The picker's answer `text` taken against slimfit's `listing`: its one
 /// JSON object (fenced or not), picks of listed names only, each why one
 /// line; or why it is not taken, in one line, without the text.

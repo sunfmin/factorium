@@ -97,8 +97,25 @@ impl App {
                 Err(none) => return Err(last.unwrap_or(none)),
             };
             let dir = self.data().pick(uuid::Uuid::now_v7());
-            let one = One { on: &on, role, author: &author, fell_back: &failed };
-            let taken = self.ask_on(&dir, &one, question, form, &take).await;
+            let taken_as = |asked: &Asked, took_ms, asked_again| {
+                let (session, model, account) = (&asked.session, &asked.model, on.account.as_deref());
+                let (harness, author, fell_back) = (on.harness.key(), author.clone(), failed.as_slice());
+                let (tokens_in, tokens_out) = (asked.tokens_in, asked.tokens_out);
+                let t = Taken {
+                    harness,
+                    session,
+                    model,
+                    account,
+                    author,
+                    took_ms,
+                    tokens_in,
+                    tokens_out,
+                    fell_back,
+                    asked_again,
+                };
+                take(&asked.text, &t)
+            };
+            let taken = self.ask_on(&dir, &on, role, question, form, &taken_as).await;
             let _ = std::fs::remove_dir_all(&dir);
             let why = match taken {
                 Ok((answer, cost)) => {
@@ -112,25 +129,22 @@ impl App {
         }
     }
 
-    /// `question` asked of a fresh session `one.on`, alone in `dir`, and
-    /// what `take` made of its answer; one not taken asked once more of the
+    /// `question` asked of a fresh session on `on` as `role`, alone in
+    /// `dir`, and what `take` made of its answer, what asking took and
+    /// whether it was asked again; one not taken asked once more of the
     /// same session, where its harness keeps one, with why not and `form`.
     async fn ask_on(
         &self,
         dir: &Path,
-        one: &One<'_>,
+        on: &Pick,
+        role: &str,
         question: &str,
         form: &str,
-        take: &impl Fn(&str, &Taken) -> Result<(Value, String), String>,
+        take: &impl Fn(&Asked, u64, bool) -> Result<(Value, String), String>,
     ) -> Answer<(Value, String)> {
-        let (on, role) = (one.on, one.role);
-        let user_dir = dir.join("home");
-        std::fs::create_dir_all(&user_dir).map_err(|e| Refusal::new("io", e.to_string()))?;
-        let failed = format!("{role}_failed");
-        on.harness.ask_home(&self.host.home(), on.account.as_deref(), &user_dir).map_err(fail(&failed))?;
         let not_taken = |why: &str, text: &str| Refusal::new(&format!("{role}_answer"), format!("{why}: {text}"));
         let (first, took_ms) = self.ask_in(dir, on, role, question, None).await?;
-        let why = match take(&first.text, &one.taken(&first, took_ms, false)) {
+        let why = match take(&first, took_ms, false) {
             Ok(taken) => return Ok(taken),
             Err(why) => why,
         };
@@ -147,7 +161,7 @@ impl App {
             tokens_out: first.tokens_out + second.tokens_out,
             ..second
         };
-        take(&both.text, &one.taken(&both, took_ms + more_ms, true))
+        take(&both, took_ms + more_ms, true)
             .map_err(|again| not_taken(&format!("{why}; asked again: {again}"), &both.text))
     }
 
@@ -165,8 +179,13 @@ impl App {
         let bound = Duration::from_millis(self.settings().await?.ms(Time::PickBound) as u64);
         let failed = format!("{role}_failed");
         let (q, a, user_dir) = (dir.join("question.md"), dir.join("answer.json"), dir.join("home"));
-        std::fs::write(&q, question).map_err(|e| Refusal::new("io", e.to_string()))?;
+        let io = |e: std::io::Error| Refusal::new("io", e.to_string());
         let home = self.host.home();
+        if again.is_none() {
+            std::fs::create_dir_all(&user_dir).map_err(io)?;
+            on.harness.ask_home(&home, on.account.as_deref(), &user_dir).map_err(fail(&failed))?;
+        }
+        std::fs::write(&q, question).map_err(io)?;
         // Dropped once the ask is done, as it ends: no secrets file outlives it.
         let session = SessionEnv::new(self, on)?;
         let (q, a) = (q.to_string_lossy(), a.to_string_lossy());
@@ -190,34 +209,6 @@ impl App {
         }
         let asked = on.harness.asked(&said, on.model.as_deref()).map_err(fail(&failed))?;
         Ok((asked, ran.took_ms))
-    }
-}
-
-/// One second agent asked: on what, as which role, for whom, after which
-/// failed.
-struct One<'a> {
-    on: &'a Pick,
-    role: &'a str,
-    author: &'a str,
-    fell_back: &'a [(String, String)],
-}
-
-impl One<'_> {
-    /// Who answered `asked`, and what asking took (`took_ms`); whether it
-    /// was taken `again`.
-    fn taken<'a>(&'a self, asked: &'a Asked, took_ms: u64, again: bool) -> Taken<'a> {
-        Taken {
-            harness: self.on.harness.key(),
-            session: &asked.session,
-            model: &asked.model,
-            account: self.on.account.as_deref(),
-            author: self.author.to_string(),
-            took_ms,
-            tokens_in: asked.tokens_in,
-            tokens_out: asked.tokens_out,
-            fell_back: self.fell_back,
-            asked_again: again,
-        }
     }
 }
 

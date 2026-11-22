@@ -40,12 +40,7 @@ pub const FORM: &str = "{\"as_is\": \"<one line of why the change cannot be smal
 /// verdict of one line; or why it is not taken, in one line, without the
 /// text.
 pub fn read(text: &str) -> Result<Reviewed, String> {
-    let object = match (text.find('{'), text.rfind('}')) {
-        (Some(from), Some(to)) if from < to => &text[from..=to],
-        _ => return Err("the reviewer answered no JSON object".into()),
-    };
-    let said: Said =
-        serde_json::from_str(object).map_err(|e| format!("the reviewer's answer is not as asked ({e})"))?;
+    let said: Said = crate::pick::object(text, "reviewer")?;
     let one_line = |s: &String| !s.trim().is_empty() && !s.contains('\n');
     match (said.as_is, said.cut) {
         (Some(why), None) if one_line(&why) => Ok(Reviewed::AsIs(why.trim().into())),
