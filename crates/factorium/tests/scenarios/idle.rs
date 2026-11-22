@@ -203,16 +203,16 @@ async fn red_idle_work_is_a_finding_and_opens_an_episode() {
 async fn idle_work_past_its_limit_ends_red_with_its_tail() {
     let w = World::new();
     let dir = w.dir.join("long");
-    declares(&w, &[format!("echo still mutating; {}", w.holds(&dir))], 3600, 1).await;
+    declares(&w, &[format!("echo still mutating; {}", w.holds(&dir))], 3600, 60).await;
     assert!(started(&w.tick().await.idle));
-    // The limit is the world's clock: the step has printed before it runs out,
-    // however long a busy host leaves a background step waiting.
+    // The limit is the world's clock, not the step's own: the step has printed
+    // before it runs out, however long a busy host leaves a background step waiting.
     until_file(&dir.join("started")).await;
-    w.advance(1);
+    w.advance(2);
     let run = ended(&w).await;
     assert_eq!(run["green"], false, "{run}");
     let tail = run["tail"].as_str().unwrap();
-    assert!(tail.contains("past its limit of 1s") && tail.contains("still mutating"), "{tail}");
+    assert!(tail.contains("past its limit of 60s") && tail.contains("still mutating"), "{tail}");
     assert!(w.finding(&format!("idle:web:{}", w.remote_tip("web", "main"))).await.is_some());
 }
 

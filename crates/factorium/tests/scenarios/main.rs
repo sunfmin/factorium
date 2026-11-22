@@ -24,6 +24,7 @@ mod across;
 mod admission;
 mod answers;
 mod base;
+mod beside;
 mod binary;
 mod bounds;
 mod bump;

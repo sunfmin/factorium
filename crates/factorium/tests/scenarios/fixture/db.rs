@@ -108,6 +108,11 @@ impl World {
         self.sql().query_row(count, [], |r| r.get(0)).unwrap()
     }
 
+    /// How many events of `kind` the store holds.
+    pub fn recorded(&self, kind: &str) -> i64 {
+        self.sql().query_row("SELECT count(*) FROM events WHERE kind = ?1", [kind], |r| r.get(0)).unwrap()
+    }
+
     /// An event the tracker cannot read: a checkout added with no data.
     pub fn a_dead_letter_for_the_tracker(&self) {
         let (event, stream) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());

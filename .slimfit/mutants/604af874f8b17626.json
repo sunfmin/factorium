@@ -1,0 +1,21 @@
+{
+  "tree": "1b2d1be5758af2beb23c55f82d9d111a3690dac4+d1fba762150c532c",
+  "picker": "grok:01a200d0-c4c9-7672-8f82-a3e233e91276:grok-4.7-build",
+  "author": "claude-code:caf425e5-fc15-5e03-82b3-60b009696306:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:112:9: replace For::moves -> bool with true",
+        "why": "The beside tests use one checkout, so an always-true moves() still blocks that checkout's other moves while its cut or promotion runs, and tick() waits the move out before the caller looks.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:67:15: delete field whole from struct Job expression in Job<'a>::idle",
+        "why": "Line-move jobs leave whole false and the beside tests never start idle work, so idle's whole-run clock budget is outside what they run.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
