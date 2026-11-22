@@ -823,3 +823,125 @@ name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
 source = "SPEC.md:441"
 check = ["model line"]
+
+[[promise]]
+name = "checkout-role-is-a-directory"
+says = "each refused unless it is such a directory (factorium#249)"
+source = "SPEC.md:32"
+check = ["test"]
+
+[[promise]]
+name = "issue-role-wins"
+says = "an issue's own role always wins over it"
+source = "SPEC.md:33"
+check = ["test"]
+
+[[promise]]
+name = "stale-holds-none"
+says = "an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up"
+source = "SPEC.md:39"
+check = ["model heavy-rules"]
+why = "factorium has no `truefit sim`: the model checks every order the waiters can ask in, which is what a sim would sample"
+
+[[promise]]
+name = "regenerated-conflicts-not-red"
+says = "A merge whose only conflicts are records the gate regenerates (`regenerated`, §5: slimfit's baseline, truefit's models) is not red"
+source = "SPEC.md:42"
+check = ["test"]
+
+[[promise]]
+name = "other-conflicts-red"
+says = "Any other conflict is red, naming every conflicting file (factorium#225)."
+source = "SPEC.md:42"
+check = ["test"]
+
+[[promise]]
+name = "idle-by-hand-outlasts-busy-tick"
+says = "a tick that finds the host busy does not end it, and `unqueue` ends it whole"
+source = "SPEC.md:46"
+check = ["test"]
+why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); idle.rs runs `idle` by hand on a busy host, a tick beside it, and `unqueue` of it"
+
+[[promise]]
+name = "idle-by-hand-one-open-task"
+says = "so it never files a second open issue of a kind"
+source = "SPEC.md:46"
+check = ["test"]
+
+[[promise]]
+name = "daemon-runs-reading"
+says = "its pid file names a live process that holds its lock, and that one ticked (`daemon.tick`) within five `tick_every`, never under two minutes"
+source = "SPEC.md:50"
+check = ["test"]
+
+[[promise]]
+name = "no-daemon-said-everywhere"
+says = "every other command but `run`, `stop` and `service` says so in one line on stderr"
+source = "SPEC.md:53"
+check = ["test"]
+
+[[promise]]
+name = "doctor-asks-every-wait"
+says = "every issue of every checkout that waits for a person"
+source = "SPEC.md:191"
+check = ["test"]
+
+[[promise]]
+name = "decided-records-only-first-line"
+says = "a comment is one only when its first line starts `Decided (`"
+source = "SPEC.md:213"
+check = ["test"]
+
+[[promise]]
+name = "decided-last-seven-days"
+says = "answers those of the last 7 days, read or not"
+source = "SPEC.md:218"
+check = ["test"]
+
+[[promise]]
+name = "old-records-numbered-once"
+says = "Records made before numbers were given take theirs once, oldest first by when they were made"
+source = "SPEC.md:230"
+check = ["test"]
+
+[[promise]]
+name = "usage-read-once-by-id"
+says = "each assistant message's `usage` once, by its id"
+source = "SPEC.md:294"
+check = ["test"]
+
+[[promise]]
+name = "older-daemon-swaps-on-failed-tick"
+says = "a failed tick still starts that proof and swaps once it passed"
+source = "SPEC.md:315"
+check = ["test"]
+
+[[promise]]
+name = "no-tick-waits-for-heavy"
+says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
+source = "SPEC.md:339"
+check = ["test"]
+
+[[promise]]
+name = "slow-step-a-finding"
+says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
+source = "SPEC.md:342"
+check = ["test"]
+
+[[promise]]
+name = "only-tap-signs"
+says = "the Developer ID identity and the notary key live in sunfmin/homebrew-tap only, and only its `release` workflow signs."
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:22"
+kept = "where the secrets live is sunfmin/homebrew-tap's settings, which no run of this repo reads or changes; release.sh holds no signing step, kept so by review of its change"
+
+[[promise]]
+name = "build-checks-cargo-version"
+says = "`build` at the tag only checks Cargo.toml says the tag's version"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:26"
+check = ["test"]
+
+[[promise]]
+name = "tag-only-after-signed-run"
+says = "Only after the step passes does the daemon tag"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:45"
+check = ["test"]
