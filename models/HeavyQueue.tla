@@ -335,8 +335,9 @@ CONSTANT Depth
 Shallow == TLCGet("level") < Depth
 
 -----------------------------------------------------------------------------
-(* The properties, in SPEC §1 row 9's words. Each is an action property:  *)
-(* of every step, `last'` is that step and the unprimed state is before.   *)
+(* The properties, in SPEC §1 row 9's words. An action property reads,   *)
+(* of every step, `last'` as that step and the unprimed state as before;   *)
+(* an invariant reads `last` as the step that reached the state.           *)
 
 Asked == last'.act = "ask"
 Who == last'.i
@@ -376,20 +377,24 @@ Settled ==
 \* A running entry is never cut short for a line move: a waiter's running
 \* entry is ended only once unqueued, or once it holds an entry up past the
 \* hold bound (counted from when both were there). Idle work gives way.
+\* An invariant of the state a look leaves (its `last`): a look is the one
+\* step that ends an entry's steps, and it changes no entry of the queue,
+\* so the queue it read is the queue after it.
+Looked(i) == last.act = "look" /\ last.i = i
 NotCutShort ==
-    [][ \A i \in Ids :
-        (waiter[i].kind = "wait" /\ waiter[i].stop = "" /\ waiter'[i].stop # "")
-        => \/ waiter'[i].stop = "unqueued" /\ ~q[i].in
-           \/ waiter'[i].stop = "held"
-              /\ \E j \in Live : At - Max(q[i].started_at, q[j].queued_at) > Hold ]_vars
+    \A i \in Ids :
+        (Looked(i) /\ waiter[i].kind = "wait" /\ waiter[i].stop # "")
+        => \/ waiter[i].stop = "unqueued" /\ ~q[i].in
+           \/ waiter[i].stop = "held"
+              /\ \E j \in Live : last.t - Max(q[i].started_at, q[j].queued_at) > Hold
 
 \* One that holds others up past the hold bound is ended: its waiter's
 \* next look ends it.
 HeldEnded ==
-    [][ \A i \in Ids :
-        (last'.act = "look" /\ last'.i = i /\ q[i].in
-         /\ \E j \in Live : At - Max(q[i].started_at, q[j].queued_at) > Hold)
-        => waiter'[i].stop # "" ]_vars
+    \A i \in Ids :
+        (Looked(i) /\ q[i].in
+         /\ \E j \in Live : last.t - Max(q[i].started_at, q[j].queued_at) > Hold)
+        => waiter[i].stop # ""
 
 \* An unqueued run's waiter answers `unqueued`.
 UnqueuedRunAnswers ==

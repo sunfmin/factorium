@@ -355,6 +355,18 @@ covers = [
   { action = "UnqueuedAnswers", file = "crates/factorium/src/heavy.rs", function = "App::take_turn" },
 ]
 
+# A run of the queue and its waiters, in the model's own units and shape
+# (None is -1): the waiters' own steps (look, answer) are no event of the
+# queue, so its traces carry them beside the queue's records
+# (.truefit/traces/heavy-ends/).
+[model.trace]
+q = '[i \in Ids |-> r.state.q[i]]'
+last_start = 'r.state.last_start'
+rules = 'r.state.rules'
+now = 'r.now'
+waiter = '[i \in Ids |-> r.state.waiter[i]]'
+last = 'r.last'
+
 [[model]]
 name = "heavy-rules"
 spec = "models/HeavyQueue.tla"
