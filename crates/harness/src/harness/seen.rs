@@ -32,9 +32,8 @@ type Stamp = (u64, SystemTime, u64);
 type Kept = HashMap<PathBuf, (Stamp, HashMap<u64, Fact>)>;
 static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
 
-/// So many files kept before the ones gone are forgotten, and so many
-/// sessions kept of one file before they are.
-const FILES: usize = 16_384;
+/// So many sessions kept of one file before they are forgotten. A file gone
+/// stays kept until the daemon restarts, as it does at each cut.
 const SESSIONS: usize = 256;
 
 /// What `path` records for the session `asked` names (its harness, worktree
@@ -46,18 +45,14 @@ pub(super) fn fact(path: &Path, asked: (&str, &str, &str), find: impl FnOnce() -
     let session = HASH.get_or_init(RandomState::new).hash_one(asked);
     let meta = std::fs::metadata(path).ok()?;
     let stamp = (meta.len(), meta.modified().ok()?, meta.ino());
-    let found = |kept: &Kept| {
-        kept.get(path).filter(|(s, _)| *s == stamp).and_then(|(_, facts)| facts.get(&session).copied())
-    };
+    let found =
+        |kept: &Kept| kept.get(path).filter(|(s, _)| *s == stamp).and_then(|(_, facts)| facts.get(&session).copied());
     if let Some(fact) = KEPT.lock().unwrap_or_else(PoisonError::into_inner).as_ref().and_then(found) {
         return Some(fact);
     }
     let fact = find()?;
     let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
     let kept = kept.get_or_insert_with(HashMap::new);
-    if kept.len() >= FILES {
-        kept.retain(|path, _| path.exists());
-    }
     let (s, facts) = kept.entry(path.to_path_buf()).or_insert_with(|| (stamp, HashMap::new()));
     if *s != stamp || facts.len() >= SESSIONS {
         (*s, *facts) = (stamp, HashMap::new());

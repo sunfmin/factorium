@@ -329,23 +329,28 @@ fn a_second_look_at_an_unchanged_session_file_does_not_read_it() {
     assert!(text.len() > 30_000_000, "{}", text.len());
 
     let open = Some(Turn::Open { since: 1_800_000_000 });
+    let shut = |mode: u32| std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+    let other = "/briefs/w-2-1.md";
     assert_eq!(claude.turn(&home, "/w", brief), open);
     assert_eq!(claude.spent(&home, "/w", brief), Some((0, 0)));
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(claude.turn(&home, "/w", other), open, "another session's look at the same file");
+    shut(0o000);
     assert!(std::fs::read(&file).is_err(), "the file is shut to reading");
     assert_eq!(claude.turn(&home, "/w", brief), open, "answered unread");
     assert_eq!(claude.spent(&home, "/w", brief), Some((0, 0)), "answered unread");
+    assert_eq!(claude.turn(&home, "/w", other), open, "answered unread");
 
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    shut(0o644);
     let end = serde_json::json!({"type": "assistant", "cwd": "/w", "isSidechain": false,
         "timestamp": "2027-01-15T08:00:05Z",
         "message": {"id": "m", "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 3}}});
     text.push_str(&format!("{end}\n"));
     std::fs::write(&file, &text).unwrap();
-    assert_eq!(
-        claude.turn(&home, "/w", brief),
-        Some(Turn::Closed { since: 1_800_000_005, started: Some(1_800_000_000) })
-    );
+    let closed = Some(Turn::Closed { since: 1_800_000_005, started: Some(1_800_000_000) });
+    assert_eq!(claude.turn(&home, "/w", brief), closed);
     assert_eq!(claude.spent(&home, "/w", brief), Some((2, 3)));
+    shut(0o000);
+    assert_eq!(claude.turn(&home, "/w", brief), closed, "the grown file answered unread once read");
+    shut(0o644);
     let _ = std::fs::remove_dir_all(&kept);
 }
