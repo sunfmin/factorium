@@ -306,10 +306,11 @@ async fn an_issue_waits_for_others_of_its_checkout() {
     assert_eq!(w.app.issue_block("web", 3, 1, true).await.unwrap()["blocked_by"], json!([2]));
 }
 
-/// A db written before the state was named for who resumes it is rewritten
-/// by `packaging/migrate-wait-for-human.sql`, and then reads as before.
+/// A db written before the state was named for who resumes it (factorium#95)
+/// is read as it is, by a binary that knows only the new names: no script run
+/// by hand, so the proof on it passes and the daemon swaps by itself (#270).
 #[tokio::test]
-async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
+async fn a_db_kept_with_parked_issues_reads_them_as_waiting_for_human_unrewritten() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "one", "", true, &[]).await.unwrap();
@@ -317,12 +318,12 @@ async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
     w.app.issue_wait_for_human("web", 2, "needs a decision").await.unwrap();
     w.app.issue_add("web", "three", "", false, &[]).await.unwrap();
     w.issues_as_code_before_95_wrote_them();
-    assert_ne!(w.names_before_95(), 0, "the old names are in");
-    let migration = include_str!("../../../../packaging/migrate-wait-for-human.sql");
-    w.migrate(migration);
-    w.migrate(migration);
-    assert_eq!(w.names_before_95(), 0, "no old name is left");
+    let before = w.names_before_95();
+    assert_ne!(before, 0, "the old names are in");
     let app = w.run();
+    let doctor = app.doctor().await.expect("the proof's doctor answers on it");
+    let asks: Vec<_> = doctor["asks"].as_array().unwrap().iter().map(|a| a["issue"].clone()).collect();
+    assert_eq!(asks.len(), 2, "both waiting issues ask: {asks:?}");
     for (n, status, reason) in [
         (1, "waiting_for_human", json!(null)),
         (2, "waiting_for_human", json!("needs a decision")),
@@ -335,6 +336,7 @@ async fn the_sql_rewrites_a_db_kept_with_parked_issues_to_the_new_names() {
     let statuses: Vec<_> = listed.as_array().unwrap().iter().map(|i| i["status"].clone()).collect();
     assert_eq!(statuses, [json!("waiting_for_human"), json!("waiting_for_human"), json!("ready")]);
     assert_eq!(app.issue_ready("web", 2).await.unwrap()["status"], "ready");
+    assert!(w.names_before_95() > 0 && w.names_before_95() <= before, "the log is read, not rewritten");
 }
 
 /// An event the tracker cannot read (a binary's bug, or one the running

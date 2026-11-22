@@ -14,6 +14,8 @@ use crate::{command, issue_id, named, no, only};
 pub enum Status {
     #[default]
     Ready,
+    /// `parked` before factorium#95, as snapshots kept before it hold it.
+    #[serde(alias = "parked")]
     WaitingForHuman,
     Closed,
 }
@@ -265,6 +267,8 @@ pub enum IssueEvent {
         number: u64,
         title: String,
         body: String,
+        /// `parked` before factorium#95.
+        #[serde(alias = "parked")]
         waiting_for_human: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         task: Option<Task>,
@@ -301,6 +305,8 @@ pub enum IssueEvent {
     NotBefore {
         at: Option<i64>,
     },
+    /// `IssueParked` before factorium#95.
+    #[serde(alias = "IssueParked")]
     IssueWaitingForHuman {
         reason: String,
     },

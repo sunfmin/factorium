@@ -169,8 +169,10 @@ impl Projection for Tracker {
         TRACKER
     }
 
+    /// "6": rows rebuilt from the log, so a row kept with a status of an
+    /// older name (`parked`, before factorium#95) holds the current one.
     fn version(&self) -> u32 {
-        5
+        6
     }
 
     fn tables(&self) -> Vec<Table> {
