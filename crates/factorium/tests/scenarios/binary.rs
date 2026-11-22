@@ -119,11 +119,12 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let dirs = dir.0.to_str().unwrap();
     assert_eq!(run(&dir, &["checkout", "edit", "web", "--role", dirs]).1["role"], json!(dirs));
     assert_eq!(run(&dir, &["checkout", "edit", "web", "--no-role"]).1["role"], json!(null));
-    // Its idle work turned off on this host, then on again with a role named.
-    assert_eq!(run(&dir, &["checkout", "edit", "web", "--no-idle"]).1["idle_off"], json!(true));
+    // Its idle work turned off on this host, then on again with the role named and taken away.
+    let off = run(&dir, &["checkout", "edit", "web", "--no-idle", "--role", dirs]).1;
+    assert_eq!((off["idle_off"].clone(), off["role"].clone()), (json!(true), json!(dirs)), "{off}");
     assert_eq!(run(&dir, &["checkout", "list"]).1[0]["idle_off"], json!(true));
-    let both = run(&dir, &["checkout", "edit", "web", "--idle", "--role", dirs]).1;
-    assert_eq!((both["idle_off"].clone(), both["role"].clone()), (json!(false), json!(dirs)), "{both}");
+    let on = run(&dir, &["checkout", "edit", "web", "--idle", "--no-role"]).1;
+    assert_eq!((on["idle_off"].clone(), on["role"].clone()), (json!(false), json!(null)), "{on}");
     let bare = bin(&dir).args(["checkout", "edit", "web"]).output().unwrap();
     assert!(!bare.status.success(), "an edit names what it changes");
     let (ok, settings) = run(&dir, &["settings", "silent_bound"]);
