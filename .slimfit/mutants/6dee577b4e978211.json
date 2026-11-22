@@ -1,0 +1,15 @@
+{
+  "tree": "126cc3ee61578c96319711f8214a855f684e439c+d1fba762150c532c",
+  "picker": "codex:01a20332-18ec-7ba3-9d35-b9b098cd62ae:default",
+  "author": "claude-code:0c9c7842-a6bb-5712-803e-9d0e4c89d845:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/line/cut.rs:146:9: replace App::cuts_proofs_ended with ()",
+        "why": "The new scenarios poll ticks for the cut record, so they may pass even if callers waiting for moves to end return before the proof finishes.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
