@@ -129,18 +129,13 @@ impl App {
     }
 
     pub async fn issue_edit(&self, checkout: &str, number: u64, title: Option<&str>, body: Option<&str>) -> Answer {
-        // A record the edit adds takes the next number; one it keeps keeps its own.
-        loop {
-            let i = self.issue(checkout, number).await?;
-            let fresh = self.give_numbers(unnumbered(&i, body.unwrap_or(&i.body))).await?;
-            let (title, body) = (title.map(Into::into), body.map(Into::into));
-            match self.submit::<EditIssue>(Edit { checkout: checkout.into(), number, title, body, fresh }).await {
-                // Another edit came first: number it again.
-                Err(r) if r.code == "no_numbers" => continue,
-                done => done?,
-            }
-            return self.issue_show(checkout, number).await;
-        }
+        // A record the edit adds takes the next number; one it keeps keeps its
+        // own. Another edit that came first refuses it (`no_numbers`): edit again.
+        let i = self.issue(checkout, number).await?;
+        let fresh = self.give_numbers(unnumbered(&i, body.unwrap_or(&i.body))).await?;
+        let (title, body) = (title.map(Into::into), body.map(Into::into));
+        self.submit::<EditIssue>(Edit { checkout: checkout.into(), number, title, body, fresh }).await?;
+        self.issue_show(checkout, number).await
     }
 
     /// Closes an issue; a worker on it ends. The attempt whose worktree its

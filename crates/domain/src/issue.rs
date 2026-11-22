@@ -417,9 +417,9 @@ impl Aggregate for Issues {
         vec![("IssueCommented", authored)]
     }
 
-    /// "6": its Decided records keep their numbers.
+    /// "5": it keeps what it waits for, of its checkout or another, in one list.
     fn code() -> &'static str {
-        "6"
+        "5"
     }
 }
 

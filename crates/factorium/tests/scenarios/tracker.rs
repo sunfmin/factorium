@@ -383,6 +383,8 @@ async fn each_decided_record_has_a_host_wide_number_given_once() {
     assert_eq!(shown["decided"], json!(["D4", "D1"]), "kept as it was, the new one next: {shown}");
     w.app.issue_edit("web", 1, Some("Renamed"), None).await.unwrap();
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["decided"], json!(["D4", "D1"]), "a title edit keeps them");
+    let shown = w.app.issue_comment("api", 1, "Decided (watch, for Felix): next").await.unwrap();
+    assert_eq!(shown["comments"][2]["decided"], "D5", "the title edit took no number: {shown}");
     w.app.decided_view(true, None).await.unwrap();
     w.advance(8 * 24 * 60);
     assert_eq!(w.app.decided_view(false, None).await.unwrap()["decided"], json!([]), "older than 7 days");
@@ -435,4 +437,21 @@ async fn records_made_before_numbers_take_theirs_oldest_first() {
     );
     w.app.decided_view(false, None).await.unwrap();
     assert_eq!(w.app.decided_view(false, None).await.unwrap()["decided"], all, "given once");
+}
+
+/// A sweep whose numbering faults on an open issue fails: only a closed
+/// issue's records are placed outside it.
+#[tokio::test]
+async fn a_sweep_that_faults_on_an_open_issue_places_nothing() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "One", "Decided (a, for Felix): first\n", false, &[]).await.unwrap();
+    w.records_as_code_before_243_wrote_them();
+    w.disk_refuses("DecidedNumbered", true);
+    w.app.decided_view(false, None).await.expect_err("the disk refused its numbers");
+    w.disk_refuses("DecidedNumbered", false);
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(shown["decided"], json!([]), "none placed: {shown}");
+    let all = w.app.decided_view(false, None).await.unwrap()["decided"].clone();
+    assert_eq!(all[0]["id"], "D2", "numbered once the disk takes it: {all}");
 }

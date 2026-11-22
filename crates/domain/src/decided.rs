@@ -277,6 +277,19 @@ mod tests {
     }
 
     #[test]
+    fn the_sequence_gives_on_from_its_last_and_stays_swept() {
+        let mut s = Given::default();
+        let give = |s: &mut Given, count, sweep| {
+            let from = s.last + 1;
+            Numbers::evolve(s, NumbersEvent::NumbersGiven { from, count, sweep });
+        };
+        give(&mut s, 0, true);
+        assert_eq!((s.last, s.swept), (0, true), "a sweep that found nothing");
+        give(&mut s, 3, false);
+        assert_eq!((s.last, s.swept), (3, true), "swept stays");
+    }
+
+    #[test]
     fn a_name_is_d_and_its_number() {
         assert_eq!(name(17), "D17");
         assert_eq!((parse("D17"), parse("d17"), parse("17"), parse(" D3 ")), (Some(17), Some(17), Some(17), Some(3)));
