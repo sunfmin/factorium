@@ -70,6 +70,17 @@ pub enum Top {
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
     Cut { checkout: String },
+    /// Runs a checkout's idle work now (SPEC §1.16), as `promote` and `cut`
+    /// move the line now: its steps, then its tasks line, in its own clone
+    /// at the base's tip, without waiting for an idle host or `every`.
+    /// Through the heavy queue at background priority, it yields to nothing
+    /// but the hold bound; `unqueue` ends it whole. Recorded as any run is
+    /// (its start begins `every` again), its tasks filed by the same rule.
+    /// Waits for it and answers its record: tip, at, green, took_ms, tail,
+    /// filed. Refused when the base declares no `[idle]`, or while idle work
+    /// of any checkout runs or waits on the host (one at a time), naming
+    /// it and its `unqueue`.
+    Idle { checkout: String },
     /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
     /// queue, waiting or running: one that does not move and holds the rest
     /// up. A running one is ended with every process it started. Its
@@ -408,6 +419,7 @@ impl Top {
             Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
+            Top::Idle { checkout } => app.idle_now(&checkout).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
             Top::Heavy(h) => match h {
                 HeavyCmd::Run { background, command } => app.heavy_run(&here()?, &line(&command), background).await,

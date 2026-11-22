@@ -23,9 +23,18 @@ pub fn idle_id(checkout: &str) -> Uuid {
     id(&format!("idle:{checkout}"))
 }
 
+/// What the queue calls idle work: this, then its checkout.
+const JOB: &str = "idle work of ";
+
 /// What the queue calls the idle work of `checkout`.
 pub fn job(checkout: &str) -> String {
-    format!("idle work of {checkout}")
+    format!("{JOB}{checkout}")
+}
+
+/// The idle work the queue holds, waiting or running, if any: the host runs
+/// one at a time, however it was started.
+pub fn queued(queue: &Queue) -> Option<&crate::heavy::Entry> {
+    queue.entries.iter().find(|e| e.what.starts_with(JOB))
 }
 
 /// One run that ended: when it started, on which base tip, and how it went.

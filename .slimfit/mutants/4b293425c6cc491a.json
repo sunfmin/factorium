@@ -1,0 +1,15 @@
+{
+  "tree": "2f033b0bc00a588a09ec8ea45be83e15209116aa+d1fba762150c532c",
+  "picker": "grok:01a20105-f5ed-77f2-9b49-0ce2c193ef01:grok-4.7-build",
+  "author": "claude-code:d7d157f9-510d-5168-a810-f6db0d3222e2:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/idle.rs:113:60: replace || with && in App::idle_start",
+        "why": "The daemon's new one-at-a-time guard is beside_runs || queued, but a hand run shares the queue from another process and every concurrent tick in the tests is on a busy host (or after the run has finished), while idle_runs checks queued() on its own, so && still leaves the suite green.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}

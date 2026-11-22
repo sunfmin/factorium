@@ -8,25 +8,31 @@
 //! due, its clone, the tasks a run's `tasks` line prints, filed as issues
 //! before it is recorded, and the record. Tasks overdue by `tasks_bound` run
 //! without an idle host, and only them: such a run yields to nothing.
+//! `factorium idle` runs it all now, in its own process, waiting its turn:
+//! it too yields to nothing, and is recorded and files its tasks the same way.
 
 use factorium_domain::admission;
 use factorium_domain::checkout::Checkout;
+use factorium_domain::heavy::{Heavy, queue_id};
 use factorium_domain::idle::{self, Idles, RecordIdle, Run, ToFile, host_idle, idle_id};
 use factorium_domain::issue::Open;
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker;
+use factorium_host::Ran;
 use factum::Value;
 use serde_json::json;
 
 use crate::heavy::{For, Job, Turn};
 use crate::load::Load;
-use crate::{Answer, App, LineClone, fail};
+use crate::{Answer, App, LineClone, Refusal, fail};
 
 /// The idle work running now, of one checkout: the host runs one at a time.
 pub(crate) struct Running {
     checkout: String,
     tip: String,
     at: i64,
+    /// Its clone.
+    dir: std::path::PathBuf,
     /// Its steps, and their limit in all, s.
     steps: Vec<String>,
     limit: u64,
@@ -44,11 +50,16 @@ impl App {
         else {
             return Ok(None);
         };
-        let Running { checkout, tip, at, steps, limit, tasks } = *idle;
-        let rans = match ended {
-            Ok(rans) => rans,
-            Err(ends) => return Ok(Some(json!({ "idle": checkout, "tip": tip, "yielded": ends.to_string() }))),
-        };
+        match ended {
+            Ok(rans) => self.idle_ran(*idle, rans).await.map(Some),
+            Err(ends) => Ok(Some(json!({ "idle": idle.checkout, "tip": idle.tip, "yielded": ends.to_string() }))),
+        }
+    }
+
+    /// Records `idle`'s run, whose steps ran so: the tasks it printed filed
+    /// first, if it was green. Answers the record, with the issues filed.
+    async fn idle_ran(&self, idle: Running, rans: Vec<Ran>) -> Answer<Value> {
+        let Running { checkout, tip, at, steps, limit, tasks, .. } = idle;
         let took_ms = rans.iter().map(|r| r.took_ms).sum();
         let (mut green, mut tail) = match rans.last().filter(|r| !r.ok) {
             None => (true, rans.last().map(|r| r.tail.clone()).unwrap_or_default()),
@@ -64,7 +75,9 @@ impl App {
         }
         let run = Run { tip: tip.clone(), at, green, took_ms, tail: tail.clone() };
         self.submit::<RecordIdle>(idle::Ran { checkout: checkout.clone(), run }).await?;
-        Ok(Some(json!({ "idle": checkout, "tip": tip, "green": green, "tail": tail, "filed": filed })))
+        Ok(
+            json!({ "idle": checkout, "tip": tip, "at": at, "green": green, "took_ms": took_ms, "tail": tail, "filed": filed }),
+        )
     }
 
     /// Files as issues of `checkout` the tasks its run printed to `out` at
@@ -96,7 +109,8 @@ impl App {
         load: &Load,
         settings: &Settings,
     ) -> Answer<Option<Value>> {
-        if self.beside_runs(|f| matches!(f, For::Idle(_))) {
+        // One at a time: `factorium idle`'s too, run in a process of its own.
+        if self.beside_runs(|f| matches!(f, For::Idle(_))) || idle::queued(&load.queue).is_some() {
             return Ok(None);
         }
         let workers: Vec<_> = self.live_workers().await?.into_iter().map(|w| w.state.status).collect();
@@ -115,6 +129,21 @@ impl App {
             }
         }
         let Some((_, c, overdue)) = due.into_iter().min_by_key(|(at, ..)| *at) else { return Ok(None) };
+        let Some(idle) = self.idle_ready(c, overdue).await? else { return Ok(None) };
+        let (checkout, tip, dir, steps) =
+            (idle.checkout.clone(), idle.tip.clone(), idle.dir.clone(), idle.steps.clone());
+        let job = Job::idle(idle::job(&checkout), &dir, &steps, idle.limit);
+        let turn = Turn::Beside { key: None, yields: !overdue, of: For::Idle(Box::new(idle)) };
+        if self.heavy(job, turn).await?.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(json!({ "idle": checkout, "tip": tip, "started": true })))
+    }
+
+    /// `c`'s idle work at its base's tip, fetched now, in its own clone made
+    /// afresh: its steps, then its `tasks` line; `overdue`, the tasks alone.
+    /// `None`: the tip declares no `[idle]`.
+    async fn idle_ready(&self, c: &Checkout, overdue: bool) -> Answer<Option<Running>> {
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.base).map_err(fail("git"))?;
         let Some(mut work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
@@ -126,13 +155,35 @@ impl App {
             work.steps.push(format!("( {line} ) > '{}'", out.display()));
             out
         });
-        let job = Job::idle(idle::job(&c.name), &here.dir, &work.steps, work.limit);
-        let (checkout, steps, limit, at) = (c.name.clone(), work.steps.clone(), work.limit, self.now());
-        let idle = Box::new(Running { checkout, tip: tip.clone(), at, steps, limit, tasks });
-        let turn = Turn::Beside { key: None, yields: !overdue, of: For::Idle(idle) };
-        if self.heavy(job, turn).await?.is_none() {
-            return Ok(None);
+        let (checkout, steps, limit, at, dir) = (c.name.clone(), work.steps, work.limit, self.now(), here.dir);
+        Ok(Some(Running { checkout, tip, at, dir, steps, limit, tasks }))
+    }
+
+    /// `factorium idle`: runs `checkout`'s idle work now, its steps then its
+    /// tasks line, whether the host is idle or `every` has passed: through
+    /// the heavy queue at background priority, yielding to nothing but the
+    /// hold bound. Waits for it and answers its record, recorded as any
+    /// run's. Refused while idle work runs or waits on the host, or when the
+    /// base declares no `[idle]`.
+    pub async fn idle_now(&self, checkout: &str) -> Answer {
+        let c = self.checkout(checkout).await?;
+        if let Some(e) = idle::queued(&self.state::<Heavy>(queue_id()).await?) {
+            let why = format!(
+                "`{}` is on the heavy queue (entry {}): the host runs one idle run at a time. \
+                 Wait for it, or end it with `factorium unqueue {}`",
+                e.what, e.id, e.id
+            );
+            return Err(Refusal::new("idle_runs", why));
         }
-        Ok(Some(json!({ "idle": c.name, "tip": tip, "started": true })))
+        let Some(idle) = self.idle_ready(&c, false).await? else {
+            let why = format!(
+                "{} declares no `[idle]` in factorium.toml at the tip of {}: declare its `steps` or `tasks` there (SPEC §5)",
+                c.name, c.base
+            );
+            return Err(Refusal::new("no_idle", why));
+        };
+        let job = Job::idle(idle::job(&c.name), &idle.dir, &idle.steps, idle.limit);
+        let rans = self.heavy(job, Turn::Wait).await?.expect("a waited turn");
+        self.idle_ran(idle, rans).await
     }
 }
