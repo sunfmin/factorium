@@ -169,10 +169,26 @@ impl App {
         steps.ended("resuming parked workers", self.now());
         t.watch = self.look_if_due(&settings).await?;
         steps.ended("the watch's look", self.now());
-        // Not while a line move runs beside the ticks: a restart would end it.
-        t.restart =
-            (!self.moves_run()).then(|| self.swapped(false)).flatten().map(|b| b.to_string_lossy().into_owned());
+        t.restart = self.swap_due().map(|b| b.to_string_lossy().into_owned());
         Ok(t)
+    }
+
+    /// The linked binary to exec once proven; not while a line move runs
+    /// beside the ticks, which a restart would end.
+    fn swap_due(&self) -> Option<std::path::PathBuf> {
+        (!self.moves_run()).then(|| self.swapped(false)).flatten()
+    }
+
+    /// The binary to run in place of this one after a tick: a good tick's
+    /// restart. After a failed one, the linked binary once proven, since an
+    /// older daemon whose store cannot read an event a newer binary wrote
+    /// is mended by the swap alone (factorium#252); else the kept one a
+    /// rollback goes back to.
+    pub fn after(&self, ticked: &Answer<Tick>) -> Option<std::path::PathBuf> {
+        match ticked {
+            Ok(t) => t.restart.as_ref().map(Into::into),
+            Err(_) => self.swap_due().or_else(|| self.fallback()),
+        }
     }
 
     /// One issue to bump, in each checkout whose proving tip pins another
@@ -342,21 +358,13 @@ impl App {
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             let ticked = self.tick().await;
             self.note_ticked();
-            match ticked {
-                Ok(t) => {
-                    if t.logged() {
-                        println!("{}", serde_json::to_string(&t).unwrap_or_default());
-                    }
-                    if let Some(binary) = &t.restart {
-                        self.exec(binary.as_ref(), &held).await;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("tick: {e}");
-                    if let Some(kept) = self.fallback() {
-                        self.exec(&kept, &held).await;
-                    }
-                }
+            match &ticked {
+                Ok(t) if t.logged() => println!("{}", serde_json::to_string(t).unwrap_or_default()),
+                Ok(_) => {}
+                Err(e) => eprintln!("tick: {e}"),
+            }
+            if let Some(binary) = self.after(&ticked) {
+                self.exec(&binary, &held).await;
             }
             ticks += 1;
             let every = self
