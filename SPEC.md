@@ -63,7 +63,14 @@ leaves it out: the daemon runs the look.
    checkout is `--blocked-by <checkout>#N`, met once it is closed (landed);
    `<checkout>#N@cut` is met only once a cut of that checkout holds its
    landing, and installed it where its `[cut]` names a formula, for a tool
-   used from another repo. `issue block` takes the same names.
+   used from another repo. `issue block` takes the same names. An issue
+   can wait until a time too (factorium#229): `issue add --not-before
+   <time>` (RFC 3339 with its offset, or ms; `worker file` takes it as
+   well), or on an existing one `issue block --until <time>`, which
+   replaces the time it waited for (`--until --undo`: none). It is met on
+   the first tick at or after that time, as a met block is; `issue show`
+   answers it (`not_before`, in ms and UTC), and doctor lists a ready issue
+   waiting for its time under `not_before`, with the time.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading.
 3. The worker resumes in the worktree its issue's last attempt kept, if
@@ -160,7 +167,8 @@ line job started on its checkout in that time, nor its own ask: one that
 waits its turn behind landings that move is no stall, and `doctor` lists
 it under `landing` with its place in its checkout's line), the oldest unpromoted landing past `promotion_bound` with
 no promotion running, the oldest uncut promotion past `cut_bound` with no
-cut running. A waiting worker whose issue the watch blocks is parked: on the first tick
+cut running. A waiting worker whose issue the watch blocks (on issues, or
+until a time) is parked: on the first tick
 that finds everything its issue waits for met, as step 1 defines met, it is
 sent back to work as `watch restart` sends it, told (in a comment on its
 issue by `factorium`, typed at it) which blockers were met and at which

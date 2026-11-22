@@ -6,6 +6,7 @@ use factorium_domain::issue_id;
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::tracker::{self, shown};
+use factorium_domain::when;
 use factum::Command;
 use serde_json::json;
 
@@ -95,6 +96,7 @@ impl App {
             "status": i.status,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),
+            "not_before": i.not_before.map(|at| json!({ "ms": at, "utc": when::utc(at) })),
             "reason": i.reason,
             "worker": i.worker,
             "claim": i.claim,
@@ -251,7 +253,8 @@ impl App {
     }
 
     /// Makes issue `number` wait for `by`, an issue of its checkout or of
-    /// another, or, with `undo`, stop waiting for it.
+    /// another, or a time (which replaces the one it waited for), or, with
+    /// `undo`, stop waiting for it.
     pub async fn issue_block(&self, checkout: &str, number: u64, by: impl Into<Blocker>, undo: bool) -> Answer {
         let by = by.into();
         if !undo {
@@ -271,6 +274,7 @@ impl App {
         let by = by.of(checkout);
         match &by {
             Blocker::Here(n) => drop(self.issue(checkout, *n).await?),
+            Blocker::NotBefore(_) => {}
             Blocker::Across(a) => {
                 let c = self.checkout(&a.checkout).await?;
                 self.issue(&a.checkout, a.number).await?;
@@ -288,7 +292,8 @@ impl App {
     /// close, such as the landing), or `None` while it is not: met once its
     /// issue is closed (or gone), and, for its cut, its landing is in a cut.
     /// Its landing is recorded before it closes, so a closed issue the line
-    /// does not hold either landed in a cut or never landed.
+    /// does not hold either landed in a cut or never landed. Its time, last,
+    /// is met once the clock reaches it.
     pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
         let mut all = Vec::new();
         for (name, a) in issue.waits_for() {
@@ -299,6 +304,10 @@ impl App {
                 Err(_) => Some("gone".into()),
             };
             all.push((name, met));
+        }
+        if let Some(at) = issue.not_before {
+            let met = (self.now() >= at).then(|| "its time came".to_string());
+            all.push((format!("not before {}", when::utc(at)), met));
         }
         Ok(all)
     }

@@ -26,7 +26,9 @@ how to fix it. Then:
    - To have a waiting worker wait for other issues to land, block its
      issue on them (`issue block`): it is parked, no round of yours, and the
      first tick that finds them all met sends it back to work by itself,
-     told what landed and to merge the proving tip.
+     told what landed and to merge the proving tip. To have it wait until
+     a time (a measurement that needs a span to pass), `issue block
+     <checkout> <n> --until <time>` parks it the same way until then.
    - `factorium issue wait-for-human|ready|start-over|close|edit|comment|block …`
      (`wait-for-human <checkout> <n> --why "…"` is for a decision only a
      person can make: only the owner's `issue ready` moves it again;

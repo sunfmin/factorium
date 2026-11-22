@@ -128,6 +128,15 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     };
     issue(&["add", "web", "Then this", "--waiting-for-human"]);
     assert_eq!(issue(&["block", "web", "2", "--by", "1"])["blocked_by"], json!([1]));
+    // A time it waits for: set with its offset, shown in UTC, undone with no time named.
+    let until = issue(&["block", "web", "2", "--until", "2026-11-23T14:34:37+09:00"]);
+    assert_eq!(until["not_before"]["utc"], "2026-11-23T05:34:37Z", "{until}");
+    assert_eq!(issue(&["block", "web", "2", "--until", "--undo"])["not_before"], json!(null));
+    let timed = issue(&["add", "web", "Recount", "--not-before", "2026-11-23T05:34:37Z", "--waiting-for-human"]);
+    assert_eq!(timed["not_before"]["ms"], until["not_before"]["ms"], "{timed}");
+    let (ok, answer) = run(&dir, &["issue", "block", "web", "2", "--until"]);
+    assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("no_time")), "{answer}");
+    issue(&["close", "web", "3", "--reason", "only shown"]);
     let wall = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
     let before = wall();
     let note = issue(&["comment", "web", "1", "a note"])["comments"][0].clone();
