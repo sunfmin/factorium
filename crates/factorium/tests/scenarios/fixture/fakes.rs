@@ -404,6 +404,11 @@ pub struct FakeHost {
     pub missing: Mutex<Vec<String>>,
     /// The agents launchd has loaded, as `<domain>/<uid>/<label>`.
     pub service: Mutex<Vec<String>>,
+    /// How many prints after its bootout still find an agent, as launchd
+    /// still holds a running one a moment after bootout returns.
+    pub lingers: Mutex<usize>,
+    /// Agents booted out that launchd still holds: prints left that find them.
+    pub dropping: Mutex<Vec<(String, usize)>>,
     /// Every program run, as `program args…`, oldest first.
     pub ran: Mutex<Vec<String>>,
     /// Runs, once, on the next `sleep`: what happens while the app waits.
@@ -423,6 +428,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
+        let (lingers, dropping) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -434,6 +440,8 @@ impl FakeHost {
             slimfit,
             missing,
             service,
+            lingers,
+            dropping,
             ran,
             while_sleeping,
             gone,
@@ -498,11 +506,22 @@ impl Programs for FakeHost {
                 use std::os::unix::fs::MetadataExt;
                 let uid = std::fs::metadata(&self.root).unwrap().uid();
                 let mut loaded = self.service.lock().unwrap();
+                let mut dropping = self.dropping.lock().unwrap();
+                let held = |t: &str, dropping: &[(String, usize)]| dropping.iter().any(|(x, _)| x == t);
                 let ok = match args {
-                    ["print", t] => loaded.iter().any(|x| x == t),
+                    ["print", t] => {
+                        let found = loaded.iter().any(|x| x == t) || held(t, &dropping);
+                        if let Some(i) = dropping.iter().position(|(x, _)| x == t) {
+                            dropping[i].1 -= 1;
+                            if dropping[i].1 == 0 {
+                                dropping.remove(i);
+                            }
+                        }
+                        found
+                    }
                     ["bootstrap", d, file] if *d == format!("user/{uid}") && background(file) => {
                         match label_of(file).map(|l| format!("{d}/{l}")) {
-                            Some(t) if !loaded.contains(&t) => {
+                            Some(t) if !loaded.contains(&t) && !held(&t, &dropping) => {
                                 loaded.push(t);
                                 true
                             }
@@ -511,7 +530,11 @@ impl Programs for FakeHost {
                     }
                     ["bootout", t] => match loaded.iter().position(|x| x == t) {
                         Some(i) => {
-                            loaded.remove(i);
+                            let t = loaded.remove(i);
+                            let lingers = *self.lingers.lock().unwrap();
+                            if lingers > 0 {
+                                dropping.push((t, lingers));
+                            }
                             true
                         }
                         None => false,
