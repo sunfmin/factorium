@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn a_record_in_a_fenced_block_quotes_the_shape_and_is_none() {
         let quoted = "```\nDecided (<who>, for Felix): <what>\nUndo: <how>\n```";
-        let tilde = "~~~~text\nDecided (a): x\n```\nDecided (b): still in\n~~~~";
+        let tilde = "~~~~text\nDecided (a): x\n```\n~~~ not a closer\nDecided (b): still in\n~~~~";
         let body = format!("{quoted}\n{tilde}\n{RECORD}\n```\nUndo: quoted\n```\nDecided (c): after");
         let found = in_body(&body);
         assert_eq!(found.len(), 2, "{found:?}");
