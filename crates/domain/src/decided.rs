@@ -9,8 +9,15 @@
 //! Chose: B, because …
 //! Undo: <how to take it back>
 //! ```
+//!
+//! Each record has a short number, `D<n>`, one sequence for the host, given
+//! once when it enters its issue ([`Numbers`]) and kept on the issue's own
+//! events: a comment's on its event, a body's as [`Mark`]s.
 
-use serde::Serialize;
+use factum_core::{Aggregate, Uuid};
+use serde::{Deserialize, Serialize};
+
+use crate::command;
 
 /// The line a record starts with.
 const HEAD: &str = "Decided (";
@@ -24,6 +31,141 @@ pub struct Record {
     pub chose: Option<String>,
     pub undo: Option<String>,
 }
+
+impl Record {
+    /// Whether `m` marks it: a body's record keeps its number across edits
+    /// while its head line (who and what) stays as it was.
+    pub fn marked_by(&self, m: &Mark) -> bool {
+        (self.who.as_str(), self.what.as_str()) == (m.who.as_str(), m.what.as_str())
+    }
+}
+
+/// A body record's number, with the head it was given to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mark {
+    pub id: u64,
+    pub who: String,
+    pub what: String,
+}
+
+impl Mark {
+    pub fn of(r: &Record, id: u64) -> Mark {
+        Mark { id, who: r.who.clone(), what: r.what.clone() }
+    }
+}
+
+/// The number each of `records` (a body's) has among `marks`, in order,
+/// each mark used once; none for one no mark names.
+pub fn numbers(records: &[Record], marks: &[Mark]) -> Vec<Option<u64>> {
+    let mut used = vec![false; marks.len()];
+    (records.iter())
+        .map(|r| {
+            let i = (0..marks.len()).find(|&i| !used[i] && r.marked_by(&marks[i]))?;
+            used[i] = true;
+            Some(marks[i].id)
+        })
+        .collect()
+}
+
+/// The marks of `records` after an edit: each keeps the number `marks`
+/// gave it, the rest take `fresh` in order; none if `fresh` runs short.
+pub fn remarked(records: &[Record], marks: &[Mark], fresh: &[u64]) -> Option<Vec<Mark>> {
+    let mut fresh = fresh.iter().copied();
+    let ids = numbers(records, marks).into_iter().map(|id| id.or_else(|| fresh.next()));
+    records.iter().zip(ids).map(|(r, id)| Some(Mark::of(r, id?))).collect()
+}
+
+/// A record's name, as the owner says it.
+pub fn name(id: u64) -> String {
+    format!("D{id}")
+}
+
+/// The number a name says: `D17`, `d17` or `17`.
+pub fn parse(name: &str) -> Option<u64> {
+    let n = name.trim();
+    n.strip_prefix(['D', 'd']).unwrap_or(n).parse().ok().filter(|&n| n > 0)
+}
+
+/// Numbers for the Decided records of issue `number` of `checkout`: its
+/// body's, by head, and its comments', by index.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Numbering {
+    pub checkout: String,
+    pub number: u64,
+    pub body: Vec<Mark>,
+    pub comments: Vec<(usize, u64)>,
+}
+
+/// The host's one sequence of record numbers: the last given, whether the
+/// records made before numbers were given have theirs, and those of them
+/// in an issue that had closed, which takes no event: placed here, named by
+/// issue and place, never copied.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Given {
+    pub last: u64,
+    pub swept: bool,
+    #[serde(default)]
+    pub placed: Vec<Numbering>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum NumbersEvent {
+    /// Numbers `from` to `from + count - 1` are given; with `sweep`, to the
+    /// records that had none.
+    NumbersGiven { from: u64, count: u64, sweep: bool },
+    /// Numbers given in a sweep to records of issues that had closed.
+    NumbersPlaced { placed: Vec<Numbering> },
+}
+
+pub struct Numbers;
+
+impl Aggregate for Numbers {
+    const NAME: &'static str = "decided";
+    type State = Given;
+    type Event = NumbersEvent;
+
+    fn evolve(s: &mut Given, event: NumbersEvent) {
+        match event {
+            NumbersEvent::NumbersGiven { from, count, sweep } => {
+                s.last = s.last.max((from + count).saturating_sub(1));
+                s.swept |= sweep;
+            }
+            NumbersEvent::NumbersPlaced { placed } => s.placed.extend(placed),
+        }
+    }
+}
+
+/// The id of the host's one sequence of record numbers.
+pub fn numbers_id() -> Uuid {
+    crate::id("decided:numbers")
+}
+
+/// `count` numbers wanted; with `sweep`, for the records that had none.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Give {
+    pub count: u64,
+    #[serde(default)]
+    pub sweep: bool,
+}
+
+command!(GiveNumbers, "decided.give", Numbers, Give, |_p| numbers_id(), |s, p, now| {
+    Ok(if p.count == 0 && !(p.sweep && !s.swept) {
+        Vec::new()
+    } else {
+        vec![NumbersEvent::NumbersGiven { from: s.last + 1, count: p.count, sweep: p.sweep }]
+    })
+});
+
+/// Numbers a sweep gave to records of issues that had closed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Place {
+    pub placed: Vec<Numbering>,
+}
+
+command!(PlaceNumbers, "decided.place", Numbers, Place, |_p| numbers_id(), |s, p, now| {
+    Ok(if p.placed.is_empty() { Vec::new() } else { vec![NumbersEvent::NumbersPlaced { placed: p.placed.clone() }] })
+});
 
 /// The record a comment is: one whose first line is `Decided (…`.
 pub fn in_comment(text: &str) -> Option<Record> {
@@ -120,6 +262,25 @@ mod tests {
         assert_eq!(found[0], kept());
         assert_eq!(found[1].what, "after");
         assert_eq!(in_comment(quoted), None);
+    }
+
+    #[test]
+    fn a_body_record_keeps_its_number_while_its_head_stays() {
+        let rec = |who: &str, what: &str| Record { who: who.into(), what: what.into(), ..Record::default() };
+        let marks = [Mark::of(&rec("a", "x"), 3), Mark::of(&rec("b", "y"), 5)];
+        let now = [rec("b", "y"), rec("c", "new"), rec("a", "x")];
+        assert_eq!(numbers(&now, &marks), [Some(5), None, Some(3)]);
+        let after = remarked(&now, &marks, &[9]).unwrap();
+        assert_eq!(after.iter().map(|m| m.id).collect::<Vec<_>>(), [5, 9, 3]);
+        assert_eq!(remarked(&now, &marks, &[]), None, "too few fresh numbers");
+        assert_eq!(numbers(&[rec("a", "x"), rec("a", "x")], &marks[..1]), [Some(3), None], "a mark serves once");
+    }
+
+    #[test]
+    fn a_name_is_d_and_its_number() {
+        assert_eq!(name(17), "D17");
+        assert_eq!((parse("D17"), parse("d17"), parse("17"), parse(" D3 ")), (Some(17), Some(17), Some(17), Some(3)));
+        assert_eq!((parse("D0"), parse("Dx"), parse("rolesmith#4")), (None, None, None));
     }
 
     #[test]

@@ -71,6 +71,16 @@ impl World {
         );
     }
 
+    /// Decided records as the code before factorium#243 wrote them: no
+    /// numbers, and no sequence that gave any.
+    pub fn records_as_code_before_243_wrote_them(&self) {
+        self.migrate(
+            "DELETE FROM events WHERE kind IN ('NumbersGiven', 'NumbersPlaced', 'DecidedNumbered'); \
+             UPDATE events SET data = json_remove(data, '$.decided') \
+             WHERE kind IN ('IssueOpened', 'IssueEdited', 'IssueCommented'); DELETE FROM snapshots;",
+        );
+    }
+
     /// What a waiting worker heard as the code before factorium#161 kept
     /// it: a copy of the comment `text` on the worker, by `worker.hear`.
     pub fn heard_as_code_before_161_kept_it(&self, text: &str) {

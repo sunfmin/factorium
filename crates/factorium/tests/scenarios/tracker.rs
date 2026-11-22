@@ -228,25 +228,25 @@ async fn doctor_lists_every_decided_record_newest_first_until_read() {
         decided,
         json!([
             {
-                "issue": "web#2", "who": "watch", "what": "park web#2 behind web#1",
+                "id": "D2", "issue": "web#2", "who": "watch", "what": "park web#2 behind web#1",
                 "options": "A) restart now  B) park it", "chose": "B, because web#1 changes the same code",
                 "undo": "issue block web 2 web#1 --undo", "at": at + 120_000,
                 "utc": factorium_domain::when::utc(at + 120_000),
             },
             {
-                "issue": "web#1", "who": "session", "what": "call it guild",
+                "id": "D1", "issue": "web#1", "who": "session", "what": "call it guild",
                 "options": "A) guild  B) hall", "chose": "A, because the repo is guild",
                 "undo": "issue edit the title back", "at": at, "utc": factorium_domain::when::utc(at),
             },
         ]),
         "{decided}"
     );
-    let week = w.app.decided_view(false).await.unwrap();
+    let week = w.app.decided_view(false, None).await.unwrap();
     assert_eq!(week["decided"], decided, "the last 7 days, read or not");
-    w.app.decided_view(true).await.unwrap();
+    w.app.decided_view(true, None).await.unwrap();
     w.app.issue_comment("web", 1, "Decided (session, for Felix): made as it was read").await.unwrap();
     assert_eq!(w.doctor().await["decided"], json!([]), "read, up to and at its time");
-    let week = w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().clone();
+    let week = w.app.decided_view(false, None).await.unwrap()["decided"].as_array().unwrap().clone();
     assert_eq!(week[0]["what"], "made as it was read", "still in the last 7 days");
     assert_eq!(week[1..], decided.as_array().unwrap()[..], "still in the last 7 days");
     w.advance(1);
@@ -254,7 +254,7 @@ async fn doctor_lists_every_decided_record_newest_first_until_read() {
     let after: Vec<_> = w.doctor().await["decided"].as_array().unwrap().iter().map(|d| d["what"].clone()).collect();
     assert_eq!(after, [json!("keep hall too")], "only what came after the read");
     w.advance(7 * 24 * 60 - 1);
-    let week: Vec<_> = (w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().iter())
+    let week: Vec<_> = (w.app.decided_view(false, None).await.unwrap()["decided"].as_array().unwrap().iter())
         .map(|d| d["what"].clone())
         .collect();
     assert_eq!(week, [json!("keep hall too")], "7 days back, no more: the rest are 7 days and 1 minute old");
@@ -347,4 +347,92 @@ async fn an_event_the_tracker_cannot_read_is_a_dead_letter_doctor_names() {
     let found = w.app.doctor().await.unwrap();
     let dead = findings(&found).iter().find(|f| f["key"] == "dead:tracker");
     assert_eq!(dead.expect("named")["what"], "projection tracker has 1 dead letters", "{found}");
+}
+
+/// Each Decided record has a host-wide number given once, in the order
+/// records come: a comment's and a body's alike. An edit of the body keeps
+/// the numbers of the records it keeps; `decided D<n>` answers one, old or
+/// read; one that names no record is refused.
+#[tokio::test]
+async fn each_decided_record_has_a_host_wide_number_given_once() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.checkout("api").await;
+    let body =
+        "Rename.\n\nDecided (session, for Felix): call it guild\nUndo: x\n\nDecided (session, for Felix): keep hall\n";
+    w.app.issue_add("web", "Rename", body, false, &[]).await.unwrap();
+    w.advance(1);
+    w.app.issue_comment("api", 1, "Decided (watch, for Felix): park it").await.unwrap_err();
+    w.app.issue_add("api", "Other", "none", false, &[]).await.unwrap();
+    let shown = w.app.issue_comment("api", 1, "Decided (watch, for Felix): park it").await.unwrap();
+    assert_eq!(shown["comments"][0]["decided"], "D3", "{shown}");
+    w.app.issue_comment("api", 1, "measured 4.1s").await.unwrap();
+    let shown = w.app.issue_show("api", 1).await.unwrap();
+    assert_eq!(shown["comments"][1].get("decided"), None, "not a record: {shown}");
+    let ids =
+        |v: &Value| v.as_array().unwrap().iter().map(|d| (d["id"].clone(), d["what"].clone())).collect::<Vec<_>>();
+    let all = w.app.decided_view(false, None).await.unwrap()["decided"].clone();
+    assert_eq!(
+        ids(&all),
+        [(json!("D3"), json!("park it")), (json!("D2"), json!("keep hall")), (json!("D1"), json!("call it guild"))],
+        "{all}"
+    );
+    // The edit drops one record, keeps another (its Undo changed), and adds one.
+    let edited = "Rename.\n\nDecided (session, for Felix): name it lore\n\nDecided (session, for Felix): call it guild\nUndo: y\n";
+    let shown = w.app.issue_edit("web", 1, None, Some(edited)).await.unwrap();
+    assert_eq!(shown["decided"], json!(["D4", "D1"]), "kept as it was, the new one next: {shown}");
+    w.app.issue_edit("web", 1, Some("Renamed"), None).await.unwrap();
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["decided"], json!(["D4", "D1"]), "a title edit keeps them");
+    w.app.decided_view(true, None).await.unwrap();
+    w.advance(8 * 24 * 60);
+    assert_eq!(w.app.decided_view(false, None).await.unwrap()["decided"], json!([]), "older than 7 days");
+    let one = w.app.decided_view(false, Some("D1")).await.unwrap();
+    assert_eq!(
+        (one["id"].clone(), one["what"].clone(), one["undo"].clone()),
+        (json!("D1"), json!("call it guild"), json!("y"))
+    );
+    assert_eq!(w.app.decided_view(false, Some("3")).await.unwrap()["issue"], "api#1", "read and old, named bare");
+    let none = w.app.decided_view(false, Some("D99999")).await.unwrap_err();
+    assert_eq!(none.code, "no_record", "{none:?}");
+    assert_eq!(w.app.decided_view(false, Some("rolesmith#4")).await.unwrap_err().code, "bad_id");
+}
+
+/// Records made before numbers were given take theirs once, oldest first by
+/// when they were made (a body's, when its issue was filed), a closed
+/// issue's among them; a record made after takes the next.
+#[tokio::test]
+async fn records_made_before_numbers_take_theirs_oldest_first() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "One", "Decided (a, for Felix): first\n", false, &[]).await.unwrap();
+    w.advance(1);
+    w.app.issue_add("web", "Two", "plain", false, &[]).await.unwrap();
+    w.app.issue_comment("web", 2, "Decided (b, for Felix): second").await.unwrap();
+    w.advance(1);
+    w.app.issue_comment("web", 1, "Decided (c, for Felix): third").await.unwrap();
+    w.app.issue_close("web", 1, "done").await.unwrap();
+    w.records_as_code_before_243_wrote_them();
+    let shown = w.app.issue_show("web", 2).await.unwrap();
+    assert_eq!(shown["comments"][0].get("decided"), None, "none yet: {shown}");
+    w.app.issue_comment("web", 2, "Decided (d, for Felix): after").await.unwrap();
+    let all = w.app.decided_view(false, None).await.unwrap()["decided"].clone();
+    let ids: Vec<_> = all.as_array().unwrap().iter().map(|d| (d["id"].clone(), d["what"].clone())).collect();
+    assert_eq!(
+        ids,
+        [
+            (json!("D4"), json!("after")),
+            (json!("D3"), json!("third")),
+            (json!("D2"), json!("second")),
+            (json!("D1"), json!("first"))
+        ],
+        "{all}"
+    );
+    let closed = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(
+        (closed["decided"].clone(), closed["comments"][0]["decided"].clone()),
+        (json!(["D1"]), json!("D3")),
+        "{closed}"
+    );
+    w.app.decided_view(false, None).await.unwrap();
+    assert_eq!(w.app.decided_view(false, None).await.unwrap()["decided"], all, "given once");
 }
