@@ -189,6 +189,12 @@
     "sentence": "A repo factorium manages has its base moved only by promotion; anything else that moves the base turns promotion red.",
     "source": "SPEC.md:438"
   },
+  "91db289c1891": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check ladder's own registry, not code that keeps a promise: these fixes added the worktrees and line models with their covers (factorium#187, #188, #189) and moved each model's commit to the one it describes. The promises those models keep (WorkNeverLost, OneOwner, a landing at most once, ...) are checked by those models against the code they cover; the config's edits are bookkeeping of that, with no behaviour of their own to check."
+  },
   "972618f2a67f": {
     "mark": "promise",
     "sentence": "A kept worktree that went bad is discarded on purpose with `issue start-over <checkout> <n> --why …`, only while no worker is on the issue: its uncommitted changes are committed, its branch is kept as `<branch>-abandoned`, a comment names that branch and the why, and the worktree goes, so the next start is branched from the proving tip.",
@@ -289,6 +295,12 @@
     "sentence": "`run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call)",
     "source": "SPEC.md:180"
   },
+  "e4709c8f8169": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check registry itself: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line), re-pin a model's commit, or add covers for new code; the promises those fixes keep live in models/*.tla and the code their covers name, not in this file"
+  },
   "e87d32e6357e": {
     "mark": "promise",
     "sentence": "It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written.",
@@ -328,11 +340,5 @@
     "mark": "not",
     "sentence": "Those public items name no issue, worker, watch or checkout: what only the caller knows it passes in, or says through a trait it implements.",
     "source": "SPEC.md:298"
-  },
-  "e4709c8f8169": {
-    "kind": "fixed-often",
-    "mark": "not",
-    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
-    "why": "truefit.toml is the check registry itself: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line), re-pin a model's commit, or add covers for new code; the promises those fixes keep live in models/*.tla and the code their covers name, not in this file"
   }
 }
