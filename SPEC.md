@@ -141,7 +141,9 @@ leaves it out: the daemon runs the look.
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
-silent past its bound, or hung past it (its turn open, its processes next
+silent past its bound (not within a wait it declared on a long command of
+its own, `worker waiting --why … --until …`, held to two hours, which doctor
+shows; past it, the finding names what it said), or hung past it (its turn open, its processes next
 to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held
 for one reason past the host's span. So does a line that stopped:
 whatever it owes is done within its bound or is a finding — a heavy

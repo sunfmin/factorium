@@ -1,0 +1,10 @@
+{
+  "tree": "2de7592b1de37752d9d83eda90a9de0426da95cd+d1fba762150c532c",
+  "lines": 81,
+  "serves": "factorium#218",
+  "considered": "the heavy-entry hold in health::judge (it covers only queued factorium commands, not a worker-run background download); worker comment (records but does not hold the silence rule)",
+  "reviewer": "agy:036785d6-f68e-4c46-989b-877582919d78:default",
+  "author": "claude-code:f6f69823-3067-550f-a3d1-f75a548b38be:opus",
+  "cut": "crates/factorium/src/cli.rs: simplify `duration_ms` by trimming once and replacing the `char_indices().last()` split plus two `match` blocks with a single `strip_suffix` lookup over `[('s', 1_000), ('m', 60_000), ('h', 3_600_000)]` defaulting to `(t, 60_000)` and letting `parse::<i64>()` reject bad units, cutting ~6 lines.",
+  "answer": "Done as named: duration_ms is one strip_suffix lookup over the three units, defaulting to minutes; its unit test passes."
+}

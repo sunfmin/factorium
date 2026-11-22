@@ -414,3 +414,54 @@ async fn a_worker_whose_heavy_entry_waits_or_runs_is_not_silent_until_the_bound_
     let silent = worker(&w.app).await;
     assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
 }
+
+#[tokio::test]
+async fn a_worker_that_declared_a_wait_is_not_silent_within_it_and_is_past_it_with_what_it_said() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    let closed = (w.app_now() / 1000) as u64;
+    w.claude_session(&cwd, false, closed);
+    let said = w.app.worker_waiting(id(&wk), "the model weights downloading", 60 * 60_000).await.unwrap();
+    assert_eq!(said["minutes"], 60, "{said}");
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    let texts: Vec<_> = shown["comments"].as_array().unwrap().iter().map(|c| c["text"].clone()).collect();
+    assert!(texts.contains(&json!("waits 60 min for: the model weights downloading")), "{shown}");
+    w.advance(30);
+    w.tick().await;
+    w.advance(1);
+    w.tick().await;
+    assert_eq!(w.worker_on("web", 1).await["status"], "working", "31 min, within the 60 it declared");
+    let doctor = w.doctor().await;
+    assert_eq!(doctor["waiting"][0]["why"], "the model weights downloading", "{doctor}");
+    w.advance(29);
+    w.tick().await;
+    assert_eq!(w.worker_on("web", 1).await["status"], "working", "at its bound, not past it");
+    w.advance(1);
+    w.tick().await;
+    let silent = w.worker_on("web", 1).await;
+    let why = silent["why"].as_str().unwrap();
+    assert!(why.starts_with("silent for 61 min"), "{silent}");
+    assert!(why.ends_with("past the 60 min wait it declared for: the model weights downloading"), "{silent}");
+    assert_eq!(w.doctor().await["waiting"], json!([]), "it waits for the watch now");
+}
+
+#[tokio::test]
+async fn a_declared_wait_past_the_cap_is_held_to_two_hours() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    let closed = (w.app_now() / 1000) as u64;
+    w.claude_session(&cwd, false, closed);
+    let said = w.app.worker_waiting(id(&wk), "a long download", 5 * 60 * 60_000).await.unwrap();
+    assert_eq!(said["minutes"], 120, "{said}");
+    w.advance(120);
+    w.tick().await;
+    assert_eq!(w.worker_on("web", 1).await["status"], "working", "at the cap");
+    w.advance(1);
+    w.tick().await;
+    let silent = w.worker_on("web", 1).await;
+    assert!(silent["why"].as_str().unwrap().contains("past the 120 min wait it declared"), "{silent}");
+    let no = w.app.worker_waiting(id(&wk), "more", 60_000).await.unwrap_err();
+    assert_eq!(no.code, "waiting", "a worker waiting for the watch declares nothing");
+}
