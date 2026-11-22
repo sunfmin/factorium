@@ -111,12 +111,7 @@ pub fn object<T: serde::de::DeserializeOwned>(text: &str, role: &str) -> Result<
 /// JSON object (fenced or not), picks of listed names only, each why one
 /// line; or why it is not taken, in one line, without the text.
 pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
-    let (from, to) = (text.find('{'), text.rfind('}'));
-    let object = match (from, to) {
-        (Some(from), Some(to)) if from < to => &text[from..=to],
-        _ => return Err("the picker answered no JSON object".into()),
-    };
-    let said: Said = serde_json::from_str(object).map_err(|e| format!("the picker's answer is not as asked ({e})"))?;
+    let said: Said = object(text, "picker")?;
     let one_line = |why: &str| !why.trim().is_empty() && !why.contains('\n');
     let listed = names(listing);
     match (said.picks.is_empty(), said.none) {
