@@ -77,6 +77,15 @@ impl App {
         let parked: Vec<Value> = (seen.waiting.iter().filter(|w| !w.parked.is_empty()))
             .map(|w| json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "waits_for": w.parked }))
             .collect();
+        // Ready issues no worker holds, not to start before their time.
+        let mut timed = Vec::new();
+        for r in self.rows(tracker::untaken()).await? {
+            let i = self.issue(&r.checkout, r.number).await?;
+            if let Some(at) = i.not_before.filter(|at| *at > self.now()) {
+                let issue = format!("{}#{}", r.checkout, r.number);
+                timed.push(json!({ "issue": issue, "until": at, "utc": factorium_domain::when::utc(at) }));
+            }
+        }
         let limited: Vec<Value> = (seen.waiting.iter())
             .filter_map(|w| Some(json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "until": w.limited? })))
             .collect();
@@ -111,6 +120,8 @@ impl App {
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
+            // Ready issues parked until their time (ms, and in UTC): none starts before it.
+            "not_before": timed,
             // Waiting workers parked until their engine's limit resets, until when (ms).
             "limited": limited,
             "reading": reading,

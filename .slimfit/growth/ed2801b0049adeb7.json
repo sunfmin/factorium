@@ -1,0 +1,10 @@
+{
+  "tree": "568ddae420c7c4224c4ed78fe0e95798d03a65a6+d1fba762150c532c",
+  "lines": 69,
+  "serves": "factorium#229",
+  "considered": "the issue's existing waits list and Blocker (the time joins Blocker as NotBefore, so issue add/block/worker file, the tick's readiness check, parked-worker resume and doctor's parked list all reuse the one blockers() path); a hand-written RFC 3339 parser (deleted for jiff)",
+  "reviewer": "codex:01a2022e-cfea-7952-8f3f-23bef22aa196:default",
+  "author": "claude-code:e9cabac2-9ca1-5f4e-8f95-61560ccdf486:opus",
+  "cut": "In crates/domain/src/when.rs, replace the handwritten RFC 3339 parser and Gregorian conversion routines with a date-time library. Keep the integer-millisecond input, whole-second UTC output, and full i64 millisecond range by reducing out-of-range dates to an equivalent 400-year Gregorian cycle before formatting. In crates/domain/src/issue.rs, delete #[serde(default)] from not_before because Serde already reads a missing Option field as None.",
+  "answer": "Done: when.rs now reads and shows times with jiff (12 lines, no calendar code); ms past jiff's years ±9999 are refused on input and clamped to its range on output instead of a 400-year reduction, since no time factorium waits for lies there. #[serde(default)] removed from not_before."
+}

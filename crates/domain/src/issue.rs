@@ -26,6 +26,8 @@ pub struct Issue {
     pub status: Status,
     /// The issues it waits for, of its checkout or of others.
     pub waits: Vec<Across>,
+    /// The time (ms) it waits for: no worker takes it before then.
+    pub not_before: Option<i64>,
     /// Why it waits for a person, or why it is closed.
     pub reason: Option<String>,
     /// The worker that holds it now.
@@ -121,11 +123,14 @@ impl std::fmt::Display for Across {
 
 /// What an issue waits for, as the CLI names it: `N`, an issue of its own
 /// checkout; `<checkout>#N`, one of another, met when it is closed;
-/// `<checkout>#N@cut`, met once a cut holds its landing.
+/// `<checkout>#N@cut`, met once a cut holds its landing; and a time (ms,
+/// `--not-before`/`--until`), met once it has come. It waits for one time
+/// at most: another replaces it, and undone, any is undone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Blocker {
     Here(u64),
     Across(Across),
+    NotBefore(i64),
 }
 
 impl From<u64> for Blocker {
@@ -220,6 +225,10 @@ impl Issue {
         let by = match by.of(&self.checkout) {
             Blocker::Here(number) => Across { checkout: self.checkout.clone(), number, cut: false },
             Blocker::Across(a) => a,
+            Blocker::NotBefore(at) => {
+                let at = (!undo).then_some(at);
+                return Ok(if at == self.not_before { Vec::new() } else { vec![IssueEvent::NotBefore { at }] });
+            }
         };
         if !undo && by.checkout == self.checkout && by.number == self.number {
             return no("blocks_itself", "an issue cannot wait for itself");
@@ -269,6 +278,10 @@ pub enum IssueEvent {
     UnblockedAcross {
         checkout: String,
         number: u64,
+    },
+    /// It waits for this time (ms), or, `None`, for none.
+    NotBefore {
+        at: Option<i64>,
     },
     IssueWaitingForHuman {
         reason: String,
@@ -355,6 +368,7 @@ impl Aggregate for Issues {
                     (a.checkout == own && !a.cut) || (a.checkout.as_str(), a.number) != (checkout.as_str(), number)
                 })
             }
+            IssueEvent::NotBefore { at } => s.not_before = at,
             IssueEvent::IssueTaken { worker } => {
                 s.worker = Some(worker);
                 s.attempts += 1;
@@ -402,7 +416,8 @@ pub struct Open {
     pub body: String,
     #[serde(default)]
     pub waiting_for_human: bool,
-    /// The issues it waits for from the start, of its checkout or others.
+    /// What it waits for from the start: issues, of its checkout or
+    /// others, and a time.
     #[serde(default)]
     pub blocked_by: Vec<Blocker>,
     /// The task it is filed for, by idle work.

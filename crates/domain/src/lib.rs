@@ -26,6 +26,7 @@ pub mod review;
 pub mod settings;
 pub mod tracker;
 pub mod watch;
+pub mod when;
 pub mod worker;
 
 use factum_core::Uuid;
