@@ -1,0 +1,10 @@
+{
+  "tree": "a0ea641f5cfc8c0f2fafb228167836e662308b47+d1fba762150c532c",
+  "lines": 90,
+  "serves": "factorium#249",
+  "considered": "reusing issue's role check (on_here) for the checkout's role: split out role_here and both use it; reusing Add as CheckoutAdded's payload; a single role_for fallback shared by the worker's start and issue show",
+  "reviewer": "codex:01a2038c-bfb9-7d20-b220-56ea70fa77c4:default",
+  "author": "claude-code:134a93d4-5c40-5d05-8354-51a869c9367f:opus",
+  "cut": "In crates/domain/src/checkout.rs, reuse Add as the CheckoutAdded payload, keep absent roles omitted from events, and drop redundant serde defaults on Option fields. Update crates/domain/src/tracker.rs to read the shared payload. In crates/factorium/src/owner.rs, validate the borrowed role before converting it for Add, and keep the role key in the add response even when null. Reviewed the supplied diff because workspace access was unavailable.",
+  "answer": "Made every cut: CheckoutAdded(Add) with role skipped when None (the event's JSON is unchanged), serde defaults dropped, tracker reads Add, owner.rs validates the borrowed role and the add answer keeps role even when null. What remains is the issue's surface (checkout add --role, checkout edit, the fallback, issue show's role_from) plus factorium#248's lines not yet on origin/HEAD."
+}
