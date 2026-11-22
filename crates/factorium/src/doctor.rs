@@ -75,13 +75,10 @@ impl App {
             }
             let i = self.issue(&r.checkout, r.number).await?;
             let waits = i.claim.is_some() || !self.blockers(&i).await?.iter().all(|(_, met)| met.is_some());
+            // As the daemon's next start does, any pick refused holds it.
             let kit = match waits {
                 true => None,
-                false => match self.pick(&r.checkout, i.on.account.as_deref()).await {
-                    Ok(_) => None,
-                    Err(e) if e.code == "no_harness" => Some(e.message),
-                    Err(e) => return Err(e),
-                },
+                false => self.pick(&r.checkout, i.on.account.as_deref()).await.err().map(|e| e.message),
             };
             ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
         }
