@@ -1,0 +1,6 @@
+{
+  "tree": "fbeb94230cdd5767b4d4145a07bb4e07af67a5b3+d1fba762150c532c",
+  "picker": "claude-code:subagent-a5075a654e29bcb32:sonnet",
+  "author": "claude-code:95741b10-92ea-5a50-bb19-f3aa83c664dd:opus",
+  "none": "the diff only adds a use<> capture bound to a return type and a toolchain file, and the candidate list is empty, so there is nothing to run"
+}

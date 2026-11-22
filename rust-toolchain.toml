@@ -1,0 +1,8 @@
+# The one toolchain the gate, the cut and the tap's release runner build with
+# (rustup reads this file): factorium#246, where the runner's own toolchain
+# rejected what the gate's had passed. Move it forward on purpose, gate first.
+[toolchain]
+channel = "nightly-2026-10-22"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+profile = "minimal"
