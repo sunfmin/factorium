@@ -223,9 +223,9 @@ pub struct HarnessNote {
     pub until: i64,
 }
 
+// The host's own login of a harness reached its engine's limit: no
+// worker starts on it before then; a later reset is kept.
 command!(
-    /// The host's own login of a harness reached its engine's limit: no
-    /// worker starts on it before then; a later reset is kept.
     LimitHarness,
     "harness.limited",
     Kits,

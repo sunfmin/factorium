@@ -1,0 +1,15 @@
+{
+  "tree": "e2f46b78f85b8feab3868ba5dac70da632eec576+d1fba762150c532c",
+  "picker": "codex:01a204de-d7e9-7cb2-8942-19f301fdf2da:default",
+  "author": "claude-code:72adf339-c2eb-5c7e-9459-bcd0c8b399e4:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/worker.rs:403:5: replace landing -> Result<(), Rejection> with Ok(())",
+        "why": "Successful red and green landings still pass, so the mutant can survive unless a test checks that an invalid landing attempt is rejected.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

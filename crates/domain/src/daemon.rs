@@ -144,25 +144,18 @@ pub struct Ticked {
     pub slow: Option<(i64, Step)>,
 }
 
-command!(
-    /// A tick's outcome: a failure adds to the run; a success ends it. A slow one is kept.
-    NoteTick,
-    "daemon.tick",
-    Daemons,
-    Ticked,
-    |_p| daemon_id(),
-    |s, p, now| {
-        let mut events = match (&p.error, &s.failing) {
-            (Some(e), _) => vec![DaemonEvent::TickFailed { at: now.0, error: e.clone() }],
-            (None, Some(_)) => vec![DaemonEvent::TickDone],
-            (None, None) => Vec::new(),
-        };
-        if let Some((took_ms, longest)) = &p.slow {
-            events.push(DaemonEvent::TickSlow(SlowTick { at: now.0, took_ms: *took_ms, longest: longest.clone() }));
-        }
-        Ok::<_, factum_core::Rejection>(events)
+// A tick's outcome: a failure adds to the run; a success ends it. A slow one is kept.
+command!(NoteTick, "daemon.tick", Daemons, Ticked, |_p| daemon_id(), |s, p, now| {
+    let mut events = match (&p.error, &s.failing) {
+        (Some(e), _) => vec![DaemonEvent::TickFailed { at: now.0, error: e.clone() }],
+        (None, Some(_)) => vec![DaemonEvent::TickDone],
+        (None, None) => Vec::new(),
+    };
+    if let Some((took_ms, longest)) = &p.slow {
+        events.push(DaemonEvent::TickSlow(SlowTick { at: now.0, took_ms: *took_ms, longest: longest.clone() }));
     }
-);
+    Ok::<_, factum_core::Rejection>(events)
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Rollback {

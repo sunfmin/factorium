@@ -415,7 +415,7 @@ pub struct End {
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     // Whether its place is kept (unstarted, a worker's or a program's) is evolve's.
     let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at: p.keeps.then_some(now.0) };
-    Ok::<_, factum_core::Rejection>(if s.holds(p.id) { vec![ended] } else { Vec::new() })
+    crate::only(s.holds(p.id), ended)
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
