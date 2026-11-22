@@ -16,6 +16,11 @@ pub const LABEL: &str = "com.github.sunfmin.factorium";
 /// to fill in.
 const TEMPLATE: &str = include_str!("../../../packaging/factorium.plist");
 
+/// How long install waits for launchd to drop an agent it booted out, in
+/// tenths of a second: bootout of a running job returns before launchd has
+/// dropped it (1.24 s seen), and a bootstrap inside that window fails.
+const DROP_TENTHS: u32 = 100;
+
 impl App {
     fn service_file(&self) -> PathBuf {
         self.host.home().join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
@@ -46,6 +51,22 @@ impl App {
         let said = self.host.programs().run("launchctl", &["bootout", target]);
         said.result("launchctl", &["bootout", target]).map_err(crate::fail("launchctl"))?;
         Ok(json!({ "stopped": true, "service": LABEL, "again": "factorium service install" }))
+    }
+
+    /// Boots `target` out and waits, within a bound, until launchd no longer
+    /// finds it, so the bootstrap that follows does not meet it (factorium#215).
+    fn service_unload(&self, target: &str) -> Result<(), Refusal> {
+        self.service_stop(target)?;
+        for waited in 0..=DROP_TENTHS {
+            if !self.host.programs().run("launchctl", &["print", target]).ok {
+                return Ok(());
+            }
+            if waited < DROP_TENTHS {
+                self.host.programs().run("sleep", &["0.1"]);
+            }
+        }
+        let secs = DROP_TENTHS / 10;
+        Err(Refusal::new("launchctl", format!("launchd still holds {target} {secs} s after its bootout")))
     }
 
     /// `factorium service show`: the definition this shell would install.
@@ -84,13 +105,13 @@ impl App {
         std::fs::create_dir_all(file.parent().unwrap_or(Path::new("."))).map_err(io)?;
         std::fs::write(&file, self.service_plist()).map_err(io)?;
         if let Some(target) = self.service_loaded() {
-            self.service_stop(&target)?;
+            self.service_unload(&target)?;
         }
         // One loaded in the GUI domain, as factorium once installed it, goes:
         // it would run a second daemon while a desktop session lasts.
         let gui = format!("{}/{LABEL}", self.service_domain("gui"));
         if self.host.programs().run("launchctl", &["print", &gui]).ok {
-            self.service_stop(&gui)?;
+            self.service_unload(&gui)?;
         }
         let domain = self.service_domain("user");
         let args = ["bootstrap", &domain, &file.to_string_lossy()];

@@ -93,6 +93,43 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
 }
 
 #[test]
+fn install_bootstraps_once_launchd_has_dropped_the_agent_it_booted_out() {
+    let w = World::new();
+    w.app.service_install().unwrap();
+    // launchd still finds the booted-out agent for three prints.
+    *w.host.lingers.lock().unwrap() = 3;
+    w.host.ran.lock().unwrap().clear();
+    w.app.service_install().unwrap();
+    assert!(w.host.loaded(), "loaded again");
+    let ran = w.host.ran.lock().unwrap().clone();
+    let at = |call: &str| ran.iter().position(|r| r.starts_with(call)).unwrap();
+    let bootstraps = ran.iter().filter(|r| r.starts_with("launchctl bootstrap")).count();
+    assert_eq!(bootstraps, 1, "{ran:?}");
+    let user = w.host.service_target("user");
+    let after = &ran[at("launchctl bootout")..at("launchctl bootstrap")];
+    let prints = after.iter().filter(|r| **r == format!("launchctl print {user}")).count();
+    assert_eq!(prints, 4, "three that find it, one that does not: {ran:?}");
+    assert!(after.iter().any(|r| r.starts_with("sleep")), "it waits between prints: {ran:?}");
+}
+
+#[test]
+fn install_fails_naming_the_agent_launchd_never_drops_and_does_not_bootstrap() {
+    let w = World::new();
+    w.app.service_install().unwrap();
+    *w.host.lingers.lock().unwrap() = usize::MAX;
+    w.host.ran.lock().unwrap().clear();
+    let e = w.app.service_install().unwrap_err();
+    let user = w.host.service_target("user");
+    assert_eq!(e.code, "launchctl", "{e}");
+    assert!(e.message.contains(&user), "names the job: {e}");
+    assert!(e.message.contains(" 10 s "), "names the bound: {e}");
+    let ran = w.host.ran.lock().unwrap().clone();
+    assert!(!ran.iter().any(|r| r.starts_with("launchctl bootstrap")), "{ran:?}");
+    let sleeps = ran.iter().filter(|r| r.starts_with("sleep")).count();
+    assert_eq!(sleeps, 100, "within the bound: 10 s of tenths");
+}
+
+#[test]
 fn the_service_runs_homebrews_link_not_the_versioned_keg() {
     let w = World::new();
     let link = w.running_as(&w.app, "factorium");
