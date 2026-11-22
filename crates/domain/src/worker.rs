@@ -82,6 +82,21 @@ pub struct Worker {
     /// is live).
     #[serde(default)]
     pub spent: Option<Tokens>,
+    /// The wait on a long command of its own it declared, while its status
+    /// stays as it was then: no silence is found in it before its bound.
+    #[serde(default)]
+    pub declared: Option<Declared>,
+}
+
+/// The longest wait a worker can declare: a bound past it is held to it.
+pub const DECLARED_MAX_MS: i64 = 2 * 60 * 60 * 1000;
+
+/// A wait a worker declared: what for, when, and until when, in ms.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Declared {
+    pub why: String,
+    pub at: i64,
+    pub until: i64,
 }
 
 /// Tokens a session spent: those it was given (cached ones too) and those
@@ -184,6 +199,8 @@ pub enum WorkerEvent {
     },
     /// What its session spent, read from its session files as it ends.
     Spent(Tokens),
+    /// It declared a wait on a long command of its own, until then (ms).
+    WaitDeclared(Declared),
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -221,7 +238,7 @@ impl Aggregate for Workers {
 
     fn evolve(s: &mut Worker, event: WorkerEvent) {
         if let Some(Standing { status, why, since }) = event.standing() {
-            (s.status, s.why, s.since) = (status, why, since);
+            (s.status, s.why, s.since, s.declared) = (status, why, since, None);
         }
         match event {
             WorkerEvent::WorkerStarted(started) => s.started = Some(*started),
@@ -247,6 +264,7 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyHeld => s.heavy = true,
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
+            WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
             _ => {}
         }
     }
@@ -439,6 +457,38 @@ command!(EndWorker, "worker.end", Workers, Because, |p| p.worker, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::WorkerEnded { why: p.why.clone(), at: now.0 }])
 });
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Declare {
+    pub worker: Uuid,
+    pub why: String,
+    /// How long it waits, in ms; held to [`DECLARED_MAX_MS`].
+    pub for_ms: i64,
+}
+
+command!(
+    /// A working worker declares a wait on a long command of its own: its
+    /// silence is not found until the bound, held to [`DECLARED_MAX_MS`].
+    DeclareWait,
+    "worker.declare_wait",
+    Workers,
+    Declare,
+    |p| p.worker,
+    |s, p, now| {
+        live(s)?;
+        if s.status != Status::Working {
+            return no("not_working", "only a working worker declares a wait");
+        }
+        if p.why.trim().is_empty() {
+            return no("no_reason", "say what you wait for");
+        }
+        if p.for_ms <= 0 {
+            return no("no_bound", "say until when: a duration past now");
+        }
+        let until = now.0 + p.for_ms.min(DECLARED_MAX_MS);
+        Ok(vec![WorkerEvent::WaitDeclared(Declared { why: p.why.clone(), at: now.0, until })])
+    }
+);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Spend {

@@ -11,7 +11,8 @@
 //!   unchanged past `silent_bound`;
 //! - **silent**: its turn closed, and no done, past `silent_bound`, with
 //!   no heavy entry of its own in flight: its clock starts again when one
-//!   ends;
+//!   ends; nor within a wait it declared on a long command of its own
+//!   (held to two hours), the finding past it naming what it said;
 //! - **quota**: its account used up; the account rests an hour.
 //!
 //! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
@@ -174,9 +175,16 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
     {
         let idle_since = at.map_or(w.since, |t| t.max(w.since));
         let idle_since = freed_at.map_or(idle_since, |t| t.max(idle_since));
-        if w.status == Status::Working && now - idle_since > s.ms(Time::SilentBound) {
+        let declared = w.declared.as_ref();
+        if w.status == Status::Working
+            && now - idle_since > s.ms(Time::SilentBound)
+            && declared.is_none_or(|d| now > d.until)
+        {
             let mins = (now - idle_since) / 60_000;
-            events.extend(wait(format!("silent for {mins} min without `factorium worker done`")));
+            let past = declared.map_or(String::new(), |d| {
+                format!(", past the {} min wait it declared for: {}", (d.until - d.at) / 60_000, d.why)
+            });
+            events.extend(wait(format!("silent for {mins} min without `factorium worker done`{past}")));
         }
     }
     events
