@@ -320,7 +320,12 @@ async fn a_worker_s_growth_is_judged_on_the_kit_s_other_harness_and_the_record_n
 #[tokio::test]
 async fn a_reviewer_on_another_harness_that_fails_hands_the_review_to_claude_code_and_the_record_says_so() {
     let cut = r#"{"cut": "a.rs: reuse b instead of a"}"#;
-    let cases = [("exit 3", AS_IS), ("", "You have hit your usage limit."), ("", r#"{"as_is": "two\nlines"}"#)];
+    let cases = [
+        ("exit 3", AS_IS),
+        ("", "You have hit your usage limit."),
+        ("", r#"{"as_is": "two\nlines"}"#),
+        ("", r#"{"cut": " "}"#),
+    ];
     crate::fixture::each(&cases, |(then, said)| async move {
         let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said, cut).await;
         let answer = w.app.worker_review_growth(id(&wk)).await.unwrap();
