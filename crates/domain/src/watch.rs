@@ -1,7 +1,8 @@
 //! The watch: one resident agent session. A look reads doctor's findings;
-//! each finding is an episode while it stands, and an episode starts at
-//! most one round — a brief, a bound, and the report the watch files. One
-//! round runs at a time.
+//! each finding is an episode while it stands, and an episode starts a
+//! round — a brief, a bound, and the report the watch files — and, still
+//! standing `round_again` after one ended, another, at most `rounds_max`:
+//! then it is unresolved. One round runs at a time.
 
 use std::collections::BTreeMap;
 
@@ -25,6 +26,41 @@ pub struct Episode {
     /// worker's issue.
     #[serde(default)]
     pub heard: Vec<String>,
+    /// How many rounds it started.
+    #[serde(default)]
+    pub rounds: u32,
+    /// How its last round ended, if one did.
+    #[serde(default)]
+    pub ended: Option<RoundEnd>,
+}
+
+/// How an episode's round ended: when (ms), and what the watch reported;
+/// `None`: it ran past its bound unreported.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RoundEnd {
+    pub at: i64,
+    pub report: Option<String>,
+}
+
+impl Watch {
+    /// The episodes whose rounds are spent, none running: still standing,
+    /// they are the owner's.
+    pub fn unresolved(&self, rounds_max: u32) -> impl Iterator<Item = (&String, &Episode)> {
+        let running = self.round.as_ref().map(|r| &r.episode);
+        self.episodes.iter().filter(move |(k, e)| e.ended.is_some() && e.rounds >= rounds_max && running != Some(*k))
+    }
+}
+
+impl Episode {
+    /// It is due a round now: none started yet, or its last ended `again`
+    /// ago (ms) with rounds left.
+    fn due(&self, now: i64, again: i64, rounds_max: u32) -> bool {
+        match &self.ended {
+            _ if self.round.is_none() => true,
+            Some(e) => now - e.at >= again && self.rounds < rounds_max,
+            None => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -175,7 +211,7 @@ impl Aggregate for Watches {
             }
             WatchEvent::Looked { at } => s.last_look = at,
             WatchEvent::EpisodeOpened { key, what, fix, at, heard } => {
-                s.episodes.insert(key, Episode { what, fix, opened_at: at, round: None, heard });
+                s.episodes.insert(key, Episode { what, fix, opened_at: at, heard, ..Episode::default() });
             }
             WatchEvent::EpisodeHeard { key, heard } => {
                 if let Some(e) = s.episodes.get_mut(&key) {
@@ -185,18 +221,27 @@ impl Aggregate for Watches {
             WatchEvent::EpisodeClosed { key } => _ = s.episodes.remove(&key),
             WatchEvent::RoundStarted { n, episode, at } => {
                 if let Some(e) = s.episodes.get_mut(&episode) {
-                    e.round = Some(n);
+                    (e.round, e.rounds) = (Some(n), e.rounds + 1);
                 }
                 s.rounds = n;
                 s.round = Some(Round { n, episode, at });
             }
-            WatchEvent::RoundEnded { .. } => s.round = None,
+            WatchEvent::RoundEnded { .. } => {
+                if let Some(r) = s.round.take()
+                    && let Some(e) = s.episodes.get_mut(&r.episode)
+                {
+                    e.ended = Some(RoundEnd { at: s.last_look, report: None });
+                }
+            }
             WatchEvent::AdmissionHeld { why, at } => s.held = Some((at, why)),
             WatchEvent::AdmissionOpen => s.held = None,
             WatchEvent::HumanSeen { round } => s.seen = round,
             WatchEvent::DecidedRead { at } => s.decided_read = at,
             WatchEvent::Reported(r) => {
                 s.round = None;
+                if let Some(e) = s.episodes.get_mut(&r.episode) {
+                    e.ended = Some(RoundEnd { at: r.at, report: Some(r.text.clone()) });
+                }
                 s.reports.push(r);
                 let extra = s.reports.len().saturating_sub(KEPT);
                 s.reports.drain(..extra);
@@ -258,14 +303,21 @@ pub struct Look {
     pub found: Vec<Found>,
     /// The round bound, ms.
     pub bound: i64,
+    /// An episode still standing this long (ms) after its round ended is due another.
+    #[serde(default)]
+    pub again: i64,
+    /// Rounds an episode starts at most.
+    #[serde(default)]
+    pub rounds_max: u32,
     /// Whether the watch's session can take a round now: it runs, and its
     /// turn is closed. A line typed before it is up goes to the shell.
     pub ready: bool,
 }
 
 // A look: episodes open for new findings and close for gone ones; a round
-// past its bound ends; and, with none running, the oldest episode without
-// a round starts one, once the watch's session can take it.
+// past its bound ends; and, with none running, the oldest episode due a
+// round starts one, once the watch's session can take it: one never
+// rounded first, then one still standing `again` after its round ended.
 command!(LookNow, "watch.look", Watches, Look, |_p| watch_id(), |s, p, now| {
     let mut ev = vec![WatchEvent::Looked { at: now.0 }];
     for f in &p.found {
@@ -288,18 +340,19 @@ command!(LookNow, "watch.look", Watches, Look, |_p| watch_id(), |s, p, now| {
         ev.push(WatchEvent::EpisodeClosed { key: (*k).clone() });
     }
     let mut running = s.round.clone();
+    let mut ended = None;
     if let Some(r) = &running
         && now.0 - r.at > p.bound
     {
         ev.push(WatchEvent::RoundEnded { n: r.n, why: "past its bound".into() });
-        running = None;
+        (ended, running) = (Some(r.episode.clone()), None);
     }
     if running.is_none() && p.ready {
-        let mut fresh: Vec<(i64, &String)> = s
+        let mut fresh: Vec<((bool, i64), &String)> = s
             .episodes
             .iter()
-            .filter(|(k, e)| e.round.is_none() && !gone.contains(k))
-            .map(|(k, e)| (e.opened_at, k))
+            .filter(|(k, e)| e.due(now.0, p.again, p.rounds_max) && !gone.contains(k) && ended.as_ref() != Some(k))
+            .map(|(k, e)| ((e.round.is_some(), e.ended.as_ref().map_or(e.opened_at, |d| d.at)), k))
             .collect();
         fresh.sort();
         let next = fresh

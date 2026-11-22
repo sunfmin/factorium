@@ -535,3 +535,46 @@ async fn a_done_refused_while_the_worker_waits_gets_the_watch_another_round() {
     let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
     assert!(round.contains("round 2") && round.contains("worker done"), "{round}");
 }
+
+/// The round's action did not end what it found: `round_again` after it
+/// was reported, the next look starts another round, carrying the report.
+#[tokio::test]
+async fn a_finding_still_standing_after_its_round_gets_another_carrying_the_last_report() {
+    let w = World::new();
+    escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    w.app.watch_report("Read its terminal; nothing to fix.", None).await.unwrap();
+    w.advance(25);
+    w.tick().await;
+    assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "not before round_again");
+    w.advance(5);
+    w.tick().await;
+    assert_eq!(w.app.watch_next().await.unwrap()["round"]["n"], 2);
+    let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
+    assert!(round.contains("round 2") && round.contains("Read its terminal; nothing to fix."), "{round}");
+    assert!(round.contains("still there"), "{round}");
+}
+
+/// Past `rounds_max` rounds on one finding, no round starts; doctor shows
+/// it unresolved, with the last report.
+#[tokio::test]
+async fn past_its_rounds_a_finding_gets_none_more_and_doctor_shows_it_unresolved() {
+    let w = World::new();
+    let wk = escalated(&w).await;
+    for n in 1..=3 {
+        w.advance(30);
+        w.tick().await;
+        assert_eq!(w.app.watch_next().await.unwrap()["round"]["n"], n);
+        assert_eq!(w.app.doctor().await.unwrap()["unresolved"], json!([]), "rounds left");
+        w.app.watch_report(&format!("try {n}"), None).await.unwrap();
+    }
+    w.advance(30);
+    w.tick().await;
+    w.advance(60);
+    w.tick().await;
+    assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "its rounds are spent");
+    let unresolved = w.app.doctor().await.unwrap()["unresolved"].clone();
+    let key = format!("worker:{}", id(&wk));
+    assert_eq!(unresolved, json!([{ "key": key, "what": unresolved[0]["what"], "rounds": 3, "last_report": "try 3" }]));
+}

@@ -142,6 +142,14 @@ impl App {
         let settings = self.settings().await?;
         let findings = doctor::findings(&seen, &settings, self.now());
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
+        // Standing past its rounds: the watch gave up on it; the owner's now.
+        let max = settings.get(factorium_domain::settings::Setting::RoundsMax) as u32;
+        let unresolved: Vec<Value> = (w.unresolved(max))
+            .map(|(key, e)| {
+                let last = e.ended.as_ref().and_then(|d| d.report.clone());
+                json!({ "key": key, "what": e.what, "rounds": e.rounds, "last_report": last })
+            })
+            .collect();
         if let Some(last) = w.reports.last() {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
@@ -191,6 +199,8 @@ impl App {
             // Each checkout's last idle run that ended green or red.
             "idle": idle,
             "findings": findings,
+            // Findings the watch's rounds did not end, each with its last report.
+            "unresolved": unresolved,
             "human": seen.human,
             // Issues waiting for a person, oldest first: answer each with
             // `issue ready` (do it), `issue close` (don't), or `issue comment` then `ready`.
