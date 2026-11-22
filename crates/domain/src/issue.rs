@@ -281,6 +281,11 @@ pub enum IssueEvent {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         decided: Vec<Mark>,
     },
+    /// The role its worker starts with from now: a directory, or, `None`, none.
+    RoleNamed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+    },
     BlockedBy {
         number: u64,
     },
@@ -374,6 +379,7 @@ impl Aggregate for Issues {
                 *s = Issue { checkout, number, title, body, task, on, decided, ..Issue::default() };
             }
             IssueEvent::IssueEdited { title, body, decided } => (s.title, s.body, s.decided) = (title, body, decided),
+            IssueEvent::RoleNamed { role } => s.on.role = role,
             // An own-checkout issue waited for until it closes is written as
             // `BlockedBy` and `Unblocked`; any other as `…Across`.
             IssueEvent::BlockedBy { number } => {
@@ -534,6 +540,19 @@ on_issue!(EditIssue, "issue.edit", Edit, |s, p, now| {
         };
         Ok(vec![IssueEvent::IssueEdited { title, body, decided }])
     }
+});
+
+/// Issue `number` of `checkout` names `role` for the workers that start
+/// from now, or, `None`, no role.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NameRole {
+    pub checkout: String,
+    pub number: u64,
+    pub role: Option<String>,
+}
+
+on_issue!(NameIssueRole, "issue.name_role", NameRole, |s, p, now| {
+    Ok(if s.on.role == p.role { Vec::new() } else { vec![IssueEvent::RoleNamed { role: p.role.clone() }] })
 });
 
 /// Issue `number` of `checkout` waits for `by`, or, with `undo`, stops.

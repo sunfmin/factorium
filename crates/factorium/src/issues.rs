@@ -138,6 +138,28 @@ impl App {
         self.issue_show(checkout, number).await
     }
 
+    /// `issue edit --role`/`--no-role`: names `role` (checked as at
+    /// [`App::issue_add_on`]) for the workers of the issue that start from
+    /// now, or, `None`, no role. A live worker keeps the directory it
+    /// started in. A change is kept as a comment saying from what to what,
+    /// so the next worker's brief carries why its role differs.
+    pub async fn issue_name_role(&self, checkout: &str, number: u64, role: Option<&str>) -> Answer {
+        let role = role.map(String::from);
+        self.on_here(&On { role: role.clone(), account: None })?;
+        let was = self.issue(checkout, number).await?.on.role;
+        if was != role {
+            self.submit::<NameIssueRole>(NameRole { checkout: checkout.into(), number, role: role.clone() }).await?;
+            let named = |r: &Option<String>| r.as_ref().map_or("no role".to_string(), |r| format!("`{r}`"));
+            let text = format!(
+                "The owner changed this issue's role from {} to {}: each attempt that starts from now starts with it; a worker already started keeps the role it started with.",
+                named(&was),
+                named(&role)
+            );
+            self.note(checkout, number, Author::Factorium, &text).await?;
+        }
+        self.issue_show(checkout, number).await
+    }
+
     /// Closes an issue; a worker on it ends. The attempt whose worktree its
     /// last attempt left on disk is abandoned ([`App::abandon`]). Claimed
     /// ([`App::claimed`]): refused while a start is under way.

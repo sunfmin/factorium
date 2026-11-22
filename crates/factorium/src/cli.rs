@@ -213,7 +213,7 @@ pub enum IssueCmd {
     /// tokens its session spent (`null`: its harness's files do not say),
     /// with their sums.
     Show { checkout: String, number: u64 },
-    /// Changes an issue's title or body.
+    /// Changes an issue's title, body or role.
     Edit {
         checkout: String,
         number: u64,
@@ -224,6 +224,14 @@ pub enum IssueCmd {
         /// Reads the body from this file; `-` reads stdin.
         #[arg(long, conflicts_with = "body")]
         body_file: Option<PathBuf>,
+        /// Names the role its workers play from now, checked as at `issue
+        /// add --role`; a live worker keeps the role it started with. The
+        /// change is kept as a comment on the issue.
+        #[arg(long, value_name = "DIR", conflicts_with = "no_role")]
+        role: Option<String>,
+        /// Takes its role away: its workers start from now with none.
+        #[arg(long)]
+        no_role: bool,
     },
     /// Closes an issue; a worker on it ends.
     Close {
@@ -455,8 +463,11 @@ impl Top {
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
-                IssueCmd::Edit { checkout, number, title, body, body_file } => {
+                IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role } => {
                     let body = body_text(body, body_file)?;
+                    if role.is_some() || no_role {
+                        app.issue_name_role(&checkout, number, role.as_deref()).await?;
+                    }
                     app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
                 }
                 IssueCmd::Close { checkout, number, reason } => app.issue_close(&checkout, number, &reason).await,
