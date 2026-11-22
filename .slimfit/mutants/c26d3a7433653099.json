@@ -1,0 +1,6 @@
+{
+  "tree": "cefdda11a1ab771494b4f06925e6e33bbbdbb813+d1fba762150c532c",
+  "picker": "codex:01a20382-6dca-7ab2-b11d-dae038cbb2a7:default",
+  "author": "claude-code:4909980b-4776-5dc6-9b33-0ffb93471c93:opus",
+  "none": "The tests require successful role changes through both the CLI and app, and verify that the new role persists and governs the next worker. Every buildable candidate breaks those exercised paths."
+}
