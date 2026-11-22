@@ -1,0 +1,10 @@
+{
+  "tree": "126cc3ee61578c96319711f8214a855f684e439c+d1fba762150c532c",
+  "lines": 55,
+  "serves": "factorium#242",
+  "considered": "Reusing the swap's Proofs::started (polled each tick) instead of a pending list with a watch channel; recording the cut failed with a placeholder and reading it back once proven (rejected: the proof's reason would be lost and a false failed-cut finding raised); a private Cut struct (cut, reused line::Cut)",
+  "reviewer": "codex:01a2032d-7584-79d1-920f-fc41aa24352f:default",
+  "author": "claude-code:0c9c7842-a6bb-5712-803e-9d0e4c89d845:opus",
+  "cut": "In crates/factorium/src/line/cut.rs, reuse line::Cut as the pending record with its commit initialized to the base, delete the private Cut struct, and pass the tagged commit only in the success variant of the result. In crates/factorium/tests/scenarios/proof.rs, have ticks_until return the tick count and final Tick, and use count minus one for the existing preceding-tick assertion instead of collecting and scanning every tick.",
+  "answer": "Made both: line::Cut is the pending record (commit the base until made), the private Cut is gone, cut_recorded takes the tagged commit only in Ok; ticks_until answers (count, last tick). The scenario was since reshaped to assert moves_ended waits for the proof (a surviving mutant), so it no longer counts preceding ticks. Net growth went 74 -> 55."
+}

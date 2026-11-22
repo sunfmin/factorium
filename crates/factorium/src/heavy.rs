@@ -319,14 +319,16 @@ impl App {
         self.ended_beside(|_| true).await
     }
 
-    /// Until each line move beside the ticks that runs now has ended its steps.
+    /// Until each line move beside the ticks that runs now has ended its steps, and each cut's
+    /// proof its own.
     pub async fn moves_ended(&self) {
-        self.ended_beside(|f| matches!(f, For::Line(_))).await
+        self.ended_beside(|f| matches!(f, For::Line(_))).await;
+        self.cuts_proofs_ended().await
     }
 
-    /// Whether a line move runs beside the ticks.
+    /// Whether a line move runs beside the ticks: its steps, or a cut's proof.
     pub fn moves_run(&self) -> bool {
-        self.beside_runs(|f| matches!(f, For::Line(_)))
+        self.beside_runs(|f| matches!(f, For::Line(_))) || !self.memory.lock().unwrap().proving.is_empty()
     }
 
     async fn ended_beside(&self, pick: impl Fn(&For) -> bool) {

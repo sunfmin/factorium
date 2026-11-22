@@ -194,6 +194,8 @@ struct Memory {
     /// The heavy jobs running beside the ticks: idle work, one at a time, and
     /// line moves, one of a checkout at a time.
     beside: Vec<heavy::Beside>,
+    /// The cuts whose installed binary is proven beside the ticks, recorded once it ends.
+    proving: Vec<line::Proving>,
 }
 
 /// The host's clock, as the engine reads it.
