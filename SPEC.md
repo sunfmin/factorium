@@ -193,6 +193,28 @@ its checkout and number, its title, its question (the first line of its body
 after any "Based on …" line), why, when it started waiting and who left it
 so. The owner answers one with `issue ready` (do it), `issue close` (don't),
 or `issue comment` then `issue ready`.
+Everything else is decided without the owner, and each decision is kept
+once, in the issue it belongs to (its body when filed, a comment after), as
+a **Decided record**:
+
+```
+Decided (<who>, for Felix): <what, one line>
+Options: A) …  B) …
+Chose: B, because …
+Undo: <how to take it back>
+```
+
+A worker writes one (`worker comment`) when it makes a choice its issue did
+not settle or does other than its issue says; the watch, when it decides in
+a round (restart, re-brief, park, close); a second agent (picker, reviewer)
+writes none, its answer's why being its record. Their briefs say so.
+Doctor answers `decided`: every record, in any issue body or comment
+(a comment is one only when its first line starts `Decided (`) of any
+checkout, made since the owner last ran `decided --read`, newest first,
+each with its checkout and number, who, what, options, chose, undo and when.
+`factorium decided` answers those of the last 7 days, read or not; `--read`
+(the owner's: the watch's brief says it never runs it) marks every one until now read. Nothing copies a record
+out of its issue.
 
 ## 3. One database
 
@@ -218,7 +240,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/remove/list`, `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once), `doctor`, `decided [--read]` (the Decided records, §2), `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `review-growth`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 

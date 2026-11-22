@@ -9,6 +9,7 @@ pub mod admission;
 pub mod bump;
 pub mod checkout;
 pub mod daemon;
+pub mod decided;
 pub mod declared;
 pub mod doctor;
 pub mod gate;

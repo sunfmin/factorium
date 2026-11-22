@@ -1,0 +1,10 @@
+{
+  "tree": "28e4548458f5e449116ed30f9884e8034cd15074+d1fba762150c532c",
+  "lines": 78,
+  "serves": "factorium#235",
+  "considered": "doctor's asks (issue::question, the history walk) and the watch's seen mark, reused: the read mark sits beside seen in the watch stream and the body's filing time comes from the same history read",
+  "reviewer": "codex:01a20265-5f4f-7160-bb0d-cd3cc3033989:default",
+  "author": "claude-code:5e421a80-4ea6-50d5-8d5b-09783ede3ca4:opus",
+  "cut": "In crates/domain/src/decided.rs, let read alone recognize record headers and remove in_body’s separate header filter. In crates/factorium/src/cli.rs, keep Doctor’s help to the unread-record view and remove the repeated record format already documented in SPEC.md and the session briefs.",
+  "answer": "Both made: in_body now hands every line to read, which alone recognizes a header; Doctor's help names the decided view and no longer repeats the record's shape"
+}

@@ -161,6 +161,7 @@ fn model() -> Model {
         .command::<watch::FileReport>()
         .command::<watch::NoteAdmission>()
         .command::<watch::SeeHuman>()
+        .command::<watch::MarkDecidedRead>()
         .aggregate::<outbox::Outboxes>()
         .command::<outbox::GiveMessage>()
         .command::<outbox::TryMessage>()

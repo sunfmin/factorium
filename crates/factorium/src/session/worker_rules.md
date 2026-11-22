@@ -25,6 +25,21 @@ Your brief (the file you were handed) says what the issue is.
   the owner asked you to put in a comment), run
   `factorium worker comment --text "…"` (or pipe it on stdin). It changes
   nothing else and calls no one; go on working.
+- When you make a choice your issue did not settle, or do something other
+  than what it says, you decide for the owner: go on, and record it, once,
+  as a comment (`factorium worker comment`) in this shape, first line first:
+
+  ```
+  Decided (<who>, for Felix): <what, one line>
+  Options: A) …  B) …
+  Chose: B, because …
+  Undo: <how to take it back>
+  ```
+
+  Examples: KEEP applies only to sampled survivors, stricter than the issue
+  says (slimfit#95); delete, merge or keep, chosen for each of 15
+  candidates (guild#66). A choice the issue's own steps prescribe is no
+  decision. The owner reads these in doctor's `decided`.
 - Before a long wait on a background command of your own (a download, a
   long run), run `factorium worker waiting --why "<what>" --until <45m|2h>`.
   Otherwise a turn ended 30 min without `factorium worker done` is reported

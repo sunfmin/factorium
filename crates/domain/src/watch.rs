@@ -66,6 +66,9 @@ pub struct Watch {
     pub held: Option<(i64, String)>,
     /// The report whose owner's part the owner has seen.
     pub seen: u64,
+    /// Until when (ms) the owner has read the Decided records (`decided --read`).
+    #[serde(default)]
+    pub decided_read: i64,
     /// The terminals its sessions were started in, the latest `KEPT`: the
     /// only watch terminals this database's factorium calls its own.
     #[serde(default)]
@@ -141,6 +144,10 @@ pub enum WatchEvent {
     HumanSeen {
         round: u64,
     },
+    /// The owner read every Decided record made until `at` (ms).
+    DecidedRead {
+        at: i64,
+    },
 }
 
 pub struct Watches;
@@ -187,6 +194,7 @@ impl Aggregate for Watches {
             WatchEvent::AdmissionHeld { why, at } => s.held = Some((at, why)),
             WatchEvent::AdmissionOpen => s.held = None,
             WatchEvent::HumanSeen { round } => s.seen = round,
+            WatchEvent::DecidedRead { at } => s.decided_read = at,
             WatchEvent::Reported(r) => {
                 s.round = None;
                 s.reports.push(r);
@@ -373,3 +381,11 @@ command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| Ok(
 } else {
     Vec::new()
 }));
+
+/// The owner reads every Decided record made until now.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReadDecided {}
+
+command!(MarkDecidedRead, "watch.decided_read", Watches, ReadDecided, |_p| watch_id(), |_s, _p, now| Ok(vec![
+    WatchEvent::DecidedRead { at: now.0 }
+]));

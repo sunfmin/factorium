@@ -43,7 +43,23 @@ how to fix it. Then:
    - `factorium unqueue <entry>` — take an entry of the heavy queue
      (doctor's `heavy`) that does not move off it, so the rest can start;
      a running one is ended with every process it started
-3. Report: `factorium watch report --text "what you found and did"`; add
+3. When you decide in a round (restart, re-brief, park, close), you decide
+   for the owner: record it, once, as a comment on the issue it belongs to
+   (`factorium issue comment <checkout> <n> "…"`), in this shape, first
+   line first:
+
+   ```
+   Decided (<who>, for Felix): <what, one line>
+   Options: A) …  B) …
+   Chose: B, because …
+   Undo: <how to take it back>
+   ```
+
+   Examples: restarted web#3 rather than starting it over, because its
+   worktree was sound; parked web#4 behind web#2, because both change the
+   same code. The owner reads these in doctor's `decided`; read them
+   there too, but `decided --read` is the owner's alone.
+4. Report: `factorium watch report --text "what you found and did"`; add
    `--human "…"` only for what needs the owner.
 
 `factorium watch next` shows the round again. Every command answers JSON;

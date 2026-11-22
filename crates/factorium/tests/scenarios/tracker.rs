@@ -200,6 +200,66 @@ async fn doctor_asks_every_issue_left_to_a_person_oldest_first_until_readied_or_
     assert_eq!(left, [json!("web#3")]);
 }
 
+/// doctor's `decided`: every Decided record in an issue's body (at `issue
+/// add`) or comment, newest first, with every field, until `decided --read`;
+/// a comment not in the shape is none.
+#[tokio::test]
+async fn doctor_lists_every_decided_record_newest_first_until_read() {
+    let w = World::new();
+    w.checkout("web").await;
+    let body = "Based on proving 1a2b.\n\nRename the flag.\n\n\
+        Decided (session, for Felix): call it guild\n\
+        Options: A) guild  B) hall\n\
+        Chose: A, because the repo is guild\n\
+        Undo: issue edit the title back";
+    w.app.issue_add("web", "Rename", body, false, &[]).await.unwrap();
+    w.advance(1);
+    w.app.issue_add("web", "Other", "No record here.", false, &[]).await.unwrap();
+    w.app.issue_comment("web", 2, "measured 4.1s\nDecided (x, for Felix): not first").await.unwrap();
+    w.advance(1);
+    let record = "Decided (watch, for Felix): park web#2 behind web#1\n\
+        Options: A) restart now  B) park it\n\
+        Chose: B, because web#1 changes the same code\n\
+        Undo: issue block web 2 web#1 --undo";
+    w.app.issue_comment("web", 2, record).await.unwrap();
+    let decided = w.doctor().await["decided"].clone();
+    let at = 1_800_000_000_000_i64;
+    assert_eq!(
+        decided,
+        json!([
+            {
+                "issue": "web#2", "who": "watch", "what": "park web#2 behind web#1",
+                "options": "A) restart now  B) park it", "chose": "B, because web#1 changes the same code",
+                "undo": "issue block web 2 web#1 --undo", "at": at + 120_000,
+                "utc": factorium_domain::when::utc(at + 120_000),
+            },
+            {
+                "issue": "web#1", "who": "session", "what": "call it guild",
+                "options": "A) guild  B) hall", "chose": "A, because the repo is guild",
+                "undo": "issue edit the title back", "at": at, "utc": factorium_domain::when::utc(at),
+            },
+        ]),
+        "{decided}"
+    );
+    let week = w.app.decided_view(false).await.unwrap();
+    assert_eq!(week["decided"], decided, "the last 7 days, read or not");
+    w.app.decided_view(true).await.unwrap();
+    w.app.issue_comment("web", 1, "Decided (session, for Felix): made as it was read").await.unwrap();
+    assert_eq!(w.doctor().await["decided"], json!([]), "read, up to and at its time");
+    let week = w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().clone();
+    assert_eq!(week[0]["what"], "made as it was read", "still in the last 7 days");
+    assert_eq!(week[1..], decided.as_array().unwrap()[..], "still in the last 7 days");
+    w.advance(1);
+    w.app.issue_comment("web", 1, "Decided (session, for Felix): keep hall too").await.unwrap();
+    let after: Vec<_> = w.doctor().await["decided"].as_array().unwrap().iter().map(|d| d["what"].clone()).collect();
+    assert_eq!(after, [json!("keep hall too")], "only what came after the read");
+    w.advance(7 * 24 * 60 - 1);
+    let week: Vec<_> = (w.app.decided_view(false).await.unwrap()["decided"].as_array().unwrap().iter())
+        .map(|d| d["what"].clone())
+        .collect();
+    assert_eq!(week, [json!("keep hall too")], "7 days back, no more: the rest are 7 days and 1 minute old");
+}
+
 #[tokio::test]
 async fn an_issue_waits_for_others_of_its_checkout() {
     let w = World::new();
