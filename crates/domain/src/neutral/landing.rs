@@ -32,36 +32,17 @@ pub struct Line {
     pub moved: Option<i64>,
 }
 
+/// What happened on a line. A cut's `at` is none in cuts recorded before
+/// factorium#222.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
-    Landed {
-        number: u64,
-        commit: String,
-        at: i64,
-    },
-    PromotionRed {
-        tip: String,
-        why: String,
-    },
-    Promoted {
-        tip: String,
-        at: i64,
-    },
-    CutMade {
-        version: String,
-        commit: String,
-        /// Not kept by code before factorium#222: 0.
-        #[serde(default)]
-        at: i64,
-    },
-    CutFailed {
-        version: String,
-        why: String,
-    },
-    LandingsHeld {
-        why: String,
-    },
+    Landed { number: u64, commit: String, at: i64 },
+    PromotionRed { tip: String, why: String },
+    Promoted { tip: String, at: i64 },
+    CutMade { version: String, commit: String, at: Option<i64> },
+    CutFailed { version: String, why: String },
+    LandingsHeld { why: String },
     LandingsReleased,
 }
 
@@ -83,7 +64,7 @@ impl Line {
             }
             LineEvent::CutMade { version, at, .. } => {
                 s.uncut.clear();
-                s.moved = s.moved.max(Some(at));
+                s.moved = s.moved.max(at);
                 (s.version, s.cut_failed) = (Some(version), None);
             }
             LineEvent::CutFailed { version, why } => s.cut_failed = Some((version, why)),

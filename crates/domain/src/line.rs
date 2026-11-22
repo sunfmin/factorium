@@ -138,7 +138,7 @@ command!(RecordCut, "line.cut", Lines, Cut, |p| line_id(&p.checkout), |s, p, now
     }
     Ok(vec![match &p.failed {
         Some(why) => LineEvent::CutFailed { version: p.version.clone(), why: why.clone() },
-        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: now.0 },
+        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: Some(now.0) },
     }])
 });
 

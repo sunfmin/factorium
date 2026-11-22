@@ -84,15 +84,13 @@ pub struct LandingSeen {
 }
 
 /// A landing waiting its turn: its place in its checkout's line (1 lands
-/// next: the oldest ask lands first) of how many wait there.
+/// next) of how many wait there.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct InLine {
     pub worker: String,
     pub issue: String,
     pub place: usize,
     pub of: usize,
-    /// Since when it asks, ms.
-    pub since: i64,
 }
 
 /// Each landing waiting, in its checkout's line: [`Seen::landing`] is in
@@ -104,7 +102,7 @@ pub fn landing_line(seen: &Seen) -> Vec<InLine> {
             let line: Vec<_> = asks.iter().filter(|o| o.checkout == l.checkout).collect();
             let place = line.iter().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
             let (worker, issue) = (l.worker.clone(), format!("{}#{}", l.checkout, l.number));
-            InLine { worker, issue, place, of: line.len(), since: l.since }
+            InLine { worker, issue, place, of: line.len() }
         })
         .collect()
 }
@@ -290,8 +288,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
 
 /// What the line owes and has not done within its bound: a heavy queue
 /// that starts nothing, a landing no gate runs for on a line that does not
-/// move, a promotion or a cut
-/// past its bound with none running.
+/// move, a promotion or a cut past its bound with none running.
 fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, String, &str)) {
     let q = &seen.queue;
     let stall = s.ms(Time::StallBound);
@@ -328,8 +325,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
     for LandingSeen { worker: id, checkout, number, since } in &seen.landing {
         let line = line_of(checkout).map(|l| &l.line);
         let held = line.is_some_and(|l| l.held.is_some());
-        // A landing waits its turn behind others while its line moves:
-        // a landing, promotion or cut, or a line job started, within the bound.
+        // Behind others on a line that moves (a landing, promotion, cut or job start) it waits its turn.
         let moved = line.and_then(|l| l.moved).max(q.started(checkout)).unwrap_or(*since).max(*since);
         if held || now - moved <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
             continue;
