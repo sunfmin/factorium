@@ -64,6 +64,7 @@ async fn an_issue_not_before_a_time_starts_on_the_first_tick_at_it() {
     w.clock.advance(60 * 60_000 - 1);
     assert!(w.tick().await.started.is_none(), "a ms before its time");
     w.clock.advance(1);
+    assert_eq!(timed(&w).await, json!([]), "at its time it waits no more");
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#1")), "{t:?}");
     assert_eq!(timed(&w).await, json!([]));
