@@ -359,12 +359,11 @@ impl App {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
         }
         let settings = self.settings().await?;
-        // Queued, or asked again under these rules: a binary that execed in its place keeps it.
-        if q.entries.iter().all(|e| e.id != id || e.rules != self.rules) {
-            let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
-            let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
-            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep, rules }).await?;
-        }
+        // Queued, or asked again under these rules (heavy.queue does nothing if it is so
+        // queued): a binary that execed in its place keeps its entry.
+        let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
+        let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
+        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep, rules }).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);

@@ -285,11 +285,11 @@ A daemon Homebrew installed notes its formula's link at start; once the
 link names another version (a cut by the daemon, by `factorium cut`, or
 by hand), it execs the link between ticks, as the same pid, once that
 binary is proven to open this host's database: it answers `doctor` on a
-copy (SQLite's `VACUUM INTO`, one read transaction no writer restarts,
-given up past a minute; never the live file). Each binary is proven once
-on the host, whoever asks: the processes that ask take turns on its lock,
-and how it went is kept beside the copies for the next (a try given up or
-past its limit is not kept). The daemon's tick only starts that proof, on
+copy (SQLite's `VACUUM INTO`, one read transaction no writer restarts;
+never the live file). Each binary is proven once on the host, whoever
+asks: the processes that ask take turns on its lock, and how it went is
+kept beside the copies for the next (a copy that failed, or a `doctor`
+past its limit, is not kept). The daemon's tick only starts that proof, on
 a thread of its own, and a later tick swaps once it passed: no tick waits
 on it. A cut of the formula proves
 it right after the install; one that fails is a failed cut, its why the

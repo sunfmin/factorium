@@ -1,8 +1,8 @@
 //! Proof that a factorium binary opens a database before it runs on it: it
 //! answers `doctor` on a copy, never the live file (factorium#141). The copy
 //! is SQLite's `VACUUM INTO`, one read transaction that a writer does not
-//! restart, given up past its bound; an online backup restarted on every
-//! write and never finished on a busy host (factorium#241). Each binary is
+//! restart; an online backup restarted on every write and never finished
+//! on a busy host (factorium#241). Each binary is
 //! proven once on the host: the processes that ask take turns on its lock,
 //! and how it was proven is kept beside its copy for the next to read.
 
@@ -18,9 +18,6 @@ use crate::shell::{Priority, run};
 /// How long a binary has to answer `doctor` on the copy.
 const LIMIT: Duration = Duration::from_secs(120);
 
-/// How long the copy may take before it is given up.
-const COPY_LIMIT: Duration = Duration::from_secs(60);
-
 /// How a binary was proven: it opens the database, or why not.
 pub type Proven = Result<(), String>;
 
@@ -30,7 +27,7 @@ pub struct Proofs(Mutex<BTreeMap<PathBuf, Option<Proven>>>);
 
 /// How a proof ended: `kept` when it says how this binary opens this
 /// database whoever asks next; not when it says only how this try went (the
-/// copy was given up, or doctor ran past its limit).
+/// copy failed, or doctor ran past its limit).
 struct Ended {
     proven: Proven,
     kept: bool,
@@ -130,20 +127,15 @@ fn on_host(db: &Path, bin: &Path, dir: &Path) -> Proven {
     ended.proven
 }
 
-/// Copies `db` to `copy` in one read transaction, given up past `COPY_LIMIT`.
+/// Copies `db` to `copy` in one read transaction: a writer does not restart
+/// it, so it ends in the time one read of the file takes; a lock held past
+/// the busy timeout fails it, saying so.
 fn copy_of(db: &Path, copy: &Path) -> Result<(), String> {
     use rusqlite::OpenFlags;
     std::fs::create_dir_all(copy.parent().unwrap_or(Path::new("."))).map_err(|e| e.to_string())?;
-    let mut live =
-        rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
-    live.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
-    // Past the bound, the progress handler answers true: SQLite interrupts the copy.
-    let deadline = std::time::Instant::now() + COPY_LIMIT;
-    live.progress_handler(1000, Some(move || std::time::Instant::now() > deadline)).map_err(|e| e.to_string())?;
-    live.execute("VACUUM INTO ?1", [copy.to_string_lossy()]).map(drop).map_err(|e| match e.sqlite_error_code() {
-        Some(rusqlite::ErrorCode::OperationInterrupted) => format!("given up past {}s", COPY_LIMIT.as_secs()),
-        _ => e.to_string(),
-    })
+    let live = rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY);
+    let live = live.and_then(|l| l.busy_timeout(Duration::from_secs(5)).map(|()| l));
+    live.and_then(|l| l.execute("VACUUM INTO ?1", [copy.to_string_lossy()])).map(drop).map_err(|e| e.to_string())
 }
 
 fn prove(db: &Path, bin: &Path, copy: &Path) -> Ended {
