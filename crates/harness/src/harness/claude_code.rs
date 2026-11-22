@@ -269,6 +269,7 @@ struct Queued {
 const HEADLESS: Headless = Headless {
     flags: "-p --tools '' --setting-sources '' --strict-mcp-config --output-format json",
     model: MODEL,
+    again: Some("--resume"),
     files: crate::ask::no_files,
     read: asked,
     stand_in: asked_stand_in,

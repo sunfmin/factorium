@@ -39,12 +39,27 @@ struct Pick {
 /// change's `diff` and slimfit's `listing` (`check --mutants`), each as
 /// given, then the one form its answer takes.
 pub fn question(goal: &str, diff: &str, listing: &str) -> String {
+    let how = how(&form());
+    format!("{goal}\n\n# The diff\n\n```diff\n{diff}\n```\n\n# The candidates\n\n```json\n{listing}\n```\n\n{how}")
+}
+
+/// The one form the picker's answer takes.
+pub fn form() -> String {
     format!(
-        "{goal}\n\n# The diff\n\n```diff\n{diff}\n```\n\n# The candidates\n\n```json\n{listing}\n```\n\n\
-         # How to answer\n\nAnswer one JSON object and nothing else: \
-         {{\"picks\": [{{\"name\": \"<a candidate's exact name>\", \"why\": \"<one line>\"}}]}} with at most {MOST} \
-         picks, or {{\"none\": \"<one line of why no mutant is worth running>\"}}.\n"
+        "{{\"picks\": [{{\"name\": \"<a candidate's exact name>\", \"why\": \"<one line>\"}}]}} with at most {MOST} \
+         picks, or {{\"none\": \"<one line of why no mutant is worth running>\"}}."
     )
+}
+
+/// How a second agent answers: one JSON object of `form`.
+pub fn how(form: &str) -> String {
+    format!("# How to answer\n\nAnswer one JSON object and nothing else: {form}\n")
+}
+
+/// What a second agent whose answer was not taken is asked once more, in
+/// the same session: only `why` not, and the one `form` its answer takes.
+pub fn again(why: &str, form: &str) -> String {
+    format!("Your answer was not taken: {why}.\n\n{}", how(form))
 }
 
 /// Why none is picked when slimfit lists no candidates: no picker is asked.
@@ -82,17 +97,21 @@ fn names(listing: &Value) -> Vec<&str> {
     suites.filter_map(Value::as_array).flatten().filter_map(|c| c["name"].as_str()).collect()
 }
 
+/// The one JSON object in the `text` a second agent answered as `role`
+/// (fenced or not), from its first `{` to its last `}`, as `T`; or why
+/// not, in one line, without the text.
+pub fn object<T: serde::de::DeserializeOwned>(text: &str, role: &str) -> Result<T, String> {
+    let (from, to) = (text.find('{'), text.rfind('}'));
+    let object = from.zip(to).and_then(|(from, to)| text.get(from..=to));
+    let object = object.ok_or_else(|| format!("the {role} answered no JSON object"))?;
+    serde_json::from_str(object).map_err(|e| format!("the {role}'s answer is not as asked ({e})"))
+}
+
 /// The picker's answer `text` taken against slimfit's `listing`: its one
 /// JSON object (fenced or not), picks of listed names only, each why one
-/// line; or why it is not taken.
+/// line; or why it is not taken, in one line, without the text.
 pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
-    let (from, to) = (text.find('{'), text.rfind('}'));
-    let object = match (from, to) {
-        (Some(from), Some(to)) if from < to => &text[from..=to],
-        _ => return Err(format!("the picker answered no JSON object: {text}")),
-    };
-    let said: Said =
-        serde_json::from_str(object).map_err(|e| format!("the picker's answer is not as asked ({e}): {text}"))?;
+    let said: Said = object(text, "picker")?;
     let one_line = |why: &str| !why.trim().is_empty() && !why.contains('\n');
     let listed = names(listing);
     match (said.picks.is_empty(), said.none) {
@@ -110,9 +129,12 @@ pub fn read(text: &str, listing: &Value) -> Result<Picked, String> {
             }
             Ok(Picked::Picks(picks))
         }
-        _ => Err(format!("the picker answered neither 1 to {MOST} picks nor one line of why none: {text}")),
+        _ => Err(format!("the picker answered neither 1 to {MOST} picks nor one line of why none")),
     }
 }
+
+/// What the line an issue keeps says of an answer taken on the second ask.
+pub const AGAIN: &str = "answered as asked when asked again";
 
 /// Who was asked and who made the change, and what asking took.
 #[derive(Debug, Clone)]
@@ -132,6 +154,9 @@ pub struct Taken<'a> {
     /// The ones asked before it that failed, in turn: harness and why, of
     /// which the first line is kept.
     pub fell_back: &'a [(String, String)],
+    /// Whether its first answer was not taken and the one it gave asked
+    /// again was; what asking took is of both.
+    pub asked_again: bool,
 }
 
 impl Taken<'_> {
@@ -144,7 +169,8 @@ impl Taken<'_> {
     /// (`picker`, `reviewer`), and what it took.
     pub fn said(&self, role: &str) -> Value {
         let mut said = json!({ role: self.id(), "author": self.author, "harness": self.harness, "model": self.model,
-            "account": self.account, "took_ms": self.took_ms, "tokens": { "in": self.tokens_in, "out": self.tokens_out } });
+            "account": self.account, "took_ms": self.took_ms, "tokens": { "in": self.tokens_in, "out": self.tokens_out },
+            "asked_again": self.asked_again });
         said["fell_back"] = self.failed().map(|(harness, why)| json!({ "harness": harness, "why": why })).collect();
         said
     }
@@ -155,6 +181,9 @@ impl Taken<'_> {
         let (on, secs) = (self.account.unwrap_or("the host's own login"), self.took_ms as f64 / 1000.0);
         let (id, tin, tout) = (self.id(), self.tokens_in, self.tokens_out);
         let mut cost = format!("{command}: {id} on {on}, {secs:.1}s, {tin} tokens in, {tout} out; {what}");
+        if self.asked_again {
+            cost.push_str(&format!(", {AGAIN}"));
+        }
         for (harness, why) in self.failed() {
             cost.push_str(&format!("; the {harness} {role} failed first, so {} {did}: {why}", self.harness));
         }

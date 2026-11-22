@@ -320,7 +320,12 @@ async fn a_worker_s_growth_is_judged_on_the_kit_s_other_harness_and_the_record_n
 #[tokio::test]
 async fn a_reviewer_on_another_harness_that_fails_hands_the_review_to_claude_code_and_the_record_says_so() {
     let cut = r#"{"cut": "a.rs: reuse b instead of a"}"#;
-    let cases = [("exit 3", AS_IS), ("", "You have hit your usage limit."), ("", r#"{"as_is": "two\nlines"}"#)];
+    let cases = [
+        ("exit 3", AS_IS),
+        ("", "You have hit your usage limit."),
+        ("", r#"{"as_is": "two\nlines"}"#),
+        ("", r#"{"cut": " "}"#),
+    ];
     crate::fixture::each(&cases, |(then, said)| async move {
         let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said, cut).await;
         let answer = w.app.worker_review_growth(id(&wk)).await.unwrap();
@@ -345,4 +350,87 @@ async fn a_review_no_reviewer_answers_as_asked_is_refused_and_nothing_is_kept() 
     let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", "exit 3", AS_IS, "It could be smaller.").await;
     refused(w.app.worker_review_growth(id(&wk)).await, "reviewer_answer");
     assert_eq!(kept(&w).await, Vec::<Value>::new());
+}
+
+/// What a stand-in on another harness answers when asked again, as it
+/// answered first: `t-1`, on `model`.
+fn again(model: &str, text: &str) -> Asked {
+    Asked { session: "t-1".into(), model: model.into(), text: text.into(), tokens_in: 300, tokens_out: 20 }
+}
+
+#[tokio::test]
+async fn a_second_agent_that_answers_prose_is_asked_once_more_and_its_json_then_taken_with_no_fallback() {
+    let prose = "I'll read the rest of the candidates first.";
+    let cases = ["picker", "reviewer"];
+    crate::fixture::each(&cases, |role| async move {
+        // Each ask takes 0.3s at least.
+        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", "sleep 0.3", prose, PICKS).await;
+        let json = if *role == "picker" { PICKS } else { AS_IS };
+        grok.then_answers(Harness::Grok, &again("grok-4.7-build", json));
+        let began = std::time::Instant::now();
+        let answer = match *role {
+            "picker" => w.app.worker_pick_mutants(id(&wk)).await,
+            _ => w.app.worker_review_growth(id(&wk)).await,
+        }
+        .unwrap();
+        // Both asks' time, summed: 0.6s at least, and no more than the whole call took.
+        let took_ms = answer["took_ms"].as_u64().unwrap();
+        assert!(took_ms >= 600 && u128::from(took_ms) <= began.elapsed().as_millis(), "{answer}");
+
+        // Taken of grok, asked again, both asks' tokens counted.
+        assert_eq!(answer[*role], "grok:t-1:grok-4.7-build", "{answer}");
+        assert_eq!((answer["fell_back"].clone(), answer["asked_again"].clone()), (json!([]), json!(true)));
+        assert_eq!(answer["tokens"], json!({ "in": 1200, "out": 60 }));
+
+        // Asked again in the same session: only what was wrong and the one form.
+        let (asked, args) = grok.asked_again();
+        let wrong = format!("Your answer was not taken: the {role} answered no JSON object.\n\n# How to answer\n\n");
+        assert!(asked.starts_with(&wrong) && asked.contains("Answer one JSON object and nothing else: {"), "{asked}");
+        assert!(!asked.contains(GOAL) && !asked.contains("+fn a("), "{asked}");
+        assert!(args.contains("--resume\nt-1\n"), "{args}");
+
+        let kept = kept(&w).await;
+        let text = kept[0]["text"].as_str().unwrap();
+        assert!(
+            text.contains(", 1200 tokens in, 60 out; ") && text.ends_with(", answered as asked when asked again"),
+            "{text}"
+        );
+    });
+}
+
+#[tokio::test]
+async fn a_second_agent_that_answers_prose_twice_hands_the_question_to_the_next_harness() {
+    let prose = "No mutant is worth running: the diff edits no production code.";
+    let off =
+        |role: &str| format!("the {role} answered no JSON object; asked again: the {role} answered no JSON object");
+    // Its stand-in knows it is run again by `$n`; one that fails then fails the second ask.
+    let cases = [
+        ("picker", PICKS, "", off("picker")),
+        ("reviewer", AS_IS, "", off("reviewer")),
+        (
+            "picker",
+            PICKS,
+            "[ -n \"$n\" ] && exit 3",
+            "the picker answered no JSON object; asked again: the grok picker exited Some(3)".into(),
+        ),
+    ];
+    crate::fixture::each(&cases, |(role, claude_says, then, twice)| async move {
+        let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", then, prose, claude_says).await;
+        let answer = match *role {
+            "picker" => w.app.worker_pick_mutants(id(&wk)).await,
+            _ => w.app.worker_review_growth(id(&wk)).await,
+        }
+        .unwrap();
+
+        assert!(grok.asked_again().0.starts_with("Your answer was not taken: "), "{:?}", grok.asked_again());
+        assert_eq!(answer[*role], "claude-code:s-1:claude-opus-5-5", "{answer}");
+        // Claude Code took it at the first ask.
+        assert_eq!(answer["asked_again"], false);
+        assert!(answer["fell_back"][0]["why"].as_str().unwrap().starts_with(twice.as_str()), "{answer}");
+        let kept = kept(&w).await;
+        let text = kept[0]["text"].as_str().unwrap();
+        let did = if *role == "picker" { "picked" } else { "reviewed" };
+        assert!(text.contains(&format!("; the grok {role} failed first, so claude-code {did}: {twice}")), "{text}");
+        assert!(!text.contains("when asked again"), "{text}");
+    });
 }

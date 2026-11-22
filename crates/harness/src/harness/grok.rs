@@ -189,6 +189,7 @@ const HEADLESS: crate::ask::Headless = crate::ask::Headless {
             --disable-web-search --no-subagents \
             --system-prompt-override 'You have no tools. Answer the question in this one reply, as it asks, and nothing else.'",
     model: MODEL,
+    again: Some("--resume"),
     files: asked_files,
     read: asked,
     stand_in: asked_stand_in,

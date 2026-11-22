@@ -207,6 +207,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "ask.rs: fn asked",
         "ask.rs: fn asked_stand_in",
         "ask.rs: fn asks",
+        "ask.rs: fn asks_again",
         "ask.rs: struct Ask",
         "ask.rs: struct Asked",
         "harness.rs: const fn interrupt",
