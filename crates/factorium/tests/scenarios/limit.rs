@@ -59,6 +59,7 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     assert_eq!((red["outcome"]["outcome"].clone(), red["outcome"]["until"].clone()), (json!("held"), json!(until)));
     let row = crate::fixture::worker(&w.app).await;
     assert_eq!(row["status"], "waiting");
+    crate::fixture::refused(w.app.worker_waiting(id(&wk), "a build", 60_000).await, "waiting");
 
     // Parked: no finding, no round, its reset in doctor; the pinned
     // checkout starts no new worker on the spent harness.
@@ -149,8 +150,10 @@ async fn a_word_submitted_just_before_the_quota_showed_is_typed_again_at_the_res
     let wk = w.working("agy=agy", "t").await;
     let tell = |text: &'static str| w.app.watch_tell(id(&wk), text, false);
     assert_eq!(tell("old word").await.unwrap()["delivery"], "submitted");
-    w.advance(11);
+    w.advance(9);
     assert_eq!(tell("new word").await.unwrap()["delivery"], "submitted");
+    // Seen five minutes after it took the new word, fourteen after the old.
+    w.advance(5);
     spent(&w, &wk, 1);
     w.tick().await;
     let outbox = w.app.outbox_of(Some(id(&wk))).await.unwrap();
@@ -163,4 +166,15 @@ async fn a_word_submitted_just_before_the_quota_showed_is_typed_again_at_the_res
     let [again, reset] = &typed[typed.len() - 2..] else { unreachable!() };
     assert!(again.ends_with("new word") && reset.contains("limit reset"), "{typed:?}");
     assert_eq!(typed.iter().filter(|t| t.ends_with("old word")).count(), 1, "{typed:?}");
+}
+
+/// A harness that stops on its own words, not a limit (Codex's model at
+/// capacity), sends its worker to the watch, its words said.
+#[tokio::test]
+async fn a_worker_whose_harness_stopped_waits_for_the_watch() {
+    let w = World::new();
+    let wk = w.working("codex=codex", "t").await;
+    w.set_screen(wk["terminal"].as_str().unwrap(), &["Selected model is at capacity. Please try a different model."]);
+    let t = w.tick().await;
+    assert!(t.seen[0]["waits"].as_str().unwrap().starts_with("its harness stopped: Selected model"), "{t:?}");
 }

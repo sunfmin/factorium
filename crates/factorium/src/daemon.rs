@@ -168,8 +168,6 @@ impl App {
     /// whose account, if it names one, can start now.
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
-        // Whether a checkout's issue naming no account can start now.
-        let mut can_start = std::collections::BTreeMap::new();
         let mut held = None;
         for r in self.rows(tracker::untaken()).await? {
             let (checkout, number) = (r.checkout, r.number);
@@ -190,15 +188,7 @@ impl App {
             // One that cannot start now (its account used up, or what its
             // checkout is pinned to at its limit) waits behind those that
             // can; with none, its start answers why it is held.
-            let account = issue.on.account.as_deref();
-            let can = match (account, can_start.get(&checkout)) {
-                (None, Some(can)) => *can,
-                _ => self.pick(&checkout, account).await.is_ok(),
-            };
-            if account.is_none() {
-                can_start.insert(checkout.clone(), can);
-            }
-            if !can {
+            if self.pick(&checkout, issue.on.account.as_deref()).await.is_err() {
                 held.get_or_insert((checkout, number));
                 continue;
             }
