@@ -136,3 +136,15 @@ fn the_v0_1_81_cut_fails_naming_the_link_relinking_leaves_stale() {
     let named = format!("`{}` points to `../Cellar/factorium/0.1.80_1/bin/factorium`", link.display());
     assert!(why.contains(&named) && why.contains("brew link --overwrite sunfmin/tap/factorium"), "{why}");
 }
+
+#[test]
+fn a_path_entry_missing_or_not_a_link_is_named_as_such() {
+    let brew = Stale::new("missing", false);
+    let link = brew.root.join("bin/factorium");
+    std::fs::remove_file(&link).unwrap();
+    let why = Brew(&brew).upgrade("sunfmin/tap/factorium", "v0.1.81").unwrap_err();
+    assert!(why.contains(&format!("`{}` is missing", link.display())), "{why}");
+    std::fs::write(&link, "#!/bin/sh\n").unwrap();
+    let why = Brew(&brew).upgrade("sunfmin/tap/factorium", "v0.1.81").unwrap_err();
+    assert!(why.contains(&format!("`{}` is not a link", link.display())), "{why}");
+}
