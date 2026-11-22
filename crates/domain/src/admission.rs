@@ -45,20 +45,23 @@ pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
 /// that long is the load the reading cannot show, and another worker's
 /// would only wait behind it (factorium#194).
 pub fn admit(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Result<(), String> {
-    room(r, s)?;
+    holds(r, queue, now, s).into_iter().next().map_or(Ok(()), Err)
+}
+
+/// Every reason [`admit`] holds a start at `now`, in the order it asks.
+pub fn holds(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Vec<String> {
+    let mut why = neutral::short(&r.host(), &limits(s));
     if r.workers_cpu > s.get(Setting::WorkersCpuShare) {
-        return Err(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get(Setting::WorkersCpuShare)));
+        why.push(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get(Setting::WorkersCpuShare)));
     }
     let bound = s.ms(Time::QueueWaitBound);
-    match queue.oldest() {
-        Some(e) if now - e.queued_at > bound => {
-            // A command line can run long (a ratchet's `--considered`): its head names it.
-            let what: String = e.what.chars().take(60).collect();
-            let waited = (now - e.queued_at) / 1000;
-            Err(format!("queue: `{what}` has waited {waited}s for its turn, over {}s", bound / 1000))
-        }
-        _ => Ok(()),
+    if let Some(e) = queue.oldest().filter(|e| now - e.queued_at > bound) {
+        // A command line can run long (a ratchet's `--considered`): its head names it.
+        let what: String = e.what.chars().take(60).collect();
+        let waited = (now - e.queued_at) / 1000;
+        why.push(format!("queue: `{what}` has waited {waited}s for its turn, over {}s", bound / 1000));
     }
+    why
 }
 
 /// Whether the disk is under its floor: the time to reclaim `target/`.

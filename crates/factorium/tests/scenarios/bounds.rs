@@ -33,7 +33,10 @@ async fn each_admission_bound_has_room_at_its_value_and_none_past_it() {
         async { assert_eq!(held(Reading { disk_free: 20 * GIB, ..ROOM }, vec![]).await, None) },
         async {
             let disk = held(Reading { disk_free: 20 * GIB - 1, ..ROOM }, vec![]).await.unwrap();
-            assert_eq!(disk, "disk: 19 GiB free, under the floor of 20 GiB");
+            assert_eq!(
+                disk, "disk: 19.9 GiB free, under the floor of 20 GiB",
+                "tenths cut, never rounded up to the floor"
+            );
         },
         async { assert_eq!(held(Reading { cpu_busy: 75, ..ROOM }, vec![]).await, None) },
         async { assert_eq!(held(Reading { cpu_busy: 76, ..ROOM }, vec![]).await.unwrap(), "cpu: 76% busy, over 75%") },
