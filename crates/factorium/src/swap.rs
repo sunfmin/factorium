@@ -74,21 +74,22 @@ impl crate::App {
             (me, link, m.refused.clone())
         };
         let to = link.canonicalize().ok()?;
-        let proven = match (to == me || Some(&to) == refused.as_ref(), wait) {
+        let (same, fresh, dir) =
+            (to == me || Some(&to) == refused.as_ref(), self.proofs.of(&to).is_none(), self.data().proofs());
+        let proven = match (same, wait) {
             (true, _) => Some(Ok(())),
-            (false, true) => Some(self.proofs.prove(&self.db, &to, &self.data().proofs())),
-            (false, false) => self.proofs.started(&self.db, &to, &self.data().proofs()),
+            (false, true) => Some(self.proofs.prove(&self.db, &to, &dir)),
+            (false, false) => self.proofs.started(&self.db, &to, &dir),
         };
-        // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
-        let refusal = proven.clone().map(|p| p.err().map(|why| Refused { version: version_of(&to), why }));
-        let mut m = self.memory.lock().unwrap();
-        if refusal.is_some() && refusal != m.refusal {
-            if let Some(Some(r)) = &refusal {
-                eprintln!("not swapping to {}: {}", to.display(), r.why);
-            }
-            m.refusal = refusal;
+        if let Some(Err(why)) = proven.as_ref().filter(|_| fresh && !same) {
+            eprintln!("not swapping to {}: {why}", to.display());
         }
-        proven?.ok().filter(|()| to != me && Some(&to) != refused.as_ref()).map(|()| link)
+        // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
+        if let Some(p) = &proven {
+            self.memory.lock().unwrap().refusal =
+                Some(p.clone().err().map(|why| Refused { version: version_of(&to), why }));
+        }
+        proven?.ok().filter(|()| !same).map(|()| link)
     }
 
     /// Records the linked binary the daemon does not swap to, as its proof
