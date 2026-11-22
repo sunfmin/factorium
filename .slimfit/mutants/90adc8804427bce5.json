@@ -1,0 +1,15 @@
+{
+  "tree": "568ddae420c7c4224c4ed78fe0e95798d03a65a6+d1fba762150c532c",
+  "picker": "codex:01a20234-e296-7191-8210-be0bebd88699:default",
+  "author": "claude-code:e9cabac2-9ca1-5f4e-8f95-61560ccdf486:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/doctor.rs:84:60: replace > with >= in App::doctor_view",
+        "why": "The deadline test checks doctor after the tick takes the issue, so it may miss doctor still listing an untaken issue at its exact deadline.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
