@@ -373,3 +373,74 @@ async fn unqueue_ends_running_idle_work_and_its_whole_process_tree() {
     w.app.run(&std::sync::atomic::AtomicBool::new(true), None).await.unwrap();
     assert_eq!(w.queued().await, Vec::<String>::new());
 }
+
+/// `factorium idle` runs the idle work now on a host whose worker works:
+/// steps, then tasks line, through the queue at background priority. A tick
+/// that finds the host busy does not end it, and its record is the last run.
+#[tokio::test]
+async fn idle_by_hand_runs_now_on_a_busy_host_and_a_busy_tick_leaves_it_be() {
+    let w = World::new();
+    let dir = w.dir.join("forced");
+    declares(&w, &[nice_is("-gt", own_nice()), format!("echo soaked; {}", w.holds(&dir))], 3600, 60).await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    let t = w.tick().await;
+    assert!(t.started.is_some() && t.idle.is_empty(), "a worker works: {t:?}");
+    let cli = w.run();
+    let forced = cli.idle_now("web");
+    let ticks = async {
+        until_file(&dir.join("started")).await;
+        let t = w.tick().await;
+        assert_eq!(t.idle, Vec::<Value>::new(), "{t:?}");
+        assert!(w.queued().await.contains(&"idle work of web".to_string()), "a busy tick does not end it");
+        std::fs::write(dir.join("release"), "").unwrap();
+    };
+    let (run, ()) = tokio::time::timeout(STUCK, async { tokio::join!(forced, ticks) }).await.expect("it ends");
+    let run = run.unwrap();
+    assert_eq!((run["green"].clone(), run["tail"].clone()), (json!(true), json!("soaked")), "{run}");
+    assert_eq!(run["tip"], w.remote_tip("web", "main"), "on the base's tip");
+    assert!(run["took_ms"].is_u64(), "{run}");
+    let last = w.app.doctor().await.unwrap()["idle"][0]["last"].clone();
+    for field in ["tip", "at", "green", "took_ms", "tail"] {
+        assert_eq!(last[field], run[field], "{field}: {last}");
+    }
+}
+
+/// A run by hand files its tasks by the one rule: a kind with an open issue
+/// gets none. Its start begins `every` again for the daemon's runs.
+#[tokio::test]
+async fn idle_by_hand_files_tasks_by_the_one_rule_and_starts_every_again() {
+    let w = World::new();
+    let answer = finds_tasks(&w).await;
+    std::fs::write(&answer, next(&[("deepen", "a.rs"), ("deepen", "b.rs")])).unwrap();
+    let run = w.run().idle_now("web").await.unwrap();
+    assert_eq!((run["green"].clone(), run["filed"].clone()), (json!(true), json!([1])), "{run}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["task"], json!({ "kind": "deepen", "files": ["a.rs"] }));
+    let again = w.run().idle_now("web").await.unwrap();
+    assert_eq!(again["filed"], json!([]), "deepen has an open issue: {again}");
+    assert_eq!(w.tick().await.idle, Vec::<Value>::new(), "`every` counts from the run by hand");
+    w.advance(2);
+    assert!(started(&w.tick().await.idle), "once `every` has passed");
+    assert_eq!(ended(&w).await["filed"], json!([]));
+}
+
+#[tokio::test]
+async fn idle_by_hand_is_refused_without_idle_work_and_while_idle_work_runs() {
+    let w = World::new();
+    w.checkout("web").await;
+    let no = w.app.idle_now("web").await.unwrap_err();
+    assert_eq!(no.code, "no_idle", "{}", no.message);
+    assert!(no.message.contains("[idle]"), "{}", no.message);
+    drop(w);
+
+    let w = World::new();
+    let dir = w.dir.join("long");
+    declares(&w, &[w.holds(&dir)], 3600, 60).await;
+    assert!(started(&w.tick().await.idle));
+    until_file(&dir.join("started")).await;
+    let id = entry(&w, "idle work of web").await;
+    let runs = w.run().idle_now("web").await.unwrap_err();
+    assert_eq!(runs.code, "idle_runs", "{}", runs.message);
+    assert!(runs.message.contains(&format!("`factorium unqueue {id}`")), "{}", runs.message);
+    std::fs::write(dir.join("release"), "").unwrap();
+    assert_eq!(ended(&w).await["green"], true, "the running one is left be");
+}
