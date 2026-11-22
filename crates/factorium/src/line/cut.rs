@@ -14,9 +14,6 @@ use super::{Did, Moving, QUEUED, Then};
 use crate::heavy::{For, Job, Turn};
 use crate::{Answer, App, LineClone, fail};
 
-/// Why a cut the daemon finished is not recorded yet.
-const PROVING: &str = "its installed binary is being proven beside the ticks";
-
 /// A cut of `version` of `checkout` from `base`.
 #[derive(Clone)]
 struct Cut {
@@ -33,17 +30,6 @@ pub(crate) struct Proving {
     tagged: String,
     formula: String,
     proven: tokio::sync::watch::Receiver<Option<Result<(), String>>>,
-}
-
-impl Proving {
-    /// How its proof ended, once it did.
-    fn ended(&self) -> Option<Result<(), String>> {
-        match &*self.proven.borrow() {
-            Some(proven) => Some(proven.clone()),
-            None if self.proven.has_changed().is_err() => Some(Err("its proof ended without an answer".into())),
-            None => None,
-        }
-    }
 }
 
 impl App {
@@ -110,7 +96,7 @@ impl App {
                 let (tx, proven) = tokio::sync::watch::channel(None);
                 tokio::spawn(async move { tx.send_replace(Some(proof.await)) });
                 self.memory.lock().unwrap().proving.push(Proving { cut, tagged, formula, proven });
-                return Ok(Err(PROVING.into()));
+                return Ok(Err("its installed binary is being proven beside the ticks".into()));
             }
             Ok((tagged, Some((formula, Some(proof))))) => (tagged, proof.await.map(|()| Some(formula))),
             Ok((tagged, installed)) => (tagged, Ok(installed.map(|(f, _)| f))),
@@ -137,26 +123,22 @@ impl App {
     /// Each cut whose proof ran beside the ticks and ended, recorded as it
     /// ended: what each did. One whose record fails is kept for the next tick.
     pub(crate) async fn cuts_proven(&self) -> Answer<Vec<Value>> {
-        let ended: Vec<Proving> = {
-            let mut m = self.memory.lock().unwrap();
-            let (ended, on) = std::mem::take(&mut m.proving).into_iter().partition(|p| p.ended().is_some());
-            m.proving = on;
-            ended
-        };
-        let (mut did, mut ended) = (Vec::new(), ended.into_iter());
-        while let Some(p) = ended.next() {
-            let proven = p.ended().expect("ended").map(|()| Some(p.formula.clone()));
+        let mut did = Vec::new();
+        loop {
+            let p = {
+                let mut m = self.memory.lock().unwrap();
+                let Some(i) = m.proving.iter().position(|p| p.proven.borrow().is_some()) else { return Ok(did) };
+                m.proving.remove(i)
+            };
+            let proven = p.proven.borrow().clone().expect("ended").map(|()| Some(p.formula.clone()));
             match self.cut_recorded(p.cut.clone(), &p.tagged, proven).await {
                 Ok(d) => did.extend(d.ok()),
                 Err(e) => {
-                    let mut m = self.memory.lock().unwrap();
-                    m.proving.push(p);
-                    m.proving.extend(ended);
+                    self.memory.lock().unwrap().proving.push(p);
                     return Err(e);
                 }
             }
         }
-        Ok(did)
     }
 
     /// Whether a cut of `checkout` is being proven beside the ticks.
@@ -168,7 +150,6 @@ impl App {
     pub(crate) async fn cuts_proofs_ended(&self) {
         let proving: Vec<_> = self.memory.lock().unwrap().proving.iter().map(|p| p.proven.clone()).collect();
         for mut p in proving {
-            // Its sender gone unanswered, it ended too ([`Proving::ended`]).
             let _ = p.wait_for(Option::is_some).await;
         }
     }
