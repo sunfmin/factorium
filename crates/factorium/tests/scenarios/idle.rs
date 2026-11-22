@@ -431,7 +431,7 @@ async fn while_a_run_by_hand_runs_the_daemon_starts_no_idle_work_overdue_as_it_i
     let (web, answer, dir) = (w.checkout("web").await, w.dir.join("next.json"), w.dir.join("held"));
     std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();
     let tasks = format!("echo slimfit 0.1.16 && cat '{}'", answer.display());
-    let toml = format!("[idle]\nsteps = [{:?}]\ntasks = {tasks:?}\nevery = 60\nlimit = 60\n", w.holds(&dir));
+    let toml = format!("[idle]\nsteps = [{:?}]\ntasks = {tasks:?}\nevery = 60\nlimit = 600\n", w.holds(&dir));
     w.push_by_hand("web", "main", "factorium.toml", &toml);
     w.git(&web, &["fetch", "-q", "origin"]).unwrap();
     w.app.settings_set(Some("tasks_bound"), Some(600)).await.unwrap();
@@ -439,6 +439,9 @@ async fn while_a_run_by_hand_runs_the_daemon_starts_no_idle_work_overdue_as_it_i
     let forced = cli.idle_now("web");
     let ticks = async {
         until_file(&dir.join("started")).await;
+        // Room on the host, on a reading past `heavy_settle`: the queue would start another.
+        w.host.reading.lock().unwrap().cpu_busy = 10;
+        w.advance(1);
         let t = w.tick().await;
         assert_eq!(t.idle, Vec::<Value>::new(), "never run, its tasks are overdue: {t:?}");
         assert_eq!(w.queued().await, ["idle work of web"], "the run by hand alone");
