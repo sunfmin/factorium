@@ -1,0 +1,21 @@
+{
+  "tree": "eea0d7daad36884f47f1f87f19bba04c99f94526+d1fba762150c532c",
+  "picker": "codex:01a20164-b6fc-74c3-8929-11d8a9082e8b:default",
+  "author": "claude-code:2ec98d6f-ba2b-5003-b682-2dcb37e8e67b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/heavy.rs:160:9: replace Queue::started -> Option<i64> with None",
+        "why": "The new scenarios refresh the stall clock with completed landings, leaving open whether a recently started slow gate or cut also defers the finding.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/line.rs:30:9: replace <impl Aggregate for Lines>::code -> &'static str with \"xyzzy\"",
+        "why": "Fresh worlds can pass with an arbitrary version string, leaving the expected version for rebuilding older line snapshots unchecked.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
