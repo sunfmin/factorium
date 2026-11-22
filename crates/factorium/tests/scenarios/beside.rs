@@ -83,7 +83,7 @@ async fn a_worker_starts_while_a_promotions_slow_gate_runs_beside_the_ticks_and_
 }
 
 #[tokio::test]
-async fn while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_starts() {
+async fn while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_starts_and_another_checkouts_do() {
     let w = World::new();
     let dir = w.dir.join("long");
     declares(&w, &dir, "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"{long}\"]\n").await;
@@ -94,14 +94,25 @@ async fn while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_start
     assert!(w.tick_alone().await.started.is_some());
     let two = w.worker_on("web", 2).await;
     w.done(&two, "b", "x").await;
+    // Another checkout's worker starts, and is done while the cut runs.
+    w.checkout("api").await;
+    w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
+    assert!(w.tick_alone().await.started.is_some());
+    w.done(&w.worker_on("api", 1).await, "a", "x").await;
     let proving = w.remote_tip("web", "proving");
+    let mut landed = Vec::new();
     for _ in 0..3 {
-        w.advance(31);
+        w.advance(1);
         let t = w.tick_alone().await;
-        assert!(t.landed.is_empty() && t.lines.is_empty(), "no move of web starts: {t:?}");
+        let of_web = t.lines.iter().chain(&t.landed).filter(|l| l.to_string().contains("web")).collect::<Vec<_>>();
+        assert!(of_web.is_empty(), "no move of web starts: {t:?}");
+        landed.extend(t.landed);
     }
+    assert_eq!(landed.len(), 1, "{landed:?}");
+    assert_eq!(landed[0]["landed"], "api#1", "api's line moves beside web's cut");
     assert_eq!(w.remote_tip("web", "proving"), proving, "#2 waits for the cut");
-    assert_eq!(w.queued().await, ["cut of web"], "nothing else of web asks the queue");
+    let web: Vec<String> = w.queued().await.into_iter().filter(|q| q.ends_with(" web")).collect();
+    assert_eq!(web, ["cut of web"], "nothing else of web asks the queue");
     // Once the cut ends: it is recorded, and then #2 lands, in its order.
     std::fs::write(dir.join("release"), "").unwrap();
     tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
