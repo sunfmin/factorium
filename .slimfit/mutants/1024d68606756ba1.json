@@ -1,0 +1,15 @@
+{
+  "tree": "e424374f5e8f4f22b9aac7ccdb2669754aaee536+06213fa8a45b17f6",
+  "picker": "codex:01a20391-1774-7c03-895c-dd233fefff6d:default",
+  "author": "claude-code:134a93d4-5c40-5d05-8354-51a869c9367f:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/cli.rs:485:39: replace || with && in Top::answer",
+        "why": "The new CLI assertions cover checkout edit, so the issue-edit dispatch may survive requiring both role flags even though each must work on its own.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

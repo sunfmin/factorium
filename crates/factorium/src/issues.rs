@@ -1,13 +1,14 @@
 //! The tracker: every `issue` command, and the issue reads and notes the
 //! daemon, the line, the watch and a worker's life share.
 
+use factorium_domain::checkout::Checkouts;
 use factorium_domain::decided;
 use factorium_domain::issue::*;
-use factorium_domain::issue_id;
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::tracker::{self, shown};
 use factorium_domain::when;
+use factorium_domain::{checkout_id, issue_id};
 use factum::{Aggregate, Command};
 use serde_json::json;
 
@@ -101,6 +102,8 @@ impl App {
     pub async fn issue_show(&self, checkout: &str, number: u64) -> Answer {
         let i =
             self.issue(checkout, number).await?.numbered(&self.state::<decided::Numbers>(decided::numbers_id()).await?);
+        let c = self.state::<Checkouts>(checkout_id(checkout)).await?;
+        let role = c.role_for(i.on.role.as_deref());
         Ok(json!({
             "checkout": i.checkout,
             "number": i.number,
@@ -114,7 +117,8 @@ impl App {
             "worker": i.worker,
             "claim": i.claim,
             "task": i.task,
-            "role": i.on.role,
+            "role": role.map(|(r, _)| r),
+            "role_from": role.map(|(_, from)| from),
             "account": i.on.account,
             "spent": self.issue_spent(&i).await?,
             "decided": i.decided.iter().map(|m| decided::name(m.id)).collect::<Vec<_>>(),
@@ -455,16 +459,22 @@ impl App {
 }
 
 impl App {
-    /// Refuses `on` unless its role is a directory named by its absolute
-    /// path and its account one mytokens holds that this host can use.
-    fn on_here(&self, on: &On) -> Answer<()> {
-        if let Some(role) = &on.role {
+    /// Refuses `role` unless it is a directory named by its absolute path.
+    pub(crate) fn role_here(&self, role: Option<&str>) -> Answer<()> {
+        if let Some(role) = role {
             let path = std::path::Path::new(role);
             if !path.is_absolute() || !path.is_dir() {
                 let why = format!("the role `{role}` is not a directory named by its absolute path");
                 return Err(Refusal::new("no_role", why));
             }
         }
+        Ok(())
+    }
+
+    /// Refuses `on` unless its role is a directory named by its absolute
+    /// path and its account one mytokens holds that this host can use.
+    fn on_here(&self, on: &On) -> Answer<()> {
+        self.role_here(on.role.as_deref())?;
         if let Some(account) = &on.account {
             let here = self.accounts_here();
             if !here.usable.iter().any(|u| &u.name == account) {

@@ -237,7 +237,7 @@ impl App {
             name: &name,
             title: &title,
             brief: &brief,
-            role: issue.on.role.as_deref(),
+            role: c.role_for(issue.on.role.as_deref()).map(|(r, _)| r),
         };
         let opened = self.open_session(role, pick)?;
         let started = Started {

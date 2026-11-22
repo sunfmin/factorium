@@ -158,6 +158,20 @@ pub enum CheckoutCmd {
         base: String,
         #[arg(long, default_value = "proving")]
         proving: String,
+        /// Its default role: a directory, by its absolute path, that a
+        /// worker of an issue naming no role starts with (an issue's own
+        /// role wins).
+        #[arg(long, value_name = "DIR")]
+        role: Option<String>,
+    },
+    /// Names a checkout's default role (`--role`), or takes it away
+    /// (`--no-role`), for the workers that start from now.
+    Edit {
+        name: String,
+        #[arg(long, value_name = "DIR", conflicts_with = "no_role", required_unless_present = "no_role")]
+        role: Option<String>,
+        #[arg(long)]
+        no_role: bool,
     },
     /// Takes a repo off the list.
     Remove { name: String },
@@ -440,7 +454,10 @@ impl Top {
                 ServiceCmd::Show => app.service_show(),
             },
             Top::Checkout(c) => match c {
-                CheckoutCmd::Add { name, path, base, proving } => app.checkout_add(&name, &path, &base, &proving).await,
+                CheckoutCmd::Add { name, path, base, proving, role } => {
+                    app.checkout_add(&name, &path, &base, &proving, role.as_deref()).await
+                }
+                CheckoutCmd::Edit { name, role, no_role: _ } => app.checkout_name_role(&name, role.as_deref()).await,
                 CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
                 CheckoutCmd::List => app.checkout_list().await,
             },

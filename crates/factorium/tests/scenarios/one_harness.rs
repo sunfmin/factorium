@@ -15,7 +15,7 @@ async fn a_codex_worker_is_told_the_repos_rules_and_runs_on_the_host_s_model_set
         let repo = w.repo("web");
         w.commit(&repo, "CLAUDE.md", "Always run the linter.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
-        w.app.checkout_add("web", &repo, "main", "proving").await.unwrap();
+        w.app.checkout_add("web", &repo, "main", "proving", None).await.unwrap();
         let user = w.host.home().join(".codex");
         std::fs::create_dir_all(&user).unwrap();
         let config = "model = \"gpt-host\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"mine\"\n\

@@ -14,9 +14,18 @@ pub struct Checkout {
     pub proving: String,
     /// On the list now: added, and not removed since.
     pub listed: bool,
+    /// The role directory a worker of an issue that names none starts with
+    /// (SPEC.md §1.2); an issue's own role wins.
+    pub role: Option<String>,
 }
 
 impl Checkout {
+    /// The role a worker of an issue whose own role is `own` starts with,
+    /// and whose it is, `"issue"` or `"checkout"`: the issue's wins.
+    pub fn role_for<'a>(&'a self, own: Option<&'a str>) -> Option<(&'a str, &'static str)> {
+        own.map(|r| (r, "issue")).or_else(|| self.role.as_deref().map(|r| (r, "checkout")))
+    }
+
     /// Origin's base branch as last fetched.
     pub fn fetched_base(&self) -> String {
         format!("refs/remotes/origin/{}", self.base)
@@ -31,8 +40,13 @@ impl Checkout {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum CheckoutEvent {
-    CheckoutAdded { name: String, path: String, base: String, proving: String },
+    CheckoutAdded(Add),
     CheckoutRemoved,
+    /// Its default role from now: a directory, or, `None`, none.
+    RoleNamed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+    },
 }
 
 pub struct Checkouts;
@@ -44,10 +58,11 @@ impl Aggregate for Checkouts {
 
     fn evolve(state: &mut Checkout, event: CheckoutEvent) {
         match event {
-            CheckoutEvent::CheckoutAdded { name, path, base, proving } => {
-                *state = Checkout { name, path, base, proving, listed: true };
+            CheckoutEvent::CheckoutAdded(Add { name, path, base, proving, role }) => {
+                *state = Checkout { name, path, base, proving, listed: true, role };
             }
             CheckoutEvent::CheckoutRemoved => state.listed = false,
+            CheckoutEvent::RoleNamed { role } => state.role = role,
         }
     }
 }
@@ -58,6 +73,9 @@ pub struct Add {
     pub path: String,
     pub base: String,
     pub proving: String,
+    /// Its default role, a directory by its absolute path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 command!(AddCheckout, "checkout.add", Checkouts, Add, |p| checkout_id(&p.name), |s, p, now| {
@@ -70,8 +88,7 @@ command!(AddCheckout, "checkout.add", Checkouts, Add, |p| checkout_id(&p.name), 
     if p.base == p.proving {
         return no("proving_is_base", "the proving branch must be another branch than the base");
     }
-    let Add { name, path, base, proving } = p.clone();
-    Ok(vec![CheckoutEvent::CheckoutAdded { name, path, base, proving }])
+    Ok(vec![CheckoutEvent::CheckoutAdded(p.clone())])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -84,6 +101,20 @@ command!(RemoveCheckout, "checkout.remove", Checkouts, Named, |p| checkout_id(&p
         return no("not_listed", format!("{} is not on the list", p.name));
     }
     Ok(vec![CheckoutEvent::CheckoutRemoved])
+});
+
+/// Checkout `name` names `role` as its default role from now, or, `None`, none.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NameRole {
+    pub name: String,
+    pub role: Option<String>,
+}
+
+command!(NameCheckoutRole, "checkout.name_role", Checkouts, NameRole, |p| checkout_id(&p.name), |s, p, now| {
+    if !s.listed {
+        return no("not_listed", format!("{} is not on the list", p.name));
+    }
+    Ok(if s.role == p.role { Vec::new() } else { vec![CheckoutEvent::RoleNamed { role: p.role.clone() }] })
 });
 
 fn valid_name(s: &str) -> bool {

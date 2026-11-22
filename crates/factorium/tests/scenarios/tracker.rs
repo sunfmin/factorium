@@ -18,11 +18,11 @@ fn numbers(list: &Value) -> Vec<(String, u64)> {
 async fn a_checkout_is_listed_with_its_branches_and_real_path_and_gets_its_proving_branch() {
     let w = World::new();
     let web = w.repo("web");
-    w.app.checkout_add("web", &web.join("..").join("web"), "main", "proving").await.unwrap();
+    w.app.checkout_add("web", &web.join("..").join("web"), "main", "proving", None).await.unwrap();
     let list = w.app.checkout_list().await.unwrap();
     assert_eq!(
         list,
-        json!([{ "name": "web", "path": std::fs::canonicalize(&web).unwrap(), "base": "main", "proving": "proving" }])
+        json!([{ "name": "web", "path": std::fs::canonicalize(&web).unwrap(), "base": "main", "proving": "proving", "role": null }])
     );
     assert_eq!(w.remote_tip("web", "proving"), w.remote_tip("web", "main"));
 }
@@ -31,12 +31,12 @@ async fn a_checkout_is_listed_with_its_branches_and_real_path_and_gets_its_provi
 async fn a_checkout_is_refused_twice_without_a_path_an_origin_or_a_good_name_or_with_one_branch() {
     let w = World::new();
     w.checkout("web").await;
-    refused(w.app.checkout_add("web", &w.repo("other"), "main", "proving").await, "listed");
-    refused(w.app.checkout_add("gone", &w.dir.join("nowhere"), "main", "proving").await, "no_path");
+    refused(w.app.checkout_add("web", &w.repo("other"), "main", "proving", None).await, "listed");
+    refused(w.app.checkout_add("gone", &w.dir.join("nowhere"), "main", "proving", None).await, "no_path");
     std::fs::create_dir_all(w.dir.join("plain")).unwrap();
-    refused(w.app.checkout_add("plain", &w.dir.join("plain"), "main", "proving").await, "no_base");
-    refused(w.app.checkout_add("a b", &w.repo("ab"), "main", "proving").await, "invalid_name");
-    refused(w.app.checkout_add("one", &w.repo("one"), "main", "main").await, "proving_is_base");
+    refused(w.app.checkout_add("plain", &w.dir.join("plain"), "main", "proving", None).await, "no_base");
+    refused(w.app.checkout_add("a b", &w.repo("ab"), "main", "proving", None).await, "invalid_name");
+    refused(w.app.checkout_add("one", &w.repo("one"), "main", "main", None).await, "proving_is_base");
     assert_eq!(w.app.checkout_list().await.unwrap().as_array().unwrap().len(), 1);
 }
 
@@ -49,7 +49,7 @@ async fn a_removed_checkout_leaves_the_list_takes_no_issues_and_can_come_back() 
     refused(w.app.checkout_remove("web").await, "not_listed");
     refused(w.app.issue_add("web", "t", "", false, &[]).await, "no_checkout");
     let again = w.repo("web2");
-    w.app.checkout_add("web", &again, "main", "proving").await.unwrap();
+    w.app.checkout_add("web", &again, "main", "proving", None).await.unwrap();
     assert_eq!(w.app.checkout_list().await.unwrap()[0]["path"], json!(std::fs::canonicalize(again).unwrap()));
 }
 

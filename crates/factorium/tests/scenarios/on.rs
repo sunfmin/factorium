@@ -211,3 +211,67 @@ async fn no_role_takes_the_role_away_and_a_missing_or_relative_dir_is_refused_as
     let line = w.terminal(w.worker_on("web", 1).await["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("role/issues"), "it starts in the worker's own directory: {line}");
 }
+
+/// A checkout named `name` on the list, whose default role is `role`.
+async fn checkout_as(w: &World, name: &str, role: &str) {
+    let path = w.repo(name);
+    w.app.checkout_add(name, &path, "main", "proving", Some(role)).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_checkout_s_default_role_is_the_role_of_a_worker_whose_issue_names_none() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    assert_eq!(w.app.checkout_list().await.unwrap()[0]["role"], json!(ios), "checkout list answers it");
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((shown["role"].clone(), shown["role_from"].clone()), (json!(ios), json!("checkout")), "{shown}");
+
+    w.tick().await;
+    let start = w.data().root().join("role/issues/web-1-1");
+    assert!(std::fs::read_to_string(start.join(RULES)).unwrap().ends_with("You are the ios-app-coder.\n"));
+    assert_eq!(std::fs::read_to_string(start.join(SKILLS).join("xcode/SKILL.md")).unwrap(), "xcode\n");
+}
+
+#[tokio::test]
+async fn an_issue_s_own_role_wins_over_its_checkout_s_default() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    let docs = role_at(&w, "docs", "You are the writer.\n", "prose");
+    checkout_as(&w, "web", &ios).await;
+    w.app
+        .issue_add_on("web", "Write it up", "", false, &[], On { role: Some(docs.clone()), account: None })
+        .await
+        .unwrap();
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((shown["role"].clone(), shown["role_from"].clone()), (json!(docs), json!("issue")), "{shown}");
+
+    w.tick().await;
+    let start = w.data().root().join("role/issues/web-1-1");
+    assert!(std::fs::read_to_string(start.join(RULES)).unwrap().ends_with("You are the writer.\n"));
+    assert!(start.join(SKILLS).join("prose/SKILL.md").is_file());
+    assert!(!start.join(SKILLS).join("xcode").exists(), "the default's skills are not linked");
+}
+
+#[tokio::test]
+async fn checkout_edit_names_or_clears_the_default_and_a_worker_then_starts_with_factorium_s_rules_alone() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    refused(w.app.checkout_name_role("web", Some("roles/ios")).await, "no_role");
+    refused(w.app.checkout_name_role("nowhere", Some(&ios)).await, "not_listed");
+    assert_eq!(w.app.checkout_name_role("web", Some(&ios)).await.unwrap()["role"], json!(ios));
+    assert_eq!(w.app.checkout_name_role("web", None).await.unwrap()["role"], json!(null));
+    assert_eq!(w.app.checkout_list().await.unwrap()[0]["role"], json!(null));
+
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((shown["role"].clone(), shown["role_from"].clone()), (json!(null), json!(null)), "{shown}");
+    w.tick().await;
+    let line = w.terminal(w.worker_on("web", 1).await["terminal"].as_str().unwrap()).line;
+    assert!(!line.contains("role/issues"), "it starts in the worker's own directory: {line}");
+}

@@ -103,6 +103,7 @@ fn model() -> Model {
         .aggregate::<checkout::Checkouts>()
         .command::<checkout::AddCheckout>()
         .command::<checkout::RemoveCheckout>()
+        .command::<checkout::NameCheckoutRole>()
         .aggregate::<issue::Issues>()
         .command::<issue::OpenIssue>()
         .command::<issue::EditIssue>()
