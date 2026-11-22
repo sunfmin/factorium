@@ -2,7 +2,8 @@
 //! target is a trend shown by `./gate.sh`, never a red, and a crate that
 //! keeps growing is a task its idle work files. Run on a copy of the repo's
 //! `gate.sh`, `checks.sh` and `lines.sh`, in a repo of one crate, with
-//! `cargo` and `slimfit` stubbed green so only the lines are measured.
+//! `cargo`, `slimfit`, `truefit` and the release scripts stubbed green so
+//! only the lines are measured.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -20,15 +21,16 @@ fn repo() -> (PathBuf, PathBuf) {
     for script in ["gate.sh", "checks.sh", "lines.sh"] {
         std::fs::copy(root.join(script), dir.join(script)).unwrap();
     }
-    for stub in ["cargo", "slimfit", "truefit"] {
-        std::fs::write(stubs.join(stub), "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::create_dir_all(dir.join("packaging")).unwrap();
+    for stub in ["stubs/cargo", "stubs/slimfit", "stubs/truefit", "packaging/release.sh", "packaging/release-test.sh"] {
+        std::fs::write(dir.join(stub), "#!/bin/sh\nexit 0\n").unwrap();
     }
     std::fs::write(
         dir.join("SPEC.md"),
         "| Crate | Holds | Target (source lines) |\n|---|---|---|\n| `factorium-web` | The web. | 10 |\n",
     )
     .unwrap();
-    sh(&dir, &stubs, "chmod +x stubs/* && git init -q && git add -A && git commit -qm specs");
+    sh(&dir, &stubs, "chmod +x stubs/* packaging/* && git init -q && git add -A && git commit -qm specs");
     (dir, stubs)
 }
 
