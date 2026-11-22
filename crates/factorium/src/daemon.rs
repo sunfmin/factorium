@@ -9,7 +9,7 @@
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
-use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Step, Ticked};
+use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Step, Steps, Ticked};
 use factorium_domain::doctor;
 use factorium_domain::issue::Author;
 use factorium_domain::kit::{Kits, kit_id};
@@ -55,24 +55,21 @@ pub struct Tick {
     pub longest: Step,
 }
 
-/// A tick's steps as each ends, on the app's clock: the longest so far.
-struct Steps {
-    last: i64,
-    longest: Step,
-}
-
-impl Steps {
-    fn new(now: i64) -> Self {
-        Steps { last: now, longest: Step::default() }
+impl Tick {
+    /// Whether it did something: landed, moved a line, saw, started or
+    /// resumed a worker, or moved idle work.
+    pub fn acted(&self) -> bool {
+        self.started.is_some()
+            || !self.landed.is_empty()
+            || !self.lines.is_empty()
+            || !self.seen.is_empty()
+            || !self.idle.is_empty()
+            || !self.resumed.is_empty()
     }
 
-    /// `step` ended `now`.
-    fn ended(&mut self, step: &str, now: i64) {
-        let ms = now - self.last;
-        if ms > self.longest.ms || self.longest.step.is_empty() {
-            self.longest = Step { step: step.into(), ms };
-        }
-        self.last = now;
+    /// Whether daemon.log has it, with its time: it did something, or was slow.
+    pub fn logged(&self, tick_every: i64) -> bool {
+        self.acted() || daemon::slow(self.took_ms, tick_every)
     }
 }
 
@@ -92,7 +89,7 @@ impl App {
     /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
         let start = self.now();
-        let mut steps = Steps::new(start);
+        let mut steps = Steps::at(start);
         let mut done = self.pass(&mut steps).await;
         let error = done.as_ref().err().map(Refusal::to_string);
         self.proving(error.as_deref()).await;
@@ -353,13 +350,7 @@ impl App {
                 .unwrap_or_else(|_| Settings::default().ms(Time::TickEvery));
             match ticked {
                 Ok(t) => {
-                    let did = !t.landed.is_empty()
-                        || !t.lines.is_empty()
-                        || !t.seen.is_empty()
-                        || !t.idle.is_empty()
-                        || !t.resumed.is_empty();
-                    // Each tick that did something or was slow is logged, with its time.
-                    if t.started.is_some() || did || daemon::slow(t.took_ms, every) {
+                    if t.logged(every) {
                         println!("{}", serde_json::to_string(&t).unwrap_or_default());
                     }
                     if let Some(binary) = &t.restart {

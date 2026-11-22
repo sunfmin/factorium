@@ -436,7 +436,34 @@ async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() 
     let found: Vec<&str> = crate::fixture::findings(&doctor).iter().filter_map(|f| f["key"].as_str()).collect();
     assert!(found.contains(&"daemon:slow-tick:the lines' moves"), "{found:?}");
     assert!(doctor["slow_tick"]["took_ms"].as_i64().unwrap() >= 70_000, "{}", doctor["slow_tick"]);
-    w.advance(61);
-    let doctor = w.app.doctor().await.unwrap();
-    assert!(!crate::fixture::findings(&doctor).iter().any(|f| f["key"].as_str().unwrap().starts_with("daemon:slow")));
+    let slow = |doctor: &serde_json::Value| {
+        crate::fixture::findings(doctor).iter().any(|f| f["key"].as_str().unwrap().starts_with("daemon:slow"))
+    };
+    w.clock.advance(60 * 60_000 - 1);
+    assert!(slow(&w.app.doctor().await.unwrap()), "within the hour");
+    w.clock.advance(1);
+    assert!(!slow(&w.app.doctor().await.unwrap()), "an hour on, gone");
+}
+
+/// daemon.log has each tick that did something, and each slow one, with its
+/// time; a quick tick that did nothing it leaves out.
+#[test]
+fn a_tick_is_logged_once_it_did_something_or_was_slow() {
+    use factorium::Tick;
+    let every = 10_000;
+    let one = || vec![json!({})];
+    let quick = Tick { took_ms: 60_000, ..Tick::default() };
+    assert!(!quick.acted() && !quick.logged(every), "half the hang bound is not slow");
+    assert!(Tick { took_ms: 60_001, ..Tick::default() }.logged(every), "slow, with nothing done");
+    let did = [
+        Tick { started: Some(json!({})), ..Tick::default() },
+        Tick { landed: one(), ..Tick::default() },
+        Tick { lines: one(), ..Tick::default() },
+        Tick { seen: one(), ..Tick::default() },
+        Tick { idle: one(), ..Tick::default() },
+        Tick { resumed: one(), ..Tick::default() },
+    ];
+    for t in did {
+        assert!(t.acted() && t.logged(every), "{t:?}");
+    }
 }

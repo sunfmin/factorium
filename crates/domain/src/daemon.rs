@@ -35,6 +35,30 @@ pub struct Step {
     pub ms: i64,
 }
 
+/// A tick's steps as each ends, on the app's clock: the longest so far, the
+/// first of those that took as long.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Steps {
+    last: i64,
+    pub longest: Step,
+}
+
+impl Steps {
+    /// A tick that starts `now`.
+    pub fn at(now: i64) -> Self {
+        Steps { last: now, longest: Step::default() }
+    }
+
+    /// `step` ended `now`.
+    pub fn ended(&mut self, step: &str, now: i64) {
+        let ms = now - self.last;
+        if ms > self.longest.ms || self.longest.step.is_empty() {
+            self.longest = Step { step: step.into(), ms };
+        }
+        self.last = now;
+    }
+}
+
 /// A tick that took past half the hang bound: when it ended, how long it
 /// took, ms, and the step it spent most in.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -204,6 +228,17 @@ mod tests {
         assert!(down(&Probe::default(), 10_000, 0).unwrap().contains("names no live process"));
         assert!(down(&Probe { locked: false, ..running.clone() }, 10_000, 0).unwrap().contains("its lock"));
         assert_eq!(down(&Probe { ticked: None, ..running }, 10_000, i64::MAX / 2), None, "an older binary runs");
+    }
+
+    #[test]
+    fn a_ticks_longest_step_is_the_first_that_took_longest() {
+        let mut s = Steps::at(100);
+        s.ended("a", 100);
+        assert_eq!(s.longest, Step { step: "a".into(), ms: 0 }, "a first step, however short");
+        s.ended("b", 130);
+        s.ended("c", 160);
+        s.ended("d", 170);
+        assert_eq!(s.longest, Step { step: "b".into(), ms: 30 }, "the first of two as long");
     }
 
     #[test]
