@@ -8,23 +8,6 @@ use factorium::host::Host;
 use crate::fixture::{CLAUDE, NEEDS_NEWER, World, findings, id, proved, worker, worktree};
 
 #[tokio::test]
-async fn a_busy_checkout_promotes_once_the_oldest_landing_waited_the_bound_less_the_hold_bound() {
-    let w = World::new();
-    // #2 keeps working all along: it is never silent.
-    w.two_at_work().await;
-    let main = w.remote_tip("web", "main");
-    let landed = w.lands("web", 1, "a").await.commit;
-    assert_eq!(w.remote_tip("web", "main"), main, "#2 still works: not idle");
-    w.advance(29);
-    assert!(w.tick().await.lines.is_empty(), "busy, within the bound less the hold bound");
-    w.advance(2);
-    let t = w.tick().await;
-    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
-    assert_eq!(w.remote_tip("web", "main"), landed);
-    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "a cut waits for idle or its own bound");
-}
-
-#[tokio::test]
 async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let w = World::new();
     w.working(CLAUDE, "a").await;
@@ -463,7 +446,12 @@ async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
     let t = w.tick().await;
     assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
     assert_eq!(t.landed[0]["landed"], "web#2", "#2 asked first");
-    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+    assert!(t.lines.is_empty(), "#1 waits to land: not idle, nothing promoted: {:?}", t.lines);
+    let t = w.tick().await;
+    assert_eq!(t.landed[0]["landed"], "web#1");
+    // Idle once #1 lands: one promotion takes both landings and, nothing left unpromoted, cuts.
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
 }
 
 #[tokio::test]
@@ -479,12 +467,18 @@ async fn a_worker_waiting_for_the_watch_leaves_its_checkout_idle() {
 #[tokio::test]
 async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
     let w = World::new();
+    // #2 keeps working all along: it is never silent.
     w.two_at_work().await;
-    w.lands("web", 1, "a").await;
-    w.advance(61);
+    let main = w.remote_tip("web", "main");
+    let landed = w.lands("web", 1, "a").await.commit;
+    assert_eq!(w.remote_tip("web", "main"), main, "#2 still works: not idle");
+    w.advance(29);
+    assert!(w.tick().await.lines.is_empty(), "busy, within the bound less the hold bound");
+    w.advance(2);
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
-    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "#2 still works: no cut");
+    assert_eq!(w.remote_tip("web", "main"), landed);
+    assert!(!t.lines.iter().any(|l| l["cut"] == "web"), "#2 still works: a cut waits for idle or its own bound");
     // #2 lands a change whose slow gate is red: idle, but not all promoted.
     w.lands("web", 2, "SLOWRED").await;
     w.tick().await;
@@ -493,19 +487,6 @@ async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
     w.advance(24 * 60);
     w.tick().await;
     assert!(w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "v0.1.0"]).is_ok(), "cut once the bound passed");
-}
-
-#[tokio::test]
-async fn a_promotion_takes_every_landing_up_to_its_tip() {
-    let w = World::new();
-    w.two_at_work().await;
-    w.lands("web", 1, "a").await;
-    // #2 lands: idle, so the same tick promotes both and, nothing left unpromoted, cuts.
-    let wk = w.app.workers(false).await.unwrap()[0].clone();
-    w.done(&wk, "b", "x").await;
-    let t = w.tick().await;
-    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
-    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
 }
 
 #[tokio::test]
