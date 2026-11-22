@@ -104,25 +104,17 @@ impl Harness {
 
 fn turn<K: Kind>(root: &Path, cwd: &str, brief: &str) -> Option<Turn> {
     let turns: Vec<Turn> =
-        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief, false)?.turn).collect();
+        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief)?.turn).collect();
     crate::turn::prefer(&turns)
 }
 
 /// What the session file `path` records for the session of `cwd` handed
-/// `brief`, its tokens too when `spent`: read only when it changed since a
-/// look found as much (`seen`).
-fn fact<K: Kind>(path: &Path, cwd: &str, brief: &str, spent: bool) -> Option<seen::Fact> {
-    let session = seen::session(std::any::type_name::<K>(), cwd, brief);
-    let wanted = |f: &seen::Fact| !spent || f.spent.is_some();
-    seen::fact(path, session, wanted, |before| {
+/// `brief`: read only when it changed since the last look (`seen`).
+fn fact<K: Kind>(path: &Path, cwd: &str, brief: &str) -> Option<seen::Fact> {
+    seen::fact(path, (std::any::type_name::<K>(), cwd, brief), || {
         let text = read(path)?;
-        let turn = match before {
-            Some(before) => before.turn,
-            None if K::could_record(cwd, &text, brief) => K::recorded_turn(cwd, &text, brief),
-            None => None,
-        };
-        let counted = spent.then(|| turn.and(K::SPENT).map(|read_spent| read_spent(&text)));
-        Some(seen::Fact { turn, spent: counted.or(before.and_then(|b| b.spent)) })
+        let turn = K::could_record(cwd, &text, brief).then(|| K::recorded_turn(cwd, &text, brief)).flatten();
+        Some(seen::Fact { turn, spent: turn.and(K::SPENT).map(|read_spent| read_spent(&text)) })
     })
 }
 
@@ -143,7 +135,7 @@ fn prompted<K: Kind>(root: &Path, cwd: &str, brief: &str, said: &str, since: u64
 fn spent<K: Kind>(root: &Path, cwd: &str, brief: &str) -> Option<(u64, u64)> {
     K::SPENT?;
     let counted: Vec<(u64, u64)> =
-        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief, true)?.spent?).collect();
+        K::layout(cwd).sessions(root, cwd).iter().filter_map(|f| fact::<K>(f, cwd, brief)?.spent).collect();
     if counted.is_empty() {
         return None;
     }
