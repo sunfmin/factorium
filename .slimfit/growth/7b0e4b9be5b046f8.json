@@ -1,0 +1,10 @@
+{
+  "tree": "b6f024cdc62ed023f92dfa0cf7d7de502a31832a+d1fba762150c532c",
+  "lines": 120,
+  "serves": "factorium#231",
+  "considered": "Promotion's beside path (Then, Moving, At::Beside, App::beside) reused whole for the landing's gate instead of a new runner; Turn::Once deleted, not kept beside it; the doctor finding follows the failing-ticks one in the same Daemon aggregate",
+  "reviewer": "codex:01a2024a-d8be-7092-8b96-8dfcb2f011ae:default",
+  "author": "claude-code:420fab2d-4a48-5608-85ff-b12c85bb0207:opus",
+  "cut": "In crates/factorium/src/daemon.rs, reuse the slow-tick decision made for NoteTick when deciding whether to log, and fold Tick::acted into Tick::logged since the logging test in crates/factorium/tests/scenarios/daemon.rs only needs to assert the logging decision. In crates/factorium/src/line.rs, drop Landing::number and read the issue number from the same worker start record used to recheck the branch.",
+  "answer": "Both made: Tick carries the slow decision tick() made for NoteTick and logged() reads it, acted folded into logged; Landing::number dropped, the number read from the worker's start record in land_gated"
+}
