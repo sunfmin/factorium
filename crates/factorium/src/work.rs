@@ -27,6 +27,8 @@ pub(crate) struct Live {
     pub(crate) started: Started,
     pub(crate) session: Session,
     pub(crate) waiting: bool,
+    /// The last limit its engine was seen at.
+    pub(crate) limit: Option<w::Limit>,
 }
 
 impl App {
@@ -38,7 +40,7 @@ impl App {
         match want {
             _ if wk.status == Status::Ended => Err(Refusal::new("ended", "this worker has ended")),
             Want::Working if waiting => Err(Refusal::new("waiting", "this worker waits for the watch")),
-            _ => Ok(Live { session: Self::worker_session(worker, &started)?, started, waiting }),
+            _ => Ok(Live { session: Self::worker_session(worker, &started)?, started, waiting, limit: wk.limit }),
         }
     }
 

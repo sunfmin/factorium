@@ -26,7 +26,9 @@ impl App {
                 let blockers = self.blockers(&on).await?;
                 parked = blockers.into_iter().filter(|(_, met)| met.is_none()).map(|(name, _)| name).collect();
             }
-            seen.waiting.push(doctor::WaitingSeen { worker: w.worker.to_string(), issue, why, heard, parked });
+            let limited = wk.waits_on_limit().map(|l| l.until);
+            let worker = w.worker.to_string();
+            seen.waiting.push(doctor::WaitingSeen { worker, issue, why, heard, parked, limited });
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
             let (worker, since) = (w.worker.to_string(), w.state.since);
@@ -75,6 +77,9 @@ impl App {
         let parked: Vec<Value> = (seen.waiting.iter().filter(|w| !w.parked.is_empty()))
             .map(|w| json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "waits_for": w.parked }))
             .collect();
+        let limited: Vec<Value> = (seen.waiting.iter())
+            .filter_map(|w| Some(json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "until": w.limited? })))
+            .collect();
         let mut declared = Vec::new();
         for w in self.rows(tracker::workers(Some(worker::Status::Working), false)).await? {
             let wk = self.state::<worker::Workers>(w.worker).await?;
@@ -96,6 +101,8 @@ impl App {
             "holds": holds,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
+            // Waiting workers parked until their engine's limit resets, until when (ms).
+            "limited": limited,
             "reading": reading,
             // Working workers waiting on a long command of their own, as they declared, until when (ms).
             "waiting": declared,

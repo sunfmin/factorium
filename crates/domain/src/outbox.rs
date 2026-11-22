@@ -83,6 +83,9 @@ pub enum Outcome {
     /// Typed, and it started no turn and none runs: something other than
     /// the session's prompt took it.
     Missed { why: String },
+    /// Not typed: its engine is at its limit until then (ms). Kept, and
+    /// tried again once the limit resets.
+    Held { until: i64, why: String },
 }
 
 impl Outcome {
@@ -100,13 +103,14 @@ impl Outcome {
             Outcome::Brief => "brief",
             Outcome::NotTyped { .. } => "none",
             Outcome::Missed { .. } => "missed",
+            Outcome::Held { .. } => "held",
         }
     }
 
     /// Why it did not arrive.
     pub fn why(&self) -> Option<&str> {
         match self {
-            Outcome::NotTyped { why, .. } | Outcome::Missed { why } => Some(why),
+            Outcome::NotTyped { why, .. } | Outcome::Missed { why } | Outcome::Held { why, .. } => Some(why),
             _ => None,
         }
     }
@@ -131,6 +135,7 @@ impl Message {
         match &self.outcome {
             None => true,
             Some(Outcome::NotTyped { .. }) => self.from.holds(),
+            Some(Outcome::Held { .. }) => true,
             Some(_) => false,
         }
     }

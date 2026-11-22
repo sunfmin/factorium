@@ -2,12 +2,13 @@
 //! take a round, and a worker's
 //! observation, which the domain's health rules decide on: what goes wrong
 //! goes to the watch; a used-up account is noted and the issue is started
-//! again on another.
+//! again on another; an engine at its limit parks its worker until the
+//! reset, noted on its account or harness.
 
 use std::path::Path;
 
 use factorium_domain::health::{Observation, Observe, Sight, Verdict};
-use factorium_domain::kit::{AccountNote, LimitAccount};
+use factorium_domain::kit::{AccountNote, HarnessNote, LimitAccount, LimitHarness};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
 use factum::{Uuid, Value};
@@ -24,7 +25,7 @@ impl App {
     pub(crate) async fn watch_ready(&self, watch: &Watch) -> Answer<Option<Session>> {
         let Some(s) = self.watch_session(watch) else { return Ok(None) };
         let handed = self.outbox(&s).await?.held().is_none();
-        Ok((handed && matches!(self.see(&s), Some(Sight::Closed(Some(_))))).then_some(s))
+        Ok((handed && matches!(self.see(&s, None), Some(Sight::Closed(Some(_))))).then_some(s))
     }
 
     /// Looks at one live worker, with its `share` of the host: the
@@ -37,7 +38,8 @@ impl App {
         if self.live_or_none(worker, Want::Working).await?.is_none() {
             return Ok(None);
         }
-        let Some(sight) = self.see(&live.session) else { return Ok(None) };
+        let past = live.limit.as_ref().map(|l| l.said.as_str());
+        let Some(sight) = self.see(&live.session, past) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
         let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: s.clone() };
@@ -55,6 +57,18 @@ impl App {
                 }
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
                 Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))
+            }
+            // Parked until the reset; its account, or its harness on the host's
+            // own login, starts no worker before it.
+            Verdict::Limited { said, until } => {
+                match &live.started.account {
+                    Some(account) => self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await?,
+                    None => {
+                        let harness = live.started.harness.clone();
+                        self.submit::<LimitHarness>(HarnessNote { harness, until }).await?
+                    }
+                };
+                Ok(Some(json!({ "worker": worker, "limited": until, "said": said })))
             }
         }
     }

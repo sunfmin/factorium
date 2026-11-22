@@ -86,6 +86,31 @@ pub struct Worker {
     /// stays as it was then: no silence is found in it before its bound.
     #[serde(default)]
     pub declared: Option<Declared>,
+    /// The last limit its engine was seen at: kept past its reset, so the
+    /// same words read again are not a new one.
+    #[serde(default)]
+    pub limit: Option<Limit>,
+}
+
+/// A limit its engine reached, as its screen said, until when (ms), and
+/// whether it waits on it: parked until the reset, no finding meanwhile.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Limit {
+    pub said: String,
+    pub until: i64,
+    pub waits: bool,
+}
+
+impl Worker {
+    /// The limit it waits on, parked until its reset.
+    pub fn waits_on_limit(&self) -> Option<&Limit> {
+        self.limit.as_ref().filter(|l| l.waits && self.status == Status::Waiting)
+    }
+
+    /// The limit its engine is at now, if one is.
+    pub fn limited(&self, now: i64) -> Option<&Limit> {
+        self.limit.as_ref().filter(|l| l.until > now)
+    }
 }
 
 /// The longest wait a worker can declare: a bound past it is held to it.
@@ -201,6 +226,16 @@ pub enum WorkerEvent {
     Spent(Tokens),
     /// It declared a wait on a long command of its own, until then (ms).
     WaitDeclared(Declared),
+    /// Its engine is at its limit, as its screen said, until then (ms): it
+    /// waits, parked until the reset.
+    WorkerLimited {
+        said: String,
+        until: i64,
+        at: i64,
+    },
+    /// Its engine's limit reset: no longer parked on it, whether or not its
+    /// restart reaches it.
+    WorkerUnlimited,
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -223,6 +258,11 @@ impl WorkerEvent {
             WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
             WorkerEvent::WorkerResumed { at } => (Status::Working, None, *at),
             WorkerEvent::WorkerEnded { why, at } => (Status::Ended, Some(why.clone()), *at),
+            WorkerEvent::WorkerLimited { said, until, at } => (
+                Status::Waiting,
+                Some(format!("its engine is at its limit, parked until it resets at {until} (ms): {said}")),
+                *at,
+            ),
             _ => return None,
         };
         Some(Standing { status, why, since })
@@ -253,7 +293,10 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerLanded { commit, .. } => s.landed = Some(commit),
             WorkerEvent::WorkerWaits { .. } => (s.over_since, s.quiet) = (None, None),
             WorkerEvent::WorkerResumed { .. } => {
-                (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false)
+                (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false);
+                if let Some(l) = &mut s.limit {
+                    l.waits = false;
+                }
             }
             WorkerEvent::WorkerParked => s.parked = true,
             WorkerEvent::WorkerUnparked => s.parked = false,
@@ -265,6 +308,12 @@ impl Aggregate for Workers {
             WorkerEvent::HeavyFreed { at } => (s.heavy, s.freed_at) = (false, Some(at)),
             WorkerEvent::Spent(tokens) => s.spent = Some(tokens),
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
+            WorkerEvent::WorkerLimited { said, until, .. } => s.limit = Some(Limit { said, until, waits: true }),
+            WorkerEvent::WorkerUnlimited => {
+                if let Some(l) = &mut s.limit {
+                    l.waits = false;
+                }
+            }
             _ => {}
         }
     }
@@ -508,4 +557,19 @@ command!(
         live(s)?;
         Ok(vec![WorkerEvent::Spent(p.tokens)])
     }
+);
+
+command!(
+    /// Its engine's limit reset: a worker parked on it is no longer, whether
+    /// or not its restart reaches it.
+    Unlimit,
+    "worker.unlimit",
+    Workers,
+    Of,
+    |p| p.worker,
+    |s, _p, _now| Ok::<_, Rejection>(if s.limit.as_ref().is_some_and(|l| l.waits) {
+        vec![WorkerEvent::WorkerUnlimited]
+    } else {
+        Vec::new()
+    })
 );

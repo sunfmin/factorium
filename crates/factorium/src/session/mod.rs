@@ -91,8 +91,9 @@ impl App {
     }
 
     /// What a session is doing, seen from outside; `None`: Orca did not
-    /// answer, so nothing is known.
-    fn see(&self, s: &Session) -> Option<Sight> {
+    /// answer, so nothing is known. A limit in the words `past` (one seen
+    /// before, still on its screen) is no limit now.
+    fn see(&self, s: &Session, past: Option<&str>) -> Option<Sight> {
         let screen = match self.host.orca().screen(&s.terminal) {
             Term::Running(screen) => screen,
             Term::Exited => return Some(Sight::Gone),
@@ -101,6 +102,10 @@ impl App {
         match s.harness.stopped(&screen) {
             Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
             Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
+            Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
+                return Some(Sight::Limit { said, until: self.now() + resets_in_ms });
+            }
+            Some(Stop::Limit { .. }) => {}
             None => {}
         }
         if let Some(why) = s.harness.not_up(&screen) {

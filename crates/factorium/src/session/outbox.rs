@@ -11,7 +11,7 @@ use factorium_domain::outbox::{
 };
 use factorium_domain::watch::{Watches, watch_id};
 use factorium_domain::worker as w;
-use factorium_harness::Turn;
+use factorium_harness::{Stop, Turn};
 use factorium_host::{Delivery, Term};
 use factum::Uuid;
 use serde_json::json;
@@ -65,19 +65,26 @@ impl App {
     /// still held waits on it: a comment goes into the brief, anything else
     /// is refused as the brief was. Answers how each try went.
     async fn flush(&self, s: &Session, now: Option<(u64, bool)>) -> Answer<Vec<(u64, Outcome)>> {
-        let mut blocked: Option<Outcome> = None;
+        let mut blocked: Option<(Sender, Outcome)> = None;
         let mut tried = Vec::new();
+        let limit = match s.worker {
+            Some(id) => self.state::<w::Workers>(id).await?.limit,
+            None => None,
+        };
         for m in self.outbox(s).await?.messages.into_iter().filter(Message::pending) {
             let outcome = match (&blocked, &m.from) {
-                (Some(_), Sender::Comment) => add_to_brief(&s.brief, &m.text)
+                (Some((Sender::Brief, _)), Sender::Comment) => add_to_brief(&s.brief, &m.text)
                     .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
-                (Some(held), _) => held.clone(),
-                (None, _) => self.deliver(s, &m, now == Some((m.n, true))),
+                (Some((_, held)), _) => held.clone(),
+                (None, _) => match self.held(s, limit.as_ref()) {
+                    Some(held) => held,
+                    None => self.deliver(s, &m, now == Some((m.n, true))),
+                },
             };
             self.submit::<TryMessage>(Try { terminal: s.terminal.clone(), n: m.n, outcome: outcome.clone() }).await?;
             let m = Message { outcome: Some(outcome.clone()), ..m };
             if m.pending() {
-                blocked = Some(outcome.clone());
+                blocked = Some((m.from.clone(), outcome.clone()));
             }
             if let (Some(worker), Some(why)) = (s.worker, m.lost()) {
                 match self.submit::<w::Wait>(w::Because { worker, why }).await {
@@ -89,6 +96,27 @@ impl App {
             tried.push((m.n, outcome));
         }
         Ok(tried)
+    }
+
+    /// Whether what is for session `s` is held, not typed: its engine is at
+    /// its limit, as its worker's `limit` recorded it or its screen says
+    /// now in other words; typed there, a message would start no turn. A
+    /// worker's only: its reset is what sends it back.
+    fn held(&self, s: &Session, limit: Option<&w::Limit>) -> Option<Outcome> {
+        s.worker?;
+        let until = match limit.filter(|l| l.until > self.now()) {
+            Some(l) => l.until,
+            None => {
+                let Term::Running(screen) = self.host.orca().screen(&s.terminal) else { return None };
+                match s.harness.stopped(&screen) {
+                    Some(Stop::Limit { said, resets_in_ms }) if limit.is_none_or(|l| l.said != said) => {
+                        self.now() + resets_in_ms
+                    }
+                    _ => return None,
+                }
+            }
+        };
+        Some(Outcome::Held { until, why: format!("its engine is at its limit until it resets at {until} (ms)") })
     }
 
     /// Types one message at its session. A brief is typed and no more; any

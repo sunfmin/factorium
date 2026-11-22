@@ -157,6 +157,10 @@ impl App {
         if let Outcome::Missed { why } = &delivery {
             return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "missed": why }));
         }
+        // Its engine is at its limit: it stays parked, and the reset sends it back.
+        if let Outcome::Held { until, .. } = &delivery {
+            return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "until": until }));
+        }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
     }
@@ -174,14 +178,16 @@ impl App {
 
     /// A comment on a worker's issue, passed to the worker exactly once.
     /// Waiting for the watch, it is not typed at: its watch episode reads
-    /// the comment from the issue (`Issue::heard_since`). Else it goes
+    /// the comment from the issue (`Issue::heard_since`); parked on its
+    /// engine's limit, it is held, typed once the limit resets. Else it goes
     /// through its session's outbox: into its brief while that is still to be typed, or typed behind any running
-    /// turn. Answers how (`submitted`, `queued`, `brief`, `missed`, `watch`,
+    /// turn. Answers how (`submitted`, `queued`, `brief`, `held`, `missed`, `watch`,
     /// or `none`), and why it did not reach the worker; the issue
     /// keeps the comment for the next brief either way.
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
-        if live.waiting {
+        // Parked on its engine's limit, it is held and typed at the reset.
+        if live.waiting && !live.limit.as_ref().is_some_and(|l| l.waits) {
             return Ok(("watch", None));
         }
         let d = self.tell(&live.session, Sender::Comment, text, false).await?;

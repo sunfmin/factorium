@@ -14,7 +14,7 @@ use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
-use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
+use factorium_domain::worker::{Of, Status as WorkerStatus, Unlimit, Unpark, Workers};
 use factum::Value;
 use serde::Serialize;
 use serde_json::json;
@@ -168,6 +168,8 @@ impl App {
     /// whose account, if it names one, can start now.
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
+        // Whether a checkout's issue naming no account can start now.
+        let mut can_start = std::collections::BTreeMap::new();
         let mut held = None;
         for r in self.rows(tracker::untaken()).await? {
             let (checkout, number) = (r.checkout, r.number);
@@ -185,11 +187,18 @@ impl App {
             if !self.blockers(&issue).await?.iter().all(|(_, met)| met.is_some()) {
                 continue;
             }
-            // One whose account cannot start now (used up) waits behind
-            // those that can; with none, its start answers why it is held.
-            if let Some(account) = issue.on.account.as_deref()
-                && self.pick(&checkout, Some(account)).await.is_err()
-            {
+            // One that cannot start now (its account used up, or what its
+            // checkout is pinned to at its limit) waits behind those that
+            // can; with none, its start answers why it is held.
+            let account = issue.on.account.as_deref();
+            let can = match (account, can_start.get(&checkout)) {
+                (None, Some(can)) => *can,
+                _ => self.pick(&checkout, account).await.is_ok(),
+            };
+            if account.is_none() {
+                can_start.insert(checkout.clone(), can);
+            }
+            if !can {
                 held.get_or_insert((checkout, number));
                 continue;
             }
@@ -205,7 +214,14 @@ impl App {
     async fn resume_parked(&self) -> Answer<Vec<Value>> {
         let mut resumed = Vec::new();
         for w in self.rows(tracker::workers(Some(WorkerStatus::Waiting), false)).await? {
-            if !self.state::<Workers>(w.worker).await?.parked {
+            let wk = self.state::<Workers>(w.worker).await?;
+            if let Some(limit) = wk.waits_on_limit() {
+                if limit.until <= self.now() {
+                    resumed.push(self.resume_limited(w.worker).await);
+                }
+                continue;
+            }
+            if !wk.parked {
                 continue;
             }
             let met: Option<Vec<String>> = (self.blockers(&self.issue(&w.checkout, w.number).await?).await?)
@@ -224,6 +240,18 @@ impl App {
             resumed.push(did.unwrap_or_else(|r| json!({ "worker": w.worker, "refused": r.to_string() })));
         }
         Ok(resumed)
+    }
+
+    /// A worker parked on its engine's limit, sent back once it reset: what
+    /// was held for it is typed first, oldest first. No longer parked first,
+    /// so a restart that does not reach it leaves it to the watch.
+    async fn resume_limited(&self, worker: factum::Uuid) -> Value {
+        let did = async {
+            self.submit::<Unlimit>(Of { worker }).await?;
+            let text = "Your engine's limit reset. Pick up your issue where you left it.";
+            self.restart(worker, Author::Factorium, text, false).await
+        };
+        did.await.unwrap_or_else(|r| json!({ "worker": worker, "refused": r.to_string() }))
     }
 
     /// Frees disk: the build outputs of the line's worktrees, rebuilt when
