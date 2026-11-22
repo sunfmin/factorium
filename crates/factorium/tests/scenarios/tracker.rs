@@ -266,7 +266,7 @@ async fn doctor_lists_every_decided_record_newest_first_until_read() {
 async fn doctor_does_not_list_a_decided_shape_quoted_in_a_fence() {
     let w = World::new();
     w.checkout("web").await;
-    let body = "Write records in this shape:\n\n```\n\
+    let body = "Write records in this shape:\n\n```\n```text, a fence with text, closes none\n\
         Decided (<who>, for Felix): <what, one line>\n\
         Options: A) …  B) …\n\
         Undo: <how to take it back>\n```\n\n\
