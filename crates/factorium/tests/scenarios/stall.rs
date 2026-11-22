@@ -385,3 +385,20 @@ async fn a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_f
     assert_eq!(w.tick().await.landed[0]["landed"], order[1].0, "the line moves");
     assert_eq!(w.finding(&order[2].1).await, None, "its line moved just now");
 }
+
+#[tokio::test]
+async fn a_line_snapshot_this_code_kept_is_read_and_one_older_code_kept_is_folded_again() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    w.advance(6);
+    w.tick().await;
+    w.advance(6);
+    let stalls = async || w.finding_keys().await.into_iter().filter(|k| k.starts_with("landing:")).count();
+    assert_eq!(stalls().await, 0, "the line moved 6 min ago");
+    // Kept before factorium#222, a snapshot does not say when the line moved: its events do.
+    w.line_snapshots_kept_by("2", 0);
+    assert_eq!(stalls().await, 0, "folded again, the line moved 6 min ago");
+    // Kept by this code, it is read as kept: the line has not moved since 0.
+    w.line_snapshots_kept_by("3", 0);
+    assert_eq!(stalls().await, 2, "as kept, the line has not moved for 12 min");
+}
