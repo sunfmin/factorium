@@ -94,6 +94,11 @@ macro_rules! command {
     };
 }
 
+/// `event` alone if `yes`, else none: a command that may find nothing to do.
+pub fn only<E>(yes: bool, event: E) -> Result<Vec<E>, factum_core::Rejection> {
+    Ok(if yes { vec![event] } else { Vec::new() })
+}
+
 /// A refusal.
 pub fn no<T>(code: &str, message: impl Into<String>) -> Result<T, factum_core::Rejection> {
     Err(factum_core::Rejection::new(code, message))

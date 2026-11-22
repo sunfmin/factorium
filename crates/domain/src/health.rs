@@ -88,27 +88,20 @@ pub struct Observation {
     pub settings: Settings,
 }
 
-command!(
-    /// Records one observation of a worker and decides on it: its clocks
-    /// (over its share, quiet in an open turn) start or stop, and a rule
-    /// past its bound sends it to the watch or ends it.
-    Observe,
-    "worker.observe",
-    Workers,
-    Observation,
-    |p| p.worker,
-    |s, p, now| {
-        if s.started.is_none() {
-            return no("no_worker", "no such worker");
-        }
-        Ok(match s.status {
-            Status::Ended => Vec::new(),
-            Status::Waiting if s.parked => Vec::new(),
-            Status::Waiting => spent(s, &p.sight, now.0).unwrap_or_default(),
-            _ => judge(s, p, now.0),
-        })
+// Records one observation of a worker and decides on it: its clocks
+// (over its share, quiet in an open turn) start or stop, and a rule
+// past its bound sends it to the watch or ends it.
+command!(Observe, "worker.observe", Workers, Observation, |p| p.worker, |s, p, now| {
+    if s.started.is_none() {
+        return no("no_worker", "no such worker");
     }
-);
+    Ok(match s.status {
+        Status::Ended => Vec::new(),
+        Status::Waiting if s.parked => Vec::new(),
+        Status::Waiting => spent(s, &p.sight, now.0).unwrap_or_default(),
+        _ => judge(s, p, now.0),
+    })
+});
 
 /// What `sight` makes of worker `w` at `now` if it says its engine is
 /// spent: its account used up, or at its limit (landing, it is left to its

@@ -202,20 +202,10 @@ pub struct Give {
     pub text: String,
 }
 
-command!(
-    /// A message for the session in `terminal`, numbered one past its last.
-    GiveMessage,
-    "outbox.give",
-    Outboxes,
-    Give,
-    |p| outbox_id(&p.terminal),
-    |s, p, now| Ok(vec![OutboxEvent::Given {
-        n: s.messages.len() as u64 + 1,
-        from: p.from.clone(),
-        text: p.text.clone(),
-        at: now.0
-    }])
-);
+// A message for the session in `terminal`, numbered one past its last.
+command!(GiveMessage, "outbox.give", Outboxes, Give, |p| outbox_id(&p.terminal), |s, p, now| Ok(vec![
+    OutboxEvent::Given { n: s.messages.len() as u64 + 1, from: p.from.clone(), text: p.text.clone(), at: now.0 }
+]));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Try {
@@ -224,25 +214,18 @@ pub struct Try {
     pub outcome: Outcome,
 }
 
-command!(
-    /// How a try at message `n` went; a try that went as the last did is
-    /// not recorded again.
-    TryMessage,
-    "outbox.tried",
-    Outboxes,
-    Try,
-    |p| outbox_id(&p.terminal),
-    |s, p, _now| {
-        let Some(m) = s.messages.iter().find(|m| m.n == p.n) else {
-            return crate::no("no_message", format!("no message {}", p.n));
-        };
-        Ok(if m.outcome.as_ref() == Some(&p.outcome) {
-            Vec::new()
-        } else {
-            vec![OutboxEvent::Tried { n: p.n, outcome: p.outcome.clone() }]
-        })
-    }
-);
+// How a try at message `n` went; a try that went as the last did is
+// not recorded again.
+command!(TryMessage, "outbox.tried", Outboxes, Try, |p| outbox_id(&p.terminal), |s, p, _now| {
+    let Some(m) = s.messages.iter().find(|m| m.n == p.n) else {
+        return crate::no("no_message", format!("no message {}", p.n));
+    };
+    Ok(if m.outcome.as_ref() == Some(&p.outcome) {
+        Vec::new()
+    } else {
+        vec![OutboxEvent::Tried { n: p.n, outcome: p.outcome.clone() }]
+    })
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HoldTaken {
@@ -253,26 +236,19 @@ pub struct HoldTaken {
     pub until: i64,
 }
 
-command!(
-    /// Its engine was found at its limit: what it took just before is no
-    /// proof it read it (agy takes a message, starts a turn, and ends it at
-    /// once on its quota), so a message submitted since `submitted`, or
-    /// queued since `queued`, is held again, typed at the reset.
-    HoldTakenMessages,
-    "outbox.hold_taken",
-    Outboxes,
-    HoldTaken,
-    |p| outbox_id(&p.terminal),
-    |s, p, _now| {
-        let why = format!("its engine reached its limit as it took it; typed again once it resets at {} (ms)", p.until);
-        let held = Outcome::Held { until: p.until, why };
-        let taken = |m: &&Message| match m.outcome {
-            Some(Outcome::Submitted) => m.at >= p.submitted,
-            Some(Outcome::Queued) => m.at >= p.queued,
-            _ => false,
-        };
-        Ok::<_, factum_core::Rejection>(
-            s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
-        )
-    }
-);
+// Its engine was found at its limit: what it took just before is no
+// proof it read it (agy takes a message, starts a turn, and ends it at
+// once on its quota), so a message submitted since `submitted`, or
+// queued since `queued`, is held again, typed at the reset.
+command!(HoldTakenMessages, "outbox.hold_taken", Outboxes, HoldTaken, |p| outbox_id(&p.terminal), |s, p, _now| {
+    let why = format!("its engine reached its limit as it took it; typed again once it resets at {} (ms)", p.until);
+    let held = Outcome::Held { until: p.until, why };
+    let taken = |m: &&Message| match m.outcome {
+        Some(Outcome::Submitted) => m.at >= p.submitted,
+        Some(Outcome::Queued) => m.at >= p.queued,
+        _ => false,
+    };
+    Ok::<_, factum_core::Rejection>(
+        s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
+    )
+});

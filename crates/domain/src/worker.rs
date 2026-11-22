@@ -7,7 +7,7 @@
 use factum_core::{Aggregate, Rejection, Uuid};
 use serde::{Deserialize, Serialize};
 
-use crate::{command, no};
+use crate::{command, no, only};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -355,7 +355,14 @@ fn live(s: &Worker) -> Result<(), Rejection> {
     }
 }
 
-command!(AskLanding, "worker.done", Workers, Of, |p| p.worker, |s, p, now| {
+/// Defines a command on one worker, whose params carry `worker`.
+macro_rules! on_worker {
+    ($command:ident, $name:literal, $params:ty, |$s:ident, $p:ident, $now:ident| $decide:expr) => {
+        command!($command, $name, Workers, $params, |p| p.worker, |$s, $p, $now| $decide);
+    };
+}
+
+on_worker!(AskLanding, "worker.done", Of, |s, p, now| {
     live(s)?;
     match s.status {
         Status::Working => Ok(vec![WorkerEvent::LandingAsked { at: now.0 }]),
@@ -391,27 +398,23 @@ impl Red {
     }
 }
 
-command!(
-    /// A red landing: back to work, or, the second in a row, to the watch.
-    /// One that does not merge because proving moved again is not the second.
-    RedLanding,
-    "worker.red",
-    Workers,
-    Red,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        if s.status != Status::Landing {
-            return no("not_landing", "the worker is not landing");
-        }
-        let moved = p.moved(s);
-        let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0, tip: p.tip.clone(), moved }];
-        if !moved && s.reds + 1 >= 2 {
-            events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
-        }
-        Ok(events)
+/// Refused unless the worker is live and landing.
+fn landing(s: &Worker) -> Result<(), Rejection> {
+    live(s)?;
+    if s.status == Status::Landing { Ok(()) } else { no("not_landing", "the worker is not landing") }
+}
+
+// A red landing: back to work, or, the second in a row, to the watch.
+// One that does not merge because proving moved again is not the second.
+on_worker!(RedLanding, "worker.red", Red, |s, p, now| {
+    landing(s)?;
+    let moved = p.moved(s);
+    let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0, tip: p.tip.clone(), moved }];
+    if !moved && s.reds + 1 >= 2 {
+        events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
     }
-);
+    Ok(events)
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Land {
@@ -419,75 +422,38 @@ pub struct Land {
     pub commit: String,
 }
 
-command!(GreenLanding, "worker.landed", Workers, Land, |p| p.worker, |s, p, now| {
-    live(s)?;
-    if s.status != Status::Landing {
-        return no("not_landing", "the worker is not landing");
-    }
+on_worker!(GreenLanding, "worker.landed", Land, |s, p, now| {
+    landing(s)?;
     Ok(vec![WorkerEvent::WorkerLanded { commit: p.commit.clone(), at: now.0 }])
 });
 
-command!(
-    /// The worker waits for the watch: it escalated, or it failed.
-    Wait,
-    "worker.wait",
-    Workers,
-    Because,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        if s.status == Status::Waiting {
-            return Ok(Vec::new());
-        }
-        Ok(vec![WorkerEvent::WorkerWaits { why: p.why.clone(), at: now.0 }])
-    }
-);
+// The worker waits for the watch: it escalated, or it failed.
+on_worker!(Wait, "worker.wait", Because, |s, p, now| {
+    live(s)?;
+    only(s.status != Status::Waiting, WorkerEvent::WorkerWaits { why: p.why.clone(), at: now.0 })
+});
 
-command!(
-    /// The watch sends a waiting worker back to work; one working within a
-    /// wait it declared, the wait is over.
-    Resume,
-    "worker.resume",
-    Workers,
-    Of,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        Ok(match s.status {
-            Status::Waiting => vec![WorkerEvent::WorkerResumed { at: now.0 }],
-            Status::Working if s.declared.is_some() => vec![WorkerEvent::WaitEnded],
-            _ => Vec::new(),
-        })
-    }
-);
-
-command!(
-    /// Its issue was blocked: its worker is parked behind what its issue
-    /// waits for, waiting now or working, to go back once it is idle (it
-    /// waits, or is in a wait it declared) and all of that is met.
-    Park,
-    "worker.park",
-    Workers,
-    Of,
-    |p| p.worker,
-    |s, _p, _now| Ok::<_, Rejection>(if s.started.is_some() && s.status != Status::Ended && !s.parked {
-        vec![WorkerEvent::WorkerParked]
-    } else {
-        Vec::new()
+// The watch sends a waiting worker back to work; one working within a
+// wait it declared, the wait is over.
+on_worker!(Resume, "worker.resume", Of, |s, p, now| {
+    live(s)?;
+    Ok(match s.status {
+        Status::Waiting => vec![WorkerEvent::WorkerResumed { at: now.0 }],
+        Status::Working if s.declared.is_some() => vec![WorkerEvent::WaitEnded],
+        _ => Vec::new(),
     })
-);
+});
 
-command!(
-    /// What a parked worker's issue waited for is met, or its engine's
-    /// limit reset: it is no longer parked, whether or not its restart
-    /// reaches it.
-    Unpark,
-    "worker.unpark",
-    Workers,
-    Of,
-    |p| p.worker,
-    |s, _p, _now| Ok::<_, Rejection>(if s.parked { vec![WorkerEvent::WorkerUnparked] } else { Vec::new() })
-);
+// Its issue was blocked: its worker is parked behind what its issue waits
+// for, waiting now or working, to go back once it is idle (it waits, or is
+// in a wait it declared) and all of that is met.
+on_worker!(Park, "worker.park", Of, |s, p, now| {
+    only(s.started.is_some() && s.status != Status::Ended && !s.parked, WorkerEvent::WorkerParked)
+});
+
+// What a parked worker's issue waited for is met, or its engine's limit
+// reset: it is no longer parked, whether or not its restart reaches it.
+on_worker!(Unpark, "worker.unpark", Of, |s, p, now| only(s.parked, WorkerEvent::WorkerUnparked));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Closed {
@@ -496,23 +462,16 @@ pub struct Closed {
     pub failed: Option<String>,
 }
 
-command!(
-    /// How closing its terminal went. Recorded before it ends: an ended
-    /// worker takes no more commands.
-    NoteClosed,
-    "worker.closed",
-    Workers,
-    Closed,
-    |p| p.worker,
-    |s, p, _now| {
-        if s.started.is_none() {
-            return no("no_worker", "no such worker");
-        }
-        Ok(vec![WorkerEvent::SessionClosed { failed: p.failed.clone() }])
+// How closing its terminal went. Recorded before it ends: an ended worker
+// takes no more commands.
+on_worker!(NoteClosed, "worker.closed", Closed, |s, p, now| {
+    if s.started.is_none() {
+        return no("no_worker", "no such worker");
     }
-);
+    Ok(vec![WorkerEvent::SessionClosed { failed: p.failed.clone() }])
+});
 
-command!(EndWorker, "worker.end", Workers, Because, |p| p.worker, |s, p, now| {
+on_worker!(EndWorker, "worker.end", Because, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::WorkerEnded { why: p.why.clone(), at: now.0 }])
 });
@@ -525,29 +484,22 @@ pub struct Declare {
     pub for_ms: i64,
 }
 
-command!(
-    /// A working worker declares a wait on a long command of its own: its
-    /// silence is not found until the bound, held to [`DECLARED_MAX_MS`].
-    DeclareWait,
-    "worker.declare_wait",
-    Workers,
-    Declare,
-    |p| p.worker,
-    |s, p, now| {
-        live(s)?;
-        if s.status != Status::Working {
-            return no("not_working", "only a working worker declares a wait");
-        }
-        if p.why.trim().is_empty() {
-            return no("no_reason", "say what you wait for");
-        }
-        if p.for_ms <= 0 {
-            return no("no_bound", "say until when: a duration past now");
-        }
-        let until = now.0 + p.for_ms.min(DECLARED_MAX_MS);
-        Ok(vec![WorkerEvent::WaitDeclared(Declared { why: p.why.clone(), at: now.0, until })])
+// A working worker declares a wait on a long command of its own: its
+// silence is not found until the bound, held to [`DECLARED_MAX_MS`].
+on_worker!(DeclareWait, "worker.declare_wait", Declare, |s, p, now| {
+    live(s)?;
+    if s.status != Status::Working {
+        return no("not_working", "only a working worker declares a wait");
     }
-);
+    if p.why.trim().is_empty() {
+        return no("no_reason", "say what you wait for");
+    }
+    if p.for_ms <= 0 {
+        return no("no_bound", "say until when: a duration past now");
+    }
+    let until = now.0 + p.for_ms.min(DECLARED_MAX_MS);
+    Ok(vec![WorkerEvent::WaitDeclared(Declared { why: p.why.clone(), at: now.0, until })])
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Spend {
@@ -555,16 +507,9 @@ pub struct Spend {
     pub tokens: Tokens,
 }
 
-command!(
-    /// What its session spent, as its session files say. Recorded before it
-    /// ends: an ended worker takes no more commands.
-    NoteSpent,
-    "worker.spent",
-    Workers,
-    Spend,
-    |p| p.worker,
-    |s, p, _now| {
-        live(s)?;
-        Ok(vec![WorkerEvent::Spent(p.tokens)])
-    }
-);
+// What its session spent, as its session files say. Recorded before it
+// ends: an ended worker takes no more commands.
+on_worker!(NoteSpent, "worker.spent", Spend, |s, p, now| {
+    live(s)?;
+    Ok(vec![WorkerEvent::Spent(p.tokens)])
+});

@@ -232,22 +232,15 @@ pub struct Ended {
     pub failed: Option<String>,
 }
 
-command!(
-    /// The watch's session was closed: the next look starts a fresh one.
-    EndWatch,
-    "watch.end",
-    Watches,
-    Ended,
-    |_p| watch_id(),
-    |s, p, _now| {
-        let Some(terminal) = &s.terminal else { return Ok::<_, factum_core::Rejection>(Vec::new()) };
-        let mut events = vec![WatchEvent::WatchEnded];
-        if let Some(why) = &p.failed {
-            events.push(WatchEvent::WatchCloseFailed { terminal: terminal.clone(), why: why.clone() });
-        }
-        Ok(events)
+// The watch's session was closed: the next look starts a fresh one.
+command!(EndWatch, "watch.end", Watches, Ended, |_p| watch_id(), |s, p, _now| {
+    let Some(terminal) = &s.terminal else { return Ok::<_, factum_core::Rejection>(Vec::new()) };
+    let mut events = vec![WatchEvent::WatchEnded];
+    if let Some(why) = &p.failed {
+        events.push(WatchEvent::WatchCloseFailed { terminal: terminal.clone(), why: why.clone() });
     }
-);
+    Ok(events)
+});
 
 /// One finding, as a look hands it on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -270,62 +263,55 @@ pub struct Look {
     pub ready: bool,
 }
 
-command!(
-    /// A look: episodes open for new findings and close for gone ones; a round
-    /// past its bound ends; and, with none running, the oldest episode without
-    /// a round starts one, once the watch's session can take it.
-    LookNow,
-    "watch.look",
-    Watches,
-    Look,
-    |_p| watch_id(),
-    |s, p, now| {
-        let mut ev = vec![WatchEvent::Looked { at: now.0 }];
-        for f in &p.found {
-            match s.episodes.get(&f.key) {
-                None => ev.push(WatchEvent::EpisodeOpened {
-                    key: f.key.clone(),
-                    what: f.what.clone(),
-                    fix: f.fix.clone(),
-                    at: now.0,
-                    heard: f.heard.clone(),
-                }),
-                Some(e) if e.heard != f.heard => {
-                    ev.push(WatchEvent::EpisodeHeard { key: f.key.clone(), heard: f.heard.clone() })
-                }
-                Some(_) => {}
+// A look: episodes open for new findings and close for gone ones; a round
+// past its bound ends; and, with none running, the oldest episode without
+// a round starts one, once the watch's session can take it.
+command!(LookNow, "watch.look", Watches, Look, |_p| watch_id(), |s, p, now| {
+    let mut ev = vec![WatchEvent::Looked { at: now.0 }];
+    for f in &p.found {
+        match s.episodes.get(&f.key) {
+            None => ev.push(WatchEvent::EpisodeOpened {
+                key: f.key.clone(),
+                what: f.what.clone(),
+                fix: f.fix.clone(),
+                at: now.0,
+                heard: f.heard.clone(),
+            }),
+            Some(e) if e.heard != f.heard => {
+                ev.push(WatchEvent::EpisodeHeard { key: f.key.clone(), heard: f.heard.clone() })
             }
+            Some(_) => {}
         }
-        let gone: Vec<&String> = s.episodes.keys().filter(|k| !p.found.iter().any(|f| &f.key == *k)).collect();
-        for k in &gone {
-            ev.push(WatchEvent::EpisodeClosed { key: (*k).clone() });
-        }
-        let mut running = s.round.clone();
-        if let Some(r) = &running
-            && now.0 - r.at > p.bound
-        {
-            ev.push(WatchEvent::RoundEnded { n: r.n, why: "past its bound".into() });
-            running = None;
-        }
-        if running.is_none() && p.ready {
-            let mut fresh: Vec<(i64, &String)> = s
-                .episodes
-                .iter()
-                .filter(|(k, e)| e.round.is_none() && !gone.contains(k))
-                .map(|(k, e)| (e.opened_at, k))
-                .collect();
-            fresh.sort();
-            let next = fresh
-                .first()
-                .map(|(_, k)| (*k).clone())
-                .or_else(|| p.found.iter().find(|f| !s.episodes.contains_key(&f.key)).map(|f| f.key.clone()));
-            if let Some(episode) = next {
-                ev.push(WatchEvent::RoundStarted { n: s.rounds + 1, episode, at: now.0 });
-            }
-        }
-        Ok::<_, factum_core::Rejection>(ev)
     }
-);
+    let gone: Vec<&String> = s.episodes.keys().filter(|k| !p.found.iter().any(|f| &f.key == *k)).collect();
+    for k in &gone {
+        ev.push(WatchEvent::EpisodeClosed { key: (*k).clone() });
+    }
+    let mut running = s.round.clone();
+    if let Some(r) = &running
+        && now.0 - r.at > p.bound
+    {
+        ev.push(WatchEvent::RoundEnded { n: r.n, why: "past its bound".into() });
+        running = None;
+    }
+    if running.is_none() && p.ready {
+        let mut fresh: Vec<(i64, &String)> = s
+            .episodes
+            .iter()
+            .filter(|(k, e)| e.round.is_none() && !gone.contains(k))
+            .map(|(k, e)| (e.opened_at, k))
+            .collect();
+        fresh.sort();
+        let next = fresh
+            .first()
+            .map(|(_, k)| (*k).clone())
+            .or_else(|| p.found.iter().find(|f| !s.episodes.contains_key(&f.key)).map(|f| f.key.clone()));
+        if let Some(episode) = next {
+            ev.push(WatchEvent::RoundStarted { n: s.rounds + 1, episode, at: now.0 });
+        }
+    }
+    Ok::<_, factum_core::Rejection>(ev)
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Filed {
@@ -353,23 +339,16 @@ pub struct Held {
     pub why: Option<String>,
 }
 
-command!(
-    /// Admission's state: held for one reason stays held since it began.
-    NoteAdmission,
-    "watch.admission",
-    Watches,
-    Held,
-    |_p| watch_id(),
-    |s, p, now| {
-        let kind = |w: &str| w.split(':').next().unwrap_or(w).to_string();
-        Ok(match (&p.why, &s.held) {
-            (Some(w), Some((_, h))) if kind(w) == kind(h) => Vec::new(),
-            (Some(w), _) => vec![WatchEvent::AdmissionHeld { why: w.clone(), at: now.0 }],
-            (None, Some(_)) => vec![WatchEvent::AdmissionOpen],
-            (None, None) => Vec::new(),
-        })
-    }
-);
+// Admission's state: held for one reason stays held since it began.
+command!(NoteAdmission, "watch.admission", Watches, Held, |_p| watch_id(), |s, p, now| {
+    let kind = |w: &str| w.split(':').next().unwrap_or(w).to_string();
+    Ok(match (&p.why, &s.held) {
+        (Some(w), Some((_, h))) if kind(w) == kind(h) => Vec::new(),
+        (Some(w), _) => vec![WatchEvent::AdmissionHeld { why: w.clone(), at: now.0 }],
+        (None, Some(_)) => vec![WatchEvent::AdmissionOpen],
+        (None, None) => Vec::new(),
+    })
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Seen {
