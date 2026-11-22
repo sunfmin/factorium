@@ -1,0 +1,15 @@
+{
+  "tree": "900f458ae3dda9f20c146b4fae97b4acb0724eb3+d1fba762150c532c",
+  "picker": "codex:01a201a6-f737-7270-9d50-0a60d7452c31:default",
+  "author": "claude-code:155e3a38-32ba-5d87-8651-e6522ca11fab:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/review.rs:47:31: replace match guard one_line(&what) with true in read",
+        "why": "The retry scenarios use prose without a JSON object, leaving a blank or multiline cut verdict untested there.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
