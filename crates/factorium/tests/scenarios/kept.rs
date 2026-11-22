@@ -654,3 +654,22 @@ async fn a_nested_worktree_with_changes_not_committed_is_kept_and_doctor_names_i
     w.app.discard_orphaned(&old).await.unwrap();
     assert!(!old.exists());
 }
+
+#[tokio::test]
+async fn a_landed_worktree_holding_a_nested_one_with_work_stays_and_doctor_names_it() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    let inner = tree.join("before");
+    w.git(&tree, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), "HEAD"]).unwrap();
+    std::fs::write(inner.join("mine.txt"), "work").unwrap();
+    w.commit(&tree, ".gitignore", "before\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    w.tick().await;
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed", "landed");
+    assert!(inner.join("mine.txt").exists(), "the nested one's work stays, and its worktree with it");
+    let keys = w.finding_keys().await;
+    let key = keys.iter().find(|k| k.starts_with("worktree:")).expect("doctor names it");
+    let found = w.finding(key).await.unwrap();
+    assert!(found["what"].as_str().unwrap().contains("before: it has changes not committed"), "{found}");
+}
