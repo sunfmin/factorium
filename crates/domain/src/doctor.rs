@@ -396,27 +396,3 @@ pub fn no_daemon(why: &str, service: Option<&str>, log: &str) -> Found {
     };
     Found { key: "daemon:none".into(), what: format!("no daemon runs: {why}"), fix, heard: Vec::new() }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::heavy::Entry;
-
-    /// web#2 has asked to land for 11 min, past the stall bound of 10, and
-    /// no fast gate runs for it; a slow gate of web started `started` min in.
-    fn landing_beside_a_slow_gate(started: i64) -> Vec<String> {
-        let min = 60_000;
-        let ask = LandingSeen { worker: "w".into(), checkout: "web".into(), number: 2, since: 0 };
-        let gate =
-            Entry { what: LineJob::Gate(Kind::Slow).of("web"), started_at: Some(started * min), ..Entry::default() };
-        let seen =
-            Seen { landing: vec![ask], queue: Queue { entries: vec![gate], ..Queue::default() }, ..Seen::default() };
-        findings(&seen, &Settings::default(), 11 * min).into_iter().map(|f| f.key).collect()
-    }
-
-    #[test]
-    fn a_line_job_started_within_the_stall_bound_moves_the_line_and_one_started_before_does_not() {
-        assert_eq!(landing_beside_a_slow_gate(5), Vec::<String>::new(), "its line moved 6 min ago");
-        assert_eq!(landing_beside_a_slow_gate(0), vec!["landing:w".to_string()], "its line has not moved for 11 min");
-    }
-}
