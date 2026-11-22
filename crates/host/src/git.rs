@@ -172,18 +172,50 @@ impl Git {
     }
 
     /// Merges `branch` of the repo at `from` here as one merge commit with
-    /// `message`; a merge that fails is aborted.
-    pub fn merge_from(&self, from: &Path, branch: &str, message: &str) -> Result<String, String> {
+    /// `message`; answers it and the conflicting paths it took this side's
+    /// copy of. Those are taken only when every conflicting path matches a
+    /// glob pathspec of `regenerated`; any other conflict aborts the merge.
+    pub fn merge_from(
+        &self,
+        from: &Path,
+        branch: &str,
+        message: &str,
+        regenerated: &[String],
+    ) -> Result<(String, Vec<String>), String> {
         let refspec = format!("+refs/heads/{branch}:refs/heads/{branch}");
         let merged = self
             .run(&["fetch", "--quiet", &from.to_string_lossy(), &refspec])
             .and_then(|_| self.run(&["merge", "--no-ff", "--no-edit", "-m", message, branch]));
-        if let Err(e) = merged {
-            let conflicts = self.run(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
-            let _ = self.run(&["merge", "--abort"]);
-            let files: Vec<_> = conflicts.lines().collect();
-            return Err(if files.is_empty() { e } else { format!("{e}; conflicts in: {}", files.join(", ")) });
+        let Err(e) = merged else { return Ok((self.sha("HEAD")?, Vec::new())) };
+        let unmerged = |specs: &[String]| -> Vec<String> {
+            let mut args = vec!["diff", "--name-only", "--diff-filter=U", "--"];
+            args.extend(specs.iter().map(String::as_str));
+            self.run(&args).unwrap_or_default().lines().map(str::to_string).collect()
+        };
+        let files = unmerged(&[]);
+        let globs: Vec<String> = regenerated.iter().map(|g| format!(":(glob){g}")).collect();
+        if !files.is_empty() && !globs.is_empty() && unmerged(&globs) == files {
+            let mut take = vec!["checkout", "HEAD", "--"];
+            take.extend(files.iter().map(String::as_str));
+            let mut add = vec!["add", "--"];
+            add.extend(files.iter().map(String::as_str));
+            let taken =
+                self.run(&take).and_then(|_| self.run(&add)).and_then(|_| self.run(&["commit", "-q", "-m", message]));
+            if taken.is_ok() {
+                return Ok((self.sha("HEAD")?, files));
+            }
         }
+        let _ = self.run(&["merge", "--abort"]);
+        Err(if files.is_empty() { e } else { format!("{e}; conflicts in: {}", files.join(", ")) })
+    }
+
+    /// Amends `HEAD` with `paths` as they stand in the work tree, and
+    /// `message`; answers the new commit.
+    pub fn amend(&self, paths: &[String], message: &str) -> Result<String, String> {
+        let mut add = vec!["add", "--"];
+        add.extend(paths.iter().map(String::as_str));
+        self.run(&add)?;
+        self.run(&["commit", "-q", "--amend", "-m", message])?;
         self.sha("HEAD")
     }
 

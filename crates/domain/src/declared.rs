@@ -7,6 +7,7 @@
 //! fast_limit = 600        # seconds
 //! slow = "./slow.sh"      # run on the proving tip before a promotion
 //! slow_limit = 3600
+//! regenerated = [".truefit/models/*.json"]  # records the gate rewrites (git globs)
 //!
 //! [cut]                   # how a version is made from the base branch
 //! steps = ["./release.sh $FACTORIUM_VERSION"]
@@ -42,11 +43,22 @@ pub struct Gate {
     pub slow: Option<String>,
     #[serde(default = "slow_limit")]
     pub slow_limit: u64,
+    /// The records the gate regenerates, as git glob pathspecs: a landing
+    /// whose only conflicts are among them takes proving's copy of each and
+    /// commits them as its fast gate rewrote them on the merge (factorium#225).
+    #[serde(default)]
+    pub regenerated: Vec<String>,
 }
 
 impl Default for Gate {
     fn default() -> Gate {
-        Gate { fast: nothing(), fast_limit: fast_limit(), slow: None, slow_limit: slow_limit() }
+        Gate {
+            fast: nothing(),
+            fast_limit: fast_limit(),
+            slow: None,
+            slow_limit: slow_limit(),
+            regenerated: Vec::new(),
+        }
     }
 }
 
