@@ -1,0 +1,15 @@
+{
+  "tree": "a8487d054fc904472ecc9033dfc943a8b8c8d15a+d1fba762150c532c",
+  "picker": "codex:01a203ab-96c2-7161-b4b0-5ec3ec461b67:default",
+  "author": "claude-code:33390fdb-997a-5c9a-a63a-998d019d0373:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/line.rs:59:5: replace why -> String with \"xyzzy\".into()",
+        "why": "The added assertions cover when the cut retries, so they could pass even if the refusal message loses the failure reason and recovery instructions.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
