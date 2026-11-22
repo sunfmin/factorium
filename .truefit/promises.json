@@ -229,6 +229,12 @@
     "sentence": "A repo factorium manages has its base moved only by promotion; anything else that moves the base turns promotion red.",
     "source": "SPEC.md:438"
   },
+  "91db289c1891": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check ladder's own registry, not code that keeps a promise: these fixes added the worktrees and line models with their covers (factorium#187, #188, #189) and moved each model's commit to the one it describes. The promises those models keep (WorkNeverLost, OneOwner, a landing at most once, ...) are checked by those models against the code they cover; the config's edits are bookkeeping of that, with no behaviour of their own to check."
+  },
   "972618f2a67f": {
     "mark": "promise",
     "sentence": "A kept worktree that went bad is discarded on purpose with `issue start-over <checkout> <n> --why …`, only while no worker is on the issue: its uncommitted changes are committed, its branch is kept as `<branch>-abandoned`, a comment names that branch and the why, and the worktree goes, so the next start is branched from the proving tip.",
