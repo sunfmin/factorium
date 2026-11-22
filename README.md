@@ -16,7 +16,10 @@ wrong.
 brew install sunfmin/tap/factorium
 ```
 
-factorium cuts its own versions (`factorium.toml`, `packaging/release.sh`).
+factorium cuts its own versions (`factorium.toml`, `packaging/release.sh`):
+it builds them universal, and sunfmin/homebrew-tap's release workflow signs
+them with Developer ID, notarizes and publishes them
+([ADR 4](docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md)).
 
 The daemon runs as a launchd agent, started at login and again whenever it
 exits. Install it from a shell whose PATH finds git, orca and the kit's

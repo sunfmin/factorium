@@ -12,6 +12,10 @@ slow_limit = 1800
 regenerated = [".slimfit/baseline.json", ".truefit/models/*.json"]
 
 [cut]
+# The host's build, then the tap's release.yml run that signs, notarizes and
+# publishes (docs/adr/0004). release.sh waits at most RELEASE_WAIT_LIMIT
+# (1700s) from its start: inside this limit, and inside the heavy queue's
+# hold bound (1800s), past which a cut holding others up is ended.
 steps = ["packaging/release.sh cut $FACTORIUM_VERSION"]
 formula = "sunfmin/tap/factorium"
 limit = 1800
