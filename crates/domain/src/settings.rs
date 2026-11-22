@@ -129,7 +129,7 @@ impl Setting {
             S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
             S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done, or hung with its turn open, goes to the watch"),
             S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),
-            S::Time(T::StallBound) => ("stall_bound", 600, Seconds, "a heavy queue that starts nothing, or a landing no gate runs for, this long goes to the watch"),
+            S::Time(T::StallBound) => ("stall_bound", 600, Seconds, "a heavy queue that starts nothing, or a landing no gate runs for on a line that has not moved, this long goes to the watch"),
             S::Time(T::PromotionBound) => ("promotion_bound", 3600, Seconds, "the oldest unpromoted landing waits at most this long"),
             S::Time(T::CutBound) => ("cut_bound", 86400, Seconds, "the oldest uncut promotion waits at most this long"),
             S::Time(T::TasksBound) => ("tasks_bound", 86400, Seconds, "idle work's tasks run this long past `every` without an idle host run anyway, at background priority"),

@@ -27,17 +27,41 @@ pub struct Line {
     pub cut_failed: Option<(String, String)>,
     /// Landings held, and why.
     pub held: Option<String>,
+    /// When it last moved: a landing, a promotion or a cut, ms.
+    #[serde(default)]
+    pub moved: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
-    Landed { number: u64, commit: String, at: i64 },
-    PromotionRed { tip: String, why: String },
-    Promoted { tip: String, at: i64 },
-    CutMade { version: String, commit: String },
-    CutFailed { version: String, why: String },
-    LandingsHeld { why: String },
+    Landed {
+        number: u64,
+        commit: String,
+        at: i64,
+    },
+    PromotionRed {
+        tip: String,
+        why: String,
+    },
+    Promoted {
+        tip: String,
+        at: i64,
+    },
+    CutMade {
+        version: String,
+        commit: String,
+        /// Not kept by code before factorium#222: 0.
+        #[serde(default)]
+        at: i64,
+    },
+    CutFailed {
+        version: String,
+        why: String,
+    },
+    LandingsHeld {
+        why: String,
+    },
     LandingsReleased,
 }
 
@@ -46,16 +70,20 @@ impl Line {
     pub fn apply(&mut self, event: LineEvent) {
         let s = self;
         match event {
-            LineEvent::Landed { number, commit, at } => s.unpromoted.push(Landing { number, commit, at }),
+            LineEvent::Landed { number, commit, at } => {
+                s.unpromoted.push(Landing { number, commit, at });
+                s.moved = Some(at);
+            }
             LineEvent::PromotionRed { tip, why } => s.red = Some((tip, why)),
-            LineEvent::Promoted { tip, .. } => {
+            LineEvent::Promoted { tip, at } => {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
                 s.uncut.extend(s.unpromoted.drain(..n));
-                (s.promoted, s.red) = (Some(tip), None);
+                (s.promoted, s.red, s.moved) = (Some(tip), None, Some(at));
             }
-            LineEvent::CutMade { version, .. } => {
+            LineEvent::CutMade { version, at, .. } => {
                 s.uncut.clear();
+                s.moved = s.moved.max(Some(at));
                 (s.version, s.cut_failed) = (Some(version), None);
             }
             LineEvent::CutFailed { version, why } => s.cut_failed = Some((version, why)),

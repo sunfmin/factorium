@@ -19,7 +19,7 @@ pub struct Seen {
     pub waiting: Vec<WaitingSeen>,
     /// Each listed checkout's proving line.
     pub lines: Vec<LineSeen>,
-    /// Workers asking to land.
+    /// Workers asking to land, oldest ask first, as the lander takes them.
     pub landing: Vec<LandingSeen>,
     /// The heavy-command queue.
     pub queue: Queue,
@@ -81,6 +81,32 @@ pub struct LandingSeen {
     pub number: u64,
     /// Since when it asks, ms.
     pub since: i64,
+}
+
+/// A landing waiting its turn: its place in its checkout's line (1 lands
+/// next: the oldest ask lands first) of how many wait there.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct InLine {
+    pub worker: String,
+    pub issue: String,
+    pub place: usize,
+    pub of: usize,
+    /// Since when it asks, ms.
+    pub since: i64,
+}
+
+/// Each landing waiting, in its checkout's line: [`Seen::landing`] is in
+/// the order the lander takes them, oldest ask first.
+pub fn landing_line(seen: &Seen) -> Vec<InLine> {
+    let asks = &seen.landing;
+    asks.iter()
+        .map(|l| {
+            let line: Vec<_> = asks.iter().filter(|o| o.checkout == l.checkout).collect();
+            let place = line.iter().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
+            let (worker, issue) = (l.worker.clone(), format!("{}#{}", l.checkout, l.number));
+            InLine { worker, issue, place, of: line.len(), since: l.since }
+        })
+        .collect()
 }
 
 /// Admission held since `since`, ms, for `why`.
@@ -263,7 +289,8 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
 }
 
 /// What the line owes and has not done within its bound: a heavy queue
-/// that starts nothing, a landing no gate runs for, a promotion or a cut
+/// that starts nothing, a landing no gate runs for on a line that does not
+/// move, a promotion or a cut
 /// past its bound with none running.
 fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, String, &str)) {
     let q = &seen.queue;
@@ -299,13 +326,22 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
     }
     let line_of = |c: &str| seen.lines.iter().find(|l| l.checkout == c);
     for LandingSeen { worker: id, checkout, number, since } in &seen.landing {
-        let held = line_of(checkout).is_some_and(|l| l.line.held.is_some());
-        if held || now - since <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
+        let line = line_of(checkout).map(|l| &l.line);
+        let held = line.is_some_and(|l| l.held.is_some());
+        // A landing waits its turn behind others while its line moves:
+        // a landing, promotion or cut, or a line job started, within the bound.
+        let moved = line.and_then(|l| l.moved).max(q.started(checkout)).unwrap_or(*since).max(*since);
+        if held || now - moved <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
             continue;
         }
         add(
             format!("landing:{id}"),
-            format!("{checkout}#{number} has waited {} min to land and no gate runs for it{head}", min(now - since)),
+            format!(
+                "{checkout}#{number} has waited {} min to land, no gate runs for it, and its line has not moved for \
+                 {} min{head}",
+                min(now - since),
+                min(now - moved)
+            ),
             &format!("{unqueue}; the next tick gates the landing. If the daemon does not tick, see its daemon.log"),
         );
     }

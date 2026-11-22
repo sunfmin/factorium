@@ -86,6 +86,8 @@ impl App {
             "findings": findings,
             "human": seen.human,
             "holds": holds,
+            // Each landing waiting, with its place in its checkout's line.
+            "landing": doctor::landing_line(&seen),
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
             "reading": reading,

@@ -310,3 +310,78 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
     assert_eq!(ran.unwrap()["ok"], true);
     assert_eq!(w.remote_tip("web", "main"), landed);
 }
+
+/// Three workers on `web` ask to land at once, and their line takes a slow
+/// gate's time for each: one lands every 6 min, within the stall bound of
+/// 10 min, so the third waits 18 min for its turn.
+async fn three_wait_their_turn(w: &World) {
+    w.two_at_work().await;
+    w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
+    w.tick().await;
+    for n in 1..=3 {
+        w.done(&w.worker_on("web", n).await, &format!("f{n}"), "x").await;
+    }
+}
+
+/// Doctor's `landing`: each landing waiting, as (worker, issue, place, of).
+async fn places(w: &World) -> Vec<(String, String, u64, u64)> {
+    let doctor = w.doctor().await;
+    let line = doctor["landing"].as_array().unwrap().iter();
+    let s = |v: &Value| v.as_str().unwrap().to_string();
+    line.map(|l| (s(&l["worker"]), s(&l["issue"]), l["place"].as_u64().unwrap(), l["of"].as_u64().unwrap())).collect()
+}
+
+/// Doctor's line on `web`, in place order: the issues and their workers' landing keys.
+async fn in_line(w: &World) -> Vec<(String, String)> {
+    let mut line = places(w).await;
+    line.sort_by_key(|(.., place, _)| *place);
+    line.into_iter().map(|(worker, issue, ..)| (issue, format!("landing:{worker}"))).collect()
+}
+
+#[tokio::test]
+async fn a_landing_waiting_its_turn_behind_a_line_that_moves_is_no_stall_and_doctor_shows_its_place() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    let line = places(&w).await;
+    let mut seen: Vec<_> = line.iter().map(|(_, _, place, of)| (*place, *of)).collect();
+    seen.sort();
+    assert_eq!(seen, vec![(1, 3), (2, 3), (3, 3)], "each in its place: {line:?}");
+    let order = in_line(&w).await;
+    for (issue, _) in &order[..2] {
+        w.advance(6);
+        let t = w.tick().await;
+        assert_eq!(t.landed.len(), 1, "one lands at a time: {:?}", t.landed);
+        assert_eq!(&t.landed[0]["landed"], issue, "first in line lands first");
+    }
+    w.advance(6);
+    // The third has waited 18 min; its line last moved 6 min ago.
+    let keys = w.finding_keys().await;
+    assert!(keys.iter().all(|k| !k.starts_with("landing:")), "it waits its turn behind a line that moves: {keys:?}");
+    let (third, _) = &order[2];
+    let line = places(&w).await;
+    assert_eq!(line.iter().map(|(_, i, p, of)| (i, *p, *of)).collect::<Vec<_>>(), vec![(third, 1, 1)], "{line:?}");
+    assert_eq!(&w.tick().await.landed[0]["landed"], third);
+    assert_eq!(places(&w).await, vec![]);
+}
+
+#[tokio::test]
+async fn a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_for_each_landing_in_it() {
+    let w = World::new();
+    three_wait_their_turn(&w).await;
+    let order = in_line(&w).await;
+    w.advance(6);
+    assert_eq!(w.tick().await.landed[0]["landed"], order[0].0);
+    // The line lands nothing more: no tick gates its next landing.
+    w.advance(10);
+    assert_eq!(w.finding(&order[1].1).await, None, "at the stall bound since the line moved, not past it");
+    w.advance(1);
+    for (issue, key) in &order[1..] {
+        let found = w.finding(key).await.expect("its line has not moved for 11 min");
+        let what = found["what"].as_str().unwrap();
+        assert!(what.contains(issue.as_str()) && what.contains("waited 17 min to land"), "{found}");
+        assert!(what.contains("its line has not moved for 11 min"), "{found}");
+    }
+    assert_eq!(w.finding(&order[0].1).await, None, "it landed");
+    assert_eq!(w.tick().await.landed[0]["landed"], order[1].0, "the line moves");
+    assert_eq!(w.finding(&order[2].1).await, None, "its line moved just now");
+}
