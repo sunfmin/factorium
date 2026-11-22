@@ -1,0 +1,49 @@
+{
+  "tip": "d1387704c1fe93e4076d405fc4f2912803e9f44b",
+  "from": "8a6aca38b5777ba39ed26901dd110d617ba490dc",
+  "pool": 962,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/harness/src/harness/seen.rs:44:5: replace fact -> Option<Fact> with None",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/watch.rs:188:9: replace App::pass_comment -> Answer<(&'static str, Option<String>)> with Answer::from_iter([(\"\", None)])",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/pick.rs:210:9: replace Taken<'_>::cost -> String with String::new()",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:232:9: replace App::land_gated -> Answer<Did> with Answer::from(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:407:9: replace App::run_steps -> Answer<Running> with Answer::from(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/harness/src/ask.rs:120:9: replace Harness::ask_line -> Option<String> with Some(String::new())",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/harness/src/harness/seen.rs:57:35: replace >= with < in fact",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/doctor.rs:18:9: replace App::seen -> Answer<doctor::Seen> with Answer::new(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/gate.rs:102:9: replace App::gate_ran -> Answer<Gated> with Answer::new(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/idle.rs:114:9: replace App::idle_start -> Answer<Option<Value>> with Answer::from_iter([None])",
+        "outcome": "unviable"
+      }
+    ]
+  }
+}
