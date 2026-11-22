@@ -1,0 +1,10 @@
+{
+  "tree": "7f292bd4db4d3dec2ea2560e0859734fbd7f7259+d1fba762150c532c",
+  "lines": 61,
+  "serves": "factorium#222",
+  "considered": "the domain's InLine and landing_line (deleted: the rows are built in doctor's existing JSON builder, as parked and idle are); Seen.landing's own order, which the lander shares, instead of a sort; the existing runs() check and Line's landing times instead of a new event",
+  "reviewer": "codex:01a20189-4b0d-70a0-abe9-e5f68f487caf:default",
+  "author": "claude-code:2ec98d6f-ba2b-5003-b682-2dcb37e8e67b:opus",
+  "cut": "In crates/domain/src/doctor.rs and crates/factorium/src/doctor.rs, build the landing rows with the existing JSON builder and delete InLine and landing_line. Use a cloned checkout-filtered iterator for position and count to avoid collecting a vector per row. In crates/factorium/tests/scenarios/stall.rs, use the ordered doctor rows for both position assertions and expected landing order, delete in_line and the duplicate sorts, and run both slow-gate cases against one fixture in one test. Repository access was unavailable, so these cuts are based on the supplied diff.",
+  "answer": "Made all: InLine and landing_line deleted, rows built in crates/factorium/src/doctor.rs with a cloned filtered iterator for place and count; in stall.rs in_line and its sorts are gone, the ordered rows give both the places and the landing order; the two slow-gate cases already share one fixture (landing_beside_a_slow_gate) in one test. This change is now 48+/15- source against proving; what remains over the allowance since origin/HEAD is factorium#221's, landed on proving and not yet promoted."
+}

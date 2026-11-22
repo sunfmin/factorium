@@ -88,6 +88,14 @@ impl App {
                 declared.push(json!({ "worker": w.worker, "issue": issue, "why": d.why, "until": d.until }));
             }
         }
+        let landing: Vec<Value> = (seen.landing.iter())
+            .map(|l| {
+                let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
+                let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
+                let issue = format!("{}#{}", l.checkout, l.number);
+                json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count() })
+            })
+            .collect();
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         Ok(json!({
@@ -99,6 +107,8 @@ impl App {
             "findings": findings,
             "human": seen.human,
             "holds": holds,
+            // Each landing waiting, with its place in its checkout's line (1 lands next).
+            "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
             // Waiting workers parked until their engine's limit resets, until when (ms).
