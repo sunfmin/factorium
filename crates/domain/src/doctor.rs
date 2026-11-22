@@ -83,30 +83,6 @@ pub struct LandingSeen {
     pub since: i64,
 }
 
-/// A landing waiting its turn: its place in its checkout's line (1 lands
-/// next) of how many wait there.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct InLine {
-    pub worker: String,
-    pub issue: String,
-    pub place: usize,
-    pub of: usize,
-}
-
-/// Each landing waiting, in its checkout's line: [`Seen::landing`] is in
-/// the order the lander takes them, oldest ask first.
-pub fn landing_line(seen: &Seen) -> Vec<InLine> {
-    let asks = &seen.landing;
-    asks.iter()
-        .map(|l| {
-            let line: Vec<_> = asks.iter().filter(|o| o.checkout == l.checkout).collect();
-            let place = line.iter().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
-            let (worker, issue) = (l.worker.clone(), format!("{}#{}", l.checkout, l.number));
-            InLine { worker, issue, place, of: line.len() }
-        })
-        .collect()
-}
-
 /// Admission held since `since`, ms, for `why`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct HeldSeen {
