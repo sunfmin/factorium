@@ -494,3 +494,44 @@ fn live_watch(w: &World) -> String {
     assert_eq!(live.len(), 1, "one watch session runs");
     live[0].clone()
 }
+
+/// factorium#268, rollmind#8 on 2026-11-23: the watch's tell answered a
+/// waiting worker, which went back to work; it stayed waiting, and its
+/// `done` was refused for hours.
+#[tokio::test]
+async fn a_waiting_worker_the_watch_s_tell_reaches_works_again_and_its_done_lands() {
+    let w = World::new();
+    let wk = escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    w.app.watch_report("Answered: v2.", None).await.unwrap();
+    let told = w.app.watch_tell(id(&wk), "Use v2.", false).await.unwrap();
+    assert_eq!(told["delivery"], "submitted");
+    assert_eq!(worker(&w.app).await["status"], "working", "it read the watch's word");
+    w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+}
+
+/// A worker refused `done` because it still waits is a new finding: the
+/// watch's round on its wait is past, and it takes another.
+#[tokio::test]
+async fn a_done_refused_while_the_worker_waits_gets_the_watch_another_round() {
+    let w = World::new();
+    let wk = escalated(&w).await;
+    w.advance(5);
+    w.tick().await;
+    w.app.watch_report("Answered: v2.", None).await.unwrap();
+    w.advance(5);
+    w.tick().await;
+    assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "its wait had its round");
+    w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
+    crate::fixture::refused(w.app.worker_done(id(&wk)).await, "waiting");
+    w.advance(5);
+    w.tick().await;
+    let next = w.app.watch_next().await.unwrap();
+    assert_eq!(next["round"]["n"], 2, "{next}");
+    assert!(next["episode"]["what"].as_str().unwrap().contains("was refused"), "{next}");
+    let round = w.terminal(&watch_terminal(&w)).sent.last().unwrap().clone();
+    assert!(round.contains("round 2") && round.contains("worker done"), "{round}");
+}

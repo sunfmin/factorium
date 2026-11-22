@@ -78,6 +78,10 @@ pub struct WaitingSeen {
     /// Parked until its engine's limit resets, then (ms): no finding.
     #[serde(default)]
     pub limited: Option<i64>,
+    /// When it last ran `done` in this wait, and was refused, ms: it works
+    /// again, a new finding for the watch to look at.
+    #[serde(default)]
+    pub refused: Option<i64>,
 }
 
 /// A worker asking to land.
@@ -155,12 +159,20 @@ const SLOW_TICK_SHOWN: i64 = 3_600_000;
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
-    for WaitingSeen { worker: id, issue, why, heard, .. } in
+    for WaitingSeen { worker: id, issue, why, heard, refused, .. } in
         seen.waiting.iter().filter(|w| w.parked.is_empty() && w.limited.is_none())
     {
+        // A refused `done` is another finding: the watch's round on this wait is past.
+        let (key, what) = match refused {
+            None => (format!("worker:{id}"), format!("worker {id} on {issue} waits: {why}")),
+            Some(at) => (
+                format!("worker:{id}:done@{at}"),
+                format!("worker {id} on {issue} ran `worker done` and was refused, for it still waits: {why}"),
+            ),
+        };
         f.push(Found {
-            key: format!("worker:{id}"),
-            what: format!("worker {id} on {issue} waits: {why}"),
+            key,
+            what,
             fix: "read its terminal and worktree and the comments on its issue; fix what stops it, then \
                   `factorium watch restart` or `tell` it, or leave its issue to a person (`issue wait-for-human`)"
                 .into(),

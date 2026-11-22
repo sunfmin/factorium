@@ -28,8 +28,9 @@ impl App {
                 parked = blockers.into_iter().filter(|(_, met)| met.is_none()).map(|(name, _)| name).collect();
             }
             let limited = wk.waits_on_limit().map(|l| l.until);
+            let refused = wk.done_refused.filter(|&at| at >= w.state.since);
             let worker = w.worker.to_string();
-            seen.waiting.push(doctor::WaitingSeen { worker, issue, why, heard, parked, limited });
+            seen.waiting.push(doctor::WaitingSeen { worker, issue, why, heard, parked, limited, refused });
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
             let (worker, since) = (w.worker.to_string(), w.state.since);

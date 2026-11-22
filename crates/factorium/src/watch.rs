@@ -167,12 +167,18 @@ impl App {
 
     /// `factorium watch tell`: types a line at a worker's session; answers
     /// whether it started a turn (`submitted`) or waits behind the running
-    /// one (`queued`). `now`: first stops the running turn.
+    /// one (`queued`). `now`: first stops the running turn. A waiting worker,
+    /// not parked, that it started a turn for works again.
     pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
-        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
+        let Live { started: st, session, waiting, .. } = self.live(worker, Want::Any).await?;
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
         let delivery = self.tell(&session, Sender::Watch, text, now).await.and_then(crate::session::heard)?;
+        // It read the watch's word, which answers its wait: it works again,
+        // and its `done` lands. A parked one goes back when its issue's blockers are met.
+        if waiting && delivery == Outcome::Submitted && !self.state::<w::Workers>(worker).await?.parked {
+            self.submit::<w::Resume>(w::Of { worker }).await?;
+        }
         Ok(json!({ "worker": worker, "told": text, "delivery": delivery.word(), "missed": delivery.why() }))
     }
 
