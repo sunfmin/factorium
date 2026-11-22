@@ -630,3 +630,70 @@ on_issue!(CommentIssue, "issue.comment", Comment, |s, p, now| {
     }
     Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0) }])
 });
+
+/// Who left an issue to a person: the watch, a session (the owner, or a
+/// session of the owner's), or the one who added it so (`--waiting-for-human`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Asker {
+    Watch,
+    Session,
+    Added,
+}
+
+/// When (ms) an issue last started waiting for a person, and who left it
+/// so, from its events, each with when it was decided and whether the
+/// watch submitted it; none if it does not wait for one now.
+pub fn asked(history: impl IntoIterator<Item = (IssueEvent, i64, bool)>) -> Option<(i64, Asker)> {
+    let mut last = None;
+    for (event, at, by_watch) in history {
+        let Some(standing) = event.standing() else { continue };
+        last = (standing.status == Status::WaitingForHuman).then(|| match (event, by_watch) {
+            (IssueEvent::IssueOpened { .. }, _) => (at, Asker::Added),
+            (_, true) => (at, Asker::Watch),
+            _ => (at, Asker::Session),
+        });
+    }
+    last
+}
+
+/// The question an issue left to a person asks: the first line of its body
+/// after any "Based on …" line.
+pub fn question(body: &str) -> &str {
+    let mut lines = body.lines().map(str::trim).filter(|l| !l.is_empty());
+    lines.find(|l| !l.starts_with("Based on ")).unwrap_or("")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_question_is_the_first_line_after_any_based_on_line() {
+        assert_eq!(question("Based on proving 1a2b.\n\nShip it now?\nmore"), "Ship it now?");
+        assert_eq!(question("\n  Ship it now?  \n"), "Ship it now?");
+        assert_eq!(question("Based on proving 1a2b."), "");
+    }
+
+    #[test]
+    fn the_last_wait_for_a_person_names_when_and_who() {
+        let (watch, owner) = (true, false);
+        let opened = |waiting_for_human| IssueEvent::IssueOpened {
+            checkout: "web".into(),
+            number: 1,
+            title: "t".into(),
+            body: String::new(),
+            waiting_for_human,
+            task: None,
+            on: On::default(),
+        };
+        let wait = || IssueEvent::IssueWaitingForHuman { reason: "why".into() };
+        assert_eq!(asked([(opened(true), 5, watch)]), Some((5, Asker::Added)));
+        assert_eq!(asked([(opened(false), 5, owner), (wait(), 7, watch)]), Some((7, Asker::Watch)));
+        let again = [(opened(true), 1, owner), (IssueEvent::IssueReadied, 2, owner), (wait(), 3, owner)];
+        assert_eq!(asked(again), Some((3, Asker::Session)));
+        let commented = IssueEvent::IssueCommented { text: "x".into(), by: Author::Owner, at: None };
+        assert_eq!(asked([(opened(true), 1, owner), (commented, 2, watch)]), Some((1, Asker::Added)));
+        assert_eq!(asked([(opened(true), 1, owner), (IssueEvent::IssueReadied, 2, owner)]), None);
+    }
+}

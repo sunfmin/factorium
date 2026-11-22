@@ -183,7 +183,13 @@ what was held typed first. Its quota still on its screen after that is no
 new limit.
 The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
-which `doctor` shows.
+which `doctor` shows. Beside it doctor answers `asks`: every issue of every
+checkout that waits for a person (added `--waiting-for-human`, or left so by
+`issue wait-for-human`, the watch's or a session's), oldest first, each with
+its checkout and number, its title, its question (the first line of its body
+after any "Based on …" line), why, when it started waiting and who left it
+so. The owner answers one with `issue ready` (do it), `issue close` (don't),
+or `issue comment` then `issue ready`.
 
 ## 3. One database
 

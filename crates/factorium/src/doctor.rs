@@ -2,14 +2,15 @@
 //! `doctor` and the watch's look alike, and the owner's view it answers.
 
 use factorium_domain::idle::{Idles, idle_id};
+use factorium_domain::issue::{self, IssueEvent, Issues};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
-use factorium_domain::tracker;
 use factorium_domain::{daemon, doctor, heavy, watch, worker};
-use factum::Value;
+use factorium_domain::{issue_id, tracker};
+use factum::{Aggregate, By, StreamId, Value};
 use serde_json::json;
 
-use crate::{Answer, App};
+use crate::{Answer, App, Caller};
 
 impl App {
     /// What doctor reads, from the database and a reading.
@@ -56,6 +57,35 @@ impl App {
             seen.dead_letters.push(doctor::DeadLetters { projection, count: dead.len() });
         }
         Ok(seen)
+    }
+
+    /// Every issue that waits for a person, oldest wait first: its title,
+    /// the question its body asks, why, when it started waiting and who left
+    /// it so.
+    async fn asks(&self) -> Answer<Vec<Value>> {
+        let mut asks = Vec::new();
+        for r in self.rows(tracker::asking()).await? {
+            let i = self.issue(&r.checkout, r.number).await?;
+            let stream = StreamId::new(Issues::NAME, issue_id(&r.checkout, r.number));
+            let mut history = Vec::new();
+            for e in self.engine.history(&stream).await? {
+                let by_watch = e.meta.by == By::Principal(Caller::Watch.by().into());
+                let event: IssueEvent = tracker::decode(&e).map_err(|m| crate::Refusal::new("bad_event", m))?;
+                history.push((event, e.meta.now.0, by_watch));
+            }
+            let (since, by) = issue::asked(history).unzip();
+            asks.push(json!({
+                "issue": format!("{}#{}", i.checkout, i.number),
+                "title": i.title,
+                "question": issue::question(&i.body),
+                "why": i.reason,
+                "since": since,
+                "utc": since.map(factorium_domain::when::utc),
+                "by": by,
+            }));
+        }
+        asks.sort_by_key(|a| a["since"].as_i64());
+        Ok(asks)
     }
 
     /// The findings, each with its fix; the reading; and the owner's part of
@@ -115,6 +145,9 @@ impl App {
             "idle": idle,
             "findings": findings,
             "human": seen.human,
+            // Issues waiting for a person, oldest first: answer each with
+            // `issue ready` (do it), `issue close` (don't), or `issue comment` then `ready`.
+            "asks": self.asks().await?,
             "holds": holds,
             // Each landing waiting, with its place in its checkout's line (1 lands next).
             "landing": landing,
