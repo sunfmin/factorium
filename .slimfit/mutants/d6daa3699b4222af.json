@@ -1,0 +1,27 @@
+{
+  "tree": "2de7592b1de37752d9d83eda90a9de0426da95cd+d1fba762150c532c",
+  "picker": "agy:f863c325-3ae4-4546-98b4-6a0982ae7405:default",
+  "author": "claude-code:f6f69823-3067-550f-a3d1-f75a548b38be:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/health.rs:180:33: replace > with >= in judge",
+        "why": "The new tests both hold an active declared wait at 30 min, so they never exercise the exact SilentBound equality boundary without a wait.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/work.rs:118:29: replace - with + in App::worker_waiting",
+        "why": "Both new tests call worker_waiting immediately after World::new() before advancing time, so if d.at starts at 0 then (d.until + d.at) / 60_000 yields the same minutes.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/life.rs:269:5: replace worker_brief -> String with \"xyzzy\".into()",
+        "why": "The change adds worker-waiting instructions to the brief, but none of the new tests inspect worker_brief and a non-empty string passes existence checks.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
