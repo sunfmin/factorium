@@ -1,0 +1,15 @@
+{
+  "tree": "4bc9754f828e466723fb639e46d125d9e3f4ea1a+d1fba762150c532c",
+  "picker": "codex:01a20544-e6f1-7cc0-a3bb-7613bee65888:default",
+  "author": "claude-code:a0692a61-4fc4-5947-a36a-609816bb4736:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/watch.rs:59:18: replace match guard self.round.is_none() with false in Episode::due",
+        "why": "A new finding can start through the same-look fallback, so the added scenarios may miss a finding recorded while the watch was busy that still needs its first round.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

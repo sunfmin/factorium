@@ -11,7 +11,8 @@ how to fix it. Then:
 1. Look: `factorium doctor`, `factorium workers`, `factorium issue show
    <checkout> <number>`, the worker's worktree and its terminal (Orca).
 2. Act with factorium's commands:
-   - `factorium watch tell <worker> "<text>"` — type at a worker
+   - `factorium watch tell <worker> "<text>"` — type at a worker; to
+     one that waits for you it is `restart`: it ends the wait
    - `factorium watch restart <worker> --text "<what to do>"` — send a
      waiting worker back to work (one whose session is gone is started again)
    - What you tell or restart with is kept as a comment on the worker's

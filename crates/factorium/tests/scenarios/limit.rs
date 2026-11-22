@@ -94,7 +94,7 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     assert_eq!(w.worker_on("web", 1).await["status"], "working");
     let now_typed = sent(&w, &wk);
     let [red, word, comment, reset] = &now_typed[now_typed.len() - 4..] else { unreachable!() };
-    assert!(red.contains("landing was red") && word.ends_with("go on"), "{now_typed:?}");
+    assert!(red.contains("landing was red") && word.contains("go on"), "{now_typed:?}");
     assert!(comment.ends_with("use v2"), "{now_typed:?}");
     assert!(reset.contains("limit reset"), "{now_typed:?}");
     assert_eq!(w.app.doctor().await.unwrap()["limited"], json!([]));

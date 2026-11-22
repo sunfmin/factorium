@@ -432,7 +432,7 @@ pub enum WatchCmd {
     },
     /// Types a line at a worker, kept as a comment on its issue; answers
     /// `submitted` (it started a turn) or `queued` (it waits behind the
-    /// worker's running turn).
+    /// worker's running turn). To a waiting worker it is `restart`.
     Tell {
         worker: Uuid,
         text: String,

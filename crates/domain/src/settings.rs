@@ -27,6 +27,7 @@ pub enum Time {
     TasksBound,
     LookEvery,
     RoundBound,
+    RoundAgain,
     HeldFor,
     TickEvery,
     HeavySettle,
@@ -47,6 +48,7 @@ pub enum Setting {
     WorkerProcsMax,
     TickFailuresMax,
     MovedRedsMax,
+    RoundsMax,
     Time(Time),
 }
 
@@ -74,7 +76,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 24] = [
+const ALL: [Setting; 26] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -84,6 +86,7 @@ const ALL: [Setting; 24] = [
     S::WorkerProcsMax,
     S::TickFailuresMax,
     S::MovedRedsMax,
+    S::RoundsMax,
     S::Time(T::HotFor),
     S::Time(T::SilentBound),
     S::Time(T::HoldBound),
@@ -93,6 +96,7 @@ const ALL: [Setting; 24] = [
     S::Time(T::TasksBound),
     S::Time(T::LookEvery),
     S::Time(T::RoundBound),
+    S::Time(T::RoundAgain),
     S::Time(T::HeldFor),
     S::Time(T::TickEvery),
     S::Time(T::HeavySettle),
@@ -126,6 +130,7 @@ impl Setting {
             S::WorkerProcsMax => ("worker_procs_max", 400, Count, "one worker past this many processes is hot"),
             S::TickFailuresMax => ("tick_failures_max", 3, Count, "this many ticks failing in a row go to the watch"),
             S::MovedRedsMax => ("moved_reds_max", 4, Count, "a landing that does not merge because proving moved again counts as a first red at most this many times in a row"),
+            S::RoundsMax => ("rounds_max", 3, Count, "a watch episode starts at most this many rounds; past them it is unresolved, the owner's"),
             S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
             S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done, or hung with its turn open, goes to the watch"),
             S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),
@@ -135,6 +140,7 @@ impl Setting {
             S::Time(T::TasksBound) => ("tasks_bound", 86400, Seconds, "idle work's tasks run this long past `every` without an idle host run anyway, at background priority"),
             S::Time(T::LookEvery) => ("look_every", 300, Seconds, "the watch's look runs this often"),
             S::Time(T::RoundBound) => ("round_bound", 3600, Seconds, "a watch round lasts at most this long"),
+            S::Time(T::RoundAgain) => ("round_again", 1800, Seconds, "a watch episode still standing this long after its round ended starts another"),
             S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),
             S::Time(T::TickEvery) => ("tick_every", 10, Seconds, "the daemon ticks this often"),
             S::Time(T::HeavySettle) => ("heavy_settle", 30, Seconds, "a heavy command starts beside another only on a reading taken this long after the last start"),

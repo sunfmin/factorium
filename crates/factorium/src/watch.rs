@@ -4,7 +4,7 @@
 use factorium_domain::doctor;
 use factorium_domain::issue::Author;
 use factorium_domain::outbox::{Outcome, Sender};
-use factorium_domain::settings::{Settings, Time};
+use factorium_domain::settings::{Setting, Settings, Time};
 use factorium_domain::tracker;
 use factorium_domain::watch::{self, FileReport, Filed, Look, LookNow, StartWatch, Watches, watch_id};
 use factorium_domain::worker::{self as w, Status};
@@ -91,7 +91,9 @@ impl App {
             _ => None,
         };
         let ready = session.is_some();
-        self.submit::<LookNow>(Look { found: found.clone(), bound: settings.ms(Time::RoundBound), ready }).await?;
+        let (bound, again) = (settings.ms(Time::RoundBound), settings.ms(Time::RoundAgain));
+        let rounds_max = settings.get(Setting::RoundsMax) as u32;
+        self.submit::<LookNow>(Look { found: found.clone(), bound, again, rounds_max, ready }).await?;
         let after = self.state::<Watches>(watch_id()).await?;
         // The running round, passed once to each watch session, when it can take it.
         if let (Some(r), Some(s)) = (&after.round, &session)
@@ -102,8 +104,17 @@ impl App {
                 [] => String::new(),
                 said => format!(" — Comments on its issue since: {}", said.join(" / ")),
             };
+            let before = match &e.ended {
+                None => String::new(),
+                Some(d) => {
+                    let did = d.report.as_deref().map_or("your round ran past its bound unreported".into(), |t| {
+                        format!("you reported: \"{t}\"")
+                    });
+                    format!(" — Round {} on this finding: last time {did}; the finding is still there", e.rounds)
+                }
+            };
             let line = format!(
-                "{}{heard} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
+                "{}{heard}{before} — How to fix: {} — Act with factorium's commands (see `factorium help`). \
                  When done, file `factorium watch report --text \"what you found and did\"` (add --human \"...\" \
                  only for what needs the owner: spending money). `factorium watch next` shows this round again.",
                 e.what, e.fix
@@ -159,7 +170,9 @@ impl App {
         }
         // Its engine is at its limit: it stays parked, and the reset sends it back.
         if let Outcome::Held { until, .. } = &delivery {
-            return Ok(json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "until": until }));
+            return Ok(
+                json!({ "worker": worker, "resumed": false, "delivery": delivery.word(), "until": until, "missed": delivery.why() }),
+            );
         }
         self.submit::<w::Resume>(w::Of { worker }).await?;
         Ok(json!({ "worker": worker, "resumed": true, "delivery": delivery.word() }))
@@ -167,9 +180,13 @@ impl App {
 
     /// `factorium watch tell`: types a line at a worker's session; answers
     /// whether it started a turn (`submitted`) or waits behind the running
-    /// one (`queued`). `now`: first stops the running turn.
+    /// one (`queued`). `now`: first stops the running turn. To a worker that
+    /// waits for the watch it is [`App::watch_restart`]: it ends the wait.
     pub async fn watch_tell(&self, worker: Uuid, text: &str, now: bool) -> Answer {
-        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
+        let Live { started: st, session, waiting, .. } = self.live(worker, Want::Any).await?;
+        if waiting {
+            return self.restart(worker, Author::Watch, text, now).await;
+        }
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, Author::Watch, text).await?;
         let delivery = self.tell(&session, Sender::Watch, text, now).await.and_then(crate::session::heard)?;
