@@ -15,6 +15,16 @@ use crate::kept::Why;
 use crate::life::End;
 use crate::{Answer, App, Refusal};
 
+/// A Decided record as [`App::records`] finds it.
+pub(crate) struct Found {
+    pub checkout: String,
+    pub number: u64,
+    pub at: Option<i64>,
+    pub place: Place,
+    pub id: Option<u64>,
+    pub record: decided::Record,
+}
+
 impl App {
     /// Makes an issue numbered one past the checkout's last, waiting from
     /// the start for the issues in `blocked_by`, of its checkout or of
@@ -305,46 +315,59 @@ impl App {
     /// did not finish. An open issue takes its numbers as its own event; a
     /// closed one takes none, so the sequence places them (SPEC §2).
     pub(crate) async fn number_decided(&self) -> Answer<()> {
-        let given = self.state::<decided::Numbers>(decided::numbers_id()).await?;
-        // (when, issue, place in it: its body's records in order, then its comments) of each.
-        let mut open = Vec::new();
-        for r in self.rows(tracker::issues(None, true)).await? {
-            let i = self.issue(&r.checkout, r.number).await?.numbered(&given);
-            let (body, comments) = unnumbered_records(&i);
-            let filed = if body.is_empty() { 0 } else { self.filed(&i).await? };
-            let issue = (r.checkout.clone(), r.number);
-            open.extend(body.into_iter().enumerate().map(|(k, rec)| ((filed, issue.clone(), k, 0), Err(rec))));
-            open.extend(
-                comments.into_iter().map(|c| ((i.comments[c].at.unwrap_or(0), issue.clone(), usize::MAX, c), Ok(c))),
-            );
-        }
-        if open.is_empty() && given.swept {
+        let swept = self.state::<decided::Numbers>(decided::numbers_id()).await?.swept;
+        let mut open: Vec<_> = self.records().await?.into_iter().filter(|f| f.id.is_none()).collect();
+        if open.is_empty() && swept {
             return Ok(());
         }
-        open.sort_by(|a, b| a.0.cmp(&b.0));
+        open.sort_by_key(|f| f.at.unwrap_or(0));
         let ids = self.numbers(open.len(), true).await?;
-        let mut placed: Vec<decided::Numbering> = Vec::new();
-        for (((_, (checkout, number), _, _), what), id) in open.into_iter().zip(ids) {
-            let n = match placed.iter().position(|n| (n.checkout.as_str(), n.number) == (checkout.as_str(), number)) {
-                Some(at) => &mut placed[at],
-                None => {
-                    placed.push(decided::Numbering { checkout, number, body: Vec::new(), comments: Vec::new() });
-                    placed.last_mut().expect("pushed")
-                }
-            };
-            match what {
-                Err(rec) => n.body.push(decided::Mark::of(&rec, id)),
-                Ok(c) => n.comments.push((c, id)),
+        let mut placed = std::collections::BTreeMap::new();
+        for (f, id) in open.into_iter().zip(ids) {
+            let key = (f.checkout.clone(), f.number);
+            let n = placed.entry(key).or_insert_with(|| decided::Numbering {
+                checkout: f.checkout,
+                number: f.number,
+                body: Vec::new(),
+                comments: Vec::new(),
+            });
+            match f.place {
+                Place::Body => n.body.push(decided::Mark::of(&f.record, id)),
+                Place::Comment(c) => n.comments.push((c, id)),
             }
         }
         let mut closed = Vec::new();
-        for n in placed {
+        for n in placed.into_values() {
             match self.submit::<NumberDecided>(n.clone()).await {
                 Err(r) if r.code == "ended" => closed.push(n),
                 done => done?,
             }
         }
         self.submit::<decided::PlaceNumbers>(decided::Place { placed: closed }).await
+    }
+
+    /// Every Decided record of every issue of any checkout, its numbers
+    /// placed outside it among them ([`Issue::numbered`]): with when it was
+    /// made (a body's, when its issue was filed; a comment's, if known).
+    pub(crate) async fn records(&self) -> Answer<Vec<Found>> {
+        let given = self.state::<decided::Numbers>(decided::numbers_id()).await?;
+        let mut found = Vec::new();
+        for r in self.rows(tracker::issues(None, true)).await? {
+            let i = self.issue(&r.checkout, r.number).await?.numbered(&given);
+            let records = i.records();
+            let filed = match records.first() {
+                Some((Place::Body, ..)) => Some(self.filed(&i).await?),
+                _ => None,
+            };
+            for (place, id, record) in records {
+                let at = match place {
+                    Place::Body => filed,
+                    Place::Comment(c) => i.comments[c].at,
+                };
+                found.push(Found { checkout: r.checkout.clone(), number: r.number, at, place, id, record });
+            }
+        }
+        Ok(found)
     }
 
     /// When (ms) `issue` was filed: its first event's time.

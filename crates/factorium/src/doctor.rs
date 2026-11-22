@@ -94,27 +94,14 @@ impl App {
     /// one first ([`App::number_decided`]).
     pub(crate) async fn decided(&self, since: i64) -> Answer<Vec<Value>> {
         self.number_decided().await?;
-        let given = self.state::<decided::Numbers>(decided::numbers_id()).await?;
         let mut found = Vec::new();
-        for r in self.rows(tracker::issues(None, true)).await? {
-            let i = self.issue(&r.checkout, r.number).await?.numbered(&given);
-            let issue = format!("{}#{}", i.checkout, i.number);
-            let mut records: Vec<_> =
-                (i.comments.iter()).filter_map(|n| Some((n.at?, n.decided, decided::in_comment(&n.text)?))).collect();
-            let in_body = decided::in_body(&i.body);
-            if !in_body.is_empty() {
-                // A body's records were made when it was filed.
-                let filed = self.filed(&i).await?;
-                let ids = decided::numbers(&in_body, &i.decided);
-                records.extend(in_body.into_iter().zip(ids).map(|(d, id)| (filed, id, d)));
-            }
-            for (at, id, d) in records.into_iter().filter(|(at, _, _)| *at > since) {
-                let mut v = json!(d);
-                v["id"] = json!(id.map(decided::name));
-                v["issue"] = json!(issue);
-                (v["at"], v["utc"]) = (json!(at), json!(factorium_domain::when::utc(at)));
-                found.push(v);
-            }
+        for f in self.records().await?.into_iter().filter(|f| f.at.is_some_and(|at| at > since)) {
+            let at = f.at.unwrap_or_default();
+            let mut v = json!(f.record);
+            v["id"] = json!(f.id.map(decided::name));
+            v["issue"] = json!(format!("{}#{}", f.checkout, f.number));
+            (v["at"], v["utc"]) = (json!(at), json!(factorium_domain::when::utc(at)));
+            found.push(v);
         }
         // Newest first; of one time, the later number first.
         found.sort_by_key(|d| std::cmp::Reverse((d["at"].as_i64(), d["id"].as_str().and_then(decided::parse))));

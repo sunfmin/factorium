@@ -401,14 +401,7 @@ impl Aggregate for Issues {
             // Closed, it takes no start: no claim is needed.
             IssueEvent::IssueClosed { .. } => (s.worker, s.claim) = (None, None),
             IssueEvent::IssueCommented { text, by, at, decided } => s.comments.push(Note { text, by, at, decided }),
-            IssueEvent::DecidedNumbered { body, comments } => {
-                s.decided.extend(body);
-                for (i, id) in comments {
-                    if let Some(n) = s.comments.get_mut(i) {
-                        n.decided = Some(id);
-                    }
-                }
-            }
+            IssueEvent::DecidedNumbered { body, comments } => s.place(&body, &comments),
             IssueEvent::IssueWaitingForHuman { .. } | IssueEvent::IssueReadied => {}
         }
         if let Some(Standing { status, reason }) = standing {
@@ -688,32 +681,40 @@ on_issue!(CommentIssue, "issue.comment", Comment, |s, p, now| {
     Ok(vec![IssueEvent::IssueCommented { text: p.text.clone(), by: p.by.clone(), at: Some(now.0), decided }])
 });
 
-/// What `issue` has no number for yet: each of its body's records, and
-/// each comment that is one, by index.
-pub fn unnumbered_records(issue: &Issue) -> (Vec<decided::Record>, Vec<usize>) {
-    let records = decided::in_body(&issue.body);
-    let ids = decided::numbers(&records, &issue.decided);
-    let body = records.into_iter().zip(ids).filter(|(_, id)| id.is_none()).map(|(r, _)| r).collect();
-    let comments = (issue.comments.iter().enumerate())
-        .filter(|(_, n)| n.decided.is_none() && decided::in_comment(&n.text).is_some())
-        .map(|(i, _)| i)
-        .collect();
-    (body, comments)
+/// Where a Decided record is in its issue: its body, or comment `i`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    Body,
+    Comment(usize),
 }
 
 impl Issue {
+    /// Each Decided record it holds, its body's then its comments', with
+    /// where it is and its number, if it has one.
+    pub fn records(&self) -> Vec<(Place, Option<u64>, decided::Record)> {
+        let body = decided::in_body(&self.body);
+        let ids = decided::numbers(&body, &self.decided);
+        let comments = (self.comments.iter().enumerate())
+            .filter_map(|(i, n)| Some((Place::Comment(i), n.decided, decided::in_comment(&n.text)?)));
+        body.into_iter().zip(ids).map(|(r, id)| (Place::Body, id, r)).chain(comments).collect()
+    }
+
+    /// Numbers its records: `body`'s marks, and comments' by index.
+    fn place(&mut self, body: &[Mark], comments: &[(usize, u64)]) {
+        self.decided.extend(body.iter().cloned());
+        for &(i, id) in comments {
+            if let Some(c) = self.comments.get_mut(i) {
+                c.decided.get_or_insert(id);
+            }
+        }
+    }
+
     /// The issue with the numbers `given` placed for its records outside
     /// it: an issue closed before records were numbered takes no event.
     pub fn numbered(mut self, given: &decided::Given) -> Issue {
-        for n in
-            given.placed.iter().filter(|n| (n.checkout.as_str(), n.number) == (self.checkout.as_str(), self.number))
-        {
-            self.decided.extend(n.body.iter().cloned());
-            for &(i, id) in &n.comments {
-                if let Some(c) = self.comments.get_mut(i) {
-                    c.decided.get_or_insert(id);
-                }
-            }
+        let at = (self.checkout.clone(), self.number);
+        for n in given.placed.iter().filter(|n| (n.checkout.as_str(), n.number) == (at.0.as_str(), at.1)) {
+            self.place(&n.body, &n.comments);
         }
         self
     }
@@ -721,19 +722,13 @@ impl Issue {
 
 // Only what still has no number takes one: a sweep that raced another gives none twice.
 on_issue!(NumberDecided, "issue.number_decided", Numbering, |s, p, now| {
-    let (body, comments) = unnumbered_records(s);
-    let mut open = body;
-    let body: Vec<Mark> = (p.body.iter())
-        .filter(|m| match open.iter().position(|r| r.marked_by(m)) {
-            Some(i) => {
-                open.remove(i);
-                true
-            }
-            None => false,
-        })
-        .cloned()
-        .collect();
-    let comments: Vec<_> = p.comments.iter().filter(|(i, _)| comments.contains(i)).copied().collect();
+    let mut open: Vec<_> = s.records().into_iter().filter(|(_, id, _)| id.is_none()).collect();
+    let mut take = |at: Place, m: Option<&Mark>| {
+        let i = open.iter().position(|(p, _, r)| *p == at && m.is_none_or(|m| r.marked_by(m)));
+        i.map(|i| open.remove(i)).is_some()
+    };
+    let body: Vec<Mark> = p.body.iter().filter(|m| take(Place::Body, Some(m))).cloned().collect();
+    let comments: Vec<_> = p.comments.iter().filter(|(i, _)| take(Place::Comment(*i), None)).copied().collect();
     Ok(if body.is_empty() && comments.is_empty() {
         Vec::new()
     } else {
