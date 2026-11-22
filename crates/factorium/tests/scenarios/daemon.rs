@@ -495,8 +495,11 @@ async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() 
 fn a_tick_is_logged_once_it_did_something_or_was_slow() {
     use factorium::Tick;
     let one = || vec![json!({})];
-    assert!(!Tick::default().logged(), "quick, with nothing done");
-    assert!(Tick { slow: true, ..Tick::default() }.logged(), "slow, with nothing done");
+    assert_eq!(Tick::default().line(), None, "quick, with nothing done");
+    assert!(
+        Tick { slow: true, ..Tick::default() }.line().is_some_and(|l| l.contains("\"slow\":true")),
+        "slow, with nothing done"
+    );
     let did = [
         Tick { started: Some(json!({})), ..Tick::default() },
         Tick { landed: one(), ..Tick::default() },
@@ -506,6 +509,6 @@ fn a_tick_is_logged_once_it_did_something_or_was_slow() {
         Tick { resumed: one(), ..Tick::default() },
     ];
     for t in did {
-        assert!(t.logged(), "{t:?}");
+        assert!(t.line().is_some(), "{t:?}");
     }
 }

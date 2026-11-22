@@ -58,9 +58,13 @@ pub struct Tick {
 }
 
 impl Tick {
-    /// Whether daemon.log has it, with its time: it was slow, or did something (landed, moved a
-    /// line, saw, started or resumed a worker, or moved idle work).
-    pub fn logged(&self) -> bool {
+    /// Its line in daemon.log, if daemon.log has it: it was slow, or did something (landed, moved
+    /// a line, saw, started or resumed a worker, or moved idle work).
+    pub fn line(&self) -> Option<String> {
+        self.logged().then(|| serde_json::to_string(self).unwrap_or_default())
+    }
+
+    fn logged(&self) -> bool {
         self.slow
             || self.started.is_some()
             || !self.landed.is_empty()
@@ -359,8 +363,7 @@ impl App {
             let ticked = self.tick().await;
             self.note_ticked();
             match &ticked {
-                Ok(t) if t.logged() => println!("{}", serde_json::to_string(t).unwrap_or_default()),
-                Ok(_) => {}
+                Ok(t) => t.line().into_iter().for_each(|l| println!("{l}")),
                 Err(e) => eprintln!("tick: {e}"),
             }
             if let Some(binary) = self.after(&ticked) {
