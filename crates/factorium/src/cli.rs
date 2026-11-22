@@ -63,8 +63,19 @@ pub enum Top {
     /// (its body's first line after any "Based on …" line), when it started
     /// waiting and who left it so (`watch`, `session`, or `added`
     /// `--waiting-for-human`). Answer one with `issue ready` (do it),
-    /// `issue close` (don't), or `issue comment` then `issue ready`.
+    /// `issue close` (don't), or `issue comment` then `issue ready`; and
+    /// `decided`: every Decided record (an issue's body or comment that
+    /// starts `Decided (<who>, for Felix): <what>`, then `Options:`,
+    /// `Chose:`, `Undo:` lines) made since `decided --read`, newest first.
     Doctor,
+    /// Answers the Decided records of the last 7 days, newest first, each
+    /// with its issue, who, what, options, chose, undo and when; `--read`
+    /// marks every one made until now read, so doctor's `decided` leaves
+    /// them out (the owner's alone: the watch reads them, never marks them).
+    Decided {
+        #[arg(long)]
+        read: bool,
+    },
     /// Removes a worker's worktree that no open issue's attempt owns, as
     /// doctor names it, with its terminals: what it holds that is nowhere
     /// else (commits, and changes, committed first) is kept on
@@ -467,6 +478,10 @@ impl Top {
             Top::Workers { all } => app.workers(all).await,
             Top::Outbox { worker } => app.outbox_of(worker).await,
             Top::Doctor => app.doctor_here().await,
+            Top::Decided { read: true } if !matches!(caller, Caller::Owner) => {
+                Err(Refusal::new("guarded", "only the owner marks the Decided records read"))
+            }
+            Top::Decided { read } => app.decided_view(read).await,
             Top::Discard { worktree } => app.discard_orphaned(&worktree).await,
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,

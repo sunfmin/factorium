@@ -228,3 +228,21 @@ async fn a_copy_of_a_comment_older_code_kept_on_its_worker_is_ignored() {
     w.app.watch_restart(id(&wk), "v2", false).await.unwrap();
     w.app.worker_escalate(id(&wk), "again").await.expect("its stream still folds and takes commands");
 }
+
+/// A worker that decides what its issue did not settle comments a Decided
+/// record, and doctor's `decided` lists it.
+#[tokio::test]
+async fn a_worker_s_decided_record_shows_up_in_doctor_s_decided() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let record = "Decided (worker, for Felix): KEEP applies only to sampled survivors\n\
+        Options: A) every survivor  B) sampled survivors only\n\
+        Chose: B, because a survivor not sampled was never judged\n\
+        Undo: revert the commit that reads KEEP";
+    w.app.worker_comment(id(&wk), record).await.unwrap();
+    let decided = w.doctor().await["decided"].clone();
+    assert_eq!(decided.as_array().map(Vec::len), Some(1), "{decided}");
+    assert_eq!(decided[0]["issue"], "web#1");
+    assert_eq!(decided[0]["who"], "worker");
+    assert_eq!(decided[0]["chose"], "B, because a survivor not sampled was never judged");
+}

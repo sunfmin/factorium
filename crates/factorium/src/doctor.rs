@@ -5,7 +5,7 @@ use factorium_domain::idle::{Idles, idle_id};
 use factorium_domain::issue::{self, IssueEvent, Issues};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
-use factorium_domain::{daemon, doctor, heavy, watch, worker};
+use factorium_domain::{daemon, decided, doctor, heavy, watch, worker};
 use factorium_domain::{issue_id, tracker};
 use factum::{Aggregate, By, StreamId, Value};
 use serde_json::json;
@@ -88,6 +88,45 @@ impl App {
         Ok(asks)
     }
 
+    /// Every Decided record made after `since` (ms), in any issue's body or
+    /// comment of any checkout, newest first: read from the issue, its one home.
+    pub(crate) async fn decided(&self, since: i64) -> Answer<Vec<Value>> {
+        let mut found = Vec::new();
+        for r in self.rows(tracker::issues(None, true)).await? {
+            let i = self.issue(&r.checkout, r.number).await?;
+            let issue = format!("{}#{}", i.checkout, i.number);
+            let mut records: Vec<_> =
+                (i.comments.iter()).filter_map(|n| Some((n.at?, decided::in_comment(&n.text)?))).collect();
+            let in_body = decided::in_body(&i.body);
+            if !in_body.is_empty() {
+                // A body's records were made when it was filed.
+                let stream = StreamId::new(Issues::NAME, issue_id(&i.checkout, i.number));
+                let filed = self.engine.history(&stream).await?.first().map_or(0, |e| e.meta.now.0);
+                records.extend(in_body.into_iter().map(|d| (filed, d)));
+            }
+            for (at, d) in records.into_iter().filter(|(at, _)| *at > since) {
+                let mut v = json!(d);
+                v["issue"] = json!(issue);
+                (v["at"], v["utc"]) = (json!(at), json!(factorium_domain::when::utc(at)));
+                found.push(v);
+            }
+        }
+        found.sort_by_key(|d| std::cmp::Reverse(d["at"].as_i64()));
+        Ok(found)
+    }
+
+    /// `decided`: the Decided records of the last 7 days, newest first; with
+    /// `read`, marks every one made until now read, so doctor lists none of them.
+    pub async fn decided_view(&self, read: bool) -> Answer {
+        if read {
+            self.submit::<watch::MarkDecidedRead>(watch::ReadDecided {}).await?;
+            let w = self.state::<watch::Watches>(watch::watch_id()).await?;
+            return Ok(json!({ "read_until": w.decided_read, "utc": factorium_domain::when::utc(w.decided_read) }));
+        }
+        const WEEK: i64 = 7 * 24 * 60 * 60 * 1000;
+        Ok(json!({ "decided": self.decided(self.now() - WEEK).await? }))
+    }
+
     /// The findings, each with its fix; the reading; and the owner's part of
     /// the watch's reports, which this marks seen.
     pub(crate) async fn doctor_view(&self) -> Answer {
@@ -148,6 +187,8 @@ impl App {
             // Issues waiting for a person, oldest first: answer each with
             // `issue ready` (do it), `issue close` (don't), or `issue comment` then `ready`.
             "asks": self.asks().await?,
+            // What deciders decided for the owner since `decided --read`, newest first.
+            "decided": self.decided(w.decided_read).await?,
             "holds": holds,
             // Each landing waiting, with its place in its checkout's line (1 lands next).
             "landing": landing,

@@ -1,0 +1,105 @@
+//! A decision a decider (a session, a worker, the watch) made for the owner,
+//! as it recorded it in the issue it belongs to: the body when the issue is
+//! filed, a comment afterwards. The issue is its one home; doctor's
+//! `decided` reads it from there. Its shape:
+//!
+//! ```text
+//! Decided (<who>, for Felix): <what, one line>
+//! Options: A) …  B) …
+//! Chose: B, because …
+//! Undo: <how to take it back>
+//! ```
+
+use serde::Serialize;
+
+/// The line a record starts with.
+const HEAD: &str = "Decided (";
+
+/// One record, its fields as written; a field it lacks is none.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Record {
+    pub who: String,
+    pub what: String,
+    pub options: Option<String>,
+    pub chose: Option<String>,
+    pub undo: Option<String>,
+}
+
+/// The record a comment is: one whose first line is `Decided (…`.
+pub fn in_comment(text: &str) -> Option<Record> {
+    let mut lines = text.lines().map(str::trim).skip_while(|l| l.is_empty());
+    let head = lines.next()?;
+    read(head, lines)
+}
+
+/// Every record a body holds, each starting on a `Decided (…` line.
+pub fn in_body(body: &str) -> Vec<Record> {
+    let lines: Vec<&str> = body.lines().map(str::trim).collect();
+    let heads = lines.iter().enumerate().filter(|(_, l)| l.starts_with(HEAD)).map(|(i, _)| i);
+    heads.filter_map(|i| read(lines[i], lines[i + 1..].iter().copied())).collect()
+}
+
+/// The record headed by `head`, its fields from the lines after it up to
+/// the next record or a blank line; none unless `head` is a record's.
+fn read<'a>(head: &str, rest: impl Iterator<Item = &'a str>) -> Option<Record> {
+    let (who, what) = head.strip_prefix(HEAD)?.split_once("):")?;
+    let who = who.split_once(", for").map_or(who, |(w, _)| w).trim();
+    // Options, Chose, Undo: each from its line, going on over the lines after it.
+    const FIELDS: [&str; 3] = ["Options:", "Chose:", "Undo:"];
+    let mut fields: [Option<String>; 3] = Default::default();
+    let mut last = None;
+    for line in rest.take_while(|l| !l.is_empty() && !l.starts_with(HEAD)) {
+        match FIELDS.iter().enumerate().find_map(|(i, p)| Some((i, line.strip_prefix(p)?))) {
+            Some((i, value)) => (fields[i], last) = (Some(value.trim().into()), Some(i)),
+            None => {
+                if let Some(v) = last.and_then(|i| fields[i].as_mut()) {
+                    v.push(' ');
+                    v.push_str(line);
+                }
+            }
+        }
+    }
+    let [options, chose, undo] = fields;
+    Some(Record { who: who.into(), what: what.trim().into(), options, chose, undo })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RECORD: &str = "Decided (worker, for Felix): KEEP applies only to sampled survivors\n\
+        Options: A) every survivor  B) sampled survivors only\n\
+        Chose: B, because the issue is stricter\n  than it says\n\
+        Undo: revert the commit";
+
+    fn kept() -> Record {
+        Record {
+            who: "worker".into(),
+            what: "KEEP applies only to sampled survivors".into(),
+            options: Some("A) every survivor  B) sampled survivors only".into()),
+            chose: Some("B, because the issue is stricter than it says".into()),
+            undo: Some("revert the commit".into()),
+        }
+    }
+
+    #[test]
+    fn a_comment_is_a_record_only_when_its_first_line_is_one() {
+        assert_eq!(in_comment(RECORD), Some(kept()));
+        assert_eq!(in_comment(&format!("\n{RECORD}")), Some(kept()));
+        assert_eq!(in_comment(&format!("measured 4.1s\n{RECORD}")), None);
+        assert_eq!(in_comment("Decided: no parens"), None);
+        let bare = in_comment("Decided (watch): restart it").unwrap();
+        assert_eq!((bare.who.as_str(), bare.what.as_str(), bare.undo), ("watch", "restart it", None));
+    }
+
+    #[test]
+    fn a_body_holds_each_record_on_its_own_lines() {
+        let body =
+            format!("Based on proving 1a2b.\n\nWhy it matters.\n\n{RECORD}\nDecided (watch, for Felix): park it\n");
+        let found = in_body(&body);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0], kept());
+        assert_eq!((found[1].who.as_str(), found[1].what.as_str()), ("watch", "park it"));
+        assert!(in_body("no record here").is_empty());
+    }
+}
