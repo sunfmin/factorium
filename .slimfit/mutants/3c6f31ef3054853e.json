@@ -1,0 +1,15 @@
+{
+  "tree": "21f2be333401c874cb57a300b92eb97e5168b5f1+d1fba762150c532c",
+  "picker": "codex:01a2030e-6ff2-7cc1-a76c-026a0b0c1c5e:default",
+  "author": "claude-code:460ba057-9e4c-511b-a00e-1ac317d29bcb:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/decided.rs:141:5: replace numbers_id -> Uuid with Default::default()",
+        "why": "The tests start with empty stores or erase the numbering history, so they can miss a changed stream ID that hides existing allocations and placements.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
