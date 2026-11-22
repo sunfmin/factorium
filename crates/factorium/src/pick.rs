@@ -41,7 +41,13 @@ impl App {
         let (goal, listing) = (self.slimfit(&["help", "picker"])?, said.out);
         let question = pick::question(&goal, &diff, &listing);
         let quote = factorium_harness::quoted;
-        let take = |text: &str, t: &Taken| Ok(pick::answer(&pick::read(text, &listed)?, t, quote));
+        let full = |functions: &[String]| {
+            let mut args = vec!["check", "--repo", &st.worktree, "--mutants"];
+            args.extend(functions.iter().flat_map(|f| ["--function", f.as_str()]));
+            let out = self.slimfit(&args).map_err(|r| r.message)?;
+            serde_json::from_str(&out).map_err(|e| format!("slimfit {}: {e}: {out}", args.join(" ")))
+        };
+        let take = |text: &str, t: &Taken| Ok(pick::answer(&pick::read(text, &listed, full)?, t, quote));
         self.second(&st, worker, "picker", &question, &pick::form(), take).await
     }
 
