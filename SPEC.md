@@ -389,8 +389,14 @@ depend on nothing else of factorium.
   --mutants`; its time and tokens go on the issue (factorium#147). Claude
   Code, Codex, Grok and agy can be asked, each in a user directory of its
   own that holds only its login (agy's, its HOME, also an agent with no
-  tools, factorium#200). One that fails hands the pick to the next
-  harness of the kit, the worker's own last, and the record names each
+  tools, factorium#200). One whose answer is no JSON object, or not one
+  as asked, is asked once more in the same session (Claude Code and Grok
+  by `--resume`, agy by `--conversation`; Codex's session is ephemeral,
+  so it is not), told only what was wrong and the one form the answer
+  takes; both asks' time and tokens count, and the record says it was
+  "answered as asked when asked again" (factorium#226). One that fails,
+  or answers off the form twice, hands the pick to the next harness of
+  the kit, the worker's own last, and the record names each
   that failed and why; when none is left the worker gets the last refusal,
   never a pick (factorium#154). When slimfit lists no candidates (an
   empty listing, or its refusal that the tool listed none, slimfit#77)

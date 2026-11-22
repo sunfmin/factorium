@@ -3,7 +3,8 @@
 //! and nothing of the worker's. `factorium worker pick-mutants` asks it
 //! to pick the change's mutants from slimfit's candidates; `factorium
 //! worker review-growth` to judge whether the change could be smaller. One
-//! that fails hands the question to the next, the worker's own harness
+//! whose answer is not as asked is asked once more, in the same session;
+//! one that fails hands the question to the next, the worker's own harness
 //! last; what it took goes on the issue.
 
 use factorium_domain::issue::Author;
@@ -40,8 +41,8 @@ impl App {
         let (goal, listing) = (self.slimfit(&["help", "picker"])?, said.out);
         let question = pick::question(&goal, &diff, &listing);
         let quote = factorium_harness::quoted;
-        self.second(&st, worker, "picker", &question, |text, t| Ok(pick::answer(&pick::read(text, &listed)?, t, quote)))
-            .await
+        let take = |text: &str, t: &Taken| Ok(pick::answer(&pick::read(text, &listed)?, t, quote));
+        self.second(&st, worker, "picker", &question, &pick::form(), take).await
     }
 
     /// Has the worker's change's growth judged, and answers the verdict, by
@@ -51,7 +52,7 @@ impl App {
         let (st, diff) = self.change(worker).await?;
         let question = review::question(&self.slimfit(&["help", "reviewer"])?, &diff);
         let (serves, quote) = (format!("{}#{}", st.checkout, st.number), factorium_harness::quoted);
-        self.second(&st, worker, "reviewer", &question, |text, t| {
+        self.second(&st, worker, "reviewer", &question, review::FORM, |text, t| {
             Ok(review::answer(&review::read(text)?, &serves, t, quote))
         })
         .await
@@ -74,14 +75,16 @@ impl App {
     /// `question` asked of a fresh session as `role`, on the kit's other
     /// harness that can be asked, each that fails handing it to the next,
     /// the worker's own last; its answer and the issue's line of what it
-    /// took made by `take` of its text and who it was. Keeps the line and
-    /// answers the answer.
+    /// took made by `take` of its text and who it was. An answer `take`
+    /// does not take is asked once more of the same session, with why not
+    /// and the one `form` it takes. Keeps the line and answers the answer.
     async fn second(
         &self,
         st: &Started,
         worker: Uuid,
         role: &str,
         question: &str,
+        form: &str,
         take: impl Fn(&str, &Taken) -> Result<(Value, String), String>,
     ) -> Answer {
         let author = author(st, worker);
@@ -94,25 +97,9 @@ impl App {
                 Err(none) => return Err(last.unwrap_or(none)),
             };
             let dir = self.data().pick(uuid::Uuid::now_v7());
-            let answered = self.ask_in(&dir, &on, role, question).await;
+            let one = One { on: &on, role, author: &author, fell_back: &failed };
+            let taken = self.ask_on(&dir, &one, question, form, &take).await;
             let _ = std::fs::remove_dir_all(&dir);
-            let taken = answered.and_then(|(asked, took_ms)| {
-                let (harness, account, author) = (on.harness.key(), on.account.as_deref(), author.clone());
-                let (session, model, tokens_in, tokens_out) =
-                    (&asked.session, &asked.model, asked.tokens_in, asked.tokens_out);
-                let t = Taken {
-                    harness,
-                    session,
-                    model,
-                    account,
-                    author,
-                    took_ms,
-                    tokens_in,
-                    tokens_out,
-                    fell_back: &failed,
-                };
-                take(&asked.text, &t).map_err(fail(&format!("{role}_answer")))
-            });
             let why = match taken {
                 Ok((answer, cost)) => {
                     self.note(&st.checkout, st.number, Author::Factorium, &cost).await?;
@@ -125,23 +112,68 @@ impl App {
         }
     }
 
-    /// What a fresh session on `on`, alone in `dir`, answered `question`
-    /// as `role`, and the ms it took; refused when it fails or passes
-    /// `pick_bound`.
-    async fn ask_in(&self, dir: &Path, on: &Pick, role: &str, question: &str) -> Answer<(Asked, u64)> {
+    /// `question` asked of a fresh session `one.on`, alone in `dir`, and
+    /// what `take` made of its answer; one not taken asked once more of the
+    /// same session, where its harness keeps one, with why not and `form`.
+    async fn ask_on(
+        &self,
+        dir: &Path,
+        one: &One<'_>,
+        question: &str,
+        form: &str,
+        take: &impl Fn(&str, &Taken) -> Result<(Value, String), String>,
+    ) -> Answer<(Value, String)> {
+        let (on, role) = (one.on, one.role);
+        let user_dir = dir.join("home");
+        std::fs::create_dir_all(&user_dir).map_err(|e| Refusal::new("io", e.to_string()))?;
+        let failed = format!("{role}_failed");
+        on.harness.ask_home(&self.host.home(), on.account.as_deref(), &user_dir).map_err(fail(&failed))?;
+        let not_taken = |why: &str, text: &str| Refusal::new(&format!("{role}_answer"), format!("{why}: {text}"));
+        let (first, took_ms) = self.ask_in(dir, on, role, question, None).await?;
+        let why = match take(&first.text, &one.taken(&first, took_ms, false)) {
+            Ok(taken) => return Ok(taken),
+            Err(why) => why,
+        };
+        if !on.harness.asks_again() {
+            return Err(not_taken(&why, &first.text));
+        }
+        let again = factorium_domain::pick::again(&why, form);
+        let (second, more_ms) = self
+            .ask_in(dir, on, role, &again, Some(&first.session))
+            .await
+            .map_err(|r| Refusal::new(&r.code, format!("{why}; asked again: {}", r.message)))?;
+        let both = Asked {
+            tokens_in: first.tokens_in + second.tokens_in,
+            tokens_out: first.tokens_out + second.tokens_out,
+            ..second
+        };
+        take(&both.text, &one.taken(&both, took_ms + more_ms, true))
+            .map_err(|again| not_taken(&format!("{why}; asked again: {again}"), &both.text))
+    }
+
+    /// What the session on `on` in `dir` — a fresh one, or the one `again`
+    /// names, asked once more — answered `question` as `role`, and the ms
+    /// it took; refused when it fails or passes `pick_bound`.
+    async fn ask_in(
+        &self,
+        dir: &Path,
+        on: &Pick,
+        role: &str,
+        question: &str,
+        again: Option<&str>,
+    ) -> Answer<(Asked, u64)> {
         let bound = Duration::from_millis(self.settings().await?.ms(Time::PickBound) as u64);
         let failed = format!("{role}_failed");
         let (q, a, user_dir) = (dir.join("question.md"), dir.join("answer.json"), dir.join("home"));
-        let made = std::fs::create_dir_all(&user_dir).and_then(|()| std::fs::write(&q, question));
-        made.map_err(|e| Refusal::new("io", e.to_string()))?;
+        std::fs::write(&q, question).map_err(|e| Refusal::new("io", e.to_string()))?;
         let home = self.host.home();
-        on.harness.ask_home(&home, on.account.as_deref(), &user_dir).map_err(fail(&failed))?;
         // Dropped once the ask is done, as it ends: no secrets file outlives it.
         let session = SessionEnv::new(self, on)?;
         let (q, a) = (q.to_string_lossy(), a.to_string_lossy());
         let (command, model, path, secrets) =
             (&on.command, on.model.as_deref(), session.path(), session.secrets_file());
-        let ask = Ask { command, model, home: &home, path, user_dir: &user_dir, question: &q, answer: &a, secrets };
+        let ask =
+            Ask { command, model, home: &home, path, user_dir: &user_dir, question: &q, answer: &a, secrets, again };
         let (at, line) = (dir.to_path_buf(), on.harness.ask_line(&ask).expect("one that asks"));
         let run = move || factorium_host::run(&at, &line, &[], bound, Priority::Normal, &|_| {}, &|| false);
         let ran = tokio::task::spawn_blocking(run).await.map_err(|e| Refusal::new(&failed, e.to_string()));
@@ -158,6 +190,34 @@ impl App {
         }
         let asked = on.harness.asked(&said, on.model.as_deref()).map_err(fail(&failed))?;
         Ok((asked, ran.took_ms))
+    }
+}
+
+/// One second agent asked: on what, as which role, for whom, after which
+/// failed.
+struct One<'a> {
+    on: &'a Pick,
+    role: &'a str,
+    author: &'a str,
+    fell_back: &'a [(String, String)],
+}
+
+impl One<'_> {
+    /// Who answered `asked`, and what asking took (`took_ms`); whether it
+    /// was taken `again`.
+    fn taken<'a>(&'a self, asked: &'a Asked, took_ms: u64, again: bool) -> Taken<'a> {
+        Taken {
+            harness: self.on.harness.key(),
+            session: &asked.session,
+            model: &asked.model,
+            account: self.on.account.as_deref(),
+            author: self.author.to_string(),
+            took_ms,
+            tokens_in: asked.tokens_in,
+            tokens_out: asked.tokens_out,
+            fell_back: self.fell_back,
+            asked_again: again,
+        }
     }
 }
 

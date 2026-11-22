@@ -29,27 +29,28 @@ struct Said {
 /// and the change's `diff`, each as given, then the one form its answer
 /// takes.
 pub fn question(goal: &str, diff: &str) -> String {
-    format!(
-        "{goal}\n\n# The diff\n\n```diff\n{diff}\n```\n\n# How to answer\n\nAnswer one JSON object and nothing else: \
-         {{\"as_is\": \"<one line of why the change cannot be smaller>\"}}, or \
-         {{\"cut\": \"<one line naming each place to cut, by file, and what to reuse, delete or simplify>\"}}.\n"
-    )
+    format!("{goal}\n\n# The diff\n\n```diff\n{diff}\n```\n\n{}", crate::pick::how(FORM))
 }
 
+/// The one form the reviewer's answer takes.
+pub const FORM: &str = "{\"as_is\": \"<one line of why the change cannot be smaller>\"}, or \
+                        {\"cut\": \"<one line naming each place to cut, by file, and what to reuse, delete or simplify>\"}.";
+
 /// The reviewer's answer `text`: its one JSON object (fenced or not), one
-/// verdict of one line; or why it is not taken.
+/// verdict of one line; or why it is not taken, in one line, without the
+/// text.
 pub fn read(text: &str) -> Result<Reviewed, String> {
     let object = match (text.find('{'), text.rfind('}')) {
         (Some(from), Some(to)) if from < to => &text[from..=to],
-        _ => return Err(format!("the reviewer answered no JSON object: {text}")),
+        _ => return Err("the reviewer answered no JSON object".into()),
     };
     let said: Said =
-        serde_json::from_str(object).map_err(|e| format!("the reviewer's answer is not as asked ({e}): {text}"))?;
+        serde_json::from_str(object).map_err(|e| format!("the reviewer's answer is not as asked ({e})"))?;
     let one_line = |s: &String| !s.trim().is_empty() && !s.contains('\n');
     match (said.as_is, said.cut) {
         (Some(why), None) if one_line(&why) => Ok(Reviewed::AsIs(why.trim().into())),
         (None, Some(what)) if one_line(&what) => Ok(Reviewed::Cut(what.trim().into())),
-        _ => Err(format!("the reviewer answered neither one line of as_is nor one line of cut: {text}")),
+        _ => Err("the reviewer answered neither one line of as_is nor one line of cut".into()),
     }
 }
 

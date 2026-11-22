@@ -258,6 +258,7 @@ const HEADLESS: crate::ask::Headless = crate::ask::Headless {
             --disable in_app_browser --disable image_generation --disable view_image --disable sleep_tool \
             --disable goals --disable tool_suggest --disable skill_search --json -",
     model: MODEL,
+    again: None,
     files: crate::ask::no_files,
     read: asked,
     stand_in: asked_stand_in,

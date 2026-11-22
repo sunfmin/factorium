@@ -110,6 +110,17 @@ impl Picker {
         let read = |f: &str| std::fs::read_to_string(self.dir.join(f)).unwrap_or_default();
         (read("asked"), read("args"), read("env"))
     }
+
+    /// What it read on stdin and its arguments when it was run again.
+    pub fn asked_again(&self) -> (String, String) {
+        let read = |f: &str| std::fs::read_to_string(self.dir.join(f)).unwrap_or_default();
+        (read("asked2"), read("args2"))
+    }
+
+    /// Run again, it prints `answered` as `harness` would, not what it printed first.
+    pub fn then_answers(&self, harness: Harness, answered: &Asked) {
+        std::fs::write(self.dir.join("said2"), harness.asked_stand_in(answered).unwrap()).unwrap();
+    }
 }
 
 impl World {
@@ -123,7 +134,8 @@ impl World {
 
     /// A stand-in for a session of `harness` asked headless: it keeps what it
     /// was asked, then runs `then` (shell), then prints `answered` as that
-    /// harness would.
+    /// harness would; run again, it keeps what it was asked apart, and
+    /// prints the same, unless it `then_answers` otherwise.
     pub fn picker(&self, harness: Harness, then: &str, answered: &Asked) -> Picker {
         let dir = self.dir.join(format!("picker-{}", harness.key()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -132,7 +144,7 @@ impl World {
         // agy's user directory is its HOME; the others name theirs.
         let user_dir = if harness == Harness::Agy { "$HOME" } else { "$CODEX_HOME$GROK_HOME" };
         let script = format!(
-            "#!/bin/sh\ncat > '{d}/asked'\n(cd \"{user_dir}\" 2>/dev/null && find . ! -type d | sed 's|^\\./||' | sort > '{d}/user_dir')\nprintf '%s\\n' \"$@\" > '{d}/args'\nenv > '{d}/env'\n{then}\ncat '{d}/said'\n"
+            "#!/bin/sh\nn=; [ -e '{d}/asked' ] && n=2\ncat > '{d}/asked'$n\n(cd \"{user_dir}\" 2>/dev/null && find . ! -type d | sed 's|^\\./||' | sort > '{d}/user_dir')\nprintf '%s\\n' \"$@\" > '{d}/args'$n\nenv > '{d}/env'\n{then}\ncat '{d}/said'$n 2>/dev/null || cat '{d}/said'\n"
         );
         let program = dir.join("program");
         super::program(&program, &script);
