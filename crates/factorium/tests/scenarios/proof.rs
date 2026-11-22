@@ -14,6 +14,7 @@ use crate::fixture::{CLAUDE, NEEDS_NEWER, OPENS, STUCK, World, program, proved};
 
 /// One that answers `doctor` on the database, as [`OPENS`] does, seconds later.
 const SLOW: &str = r#"#!/bin/sh
+echo "$2" >> "$(dirname "$0")/proved"
 sleep 6
 echo '{"findings": []}'
 "#;
@@ -135,20 +136,26 @@ async fn a_binary_proven_failing_on_the_host_leaves_the_next_version_to_be_prove
 }
 
 /// Lands, promotes and cuts one change of `web`, whose cut installs the
-/// daemon's own formula, its binary `script`: ticks, each within 3 s, until
-/// one records the cut, at least 6 s on (the binary's `doctor`). Answers the
-/// cut as recorded, and the restart the tick that recorded it asks for.
+/// daemon's own formula, its binary `script` (6 s to answer `doctor`): ticks,
+/// each within 3 s, until its proof runs; one more tick records nothing, and
+/// the line's moves end only once the proof did, at least 5 s on; the tick
+/// after records the cut. Answers the cut as recorded, and the restart that
+/// tick asks for.
 async fn cut_proven_beside_the_ticks(w: &World, script: &str) -> (Value, Option<String>) {
     w.running_as(&w.app, "web");
     w.next_binary("web", script);
     let wk = w.working(CLAUDE, "a").await;
     w.done(&wk, "a", "x").await;
-    let begun = Instant::now();
     let cut = |t: &Tick| t.lines.iter().find(|l| l["cut"] == "web").cloned();
-    let (ticks, last) = ticks_until(w, Duration::from_secs(3), |t| cut(t).is_some()).await;
-    assert!(begun.elapsed() >= Duration::from_secs(6), "recorded once its proof ended: {:?}", begun.elapsed());
-    assert!(ticks - 1 > 1, "ticks came while it was proven: {}", ticks - 1);
-    (cut(&last).unwrap(), last.restart)
+    let (_, t) = ticks_until(w, Duration::from_secs(3), |_| !proved(w, "web", "0.1.0").is_empty()).await;
+    assert!(cut(&t).is_none(), "not before its proof ends: {:?}", t.lines);
+    let (_, t) = ticks_until(w, Duration::from_secs(3), |_| true).await;
+    assert!(cut(&t).is_none() && w.app.moves_run(), "a tick while it is proven records nothing: {:?}", t.lines);
+    let at = Instant::now();
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its proof ends");
+    assert!(at.elapsed() >= Duration::from_secs(5), "the moves end with the proof: {:?}", at.elapsed());
+    let t = w.tick_alone().await;
+    (cut(&t).expect("the tick after its proof ended records the cut"), t.restart)
 }
 
 /// Seen in factorium#241: a cut's proof ran in the tick that finished the
