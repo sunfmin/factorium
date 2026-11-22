@@ -1,0 +1,10 @@
+{
+  "tree": "302dcab682b7c098bef90a7e3c8300136cebee4e+d1fba762150c532c",
+  "lines": 95,
+  "serves": "factorium#241",
+  "considered": "reusing the existing Proofs map and swapped() for the background proof; HeavyQueued instead of a new event; the neutral queue's next() unchanged, stale entries filtered in Queue::live",
+  "reviewer": "codex:01a202de-e33a-7ee1-b33d-b8c88d2fefef:default",
+  "author": "claude-code:9d212c6c-9b12-5f5b-aee6-25efc787bfdb:opus",
+  "cut": "In crates/host/Cargo.toml and crates/host/src/proof.rs, use rusqlite’s progress handler with a deadline for VACUUM INTO and delete the watchdog thread, channel, and join. In crates/domain/src/heavy.rs, reuse HeavyQueued for a changed-rules re-ask and update only the rules when replay finds the ID already queued, preserving its place and removing HeavyAsks. In models/HeavyQueue.tla, models/HeavyRules.cfg, and truefit.toml, drop StaleHoldsNone and point its mutant and coverage mapping at AtOnce, which already checks that a stale head cannot block the oldest eligible waiter.",
+  "answer": "Made the first two (progress handler with a deadline, hooks feature; HeavyAsks removed, HeavyQueued of a queued id updates its rules only). Kept StaleHoldsNone: models/heavy.sh broken checks each variant under the first config whose PROPERTY lists it; for AtOnce that is HeavyStarts.cfg (MaxRules = 1, no stale entry can exist), where stale_holds passed (measured: PASSES stale_holds (models/HeavyStarts.cfg)). Under HeavyRules.cfg, StaleHoldsNone fails on stale_holds, so the variant is shown broken."
+}

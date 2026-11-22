@@ -12,8 +12,7 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, older,
-    queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -258,7 +257,7 @@ impl App {
     fn as_installed(&self, id: Uuid, stale: Refusal) -> Refusal {
         use std::os::unix::process::CommandExt;
         let _ = self.linked();
-        let Some(link) = self.swapped() else { return stale };
+        let Some(link) = self.swapped(true) else { return stale };
         let e = std::process::Command::new(&link).args(std::env::args_os().skip(1)).env(PLACE, id.to_string()).exec();
         Refusal::new("stale", format!("{}; and exec {}: {e}", stale.message, link.display()))
     }
@@ -339,7 +338,7 @@ impl App {
         }
     }
 
-    /// Records that the rules this app asks under are the newest, if they are.
+    /// Records that the rules this app asks under are the queue's: the daemon's, as it starts.
     pub(crate) async fn note_rules(&self) -> Answer<()> {
         self.submit::<NoteRules>(Rules { version: self.rules.clone() }).await
     }
@@ -352,9 +351,6 @@ impl App {
     /// queued again.
     async fn take_turn(&self, id: Uuid, job: &Job<'_>, queued: bool) -> Answer<bool> {
         let q = self.state::<Heavy>(queue_id()).await?;
-        if older(&q.rules, &self.rules) {
-            self.note_rules().await?;
-        }
         let pid = std::process::id();
         for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
             self.submit::<EndHeavy>(End { id: e.id, keeps: true }).await?;
@@ -363,11 +359,11 @@ impl App {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
         }
         let settings = self.settings().await?;
-        if !q.holds(id) {
-            let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
-            let keep = settings.ms(Time::HeavyKeep);
-            self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep }).await?;
-        }
+        // Queued, or asked again under these rules (heavy.queue does nothing if it is so
+        // queued): a binary that execed in its place keeps its entry.
+        let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
+        let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
+        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep, rules }).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);

@@ -205,11 +205,13 @@ async fn a_cut_whose_binary_cannot_open_the_hosts_database_fails_and_the_old_one
     let finding = w.findings().await[0]["what"].as_str().unwrap().to_string();
     assert!(finding.contains("cutting v0.1.0 failed") && finding.contains("no such column: handed_back"), "{finding}");
     assert!(finding.contains(&*copy.to_string_lossy()), "it names the copy: {finding}");
-    // Another process on the old binary (the daemon, restarted) proves it again, and does not swap.
+    // Another process on the old binary (the daemon, restarted) reads how it was proven, and
+    // does not swap: one proof per binary on the host (factorium#241).
     let daemon = w.run();
     daemon.runs_as(&w.dir.join("brew/Cellar/web/0.0.9/bin/factorium").canonicalize().unwrap());
     assert_eq!(daemon.tick().await.unwrap().restart, None);
-    assert_eq!(proved(&w, "web", "0.1.0").len(), 2, "proven again, on a copy of its own");
+    assert_eq!(daemon.tick().await.unwrap().restart, None);
+    assert_eq!(proved(&w, "web", "0.1.0").len(), 1, "not proven again");
 }
 
 /// The `sleep`s run since the cut's first `brew update`: its waits for the tap.

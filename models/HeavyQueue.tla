@@ -3,18 +3,19 @@
 (* The host-wide heavy queue (SPEC.md §1 row 9), as factorium runs it.     *)
 (*                                                                         *)
 (* The queue is the `heavy` stream (crates/domain/src/heavy.rs): entries,  *)
-(* the last start, and the newest rules that asked. Each command on it     *)
-(* (heavy.queue, heavy.start, heavy.end, heavy.runs, heavy.rules) is one   *)
-(* indivisible step, as the store runs one command at a time; its start    *)
-(* rule is crates/domain/src/neutral/queue.rs. The processes that ask it   *)
-(* (crates/factorium/src/heavy.rs) are the waiters: a CLI run that waits   *)
-(* for its turn (`worker exclusive`, `heavy run`, a gate run by hand), or  *)
-(* idle work that asks once and runs beside the ticks. Each waiter's own   *)
-(* steps (looking at its running entry, answering) are steps of their own, *)
-(* between which any other process may act. The owner's `unqueue` takes   *)
-(* any entry off. A worker's or a program's entry that leaves unstarted   *)
-(* (its waiter refused and failing to exec, or gone) keeps its place for   *)
-(* the keep bound: its asker asking again takes it (factorium#193).        *)
+(* the last start, and the rules of the daemon that runs. Each command on  *)
+(* it (heavy.queue, heavy.start, heavy.end, heavy.runs, heavy.rules) is    *)
+(* one indivisible step, as the store runs one command at a time; its      *)
+(* start rule is crates/domain/src/neutral/queue.rs. The processes that    *)
+(* ask it (crates/factorium/src/heavy.rs) are the waiters: a CLI run that  *)
+(* waits for its turn (`worker exclusive`, `heavy run`, a gate run by      *)
+(* hand), or idle work that asks once and runs beside the ticks. Each      *)
+(* waiter's own steps (looking at its running entry, answering) are steps  *)
+(* of their own, between which any other process may act. The owner's      *)
+(* `unqueue` takes any entry off. A worker's or a program's entry that     *)
+(* leaves unstarted (its waiter refused and failing to exec, or gone)      *)
+(* keeps its place for the keep bound: its asker asking again takes it     *)
+(* (factorium#193).                                                        *)
 (*                                                                         *)
 (* Time: `now` is the time of the last step, in the config's units. A     *)
 (* step happens at any time from `now` to `now + MaxStep`, up to Horizon.  *)
@@ -51,7 +52,7 @@ Absent == [in |-> FALSE, queued_at |-> None, started_at |-> None,
 VARIABLES
     q,           \* q[i]: entry i (Absent when the queue holds none)
     last_start,  \* Queue::last_start (None: none started yet, the code's 0)
-    rules,       \* Queue::rules: the newest rules that asked
+    rules,       \* Queue::rules: the rules of the daemon that runs
     now,         \* the time of the last step
     waiter,      \* waiter[i]: the process that asks for entry i
     last         \* the last step and what it read: for the properties
@@ -85,6 +86,12 @@ Init ==
 Present == {i \in Ids : q[i].in}
 Waiting == {i \in Present : q[i].started_at = None}
 Running == {i \in Present : q[i].started_at # None}
+\* Waiting under rules the queue's replaced: passed over, it holds none up
+\* (Queue::stale; factorium#241). The entry's rules are its waiter's, which
+\* the code notes on it as the waiter asks. Broken (`stale_holds`, and
+\* `no_stale`, which takes any rules), it holds its place at the head.
+Stale == {i \in Waiting : waiter[i].rules < rules}
+Live == IF Bug \in {"stale_holds", "no_stale"} THEN Waiting ELSE Waiting \ Stale
 
 \* Queued before: by (queued_at, id), as `oldest` orders them.
 Older(a, b) == \/ q[a].queued_at < q[b].queued_at
@@ -96,7 +103,7 @@ Overdue(i, t) == q[i].bound_at # None /\ t > q[i].bound_at
 
 \* `next`: the oldest waiting, but one past its bound goes ahead of every
 \* entry that yields, just before the oldest of them.
-Yielding == {i \in Waiting : q[i].yields}
+Yielding == {i \in Live : q[i].yields}
 PlaceOf(i, t) ==
     IF Overdue(i, t) /\ Yielding # {} /\ Older(OldestOf(Yielding), i)
     THEN OldestOf(Yielding) ELSE i
@@ -106,9 +113,9 @@ KeyLess(i, j, t) ==
     \/ p = r /\ Overdue(i, t) /\ ~Overdue(j, t)
     \/ p = r /\ Overdue(i, t) = Overdue(j, t) /\ Older(i, j)
 NextOf(t) ==
-    IF Bug = "no_line_ahead" THEN OldestOf(Waiting)
-    ELSE IF Bug = "by_id" THEN CHOOSE i \in Waiting : \A j \in Waiting : i <= j
-    ELSE CHOOSE i \in Waiting : \A j \in Waiting \ {i} : KeyLess(i, j, t)
+    IF Bug = "no_line_ahead" THEN OldestOf(Live)
+    ELSE IF Bug = "by_id" THEN CHOOSE i \in Live : \A j \in Live : i <= j
+    ELSE CHOOSE i \in Live : \A j \in Live \ {i} : KeyLess(i, j, t)
 
 \* `may_start`, after heavy.start's rules check: "start", or "wait".
 MayStart(i, room, read, t) ==
@@ -121,16 +128,16 @@ MayStart(i, room, read, t) ==
     ELSE IF last_start # None /\ (read <= last_start \/ read - last_start < Settle) THEN "wait"
     ELSE "start"
 
-\* heavy.start: a binary older than the newest that asked is refused.
+\* heavy.start: a binary older than the daemon's is refused.
 Decide(i, room, read, t) ==
     IF waiter[i].rules < rules /\ Bug # "no_stale" THEN "stale"
     ELSE MayStart(i, room, read, t)
 
 \* `overheld`: the running i holds others up past the hold bound at t.
-WaitingSince == LET w == Waiting IN
+WaitingSince == LET w == Live IN
                 IF w = {} THEN None ELSE q[OldestOf(w)].queued_at
 Overheld(i, t) ==
-    /\ Waiting # {}
+    /\ Live # {}
     /\ IF Bug = "held_from_queued" THEN t - WaitingSince > Hold
        ELSE t - Max(q[i].started_at, WaitingSince) > Hold
 
@@ -169,11 +176,13 @@ Arrive(i, kind, r, yields, bound) ==
         /\ Did("queue", i, t)
     /\ UNCHANGED <<last_start, rules>>
 
-\* heavy.rules: a binary asks under rules newer than any before: the daemon
-\* as it starts, or a waiter (take_turn's note_rules) before it queues.
+\* heavy.rules: a daemon starts under other rules than the queue's: a newer
+\* binary swapped to, or an older one a rollback went back to. Only the
+\* daemon: a newer binary that asks, whose proof may have failed, does not
+\* (factorium#241).
 NoteRules ==
     /\ \E r \in 1..MaxRules, t \in Times :
-        rules < r /\ rules' = r /\ now' = t /\ Did("rules", 0, t)
+        rules # r /\ rules' = r /\ now' = t /\ Did("rules", 0, t)
     /\ UNCHANGED <<q, last_start, waiter>>
 
 \* take_turn, each poll after its first ask: a waiter whose waiting entry
@@ -335,27 +344,28 @@ At == last'.t
 Started == Asked /\ q[Who].started_at = None /\ q'[Who].started_at # None
 
 \* It never starves the oldest: with nothing running, the oldest waiting
-\* entry starts at once when it asks under the newest rules, whatever the
-\* reading (no line move past its bound waiting ahead of it).
+\* entry not under replaced rules starts at once when it asks, whatever the
+\* reading (no line move past its bound waiting ahead of it): a stale one
+\* ahead of it holds it up no more than one gone (factorium#241).
 AtOnce ==
-    [][ (/\ Asked /\ Running = {} /\ Who = OldestOf(Waiting)
-         /\ waiter[Who].rules >= rules
-         /\ ~\E j \in Waiting : Overdue(j, At))
+    [][ (/\ Asked /\ Running = {} /\ waiter[Who].rules >= rules
+         /\ Who = OldestOf(Waiting \ Stale)
+         /\ ~\E j \in Waiting \ Stale : Overdue(j, At))
         => q'[Who].started_at # None ]_vars
 
-\* Oldest first: an entry starts only when every entry queued before it
-\* waits behind a worker's or a program's entry that a line move past its
-\* bound (this one) goes ahead of.
+\* Oldest first: an entry starts only when every entry queued before it,
+\* stale ones passed over, waits behind a worker's or a program's entry
+\* that a line move past its bound (this one) goes ahead of.
 InOrder ==
     [][ Started =>
-        \A j \in Waiting \ {Who} :
+        \A j \in Live \ {Who} :
             \/ Older(Who, j)
-            \/ Overdue(Who, At) /\ \E y \in Waiting : q[y].yields /\ (y = j \/ Older(y, j)) ]_vars
+            \/ Overdue(Who, At) /\ \E y \in Live : q[y].yields /\ (y = j \/ Older(y, j)) ]_vars
 
 \* A line move past its bound goes ahead of workers' and programs' waiting
 \* entries: none of those starts while one waits.
 LineAhead ==
-    [][ Started /\ q[Who].yields => ~\E j \in Waiting : Overdue(j, At) ]_vars
+    [][ Started /\ q[Who].yields => ~\E j \in Live : Overdue(j, At) ]_vars
 
 \* It starts one beside what runs only when the host has room, on a reading
 \* taken heavy_settle after the last start.
@@ -371,14 +381,14 @@ NotCutShort ==
         (waiter[i].kind = "wait" /\ waiter[i].stop = "" /\ waiter'[i].stop # "")
         => \/ waiter'[i].stop = "unqueued" /\ ~q[i].in
            \/ waiter'[i].stop = "held"
-              /\ \E j \in Waiting : At - Max(q[i].started_at, q[j].queued_at) > Hold ]_vars
+              /\ \E j \in Live : At - Max(q[i].started_at, q[j].queued_at) > Hold ]_vars
 
 \* One that holds others up past the hold bound is ended: its waiter's
 \* next look ends it.
 HeldEnded ==
     [][ \A i \in Ids :
         (last'.act = "look" /\ last'.i = i /\ q[i].in
-         /\ \E j \in Waiting : At - Max(q[i].started_at, q[j].queued_at) > Hold)
+         /\ \E j \in Live : At - Max(q[i].started_at, q[j].queued_at) > Hold)
         => waiter'[i].stop # "" ]_vars
 
 \* An unqueued run's waiter answers `unqueued`.
@@ -391,6 +401,15 @@ UnqueuedRunAnswers ==
 UnqueuedAnswers ==
     \A i \in Ids : waiter[i].unqueued # "" =>
         ~q[i].in /\ waiter[i].answer \in {"", "unqueued"}
+
+\* A stale entry holds none up: with nothing running, the oldest waiting
+\* entry under the daemon's rules starts at once when it asks, a stale one
+\* waiting ahead of it (factorium#241).
+StaleHoldsNone ==
+    [][ (/\ Asked /\ Running = {} /\ waiter[Who].rules >= rules /\ Stale # {}
+         /\ Who = OldestOf(Waiting \ Stale)
+         /\ ~\E j \in Waiting \ Stale : Overdue(j, At))
+        => q'[Who].started_at # None ]_vars
 
 \* A waiter of an older binary is refused, and keeps its place: its entry
 \* does not start, and stays as it was while its waiter goes on.
@@ -421,6 +440,7 @@ BrokenVariants == [
     requeues         |-> "UnqueuedAnswers",    \* take_turn queues an unqueued waiter again (#186)
     no_stale         |-> "StaleRefused", \* heavy.start takes any rules
     stale_requeues   |-> "StaleRefused", \* the exec'd waiter queues anew, at the back
+    stale_holds      |-> "StaleHoldsNone", \* a stale entry keeps the head (#241)
     rejoins_at_back  |-> "KeptPlace"     \* asked again, it queues at the back (#193)
 ]
 =============================================================================

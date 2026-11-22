@@ -253,11 +253,25 @@ async fn a_daemon_that_cannot_exec_the_binary_homebrew_links_now_goes_on() {
     w.running_as(&w.app, "factorium");
     // Homebrew links a newer one since, which opens the database, then may not be run.
     w.links_newer("factorium", OPENS_ONCE);
+    swaps(&w.app).await;
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let during = stop.clone();
     let stopping = move || during.store(true, std::sync::atomic::Ordering::Relaxed);
     *w.host.reading_procs.lock().unwrap() = Some(Box::new(stopping));
     assert_eq!(w.app.run(&stop, None).await.unwrap(), json!({ "stopped": true, "ticks": 1 }));
+}
+
+/// The restart `app`'s ticks ask for, once the proof the first started
+/// beside them (factorium#241) passed.
+async fn swaps(app: &factorium::App) -> String {
+    let begun = std::time::Instant::now();
+    loop {
+        if let Some(restart) = app.tick().await.unwrap().restart {
+            return restart;
+        }
+        assert!(begun.elapsed() < crate::fixture::STUCK, "the proof ends");
+        tokio::time::sleep(crate::fixture::LOOK).await;
+    }
 }
 
 /// Homebrew links `version` of the formula `factorium` (the `running_as`
@@ -298,7 +312,7 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     assert_eq!(w.tick().await.restart, None);
     assert_eq!(kept(&w), [("0.0.9".into(), OPENS.into())], "the first good tick keeps it");
     let new = link(&w, "0.1.0");
-    assert_eq!(w.tick().await.restart.as_deref(), Some(&*link0.to_string_lossy()));
+    assert_eq!(swaps(&w.app).await, link0.to_string_lossy());
 
     // The swapped-in binary, as the same pid: it cannot read the database.
     let swapped = w.run();
@@ -331,7 +345,7 @@ async fn a_new_binary_whose_ticks_all_fail_goes_back_to_the_kept_one() {
     // A newer one linked: the kept binary swaps to it, whose good first tick ends the rollback.
     let newer = link(&w, "0.1.1");
     w.advance(5);
-    assert_eq!(old.tick().await.unwrap().restart.as_deref(), Some(&*link0.to_string_lossy()));
+    assert_eq!(swaps(&old).await, link0.to_string_lossy());
     let swapped = w.run();
     swapped.runs_as(&newer);
     w.advance(5);

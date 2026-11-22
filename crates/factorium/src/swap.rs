@@ -4,7 +4,6 @@
 //! the binary kept to go back to, and the rollback to it when a new
 //! binary's ticks all fail (factorium#143).
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 use factorium_domain::daemon::{NoteRollback, Rollback, RolledBack};
 use factorium_domain::settings::{Setting, Settings};
@@ -65,19 +64,25 @@ impl crate::App {
     /// The link to exec in place of this binary: Homebrew links a version other
     /// than the one running (a cut, or by hand) and than the one a rollback
     /// went back from, and that version opens this host's database;
-    /// mid-upgrade, it resolves to nothing.
-    pub(crate) fn swapped(&self) -> Option<PathBuf> {
+    /// mid-upgrade, it resolves to nothing. `wait`: for that version's proof
+    /// (a waiter refused as stale); else (the daemon's tick) a proof not yet
+    /// made is only started, beside the ticks, and a later tick swaps.
+    pub(crate) fn swapped(&self, wait: bool) -> Option<PathBuf> {
         let (me, link, refused) = {
             let m = self.memory.lock().unwrap();
             let (me, link) = m.running.clone()?;
             (me, link, m.refused.clone())
         };
         let to = link.canonicalize().ok().filter(|to| *to != me && Some(to) != refused.as_ref())?;
-        let proven = self.proofs.of(&to).unwrap_or_else(|| {
-            let proven = self.proofs.prove(&self.db, &to, &self.data().proof(Uuid::now_v7()));
-            proven.inspect_err(|why| eprintln!("not swapping to {}: {why}", to.display()))
-        });
-        proven.ok().map(|()| link)
+        let (fresh, dir) = (self.proofs.of(&to).is_none(), self.data().proofs());
+        let proven = match wait {
+            true => Some(self.proofs.prove(&self.db, &to, &dir)),
+            false => self.proofs.started(&self.db, &to, &dir),
+        };
+        if let Some(Err(why)) = proven.as_ref().filter(|_| fresh) {
+            eprintln!("not swapping to {}: {why}", to.display());
+        }
+        proven?.ok().map(|()| link)
     }
 
     /// The kept binary to exec in place of this one, once its ticks all failed.
@@ -157,9 +162,8 @@ impl crate::App {
     /// binary (as [`crate::App::swapped`] asks), off the runtime's threads.
     pub(crate) async fn proves(&self, bin: &Path) -> Result<(), String> {
         let bin = bin.canonicalize().map_err(|e| format!("cannot find {}: {e}", bin.display()))?;
-        let (proofs, db, copy) = (self.proofs.clone(), self.db.clone(), self.data().proof(Uuid::now_v7()));
-        let proven =
-            tokio::task::spawn_blocking(move || proofs.of(&bin).unwrap_or_else(|| proofs.prove(&db, &bin, &copy)));
+        let (proofs, db, dir) = (self.proofs.clone(), self.db.clone(), self.data().proofs());
+        let proven = tokio::task::spawn_blocking(move || proofs.prove(&db, &bin, &dir));
         proven.await.unwrap_or_else(|e| Err(format!("proving panicked: {e}")))
     }
 }

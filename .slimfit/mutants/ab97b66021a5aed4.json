@@ -1,0 +1,15 @@
+{
+  "tree": "8bc6fdc4e34476e067219eb0379710aaea806953+d1fba762150c532c",
+  "picker": "codex:01a202e1-d613-7550-8abb-f80af5f6201b:default",
+  "author": "claude-code:9d212c6c-9b12-5f5b-aee6-25efc787bfdb:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/proof.rs:87:5: replace key -> String with \"xyzzy\".into()",
+        "why": "The tests may miss proof reuse across distinct binaries when successive binaries in the same scenario are expected to pass.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}
