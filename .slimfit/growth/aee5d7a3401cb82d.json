@@ -1,0 +1,10 @@
+{
+  "tree": "258e54d5f9a04da77104c49acb6cdee8d5efef7f+d1fba762150c532c",
+  "lines": 122,
+  "serves": "factorium#216",
+  "considered": "Reused the idle work's beside-the-ticks path (Turn::Beside, App::beside, look_at, ran, run_steps) for line moves instead of a second runner; reused gate()'s recording by splitting it into gate_ran, and cut_base's finish into cut_ran, so both by-hand and beside paths share them; weighed keeping Turn::Once for line moves (deleted its use for promotions and cuts) and an Option slot for beside runs.",
+  "reviewer": "grok:01a200d1-0801-7420-bed3-abe5ba8b7bc5:grok-4.7-build",
+  "author": "claude-code:caf425e5-fc15-5e03-82b3-60b009696306:opus",
+  "cut": "heavy.rs and lib.rs: the queue still runs one heavy job, so simplify beside from Vec back to Option<Beside> holding For and reuse the old single-job beside, beside_runs and beside_ended; delete the partition loop, the leftover-iterator restore and ended_beside, and have beside() put that one job back when pick does not match so idle.rs and line.rs stay correct.",
+  "answer": "Not cut: the heavy queue starts several entries at once when the host has room (admission::room, SPEC 1.9), so several line moves run beside the ticks together: one per checkout (guild's cut and factorium's slow gate, as on this host), plus idle work. An Option would hold one and lose the rest, or keep every other checkout's move from starting while one runs, which is the hold-up #216 removes. The test while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_starts_and_another_checkouts_do has api's line move while web's cut runs."
+}
