@@ -232,6 +232,9 @@ pub(crate) enum Login {
 pub enum Stop {
     /// Its account is used up: the line that says so.
     Quota(String),
+    /// Its engine is at its limit, which resets in this many ms: the lines
+    /// that say so.
+    Limit { said: String, resets_in_ms: i64 },
     /// Its harness refused the task or ran out of capacity: the line.
     Refused(String),
 }

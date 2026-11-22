@@ -91,8 +91,9 @@ impl App {
     }
 
     /// What a session is doing, seen from outside; `None`: Orca did not
-    /// answer, so nothing is known.
-    fn see(&self, s: &Session) -> Option<Sight> {
+    /// answer, so nothing is known. A limit in the words `past` (one seen
+    /// before, still on its screen) is no limit now.
+    fn see(&self, s: &Session, past: Option<&str>) -> Option<Sight> {
         let screen = match self.host.orca().screen(&s.terminal) {
             Term::Running(screen) => screen,
             Term::Exited => return Some(Sight::Gone),
@@ -101,7 +102,11 @@ impl App {
         match s.harness.stopped(&screen) {
             Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
             Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
-            None => {}
+            stop => {
+                if let Some((said, until)) = self.new_limit(stop, past) {
+                    return Some(Sight::Limit { said, until });
+                }
+            }
         }
         if let Some(why) = s.harness.not_up(&screen) {
             return Some(Sight::Down(why));
@@ -111,6 +116,18 @@ impl App {
             Some(Turn::Closed { since, .. }) => Sight::Closed(Some(since as i64 * 1000)),
             None => Sight::Closed(None),
         })
+    }
+
+    /// The limit a session's screen says its engine is at (its `stop`), but
+    /// in other words than `past` (a limit seen before, still on it): those
+    /// words and when it resets, in ms.
+    fn new_limit(&self, stop: Option<Stop>, past: Option<&str>) -> Option<(String, i64)> {
+        match stop {
+            Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
+                Some((said, self.now() + resets_in_ms))
+            }
+            _ => None,
+        }
     }
 
     /// What worker session `st` spent, as its session files say now; `None`:

@@ -41,6 +41,10 @@ pub struct Kit {
     /// Checkout name → the harness it is pinned to.
     pub pins: BTreeMap<String, String>,
     pub accounts: BTreeMap<String, Account>,
+    /// Harness → until when (ms) the host's own login of it is at its
+    /// engine's limit: a harness no account here holds.
+    #[serde(default)]
+    pub limits: BTreeMap<String, i64>,
 }
 
 /// What a worker starts on.
@@ -66,7 +70,13 @@ impl Kit {
                 .map(|(n, _)| (n, self.accounts.get(n).unwrap_or(&none)))
                 .collect();
             if accounts.is_empty() {
-                return Ok(Choice { entry: entry.clone(), account: None });
+                match self.limits.get(&entry.harness).filter(|t| **t > now) {
+                    None => return Ok(Choice { entry: entry.clone(), account: None }),
+                    Some(t) => {
+                        why.push(format!("{}: at its limit until it resets at {t} (ms)", entry.harness));
+                        continue;
+                    }
+                }
             }
             accounts.sort_by(|a, b| b.1.left(now).total_cmp(&a.1.left(now)).then(a.0.cmp(b.0)));
             let (name, best) = accounts[0];
@@ -126,7 +136,7 @@ impl Kit {
     ) -> Result<Choice, String> {
         let (others, same): (Vec<Entry>, Vec<Entry>) =
             self.entries.iter().filter(|e| asks(&e.harness)).cloned().partition(|e| e.harness != harness);
-        let kit = Kit { entries: [others, same].concat(), pins: BTreeMap::new(), accounts: self.accounts.clone() };
+        let kit = Kit { entries: [others, same].concat(), pins: BTreeMap::new(), ..self.clone() };
         kit.choose("", now, here).map_err(|why| format!("no harness of the kit that can pick mutants: {why}"))
     }
 }
@@ -134,9 +144,19 @@ impl Kit {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum KitEvent {
-    KitSet { entries: Vec<Entry> },
-    CheckoutPinned { checkout: String, harness: Option<String> },
-    AccountLimited { name: String, until: i64 },
+    KitSet {
+        entries: Vec<Entry>,
+    },
+    CheckoutPinned {
+        checkout: String,
+        harness: Option<String>,
+    },
+    AccountLimited {
+        name: String,
+        until: i64,
+    },
+    /// The host's own login of a harness is at its limit until then (ms).
+    HarnessLimited(HarnessNote),
 }
 
 pub struct Kits;
@@ -152,6 +172,7 @@ impl Aggregate for Kits {
             KitEvent::CheckoutPinned { checkout, harness: Some(h) } => _ = s.pins.insert(checkout, h),
             KitEvent::CheckoutPinned { checkout, harness: None } => _ = s.pins.remove(&checkout),
             KitEvent::AccountLimited { name, until } => s.accounts.entry(name).or_default().limited_until = Some(until),
+            KitEvent::HarnessLimited(n) => _ = s.limits.insert(n.harness, n.until),
         }
     }
 }
@@ -196,6 +217,27 @@ command!(LimitAccount, "account.limited", Kits, AccountNote, |_p| kit_id(), |s, 
     })
 });
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HarnessNote {
+    pub harness: String,
+    pub until: i64,
+}
+
+command!(
+    /// The host's own login of a harness reached its engine's limit: no
+    /// worker starts on it before then; a later reset is kept.
+    LimitHarness,
+    "harness.limited",
+    Kits,
+    HarnessNote,
+    |_p| kit_id(),
+    |s, p, now| Ok::<_, factum_core::Rejection>(if s.limits.get(&p.harness).is_none_or(|u| *u < p.until) {
+        vec![KitEvent::HarnessLimited(p.clone())]
+    } else {
+        Vec::new()
+    })
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,7 +247,7 @@ mod tests {
     fn a_picker_runs_on_the_kit_s_other_harness_that_asks_else_on_the_worker_s() {
         let entry = |h: &str| Entry { harness: h.into(), command: h.into(), model: None };
         let pins = BTreeMap::from([("web".to_string(), "a".to_string())]);
-        let kit = Kit { entries: vec![entry("a"), entry("b"), entry("c")], pins, accounts: BTreeMap::new() };
+        let kit = Kit { entries: vec![entry("a"), entry("b"), entry("c")], pins, ..Kit::default() };
         let picked = |worker: &str, asks: &[&str]| {
             let asks = |h: &str| asks.contains(&h);
             kit.choose_picker(worker, asks, 0, &[]).map(|c| c.entry.harness)

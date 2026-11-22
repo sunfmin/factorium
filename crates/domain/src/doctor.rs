@@ -71,6 +71,9 @@ pub struct WaitingSeen {
     /// While any is not, it is no finding: the watch decided already.
     #[serde(default)]
     pub parked: Vec<String>,
+    /// Parked until its engine's limit resets, then (ms): no finding.
+    #[serde(default)]
+    pub limited: Option<i64>,
 }
 
 /// A worker asking to land.
@@ -144,7 +147,9 @@ pub struct Stuck {
 
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
-    for WaitingSeen { worker: id, issue, why, heard, .. } in seen.waiting.iter().filter(|w| w.parked.is_empty()) {
+    for WaitingSeen { worker: id, issue, why, heard, .. } in
+        seen.waiting.iter().filter(|w| w.parked.is_empty() && w.limited.is_none())
+    {
         f.push(Found {
             key: format!("worker:{id}"),
             what: format!("worker {id} on {issue} waits: {why}"),

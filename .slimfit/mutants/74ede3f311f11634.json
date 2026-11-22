@@ -1,0 +1,27 @@
+{
+  "tree": "8a2f55867360550d0992d5571cc2844b6dce4d12+d1fba762150c532c",
+  "picker": "codex:01a20173-b91e-7302-8cdd-7bd683bc2667:default",
+  "author": "claude-code:2cdedec8-65b6-515a-8a90-8c1221d71fcf:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/session/health.rs:26:26: replace * with +",
+        "why": "Shortening the replay window from ten minutes to seventy seconds can still pass the test, which sends one message immediately before quota detection and the other eleven minutes earlier.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/mod.rs:104:13: delete match arm Some(Stop::Refused(said)) in App::see",
+        "why": "The quota scenarios exercise limit detection and could pass even if a harness refusal no longer reaches worker health as a stopped session.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/work.rs:46:30: replace match guard waiting with false in App::live",
+        "why": "The scenarios check that the worker parks and resumes, but never try a working-only operation against the parked worker.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

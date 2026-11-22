@@ -83,6 +83,9 @@ pub enum Outcome {
     /// Typed, and it started no turn and none runs: something other than
     /// the session's prompt took it.
     Missed { why: String },
+    /// Not typed: its engine is at its limit until then (ms). Kept, and
+    /// tried again once the limit resets.
+    Held { until: i64, why: String },
 }
 
 impl Outcome {
@@ -100,13 +103,14 @@ impl Outcome {
             Outcome::Brief => "brief",
             Outcome::NotTyped { .. } => "none",
             Outcome::Missed { .. } => "missed",
+            Outcome::Held { .. } => "held",
         }
     }
 
     /// Why it did not arrive.
     pub fn why(&self) -> Option<&str> {
         match self {
-            Outcome::NotTyped { why, .. } | Outcome::Missed { why } => Some(why),
+            Outcome::NotTyped { why, .. } | Outcome::Missed { why } | Outcome::Held { why, .. } => Some(why),
             _ => None,
         }
     }
@@ -131,6 +135,7 @@ impl Message {
         match &self.outcome {
             None => true,
             Some(Outcome::NotTyped { .. }) => self.from.holds(),
+            Some(Outcome::Held { .. }) => true,
             Some(_) => false,
         }
     }
@@ -236,5 +241,38 @@ command!(
         } else {
             vec![OutboxEvent::Tried { n: p.n, outcome: p.outcome.clone() }]
         })
+    }
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HoldTaken {
+    pub terminal: String,
+    /// Submitted at or after then (ms), or queued at or after `queued`.
+    pub submitted: i64,
+    pub queued: i64,
+    pub until: i64,
+}
+
+command!(
+    /// Its engine was found at its limit: what it took just before is no
+    /// proof it read it (agy takes a message, starts a turn, and ends it at
+    /// once on its quota), so a message submitted since `submitted`, or
+    /// queued since `queued`, is held again, typed at the reset.
+    HoldTakenMessages,
+    "outbox.hold_taken",
+    Outboxes,
+    HoldTaken,
+    |p| outbox_id(&p.terminal),
+    |s, p, _now| {
+        let why = format!("its engine reached its limit as it took it; typed again once it resets at {} (ms)", p.until);
+        let held = Outcome::Held { until: p.until, why };
+        let taken = |m: &&Message| match m.outcome {
+            Some(Outcome::Submitted) => m.at >= p.submitted,
+            Some(Outcome::Queued) => m.at >= p.queued,
+            _ => false,
+        };
+        Ok::<_, factum_core::Rejection>(
+            s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
+        )
     }
 );

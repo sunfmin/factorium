@@ -139,6 +139,7 @@ fn model() -> Model {
         .command::<kit::SetTheKit>()
         .command::<kit::PinCheckout>()
         .command::<kit::LimitAccount>()
+        .command::<kit::LimitHarness>()
         .aggregate::<settings::HostSettings>()
         .command::<settings::SetSetting>()
         .aggregate::<idle::Idles>()
@@ -163,6 +164,7 @@ fn model() -> Model {
         .aggregate::<outbox::Outboxes>()
         .command::<outbox::GiveMessage>()
         .command::<outbox::TryMessage>()
+        .command::<outbox::HoldTakenMessages>()
         .projection(tracker::Tracker)
 }
 
