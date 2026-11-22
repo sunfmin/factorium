@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::decided::{self, Mark, Numbering};
 use crate::idle::Task;
-use crate::{command, issue_id, named, no};
+use crate::{command, issue_id, named, no, only};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -552,7 +552,7 @@ pub struct NameRole {
 }
 
 on_issue!(NameIssueRole, "issue.name_role", NameRole, |s, p, now| {
-    Ok(if s.on.role == p.role { Vec::new() } else { vec![IssueEvent::RoleNamed { role: p.role.clone() }] })
+    only(s.on.role != p.role, IssueEvent::RoleNamed { role: p.role.clone() })
 });
 
 /// Issue `number` of `checkout` waits for `by`, or, with `undo`, stops.
@@ -577,17 +577,11 @@ pub struct Because {
 // Only a person moves it again, with `issue ready`: for a decision only a
 // person can make.
 on_issue!(WaitForHuman, "issue.wait_for_human", Because, |s, p, now| {
-    Ok(match s.status {
-        Status::WaitingForHuman => Vec::new(),
-        _ => vec![IssueEvent::IssueWaitingForHuman { reason: p.reason.clone() }],
-    })
+    only(s.status != Status::WaitingForHuman, IssueEvent::IssueWaitingForHuman { reason: p.reason.clone() })
 });
 
 on_issue!(ReadyIssue, "issue.ready", Ref, |s, p, now| {
-    Ok(match s.status {
-        Status::WaitingForHuman => vec![IssueEvent::IssueReadied],
-        _ => Vec::new(),
-    })
+    only(s.status == Status::WaitingForHuman, IssueEvent::IssueReadied)
 });
 
 on_issue!(CloseIssue, "issue.close", Because, |s, p, now| {
@@ -670,11 +664,11 @@ on_issue!(ClaimIssue, "issue.claim", Claiming, |s, p, now| match &s.claim {
 
 // Frees the claim, if `claim` holds it still.
 on_issue!(UnclaimIssue, "issue.unclaim", Claiming, |s, p, now| {
-    Ok(if s.claim.as_ref() == Some(&p.claim) { vec![IssueEvent::IssueUnclaimed] } else { Vec::new() })
+    only(s.claim.as_ref() == Some(&p.claim), IssueEvent::IssueUnclaimed)
 });
 
 on_issue!(ReleaseIssue, "issue.release", Take, |s, p, now| {
-    Ok(if s.worker == Some(p.worker) { vec![IssueEvent::IssueReleased] } else { Vec::new() })
+    only(s.worker == Some(p.worker), IssueEvent::IssueReleased)
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -748,11 +742,7 @@ on_issue!(NumberDecided, "issue.number_decided", Numbering, |s, p, now| {
     };
     let body: Vec<Mark> = p.body.iter().filter(|m| take(Place::Body, Some(m))).cloned().collect();
     let comments: Vec<_> = p.comments.iter().filter(|(i, _)| take(Place::Comment(*i), None)).copied().collect();
-    Ok(if body.is_empty() && comments.is_empty() {
-        Vec::new()
-    } else {
-        vec![IssueEvent::DecidedNumbered { body, comments }]
-    })
+    only(!body.is_empty() || !comments.is_empty(), IssueEvent::DecidedNumbered { body, comments })
 });
 
 /// Who left an issue to a person: the watch, a session (the owner, or a

@@ -1,0 +1,6 @@
+{
+  "tree": "2f4b1624272562651b5028ab563827319896c219+d1fba762150c532c",
+  "picker": "codex:01a203b3-5c48-7b11-b305-1d6c92ad8766:default",
+  "author": "claude-code:2cbdcb68-7bce-58ec-8cf3-bd2fb4bc2741:opus",
+  "none": "The scenarios exercise empty and serialized log output and require the exact linked path after a failed tick with no line move, so they should kill every candidate that builds."
+}

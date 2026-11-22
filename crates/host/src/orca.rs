@@ -168,9 +168,14 @@ impl Orca<'_> {
     /// times out is no failure, and the caller reads what came of the key.
     pub fn press(&self, terminal: &str, key: &str) -> Result<(), String> {
         self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
+        self.pressed(terminal).map_err(String::from)
+    }
+
+    /// Waits for a terminal to sit idle after a key, as [`Orca::press`] does.
+    fn pressed(&self, terminal: &str) -> Result<(), Failed> {
         match self.settle(terminal, PRESS_WAIT * 1000) {
             Err(f) if f.code.as_deref() == Some("timeout") => Ok(()),
-            other => other.map_err(String::from),
+            other => other,
         }
     }
 
@@ -178,23 +183,22 @@ impl Orca<'_> {
     /// `SUBMIT_WAIT` seconds, whether it started a turn. `interrupt`: first
     /// types that key (no Enter) to stop the agent's running turn, and waits
     /// for its prompt to be idle, as [`Orca::press`] does. Orca never resends
-    /// a prompt it watched.
+    /// a prompt it watched. A refusal once the key went says so: the
+    /// agent's turn was stopped, and nothing took its place.
     pub fn deliver(&self, terminal: &str, text: &str, interrupt: Option<&str>) -> Result<Delivery, String> {
         if let Some(key) = interrupt {
-            self.press(terminal, key)?;
+            self.call(&["terminal", "send", "--terminal", terminal, "--text", key])?;
+        }
+        let stopped = |f: Failed| match interrupt {
+            Some(_) => format!("{}; its running turn was stopped first", f.why),
+            None => f.why,
+        };
+        if interrupt.is_some() {
+            self.pressed(terminal).map_err(stopped)?;
         }
         let wait = SUBMIT_WAIT.to_string();
-        let sent = self.call(&[
-            "terminal",
-            "send",
-            "--terminal",
-            terminal,
-            "--text",
-            text,
-            "--enter",
-            "--wait-submit",
-            &wait,
-        ])?;
+        let send = ["terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--wait-submit", &wait];
+        let sent = self.call(&send).map_err(stopped)?;
         let stages = sent["send"]["prompt"]["stages"].as_array().cloned().unwrap_or_default();
         Ok(if stages.iter().any(|s| s == "turn_started") { Delivery::Submitted } else { Delivery::Queued })
     }

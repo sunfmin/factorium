@@ -131,3 +131,53 @@ async fn a_waiting_worker_with_nothing_unmet_to_wait_for_stays_the_watch_s() {
     assert_eq!(doctor(&w, &wk).await, (json!([]), true));
     assert!(said(&w, "web", 1).await.is_empty());
 }
+
+#[tokio::test]
+async fn a_worker_blocked_while_it_works_then_in_a_declared_wait_goes_back_once_the_blocker_lands() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "blocked").await;
+    w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
+    w.tick().await;
+    // Blocked while it works (factorium#256): nothing to park yet, it works on.
+    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    assert_eq!(status(&w, &wk).await, "working");
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
+    w.app.worker_waiting(id(&wk), "a rerun after the promotion gate", 45 * 60_000).await.unwrap();
+    w.advance(5);
+    assert!(w.tick().await.resumed.is_empty(), "#2 is open");
+    assert_eq!(w.doctor().await["waiting"][0]["why"], "a rerun after the promotion gate");
+
+    // #2 lands well within the 45 min it declared: the next tick sends it back.
+    let t = w.lands("web", 2, "web2").await.tick;
+    assert_eq!(t.resumed.len(), 1, "{t:?}");
+    assert_eq!(t.resumed[0]["resumed"], true, "{t:?}");
+    assert_eq!(status(&w, &wk).await, "working");
+    let told = said(&w, "web", 1).await;
+    let told = told.last().unwrap();
+    assert!(told.contains("#2 (landed as ") && told.contains("git merge origin/proving"), "{told}");
+    let sent = w.terminal(wk["terminal"].as_str().unwrap()).sent;
+    assert!(sent.iter().any(|s| s.starts_with(&format!("factorium: {told}"))), "{sent:?}");
+    // Back to work, its declared wait is over, and it is sent back once only.
+    assert_eq!(w.doctor().await["waiting"], json!([]));
+    w.advance(1);
+    assert!(w.tick().await.resumed.is_empty());
+}
+
+#[tokio::test]
+async fn a_worker_blocked_while_it_works_goes_back_when_it_waits_with_the_blocker_already_met() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "blocked").await;
+    w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    // #2 lands while it works: it is not interrupted.
+    assert!(w.lands("web", 2, "web2").await.tick.resumed.is_empty(), "it works: nothing to send it back to");
+    assert_eq!(status(&w, &wk).await, "working");
+    // It then goes idle, here by escalating: the next tick sends it back.
+    w.app.worker_escalate(id(&wk), "waits for #2").await.unwrap();
+    let t = w.tick().await;
+    assert_eq!(t.resumed.len(), 1, "{t:?}");
+    assert_eq!(status(&w, &wk).await, "working");
+    assert!(said(&w, "web", 1).await.last().unwrap().contains("#2 (landed as "));
+}

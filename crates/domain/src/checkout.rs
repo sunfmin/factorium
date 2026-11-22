@@ -4,7 +4,7 @@
 use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
-use crate::{checkout_id, command, no};
+use crate::{checkout_id, command, no, only};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Checkout {
@@ -114,7 +114,7 @@ command!(NameCheckoutRole, "checkout.name_role", Checkouts, NameRole, |p| checko
     if !s.listed {
         return no("not_listed", format!("{} is not on the list", p.name));
     }
-    Ok(if s.role == p.role { Vec::new() } else { vec![CheckoutEvent::RoleNamed { role: p.role.clone() }] })
+    only(s.role != p.role, CheckoutEvent::RoleNamed { role: p.role.clone() })
 });
 
 fn valid_name(s: &str) -> bool {

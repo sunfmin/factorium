@@ -155,6 +155,30 @@ normalise = [
   { pattern = 'term[-_][0-9a-f-]+', replace = "<terminal>" },
   { pattern = '"ok":"[^"]*/truefit-[a-z-]+"', replace = '"ok":"<worktree>"' },
 ]
+# What factorium handles after a step took effect (fakes::ORCA_FAULTS): a
+# tell sent now whose interrupt key went, so the agent's turn is stopped,
+# and Orca then refuses the wait for its prompt or the text (the message
+# is not typed, and whoever said it hears the turn was stopped). The rest
+# of Orca's refusals are the orca stand-in's.
+faults = ["refused-after-key"]
+
+# Orca refuses once the key went: the real terminal a program the key
+# ends, as no Claude Code can be made to end at its interrupt key.
+[[standin.case]]
+name = "refused-after-key"
+fault = "refused-after-key"
+stdin = """
+{"scratch": "truefit-refused-after-key"}
+{"orca": "worktree", "args": ["{scratch}", "truefit-refused-after-key", "truefit-refused-after-key", "{sha}"], "keep": {"worktree": "/ok"}}
+{"orca": "open", "args": ["{worktree}", "truefit", "stty raw -echo; dd bs=1 count=1 >/dev/null 2>&1; exit"], "keep": {"terminal": "/ok"}}
+{"run": ["sleep", "3"], "only": "real"}
+{"orca": "deliver", "args": ["{terminal}", "Told now: reply NOW-SEEN and nothing else.", "\\u001b"]}
+{"orca": "screen", "args": ["{terminal}"]}
+{"orca": "close", "args": ["{terminal}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"scratch": "truefit-refused-after-key"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
 
 [[standin.case]]
 name = "busy-tell"
@@ -320,7 +344,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "8a6aca38b5777ba39ed26901dd110d617ba490dc"
+commit = "d1387704c1fe93e4076d405fc4f2912803e9f44b"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -354,6 +378,18 @@ covers = [
   { action = "Unqueued", file = "crates/factorium/src/heavy.rs", function = "App::heavy (queued), App::take_turn (unqueued)" },
   { action = "UnqueuedAnswers", file = "crates/factorium/src/heavy.rs", function = "App::take_turn" },
 ]
+
+# A run of the queue and its waiters, in the model's own units and shape
+# (None is -1): the waiters' own steps (look, answer) are no event of the
+# queue, so its traces carry them beside the queue's records
+# (.truefit/traces/heavy-ends/).
+[model.trace]
+q = '[i \in Ids |-> r.state.q[i]]'
+last_start = 'r.state.last_start'
+rules = 'r.state.rules'
+now = 'r.now'
+waiter = '[i \in Ids |-> r.state.waiter[i]]'
+last = 'r.last'
 
 [[model]]
 name = "heavy-rules"
@@ -823,3 +859,125 @@ name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
 source = "SPEC.md:441"
 check = ["model line"]
+
+[[promise]]
+name = "checkout-role-is-a-directory"
+says = "each refused unless it is such a directory (factorium#249)"
+source = "SPEC.md:32"
+check = ["test"]
+
+[[promise]]
+name = "issue-role-wins"
+says = "an issue's own role always wins over it"
+source = "SPEC.md:33"
+check = ["test"]
+
+[[promise]]
+name = "stale-holds-none"
+says = "an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up"
+source = "SPEC.md:39"
+check = ["model heavy-rules"]
+why = "factorium has no `truefit sim`: the model checks every order the waiters can ask in, which is what a sim would sample"
+
+[[promise]]
+name = "regenerated-conflicts-not-red"
+says = "A merge whose only conflicts are records the gate regenerates (`regenerated`, §5: slimfit's baseline, truefit's models) is not red"
+source = "SPEC.md:42"
+check = ["test"]
+
+[[promise]]
+name = "other-conflicts-red"
+says = "Any other conflict is red, naming every conflicting file (factorium#225)."
+source = "SPEC.md:42"
+check = ["test"]
+
+[[promise]]
+name = "idle-by-hand-outlasts-busy-tick"
+says = "a tick that finds the host busy does not end it, and `unqueue` ends it whole"
+source = "SPEC.md:46"
+check = ["test"]
+why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); idle.rs runs `idle` by hand on a busy host, a tick beside it, and `unqueue` of it"
+
+[[promise]]
+name = "idle-by-hand-one-open-task"
+says = "so it never files a second open issue of a kind"
+source = "SPEC.md:46"
+check = ["test"]
+
+[[promise]]
+name = "daemon-runs-reading"
+says = "its pid file names a live process that holds its lock, and that one ticked (`daemon.tick`) within five `tick_every`, never under two minutes"
+source = "SPEC.md:50"
+check = ["test"]
+
+[[promise]]
+name = "no-daemon-said-everywhere"
+says = "every other command but `run`, `stop` and `service` says so in one line on stderr"
+source = "SPEC.md:53"
+check = ["test"]
+
+[[promise]]
+name = "doctor-asks-every-wait"
+says = "every issue of every checkout that waits for a person"
+source = "SPEC.md:191"
+check = ["test"]
+
+[[promise]]
+name = "decided-records-only-first-line"
+says = "a comment is one only when its first line starts `Decided (`"
+source = "SPEC.md:213"
+check = ["test"]
+
+[[promise]]
+name = "decided-last-seven-days"
+says = "answers those of the last 7 days, read or not"
+source = "SPEC.md:218"
+check = ["test"]
+
+[[promise]]
+name = "old-records-numbered-once"
+says = "Records made before numbers were given take theirs once, oldest first by when they were made"
+source = "SPEC.md:230"
+check = ["test"]
+
+[[promise]]
+name = "usage-read-once-by-id"
+says = "each assistant message's `usage` once, by its id"
+source = "SPEC.md:294"
+check = ["test"]
+
+[[promise]]
+name = "older-daemon-swaps-on-failed-tick"
+says = "a failed tick still starts that proof and swaps once it passed"
+source = "SPEC.md:315"
+check = ["test"]
+
+[[promise]]
+name = "no-tick-waits-for-heavy"
+says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
+source = "SPEC.md:339"
+check = ["test"]
+
+[[promise]]
+name = "slow-step-a-finding"
+says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
+source = "SPEC.md:342"
+check = ["test"]
+
+[[promise]]
+name = "only-tap-signs"
+says = "the Developer ID identity and the notary key live in sunfmin/homebrew-tap only, and only its `release` workflow signs."
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:22"
+kept = "where the secrets live is sunfmin/homebrew-tap's settings, which no run of this repo reads or changes; release.sh holds no signing step, kept so by review of its change"
+
+[[promise]]
+name = "build-checks-cargo-version"
+says = "`build` at the tag only checks Cargo.toml says the tag's version"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:26"
+check = ["test"]
+
+[[promise]]
+name = "tag-only-after-signed-run"
+says = "Only after the step passes does the daemon tag"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:45"
+check = ["test"]

@@ -1,0 +1,15 @@
+{
+  "tree": "31c958150d5f25e561e6f3814610a8f2d1d9ca2c+d1fba762150c532c",
+  "picker": "codex:01a20418-8f9a-7c51-829d-3ac32d6662bc:default",
+  "author": "claude-code:207840ef-80ca-5d0e-ba65-8dd568872aa3:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/worker.rs:318:13: delete match arm WorkerEvent::WaitEnded in <impl Aggregate for Workers>::evolve",
+        "why": "Unparking already prevents a second restart, so only doctor’s waiting output can catch a declared wait that stays in worker state.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

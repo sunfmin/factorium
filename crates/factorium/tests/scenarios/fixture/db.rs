@@ -43,6 +43,17 @@ impl World {
         self.migrate(&format!("ALTER TABLE events RENAME COLUMN {column} TO {column}_before;"));
     }
 
+    /// A newer binary, a CLI call of it, appended an event of `kind`, which
+    /// this code does not know, to an issue's stream (`DecidedNumbered`,
+    /// v0.1.83, factorium#252).
+    pub fn an_event_a_newer_binary_wrote(&self, kind: &str) {
+        self.migrate(&format!(
+            "INSERT INTO events (id, stream, version, kind, type_version, data, meta) \
+             SELECT lower(hex(randomblob(16))), stream, MAX(version) + 1, '{kind}', 1, '{{}}', meta \
+             FROM events WHERE stream = (SELECT stream FROM events WHERE kind = 'IssueOpened' LIMIT 1);"
+        ));
+    }
+
     /// Every stream has a snapshot older code left, of no use to this code.
     pub fn snapshots_older_code_left(&self) {
         self.migrate(
@@ -103,7 +114,7 @@ impl World {
     }
 
     /// Issues waiting for a human as the code before factorium#95 wrote
-    /// them: `parked`, in their events, rows, snapshots and answers.
+    /// them: `parked`, in their events, rows and snapshots.
     pub fn issues_as_code_before_95_wrote_them(&self) {
         self.migrate(
             r#"
@@ -115,9 +126,7 @@ impl World {
                 WHERE json_extract(meta, '$.command') = 'issue.wait_for_human';
             UPDATE "rows:tracker:issues" SET row = json_set(row, '$.status', 'parked')
                 WHERE json_extract(row, '$.status') = 'waiting_for_human';
-            UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');
-            UPDATE answers SET answer = replace(replace(answer, '"IssueWaitingForHuman"', '"IssueParked"'),
-                '"waiting_for_human":', '"parked":');"#,
+            UPDATE snapshots SET state = replace(state, '"waiting_for_human"', '"parked"');"#,
         );
     }
 
@@ -125,7 +134,7 @@ impl World {
     pub fn names_before_95(&self) -> i64 {
         let count = "SELECT (SELECT count(*) FROM events WHERE kind = 'IssueParked' OR data LIKE '%\"parked\":%' \
                      OR meta LIKE '%issue.park\"%') + (SELECT count(*) FROM \"rows:tracker:issues\" WHERE status = \
-                     'parked') + (SELECT count(*) FROM answers WHERE answer LIKE '%parked%');";
+                     'parked');";
         self.sql().query_row(count, [], |r| r.get(0)).unwrap()
     }
 

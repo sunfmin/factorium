@@ -281,8 +281,9 @@ pub enum IssueCmd {
     /// carries it.
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another, of its checkout or of another, or
-    /// until a time (`--undo`: stop). A waiting worker on it is parked
-    /// until all it waits for is met.
+    /// until a time (`--undo`: stop). Its worker is parked: once
+    /// idle (waiting, or in a wait it declared), back to work as soon as all
+    /// it waits for is met.
     #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]))]
     Block {
         checkout: String,
@@ -342,7 +343,7 @@ pub enum WorkerCmd {
         #[arg(long)]
         why: String,
         /// How long: `90s`, `45m`, `2h`; a bare number is minutes.
-        #[arg(long, value_parser = duration_ms)]
+        #[arg(long, value_parser = when::duration_ms)]
         until: i64,
     },
     /// Files an issue your issue asks for (a follow-up), as `issue add`
@@ -566,15 +567,6 @@ impl Top {
     }
 }
 
-/// A duration given as `90s`, `45m` or `2h` (a bare number is minutes), in ms.
-fn duration_ms(s: &str) -> Result<i64, String> {
-    let t = s.trim();
-    let units = [('s', 1_000), ('m', 60_000), ('h', 3_600_000)];
-    let (n, per) = units.iter().find_map(|&(u, per)| Some((t.strip_suffix(u)?, per))).unwrap_or((t, 60_000));
-    let n: i64 = n.trim().parse().map_err(|_| format!("`{s}` is not a duration such as `90s`, `45m` or `2h`"))?;
-    Ok(n.saturating_mul(per))
-}
-
 /// The body given by `--body`, or read as UTF-8 text from `--body-file`
 /// (`-` is stdin), as is.
 fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<String>, Refusal> {
@@ -608,20 +600,5 @@ fn shell_word(s: &str) -> String {
         s.into()
     } else {
         factorium_harness::quoted(s)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::duration_ms;
-
-    #[test]
-    fn a_duration_is_read_in_seconds_minutes_or_hours_and_a_bare_number_is_minutes() {
-        assert_eq!(duration_ms("90s"), Ok(90_000));
-        assert_eq!(duration_ms("45m"), Ok(45 * 60_000));
-        assert_eq!(duration_ms("2h"), Ok(2 * 3_600_000));
-        assert_eq!(duration_ms("60"), Ok(60 * 60_000));
-        assert!(duration_ms("2d").is_err());
-        assert!(duration_ms("soon").is_err());
     }
 }

@@ -406,7 +406,7 @@ impl App {
             self.blocker(checkout, by.clone()).await?;
         }
         self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, undo }).await?;
-        // Its waiting worker is parked behind it (SPEC §2): back to work once all it waits for is met.
+        // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
             self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
         }
@@ -493,7 +493,8 @@ impl App {
     /// (a live one's, to now), in ms, and the tokens its session spent, as
     /// recorded when it ended (a live one's, as its session files say now;
     /// `null`: its harness's files do not say); and their sums, `tokens`
-    /// summing the attempts that say.
+    /// summing the attempts that say. Each attempt answers too the role it
+    /// started with and the hash of what that role gave it (`null`: none).
     async fn issue_spent(&self, i: &Issue) -> Answer<serde_json::Value> {
         use factorium_domain::worker::{Status as W, Tokens, Workers};
         let (mut ms, mut tokens, mut attempts) = (0, None::<Tokens>, Vec::new());
@@ -510,7 +511,9 @@ impl App {
                 (sum.input, sum.output) = (sum.input + s.input, sum.output + s.output);
             }
             attempts.push(json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
-                "account": st.account, "ended": ended, "ms": took, "tokens": spent }));
+                "account": st.account, "ended": ended, "ms": took, "tokens": spent,
+                "role": st.role.as_ref().map(|r| json!({ "dir": r.dir, "from": r.from })),
+                "role_hash": st.role.as_ref().map(|r| &r.hash) }));
         }
         Ok(json!({ "ms": ms, "tokens": tokens, "attempts": attempts }))
     }

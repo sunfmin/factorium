@@ -34,15 +34,7 @@ WHERE json_extract(row, '$.status') = 'parked';
 -- Issue snapshots hold the old status; they are rebuilt from the events.
 DELETE FROM snapshots WHERE stream LIKE 'issue/%';
 
--- The answers kept for commands already run, which echo their events. Only
--- JSON keys and values match these patterns: quotes inside text are escaped.
-UPDATE answers
-SET answer = replace(replace(replace(replace(answer,
-        '"kind":"IssueParked"', '"kind":"IssueWaitingForHuman"'),
-        '"parked":', '"waiting_for_human":'),
-        '"status":"parked"', '"status":"waiting_for_human"'),
-        '"command":"issue.park"', '"command":"issue.wait_for_human"')
-WHERE answer LIKE '%"kind":"IssueParked"%' OR answer LIKE '%"parked":%'
-   OR answer LIKE '%"status":"parked"%' OR answer LIKE '%"command":"issue.park"%';
+-- No answers to rewrite: since factum#43 a store keeps nothing per key
+-- beside the log (its step 7 drops the `answers` table).
 
 COMMIT;

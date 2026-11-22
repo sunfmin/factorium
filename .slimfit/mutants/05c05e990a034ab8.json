@@ -1,0 +1,6 @@
+{
+  "tree": "823b2868e287add26fcb88ab52a08c4ec0d98b1e+d1fba762150c532c",
+  "picker": "codex:01a204da-5643-77f2-81d5-80ee0f2e12a9:default",
+  "author": "claude-code:fb8322e6-d196-5efa-9ab2-8c046b2c906b:opus",
+  "none": "The scenario test asserts exact durations and rejects malformed input, so all three constant-return mutants are caught."
+}
