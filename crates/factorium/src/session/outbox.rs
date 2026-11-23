@@ -102,7 +102,9 @@ impl App {
                 self.submit::<TryMessage>(Try { terminal: f.s.terminal.clone(), n: m.n, outcome: outcome.clone() })
                     .await?;
                 let m = Message { outcome: Some(outcome.clone()), ..m };
-                if m.pending() {
+                // A notice missed waits for the next look; what follows it
+                // here is typed as if it were not there.
+                if m.pending() && !matches!(outcome, Outcome::Missed { .. }) {
                     f.blocked = Some((m.from.clone(), outcome.clone()));
                 }
                 if let (Some(worker), Some(why)) = (f.s.worker, m.lost()) {
