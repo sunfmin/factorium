@@ -84,7 +84,11 @@ leaves it out: the daemon runs the look.
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
 4. The worker runs `factorium worker gate` (the fast gate) as often as it
-   likes, then `factorium worker done`. What it wants kept (a measurement)
+   likes, then `factorium worker done`; an issue whose work changes no
+   code (a publish, a measurement) it finishes, its branch holding no
+   commits, with `factorium worker done --no-landing "<evidence>"`: the
+   daemon closes the issue with that evidence as its reason, running no
+   gate (factorium#282). What it wants kept (a measurement)
    it records with `factorium worker comment`, a comment on its issue by
    it that changes nothing else and goes to no one: not the watch, which
    is for decisions (`worker escalate`). A follow-up its issue asks for

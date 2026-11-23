@@ -128,6 +128,7 @@ fn model() -> Model {
         .aggregate::<worker::Workers>()
         .command::<worker::StartWorker>()
         .command::<worker::AskLanding>()
+        .command::<worker::AskFinish>()
         .command::<worker::RedLanding>()
         .command::<worker::GreenLanding>()
         .command::<worker::Wait>()

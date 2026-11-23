@@ -21,6 +21,10 @@ Your brief (the file you were handed) says what the issue is.
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told
   why in this terminal: fix it and run `factorium worker done` again.
+- When your issue's work changes no code (a publish, an upload, a
+  measurement) and your branch has no commits, run
+  `factorium worker done --no-landing "<what you did, how you verified it>"`,
+  then stop: your issue closes with that as its reason, and no gate runs.
 - To keep a record on your issue (measurements, what you found, anything
   the owner asked you to put in a comment), run
   `factorium worker comment --text "…"` (or pipe it on stdin). It changes

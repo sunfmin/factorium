@@ -85,6 +85,47 @@ async fn done_takes_only_committed_work_of_its_own() {
     w.app.worker_done(id(&wk)).await.unwrap();
 }
 
+/// An issue whose work changes no code (a publish, a measurement) finishes
+/// without a landing: its evidence closes it, and no gate runs.
+#[tokio::test]
+async fn done_without_landing_closes_an_issue_whose_work_changes_no_code() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    let proving = w.remote_tip("web", "proving");
+    let nothing = w.app.worker_done(id(&wk)).await.unwrap_err();
+    assert!(nothing.to_string().contains("--no-landing"), "the refusal names the way: {nothing}");
+    refused(w.app.worker_done_unlanded(id(&wk), " ").await, "no_evidence");
+
+    let evidence = "published from proving's tip: 30 files, 0 wrong";
+    w.app.worker_done_unlanded(id(&wk), evidence).await.unwrap();
+    assert_eq!(worker(&w.app).await["status"], "finishing");
+
+    let t = w.tick().await;
+    assert!(t.landed.is_empty(), "nothing lands: {:?}", t.landed);
+    assert_eq!(t.finished[0]["finished"], "web#1");
+    assert_eq!(w.remote_tip("web", "proving"), proving, "proving does not move");
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
+    assert!(issue["reason"].as_str().unwrap().contains(evidence), "{issue}");
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert!(crate::fixture::closed(&w.app, "term-1").await, "its session ends");
+    assert!(!tree.exists(), "its worktree goes");
+}
+
+/// Commits land: done without landing refuses them, so no work is dropped.
+#[tokio::test]
+async fn done_without_landing_refuses_a_branch_with_commits() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    w.commit(&tree, "hello.txt", "hello\n");
+    refused(w.app.worker_done_unlanded(id(&wk), "published").await, "has_commits");
+    assert_eq!(worker(&w.app).await["status"], "working");
+    w.app.worker_done(id(&wk)).await.unwrap();
+    assert_eq!(worker(&w.app).await["status"], "landing");
+}
+
 #[tokio::test]
 async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch() {
     let w = World::new();

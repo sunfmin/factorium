@@ -109,7 +109,7 @@ command!(Observe, "worker.observe", Workers, Observation, |p| p.worker, |s, p, n
 fn spent(w: &Worker, sight: &Sight, now: i64) -> Option<Vec<WorkerEvent>> {
     Some(match sight {
         Sight::Quota(said) => vec![WorkerEvent::UsedUp { said: said.clone(), until: now + QUOTA_REST_MS }],
-        Sight::Limit { .. } if w.status == Status::Landing => Vec::new(),
+        Sight::Limit { .. } if matches!(w.status, Status::Landing | Status::Finishing) => Vec::new(),
         Sight::Limit { said, until } => {
             vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
         }

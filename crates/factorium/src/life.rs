@@ -216,6 +216,23 @@ impl App {
         Ok(closed)
     }
 
+    /// Each worker that asked to finish without a landing
+    /// ([`App::worker_done_unlanded`]): its issue closes with its evidence
+    /// as the reason, no gate run, and it ends in [`App::finish`]'s order,
+    /// its worktree going unless it holds work of its own. The daemon does
+    /// it, not the worker's own command: that ends the worker's terminal,
+    /// which the command runs in. Answers the issues closed.
+    pub(crate) async fn finish_unlanded(&self) -> Answer<Vec<serde_json::Value>> {
+        let mut finished = Vec::new();
+        for row in self.rows(tracker::workers(Some(Status::Finishing), false)).await? {
+            let evidence = self.state::<Workers>(row.worker).await?.why.unwrap_or_default();
+            let reason = format!("finished without a landing, its work changing no code: {evidence}");
+            self.close(&row.checkout, row.number, &reason, false).await?;
+            finished.push(json!({ "finished": format!("{}#{}", row.checkout, row.number), "evidence": evidence }));
+        }
+        Ok(finished)
+    }
+
     async fn open_worker(
         &self,
         c: &Checkout,
