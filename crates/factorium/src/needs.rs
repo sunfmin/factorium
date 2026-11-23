@@ -3,7 +3,6 @@
 //! installed first. What is still lacking is kept on the daemon for doctor,
 //! so the watch is handed it, and the role's issues wait.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use factorium_domain::daemon::{Daemons, NoteRole, RoleChecked, daemon_id};
@@ -11,27 +10,17 @@ use factorium_domain::needs::{self, Lacking};
 
 use crate::{Answer, App};
 
-/// What each role directory checked in one tick was found to be: checked
-/// once a tick, however many of its issues are ready.
-pub(crate) type Checked = BTreeMap<String, bool>;
-
 impl App {
-    /// Whether a worker may start with role `dir` now, checked once a tick
-    /// (`checked`). A directory without `rolesmith.toml` needs nothing.
-    pub(crate) async fn role_ready(&self, dir: &str, checked: &mut Checked) -> Answer<bool> {
-        if let Some(ready) = checked.get(dir) {
-            return Ok(*ready);
+    /// Whether a worker may start with role `dir` now. A directory without
+    /// `rolesmith.toml` needs nothing; else `rolesmith doctor --project
+    /// <dir>`, and a program it lacks is installed (`rolesmith tool install
+    /// --project <dir>`), unless an install already left the same lack, and
+    /// it is checked again. What it lacks after is kept for doctor; nothing
+    /// lacking clears what was.
+    pub(crate) async fn role_ready(&self, dir: &str) -> Answer<bool> {
+        if !Path::new(dir).join(needs::RECORD).is_file() {
+            return Ok(true);
         }
-        let ready = !Path::new(dir).join(needs::RECORD).is_file() || self.check_role(dir).await?;
-        checked.insert(dir.into(), ready);
-        Ok(ready)
-    }
-
-    /// `rolesmith doctor --project <dir>`; a program it lacks is installed
-    /// (`rolesmith tool install --project <dir>`), unless an install
-    /// already left the same lack, and it is checked again. What it lacks
-    /// after is kept for doctor; nothing lacking clears what was.
-    async fn check_role(&self, dir: &str) -> Answer<bool> {
         let before = self.state::<Daemons>(daemon_id()).await?.roles.remove(dir);
         let mut lacking = self.role_doctor(dir);
         if lacking.as_ref().is_some_and(|l| l.to_install(before.as_ref())) {

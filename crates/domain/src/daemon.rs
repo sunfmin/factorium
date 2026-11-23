@@ -136,11 +136,8 @@ pub enum DaemonEvent {
     TickSlow(SlowTick),
     SwapRefused(Option<Refused>),
     UpgradeTried(Upgrade),
-    /// A role directory was checked: what it lacks, `None`: nothing.
-    RoleChecked {
-        dir: String,
-        lacking: Option<Lacking>,
-    },
+    /// A role directory was checked.
+    RoleChecked(RoleChecked),
 }
 
 pub struct Daemons;
@@ -166,8 +163,8 @@ impl Aggregate for Daemons {
             DaemonEvent::TickSlow(slow) => s.slow = Some(slow),
             DaemonEvent::SwapRefused(r) => s.refused = r,
             DaemonEvent::UpgradeTried(u) => s.upgrade = Some(u),
-            DaemonEvent::RoleChecked { dir, lacking: Some(l) } => _ = s.roles.insert(dir, l),
-            DaemonEvent::RoleChecked { dir, lacking: None } => _ = s.roles.remove(&dir),
+            DaemonEvent::RoleChecked(RoleChecked { dir, lacking: Some(l) }) => _ = s.roles.insert(dir, l),
+            DaemonEvent::RoleChecked(RoleChecked { dir, lacking: None }) => _ = s.roles.remove(&dir),
         }
     }
 }
@@ -256,12 +253,7 @@ pub struct RoleChecked {
 // A role directory's check before a start: kept only when it changes what is known of it.
 command!(NoteRole, "daemon.role", Daemons, RoleChecked, |_p| daemon_id(), |s, p, _now| {
     let changed = s.roles.get(&p.dir) != p.lacking.as_ref();
-    Ok::<_, factum_core::Rejection>(
-        changed
-            .then(|| DaemonEvent::RoleChecked { dir: p.dir.clone(), lacking: p.lacking.clone() })
-            .into_iter()
-            .collect(),
-    )
+    Ok::<_, factum_core::Rejection>(changed.then(|| DaemonEvent::RoleChecked(p.clone())).into_iter().collect())
 });
 
 /// What the daemon's own files say of it, as the process edge reads them:

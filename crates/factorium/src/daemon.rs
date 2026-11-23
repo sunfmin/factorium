@@ -242,7 +242,8 @@ impl App {
     /// what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
-        let mut roles = crate::needs::Checked::new();
+        // Roles found lacking this tick: one that passes starts its issue at once.
+        let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
         for r in self.rows(tracker::untaken()).await? {
             let (checkout, number) = (r.checkout, r.number);
@@ -271,8 +272,9 @@ impl App {
             // hands the watch what it lacks.
             let role = self.checkout(&checkout).await?.role_for(issue.on.role.as_deref()).map(|(r, _)| r.to_string());
             if let Some(role) = role
-                && !self.role_ready(&role, &mut roles).await?
+                && (lacking.contains(&role) || !self.role_ready(&role).await?)
             {
+                lacking.insert(role);
                 continue;
             }
             return Ok(Some((checkout, number)));
