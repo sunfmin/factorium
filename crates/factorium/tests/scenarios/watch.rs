@@ -341,6 +341,26 @@ async fn a_tell_its_session_takes_just_after_orca_s_window_is_submitted_and_one_
     }
 }
 
+/// A worker that ends while a tell to it is being typed (its issue closed by
+/// another run): the tell it missed sends it to no one, and is answered.
+#[tokio::test]
+async fn a_tell_missed_by_a_worker_that_ended_meanwhile_is_answered_missed() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.set_busy(wk["terminal"].as_str().unwrap(), false, true);
+    let (db, host) = (w.db.clone(), w.host.clone());
+    *w.host.while_sleeping.lock().unwrap() = Some(Box::new(move || {
+        let closed = crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "done").await });
+        closed.unwrap().unwrap();
+    }));
+    let told = w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap();
+    assert_eq!((told["delivery"].clone(), w.workers().await.len()), (json!("missed"), 0), "{told}");
+}
+
 /// factorium#170: guild#17's worker on 2026-11-21 read a comment typed
 /// while its turn ran: Claude Code wrote it only as a `queue-operation` and a
 /// `queued_command` attachment of that turn, in the session file of the
