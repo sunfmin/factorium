@@ -241,7 +241,13 @@ pub enum IssueCmd {
     /// tokens its session spent (`null`: its harness's files do not say),
     /// with their sums.
     Show { checkout: String, number: u64 },
-    /// Changes an issue's title, body or role.
+    /// Changes an issue's title, body or role. A live worker on it gets the
+    /// edit at once: its brief is rewritten to the title and body as they
+    /// are now, and a body changed is typed at its session as a comment is,
+    /// telling it to read its brief again (a waiting worker's brief is
+    /// rewritten, and it is not typed at). The answer's `delivery` says how
+    /// a changed body reached it (`brief`: only its brief), `undelivered`
+    /// why it did not.
     Edit {
         checkout: String,
         number: u64,

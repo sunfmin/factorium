@@ -27,6 +27,9 @@ pub enum Sender {
     Comment,
     /// factorium: the worker's role directory changed under it.
     Role,
+    /// factorium: the body of the worker's issue was edited, and its
+    /// brief rewritten to it.
+    Body,
     /// The watch's round `n`.
     Round(u64),
 }
@@ -40,6 +43,7 @@ impl Sender {
             Sender::Watch => "factorium (the watch): ".into(),
             Sender::Comment => "factorium (a comment on your issue): ".into(),
             Sender::Role => "factorium (your role changed): ".into(),
+            Sender::Body => "factorium (your issue's body changed): ".into(),
             Sender::Round(n) => format!("factorium round {n}: "),
         }
     }
@@ -64,6 +68,7 @@ impl Sender {
             Sender::Watch => "the watch's word",
             Sender::Comment => "a comment on its issue",
             Sender::Role => "word that its role changed",
+            Sender::Body => "word that its issue's body changed",
             Sender::Round(_) => "the round",
         }
     }

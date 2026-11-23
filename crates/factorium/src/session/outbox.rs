@@ -62,8 +62,9 @@ impl App {
 
     /// Tries each message `s` has still to be tried, oldest first; `now`:
     /// message `n` stops the running turn first. What comes after a brief
-    /// still held waits on it: a comment goes into the brief, anything else
-    /// is refused as the brief was. Answers how each try went.
+    /// still held waits on it: a comment goes into the brief, word that the
+    /// body changed is there already, anything else is refused as the brief
+    /// was. Answers how each try went.
     async fn flush(&self, s: &Session, now: Option<(u64, bool)>) -> Answer<Vec<(u64, Outcome)>> {
         let mut blocked: Option<(Sender, Outcome)> = None;
         let mut tried = Vec::new();
@@ -75,6 +76,8 @@ impl App {
             let outcome = match (&blocked, &m.from) {
                 (Some((Sender::Brief, _)), Sender::Comment | Sender::Role) => add_to_brief(&s.brief, &m.text)
                     .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
+                // Its brief already holds the body as it is now.
+                (Some((Sender::Brief, _)), Sender::Body) => Outcome::Brief,
                 (Some((_, held)), _) => held.clone(),
                 (None, _) => match self.held(s, limit.as_ref()) {
                     Some(held) => held,
