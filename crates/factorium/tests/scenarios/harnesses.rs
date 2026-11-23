@@ -198,6 +198,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     let expected = [
         "account.rs: const PREFIX",
         "account.rs: fn here",
+        "account.rs: fn this_machine",
         "account.rs: struct Here",
         "account.rs: struct Skipped",
         "account.rs: struct Usable",

@@ -6,6 +6,7 @@
 use factorium_domain::checkout::Checkout;
 use factorium_domain::issue::{Author, Issue, Status};
 use factorium_domain::when;
+use factorium_harness::quoted;
 use serde_json::{Value, json};
 
 use crate::{Answer, App, Refusal, fail};
@@ -152,12 +153,6 @@ fn list_of(names: &[&str]) -> String {
 /// This host's name, as `hostname -s` says it.
 fn here() -> String {
     factorium_harness::account::this_machine().unwrap_or_else(|_| "this host".into())
-}
-
-/// `s` as one word of a POSIX shell (sh, bash, zsh): in single quotes,
-/// each of its own as `'\''`.
-fn quoted(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// Whether two origin URLs name one repo: alike once a trailing `/` and
