@@ -1,5 +1,5 @@
 # factorium's ties to the programs it drives (truefit ADR 0001). The
-# scenarios stand in for Orca, Homebrew, mytokens, slimfit and launchd in
+# scenarios stand in for Orca, Homebrew, mytokens, slimfit, rolesmith and launchd in
 # process (crates/factorium/tests/scenarios/fixture/fakes.rs); `standin`
 # (crates/factorium/examples/standin.rs) runs those very fakes, or the real
 # programs, through one driver, and prints what factorium reads of each
@@ -306,6 +306,26 @@ stdin = """
 {"run": ["slimfit", "help", "picker"]}
 {"run": ["slimfit", "help", "reviewer"]}
 {"run": ["slimfit", "check", "--repo", "{dir}", "--mutants"], "read": ["/candidates/*/*/name"]}
+"""
+
+[[standin]]
+name = "rolesmith"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "rolesmith on PATH, with the source `felix` (sunfmin/lore) added"
+version = ["rolesmith", "--version"]
+
+# What factorium reads of `doctor --project` before a start: a directory
+# without `rolesmith.toml` is refused, naming no thing lacking; one whose
+# roles need nothing of the host passes. A role that lacks a program or an
+# entry, and `tool install`, would need a library and a host made to lack
+# them, and an install changes the host: no case runs those for real.
+[[standin.case]]
+name = "doctor"
+dir = "crates/factorium/tests/contract/rolesmith-project"
+stdin = """
+{"run": ["rolesmith", "doctor", "--project", "{dir}/no-record", "--json"], "read": ["/error/kind", "/error/missing"]}
+{"run": ["rolesmith", "doctor", "--project", "{dir}", "--json"], "read": ["/programs", "/entries", "/error/kind"]}
 """
 
 [[standin]]

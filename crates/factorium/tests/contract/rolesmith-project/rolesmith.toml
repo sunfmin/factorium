@@ -1,0 +1,8 @@
+# A project whose one role, at a pinned rev, needs nothing of the host:
+# truefit's rolesmith case (truefit.toml) checks it with `doctor --project`.
+[[role]]
+name = "coder"
+source = "felix"
+url = "https://github.com/sunfmin/lore"
+rev = "3f2a98e14e50ced2f7878c0faf7e22199dfd822b"
+into = ["claude-code"]
