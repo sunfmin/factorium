@@ -1,0 +1,10 @@
+{
+  "tree": "fecf8d7cdfde3c658dd1ef5558ba2af6adb71d9f+d1fba762150c532c",
+  "lines": 186,
+  "serves": "factorium#274",
+  "considered": "issues.rs issue_wait_for_human and close (reused for stop and close), kept.rs kept_now (reused for what a worktree holds), harness quoted (reused for shell quoting), git push_requiring (reused); a stdin on host::Programs (not added: the body goes as an argument)",
+  "reviewer": "codex:01a205f7-ddce-7a72-9753-a92c2a9e3af4:default",
+  "author": "claude-code:1a5611d5-7eef-5623-8337-787993b108ff:opus",
+  "cut": "In crates/factorium/src/moved.rs, inline the single-use branch, hostname and checkout-list formatting helpers, and map the partial-progress error directly on the two closing calls to remove the async wrapper. In crates/factorium/tests/scenarios/fixture/fakes.rs, match the exact SSH arguments used by factorium and the stand-in contract, dropping the option loop and command join. In crates/factorium/tests/scenarios/fixture/hosts.rs, drop checkout_of's return value since every caller discards it.",
+  "answer": "Made all three cuts as named (commit after 75b14cc)."
+}
