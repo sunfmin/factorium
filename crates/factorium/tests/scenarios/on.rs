@@ -313,6 +313,10 @@ async fn an_attempt_with_no_role_answers_null_for_its_role_and_hash() {
     let one = &spent["attempts"][0];
     assert_eq!((one["role"].clone(), one["role_hash"].clone()), (json!(null), json!(null)), "{spent}");
     assert!(one.as_object().unwrap().contains_key("role_hash"), "{spent}");
+    // Factorium's own worker rules are no role: changed, nothing is told.
+    std::fs::write(w.data().root().join("role/worker").join(RULES), "changed\n").unwrap();
+    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new());
+    assert_eq!(role_words(&w).await, Vec::<String>::new());
 }
 
 /// What was typed at the session of the worker on `web#1` that says its role changed.
@@ -364,16 +368,4 @@ async fn a_worker_whose_role_changes_under_it_is_told_once_which_files_changed()
     // `role_hash` stays the hash the attempt started with.
     let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
     assert_eq!(spent["attempts"][0]["role_hash"], json!("2b87fcb63ebf6484"), "{spent}");
-}
-
-#[tokio::test]
-async fn a_worker_with_no_role_is_told_nothing_of_roles() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
-    w.app.issue_add("web", "Plain", "", false, &[]).await.unwrap();
-    w.tick().await;
-    std::fs::write(w.data().root().join("role/worker").join(RULES), "changed\n").unwrap();
-    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new());
-    assert_eq!(role_words(&w).await, Vec::<String>::new());
 }

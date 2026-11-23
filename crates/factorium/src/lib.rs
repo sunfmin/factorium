@@ -18,7 +18,6 @@ mod lock;
 mod outage;
 mod owner;
 mod pick;
-mod role;
 mod service;
 mod session;
 mod swap;

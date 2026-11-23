@@ -20,7 +20,7 @@ use factorium_host::Term;
 use factum::Uuid;
 
 pub use launch::{Caller, DB_ENV};
-pub(crate) use launch::{Opened, Pick, Role, SessionEnv, read_role, write_role_rules};
+pub(crate) use launch::{Opened, Pick, Role, SessionEnv};
 pub(crate) use outbox::heard;
 
 use crate::{Answer, App, Refusal};

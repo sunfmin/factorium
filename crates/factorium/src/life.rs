@@ -244,8 +244,7 @@ impl App {
         let role = role_for.zip(opened.role).map(|((dir, from), read)| StartedRole {
             dir: dir.into(),
             from: from.into(),
-            hash: read.hash,
-            files: read.files,
+            read,
         });
         let started = Started {
             checkout: c.name.clone(),

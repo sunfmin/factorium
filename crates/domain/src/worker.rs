@@ -51,21 +51,20 @@ pub struct StartedRole {
     pub dir: String,
     /// Whose it is: `"issue"` or `"checkout"` (the checkout's default).
     pub from: String,
-    /// A hash of what the role gave it: its rules and every file under its
-    /// skills, read through the link at the start.
+    /// What the role gave it, read through the link at the start.
+    #[serde(flatten)]
+    pub read: RoleRead,
+}
+
+/// What a role's directory holds, as read once.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RoleRead {
+    /// A hash of its rules and every file under its skills.
     pub hash: String,
     /// Each of those files by its path under the role's directory
     /// (`CLAUDE.md`, `.claude/skills/…`), and a hash of its bytes; empty in
     /// an attempt started before factorium#273.
     #[serde(default)]
-    pub files: BTreeMap<String, String>,
-}
-
-/// What a role's directory holds, as read once: [`StartedRole::hash`] and
-/// [`StartedRole::files`].
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct RoleRead {
-    pub hash: String,
     pub files: BTreeMap<String, String>,
 }
 
@@ -151,9 +150,9 @@ pub struct Limit {
 impl Worker {
     /// What its role held as it last knew it: as it was last told it
     /// changed, else as it started; `None`: it has no role.
-    pub fn role_known(&self) -> Option<RoleRead> {
+    pub fn role_known(&self) -> Option<&RoleRead> {
         let role = self.started.as_ref()?.role.as_ref()?;
-        Some(self.role_told.clone().unwrap_or_else(|| RoleRead { hash: role.hash.clone(), files: role.files.clone() }))
+        Some(self.role_told.as_ref().unwrap_or(&role.read))
     }
 
     /// The limit it waits on, parked on it since it was seen, until its

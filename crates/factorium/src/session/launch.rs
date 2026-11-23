@@ -3,19 +3,23 @@
 //! with its brief; the watch's in its home, its rules for its brief. Both
 //! get the kit's first eligible harness on its account with the most left,
 //! the account's secrets by a file, this factorium on PATH and its database,
-//! the guard, and their rules. The environment names that tell a session's
+//! the guard, and their rules; a worker whose role changes under it is
+//! told once. The environment names that tell a session's
 //! commands who runs them live here and nowhere else.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use factorium_domain::kit::{Choice, Kit, Kits, kit_id};
-use factorium_domain::worker::RoleRead;
+use factorium_domain::outbox::Sender;
+use factorium_domain::worker::{NoteRoleTold, RoleRead, TellRole, Workers};
 use factorium_harness::account::{self, Here};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
-use factum::Uuid;
+use factum::{Uuid, Value};
+use serde_json::json;
 
-use crate::{Answer, App, Refusal, fail};
+use crate::kept::WorkerBranch;
+use crate::{Answer, App, Refusal, Want, fail};
 
 /// The database a command opens, when `--db` does not say.
 pub const DB_ENV: &str = "FACTORIUM_DB";
@@ -289,6 +293,50 @@ impl App {
         Ok(Opened { terminal, brief, typed, rules: rules_hash, role: role_read })
     }
 
+    /// A role changed under a live worker (factorium#273): its session read
+    /// its role once, at its start, and a role directory is linked live.
+    /// Tells each live worker whose role changed since it last knew of it,
+    /// once, through its outbox as a comment is; its session's rules are
+    /// written again with the role's new ones, and what it was told is
+    /// recorded. One waiting for the watch, unless parked on its engine's
+    /// limit, is told once it works again. Answers each one told.
+    pub(crate) async fn tell_role_changes(&self) -> Answer<Vec<Value>> {
+        let mut told = Vec::new();
+        for row in self.live_workers().await? {
+            let wk = self.state::<Workers>(row.worker).await?;
+            let Some(known) = wk.role_known() else { continue };
+            let st = wk.started.as_ref().expect("a worker with a role started");
+            let dir = &st.role.as_ref().expect("it has a role").dir;
+            let now = read_role(Path::new(dir)).map_err(|e| Refusal::new("io", format!("its role {dir}: {e}")))?;
+            if now.hash == known.hash {
+                continue;
+            }
+            let Some(live) = self.live_or_none(row.worker, Want::Any).await? else { continue };
+            if live.waiting && !live.on_limit {
+                continue;
+            }
+            let changed = now.changed_from(&known.files);
+            let name = WorkerBranch { checkout: st.checkout.clone(), number: st.number, attempt: st.attempt }.worker();
+            let session_dir = self.data().issue_role(&name);
+            let mut also = String::new();
+            if changed.iter().any(|f| f == RULES) {
+                write_role_rules(&session_dir, Path::new(dir)).map_err(|e| Refusal::new("io", e.to_string()))?;
+                also = format!(
+                    ", and your own rules, written again with its new ones: `{}`",
+                    session_dir.join(RULES).display()
+                );
+            }
+            let text = format!(
+                "your role `{dir}` changed since you last read it: {}. Before your next step, re-read its core skill and each changed file{also}.",
+                changed.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+            );
+            let delivery = self.tell(&live.session, Sender::Role, &text, false).await?;
+            self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
+            told.push(json!({ "worker": row.worker, "changed": changed, "delivery": delivery.word() }));
+        }
+        Ok(told)
+    }
+
     /// Opens the terminal of the session `start` says: its terminal, and
     /// the line to type at it once its harness is up.
     fn open_terminal(&self, pick: &Pick, start: &Start, at: &Path, title: &str) -> Answer<(String, Option<String>)> {
@@ -378,7 +426,7 @@ fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<Option<RoleRead>
 
 /// Writes the rules of a worker's session in `dir`: the worker's, then
 /// `role`'s own, as they are now.
-pub(crate) fn write_role_rules(dir: &Path, role: &Path) -> std::io::Result<()> {
+fn write_role_rules(dir: &Path, role: &Path) -> std::io::Result<()> {
     let own = std::fs::read_to_string(role.join(RULES)).unwrap_or_default();
     std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))
 }
@@ -388,7 +436,7 @@ pub(crate) fn write_role_rules(dir: &Path, role: &Path) -> std::io::Result<()> {
 /// the skills and its bytes, in path order, each part led by its length so
 /// no two contents read alike; and each of those files by its path under
 /// `role`, with a hash of its bytes.
-pub(crate) fn read_role(role: &Path) -> std::io::Result<RoleRead> {
+fn read_role(role: &Path) -> std::io::Result<RoleRead> {
     let rules = std::fs::read(role.join(RULES)).unwrap_or_default();
     let skills = role.join(factorium_harness::SKILLS);
     let mut found = Vec::new();
