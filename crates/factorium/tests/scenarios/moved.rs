@@ -166,3 +166,34 @@ async fn origins_that_name_one_repo_in_other_forms_are_one_and_others_are_not() 
         }
     }
 }
+
+#[tokio::test]
+async fn an_issue_that_waits_for_a_person_here_waits_for_one_there_and_a_ready_one_arrives_ready() {
+    let (w, there) = (World::new(), World::new());
+    issue(&w, false).await;
+    w.app.issue_add("web", "Ready to go", "", false, &[]).await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "slimfit found it too big: split it?").await.unwrap();
+    there.checkout_of(&w, "web").await;
+    there.reached_by(&w, THERE);
+
+    w.app.issue_move("web", 1, THERE).await.unwrap();
+    let filed = there.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(filed["status"], json!("waiting_for_human"), "{filed:#}");
+    let out = std::process::Command::new("hostname").arg("-s").output().unwrap();
+    let here = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let why = format!("it waited for a person at `{here} web#1`: slimfit found it too big: split it?");
+    assert_eq!(filed["reason"], json!(why), "{filed:#}");
+    let asks = there.app.doctor().await.unwrap()["asks"].clone();
+    assert_eq!(asks[0]["issue"], json!("web#1"), "{asks:#}");
+    assert_eq!(asks[0]["why"], json!(why), "{asks:#}");
+
+    w.app.issue_move("web", 2, THERE).await.unwrap();
+    assert_eq!(there.app.issue_show("web", 2).await.unwrap()["status"], json!("ready"));
+
+    // Added waiting, with no why: there it names where it waited.
+    w.app.issue_add("web", "Ship it?", "", true, &[]).await.unwrap();
+    w.app.issue_move("web", 3, THERE).await.unwrap();
+    let filed = there.app.issue_show("web", 3).await.unwrap();
+    assert_eq!(filed["status"], json!("waiting_for_human"), "{filed:#}");
+    assert_eq!(filed["reason"], json!(format!("it waited for a person at `{here} web#3`")), "{filed:#}");
+}

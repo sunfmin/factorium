@@ -204,6 +204,10 @@ pub enum IssueCmd {
         /// person readies it.
         #[arg(long)]
         waiting_for_human: bool,
+        /// Why it waits for a person, as `wait-for-human --why` gives one;
+        /// shown in doctor's `asks`.
+        #[arg(long, requires = "waiting_for_human")]
+        why: Option<String>,
         /// An issue it waits for, repeat for each: `N` of its checkout;
         /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
         /// until a cut of that checkout holds its landing (and installs it).
@@ -501,6 +505,7 @@ impl Top {
                     body,
                     body_file,
                     waiting_for_human,
+                    why,
                     mut blocked_by,
                     not_before,
                     role,
@@ -509,7 +514,8 @@ impl Top {
                     blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(body, body_file)?.unwrap_or_default();
                     let on = factorium_domain::issue::On { role, account };
-                    app.issue_add_on(&checkout, &title, &body, waiting_for_human, &blocked_by, on).await
+                    let waiting = waiting_for_human.then_some(why.as_deref());
+                    app.issue_add_on(&checkout, &title, &body, waiting, &blocked_by, on).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,

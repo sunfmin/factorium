@@ -270,6 +270,10 @@ pub enum IssueEvent {
         /// `parked` before factorium#95.
         #[serde(alias = "parked")]
         waiting_for_human: bool,
+        /// Why it waits for a person from the start, if it does and was
+        /// given one (factorium#276).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         task: Option<Task>,
         #[serde(default, skip_serializing_if = "On::is_none")]
@@ -352,7 +356,7 @@ impl IssueEvent {
     /// one place an issue's status changes, for the issue and its row.
     pub fn standing(&self) -> Option<Standing> {
         let (status, reason) = match self {
-            IssueEvent::IssueOpened { waiting_for_human: true, .. } => (Status::WaitingForHuman, None),
+            IssueEvent::IssueOpened { waiting_for_human: true, why, .. } => (Status::WaitingForHuman, why.clone()),
             IssueEvent::IssueOpened { .. } | IssueEvent::IssueReadied => (Status::Ready, None),
             IssueEvent::IssueWaitingForHuman { reason } => (Status::WaitingForHuman, Some(reason.clone())),
             IssueEvent::IssueClosed { reason, .. } => (Status::Closed, Some(reason.clone())),
@@ -451,6 +455,9 @@ pub struct Open {
     pub body: String,
     #[serde(default)]
     pub waiting_for_human: bool,
+    /// Why it waits for a person from the start; read only with `waiting_for_human`.
+    #[serde(default)]
+    pub why: Option<String>,
     /// What it waits for from the start: issues, of its checkout or
     /// others, and a time.
     #[serde(default)]
@@ -485,6 +492,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         title: p.title.trim().to_string(),
         body: p.body.clone(),
         waiting_for_human: p.waiting_for_human,
+        why: p.why.clone(),
         task: p.task.clone(),
         on: p.on.clone(),
         decided,
@@ -804,6 +812,7 @@ mod tests {
             title: "t".into(),
             body: String::new(),
             waiting_for_human,
+            why: None,
             task: None,
             on: On::default(),
             decided: Vec::new(),

@@ -38,19 +38,21 @@ impl App {
         waiting_for_human: bool,
         blocked_by: &[Blocker],
     ) -> Answer {
-        self.issue_add_on(checkout, title, body, waiting_for_human, blocked_by, On::default()).await
+        let waiting = waiting_for_human.then_some(None);
+        self.issue_add_on(checkout, title, body, waiting, blocked_by, On::default()).await
     }
 
     /// [`App::issue_add`], its worker to start as `on` says: with the rules
     /// and skills of the role directory it names, on the account it names.
     /// Refused unless the role is a directory named by its absolute path and
-    /// the account is one this host can use.
+    /// the account is one this host can use. `waiting`: it waits for a
+    /// person from the start, with why if one is given.
     pub async fn issue_add_on(
         &self,
         checkout: &str,
         title: &str,
         body: &str,
-        waiting_for_human: bool,
+        waiting: Option<Option<&str>>,
         blocked_by: &[Blocker],
         on: On,
     ) -> Answer {
@@ -64,7 +66,8 @@ impl App {
             checkout: checkout.into(),
             title,
             body,
-            waiting_for_human,
+            waiting_for_human: waiting.is_some(),
+            why: waiting.flatten().map(String::from),
             blocked_by: blocked_by.to_vec(),
             on,
             ..Open::default()

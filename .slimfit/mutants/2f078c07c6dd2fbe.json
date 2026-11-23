@@ -1,0 +1,15 @@
+{
+  "tree": "12ab571b0b636068a67f384b5bd179b5131a14de+d1fba762150c532c",
+  "picker": "codex:01a206a0-ded0-74c3-9d06-577798d05a48:default",
+  "author": "claude-code:92c63bae-162e-5423-b59c-698993601833:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/issues.rs:68:13: delete field body from struct Open expression in App::issue_add_on",
+        "why": "Deleting the body could leave the move scenario’s status and wait-reason assertions passing while silently dropping the destination issue’s description.",
+        "outcome": "unviable",
+        "first_outcome": "unviable"
+      }
+    ]
+  }
+}
