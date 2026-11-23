@@ -1,0 +1,10 @@
+{
+  "tree": "375fcf34a7971e2ea2697aec922c1da79e03f157+d1fba762150c532c",
+  "lines": 70,
+  "serves": "factorium#272",
+  "considered": "admission::admit and neutral::room, now the first of holds/short rather than a second copy of the rules; daemon::next_issue's readiness walk, not reusable as is since it clears dead claims (doctor writes nothing); Kit::choose's own why, reused for the kit reasons",
+  "reviewer": "codex:01a205a4-4d72-7f02-a54d-1696c76b68be:default",
+  "author": "claude-code:981eaffb-b99d-5871-b6d0-43609fd53c57:opus",
+  "cut": "In crates/domain/src/doctor.rs, reuse the filtered ready iterator for the eligibility and kit checks, then use filter_map to read kit errors directly and remove the temporary vector and empty-string fallback. In crates/factorium/src/doctor.rs, replace the boolean match in ready_seen with an if expression. In crates/domain/src/neutral/admission.rs, format the disk tenths directly in the existing diagnostic and remove the intermediate formatted string.",
+  "answer": "Made the first: unstarted reads the filtered iterator once and collects the kit answers into Option<Vec>, no temporary vector or fallback. Tried the other two: rustfmt spreads each over more lines than it saves (if/else to 5 lines, the inline format to 6), so both are kept as they were"
+}

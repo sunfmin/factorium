@@ -309,6 +309,27 @@ stdin = """
 """
 
 [[standin]]
+name = "ssh"
+run = ["crates/factorium/tests/contract/standin", "fake"]
+real = ["crates/factorium/tests/contract/standin", "real"]
+needs = "ssh to localhost with no password asked (Remote Login on, a key it takes, its host key known)"
+ready = ["ssh", "-o", "BatchMode=yes", "localhost", "true"]
+version = ["sh", "-c", "ssh -V 2>&1"]
+
+# `issue move` (SPEC §4): each command runs in the target user's login
+# shell, as `exec "$SHELL" -lc '<command>'`, a quote in it as `'\''`;
+# factorium reads its stdout and whether it exited 0. A target not reached
+# fails as a command there that fails does: neither changes anything here.
+[[standin.case]]
+name = "login-shell"
+stdin = """
+{"world": {"ssh": {"localhost": {"SHELL": "/bin/sh", "PATH": "/usr/bin:/bin", "HOME": "{dir}"}}}}
+{"run": ["ssh", "-o", "BatchMode=yes", "localhost", "exec \\"$SHELL\\" -lc 'echo \\"it'\\\\''s there\\"'"], "read": "out"}
+{"run": ["ssh", "-o", "BatchMode=yes", "localhost", "exec \\"$SHELL\\" -lc 'echo refused; exit 1'"], "read": "out"}
+{"run": ["ssh", "-o", "BatchMode=yes", "no-such-host.invalid", "exec \\"$SHELL\\" -lc true"], "read": "ok"}
+"""
+
+[[standin]]
 name = "launchctl"
 run = ["crates/factorium/tests/contract/standin", "fake"]
 real = ["crates/factorium/tests/contract/standin", "real"]

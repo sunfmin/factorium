@@ -25,16 +25,26 @@ const GIB: u64 = 1 << 30;
 
 /// Whether the host has room for one more start; else why not.
 pub fn room(r: &Reading, l: &Limits) -> Result<(), String> {
+    short(r, l).into_iter().next().map_or(Ok(()), Err)
+}
+
+/// Each way the host lacks room for one more start, the disk first: each
+/// reading beside its limit, in the limit's unit.
+pub fn short(r: &Reading, l: &Limits) -> Vec<String> {
+    let mut why = Vec::new();
     if disk_short(r, l) {
-        return Err(format!("disk: {} GiB free, under the floor of {} GiB", r.disk_free / GIB, l.disk_floor_gib));
+        // In tenths cut, not rounded: a byte under the floor never reads as the floor.
+        let tenths = (r.disk_free as u128 * 10 / GIB as u128) as u64;
+        let free = format!("{}.{}", tenths / 10, tenths % 10);
+        why.push(format!("disk: {free} GiB free, under the floor of {} GiB", l.disk_floor_gib));
     }
     if r.cpu_busy > l.cpu_busy_max {
-        return Err(format!("cpu: {}% busy, over {}%", r.cpu_busy, l.cpu_busy_max));
+        why.push(format!("cpu: {}% busy, over {}%", r.cpu_busy, l.cpu_busy_max));
     }
     if r.memory_free < l.memory_free_min {
-        return Err(format!("memory: {}% free, under {}%", r.memory_free, l.memory_free_min));
+        why.push(format!("memory: {}% free, under {}%", r.memory_free, l.memory_free_min));
     }
-    Ok(())
+    why
 }
 
 /// Whether the disk is under its floor: the time to reclaim build output.

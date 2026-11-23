@@ -12,6 +12,7 @@
 mod db;
 mod fakes;
 mod heavy;
+mod hosts;
 mod kept_trace;
 mod line_trace;
 mod read;

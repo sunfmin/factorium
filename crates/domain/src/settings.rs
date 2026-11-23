@@ -34,6 +34,7 @@ pub enum Time {
     HeavyKeep,
     QueueWaitBound,
     PickBound,
+    UpgradeEvery,
 }
 
 /// Every setting there is.
@@ -76,7 +77,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 26] = [
+const ALL: [Setting; 27] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -103,6 +104,7 @@ const ALL: [Setting; 26] = [
     S::Time(T::HeavyKeep),
     S::Time(T::QueueWaitBound),
     S::Time(T::PickBound),
+    S::Time(T::UpgradeEvery),
 ];
 
 impl Setting {
@@ -147,6 +149,7 @@ impl Setting {
             S::Time(T::HeavyKeep) => ("heavy_keep", 600, Seconds, "a worker's or a program's heavy command that left the queue unstarted (refused, or its waiter gone) keeps its place this long: asked again, it takes it"),
             S::Time(T::QueueWaitBound) => ("queue_wait_bound", 300, Seconds, "admission starts no worker while a heavy command has waited its turn this long"),
             S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this"),
+            S::Time(T::UpgradeEvery) => ("upgrade_every", 3600, Seconds, "a daemon whose host cuts no version of its own formula upgrades it from the tap this often, while no line move runs"),
         }
     }
 

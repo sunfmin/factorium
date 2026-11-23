@@ -1,0 +1,6 @@
+{
+  "tree": "fecf8d7cdfde3c658dd1ef5558ba2af6adb71d9f+d1fba762150c532c",
+  "picker": "codex:01a20602-c21a-75d1-b193-48f4873ca91c:default",
+  "author": "claude-code:1a5611d5-7eef-5623-8337-787993b108ff:opus",
+  "none": "The scenarios already check the observable effects of the buildable mutants, including SSH refusals, transferred comments and blocker notes, dirty worktree contents, and replacement of an existing remote branch."
+}

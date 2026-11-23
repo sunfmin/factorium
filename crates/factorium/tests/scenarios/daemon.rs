@@ -507,6 +507,7 @@ fn a_tick_is_logged_once_it_did_something_or_was_slow() {
         Tick { seen: one(), ..Tick::default() },
         Tick { idle: one(), ..Tick::default() },
         Tick { resumed: one(), ..Tick::default() },
+        Tick { upgrade: Some(json!({})), ..Tick::default() },
     ];
     for t in did {
         assert!(t.line().is_some(), "{t:?}");

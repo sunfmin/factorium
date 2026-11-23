@@ -275,7 +275,7 @@ worker run only `factorium worker …` and lets only the watch run
 
 | Group | Who | Commands |
 |---|---|---|
-| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/edit/remove/list` (a checkout's default role, §1.2, is named at `add --role` or `edit --role`, and `edit --no-role` takes it away; an issue's own role wins over it; `edit --no-idle` turns its idle work, §1.16, off on this host and `edit --idle` back on, shown in `list` as `idle_off`), `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once; an issue's role, §1.3, is named at `add --role` or `edit --role`, and `edit --no-role` takes it away), `doctor`, `decided [D<n>] [--read]` (the Decided records, §2; `D<n>`, that one record), `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
+| `factorium …` | the owner | `run`, `stop`, `service install/remove/show`, `checkout add/edit/remove/list` (a checkout's default role, §1.2, is named at `add --role` or `edit --role`, and `edit --no-role` takes it away; an issue's own role wins over it; `edit --no-idle` turns its idle work, §1.16, off on this host and `edit --idle` back on, shown in `list` as `idle_off`), `issue add/list/show/edit/close/wait-for-human/ready/start-over/comment/block` (a comment reaches the issue's live worker at once; an issue's role, §1.3, is named at `add --role` or `edit --role`, and `edit --no-role` takes it away; `issue move <checkout> <n> --to <ssh-target>` hands one issue to another host's factorium: it checks first, over ssh in a login shell, that the target lists a checkout of that name with this one's origin, and changes nothing here until it does; then the issue's worker ends as at `wait-for-human`, its worktree kept; what that worktree holds that origin does not, its changes not committed as one commit on top, is pushed to origin's `factorium/move/<checkout>-<n>`; the target files it with `issue add` (its body, where it came from, that branch to merge first, then its comments with who and when; its role, account and blockers are named, not carried, being this host's); and it is closed here with a comment naming the target's issue. A step that fails answers what was done before it, and the issue here stays open), `doctor`, `decided [D<n>] [--read]` (the Decided records, §2; `D<n>`, that one record), `discard` (a worker's worktree no open issue owns, as doctor names it), `outbox` (what was passed to a session, and how it went), `workers` (the live ones; `--all`: the ended too), `promote` (now, whatever the bound or a red tip says; while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, and the running one is left be), `cut`, `idle <checkout>` (runs its idle work now, §1.16; waits and answers the run's record), `hold` (landings; `--release` releases them), `unqueue` (a heavy-queue entry that does not move; a running one is ended with every process it started), `heavy run [--background] -- <cmd>` (a program of the owner's that is not a worker queues a heavy command, §1.9; exits with its exit code), `heavy depth` (the queue's depth as JSON: `running`, `waiting`, and each entry), `kit show/set/pin`, `accounts`, `settings`, `help`; hidden, `guard` (the hook a session runs before each tool call) |
 | `factorium worker …` | a worker | `gate`, `done`, `escalate`, `comment`, `pick-mutants`, `review-growth`, `exclusive [--background] -- <cmd>` |
 | `factorium watch …` | the watch | `next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`) |
 
@@ -334,7 +334,19 @@ reads the store; a rollback's kept binary is gone back to only when no
 link to swap to is proven (factorium#252). A cut of the formula proves
 it right after the install (the daemon's cut beside its ticks, recorded on
 the tick after the proof ended); one that fails is a failed cut, its why the
-error and the copy's path (kept for a look), and the old binary runs on. So no session
+error and the copy's path (kept for a look), and the old binary runs on.
+Which host installs factorium, and when (factorium#269): a host one of
+whose checkouts declares the cut of the daemon's own formula (its base,
+as last fetched, names it in `[cut]`) installs it at that cut, and only
+then; every other host's daemon, Homebrew's, upgrades its formula from
+the tap itself, each `upgrade_every` (an hour) since its last try, while
+no line move runs beside the ticks: `brew update`, then `brew upgrade`,
+on a thread beside the ticks, recorded on the tick after it ended. One
+that fails is a finding (`daemon:upgrade`, brew's why) until a later try
+works. What it links is swapped to by the rule above, once proven; a
+linked binary whose proof failed is a finding naming its version and
+the proof's why (`daemon:refused:<version>`) while the link names it,
+and the old binary runs on (scenarios: `upgrade.rs`). So no session
 stops it: the guard refuses `stop` to the watch, which lives under the
 daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing
@@ -531,7 +543,10 @@ Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its
 consults, patrols, intake and flow labels; GitHub in every form (tracker,
 pull requests, checks, branch protection, quota, Discussions); the
 daybook; the panel; batched rounds and the pairing tree; several hosts
-(remote claims, a shared proving branch, cross-host reports); Jira
+(remote claims, a shared proving branch, cross-host reports: `issue move`,
+§4, is not that, for no state is shared between hosts and nothing is read
+from the other host afterwards: one owner command hands one issue over by
+filing it there); Jira
 deliveries; the asking session; remote refs as state; caches as state.
 
 Each afkconvoy mechanism added after an incident is either a scenario
