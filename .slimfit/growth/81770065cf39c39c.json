@@ -1,0 +1,10 @@
+{
+  "tree": "7131ffb099a689c791b0a5a2ed039a3fc9d2cd7f+d1fba762150c532c",
+  "lines": 124,
+  "serves": "factorium#269",
+  "considered": "the cut's brew upgrade (Brew::upgrade, which waits for a named version) and the cut's proof path (proves_formula); the swap rule's own proof (swapped) is reused unchanged for the upgrade's binary, so only the tap upgrade, its record and the refusal finding are new",
+  "reviewer": "codex:01a20594-9d40-7501-9166-2682b38c6314:default",
+  "author": "claude-code:390c38cc-5ff1-51a5-893a-6a800a6033ce:opus",
+  "cut": "In crates/factorium/src/swap.rs and crates/factorium/src/daemon.rs, check the Homebrew link and proof once per tick to produce both the restart decision and the refusal update, preserving the pending-proof case. In crates/domain/src/daemon.rs, use one refusal-change event carrying Option<Refused> and emit it only when the value changes. In crates/factorium/src/upgrade.rs, inline the due check from crates/domain/src/daemon.rs at its sole production call site.",
+  "answer": "Made all three: swapped() reads the link and proof once and leaves the refusal in memory for the tick to record (pending proof leaves it as it was); one SwapRefused(Option<Refused>) event, emitted only when it changes; the due check inlined in upgrade_from_tap and upgrade_due with its test deleted. Also dropped swapped's eprintln, which the doctor finding replaces."
+}
