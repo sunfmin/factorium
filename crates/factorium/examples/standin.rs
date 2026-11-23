@@ -46,7 +46,7 @@ use fakes::FakeHost;
 use serde_json::{Value, json};
 
 /// What the scenarios stand in for: the rest is real on both sides.
-const FAKED: [&str; 7] = ["orca", "brew", "mytokens", "slimfit", "launchctl", "sleep", "ssh"];
+const FAKED: [&str; 8] = ["orca", "brew", "mytokens", "slimfit", "rolesmith", "launchctl", "sleep", "ssh"];
 
 /// The programs a side runs: the fake's world, or the machine.
 struct Side(Option<FakeHost>);

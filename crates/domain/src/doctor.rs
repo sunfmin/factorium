@@ -283,6 +283,19 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
              that finds it); the daemon checks again when it starts",
         );
     }
+    for (dir, lacking) in &seen.daemon.roles {
+        let fixes: Vec<String> = lacking.fixes().iter().map(|f| format!("`{f}`")).collect();
+        let fixes =
+            if fixes.is_empty() { String::new() } else { format!("run what rolesmith gives: {}; ", fixes.join(", ")) };
+        add(
+            format!("role:{dir}"),
+            format!("role {dir} lacks what its workers need, so no worker starts with it: {}", lacking.what()),
+            &format!(
+                "{fixes}`rolesmith doctor --project {dir}` passes once all is there; the daemon checks again before \
+                 each start with it, and starts its issues then"
+            ),
+        );
+    }
     if let Some(failing) = &seen.daemon.failing
         && failing.ticks >= s.get(Setting::TickFailuresMax)
     {

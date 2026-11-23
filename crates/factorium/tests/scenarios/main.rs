@@ -39,6 +39,7 @@ mod limit;
 mod line;
 mod lines;
 mod moved;
+mod needs;
 mod not_before;
 mod on;
 mod one_harness;
