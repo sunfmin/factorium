@@ -387,6 +387,22 @@ async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_
 }
 
 #[tokio::test]
+async fn a_lost_word_whose_wait_the_disk_refuses_fails_the_tick_and_is_not_dropped() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
+    w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    w.disk_refuses("WorkerWaits", true);
+    let refused = w.app.tick().await.unwrap_err();
+    assert!(refused.to_string().contains("disk I/O error"), "{refused}");
+}
+
+#[tokio::test]
 async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_after_another() {
     // Real Orca waits its whole window on each busy agent (factorium#279): one after
     // another, five of them held a tick for five windows.
