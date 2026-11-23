@@ -313,4 +313,75 @@ async fn an_attempt_with_no_role_answers_null_for_its_role_and_hash() {
     let one = &spent["attempts"][0];
     assert_eq!((one["role"].clone(), one["role_hash"].clone()), (json!(null), json!(null)), "{spent}");
     assert!(one.as_object().unwrap().contains_key("role_hash"), "{spent}");
+    // Factorium's own worker rules are no role: changed, nothing is told.
+    std::fs::write(w.data().root().join("role/worker").join(RULES), "changed\n").unwrap();
+    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new());
+    assert_eq!(role_words(&w).await, Vec::<String>::new());
+}
+
+/// What was typed at the session of the worker on `web#1` that says its role changed.
+async fn role_words(w: &World) -> Vec<String> {
+    let t = w.terminal(w.worker_on("web", 1).await["terminal"].as_str().unwrap());
+    t.sent.into_iter().filter(|s| s.contains("your role changed")).collect()
+}
+
+#[tokio::test]
+async fn a_worker_whose_role_changes_under_it_is_told_once_which_files_changed() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new(), "an unchanged role is told nothing");
+    assert_eq!(role_words(&w).await, Vec::<String>::new());
+
+    // A skill file changes and one is added: the next tick passes one line naming both.
+    let skills = w.host.home().join("roles/ios").join(SKILLS);
+    std::fs::write(skills.join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    std::fs::create_dir_all(skills.join("device")).unwrap();
+    std::fs::write(skills.join("device/SKILL.md"), "run on the device\n").unwrap();
+    let told = w.tick().await.roles;
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0]["changed"], json!([".claude/skills/device/SKILL.md", ".claude/skills/xcode/SKILL.md"]));
+    let words = role_words(&w).await;
+    assert_eq!(words.len(), 1, "{words:?}");
+    let line = &words[0];
+    assert!(line.starts_with("factorium (your role changed): "), "{line}");
+    assert!(!line.contains('\n') && !line.contains("CLAUDE.md"), "{line}");
+    assert!(line.contains("`.claude/skills/device/SKILL.md`, `.claude/skills/xcode/SKILL.md`"), "{line}");
+    assert!(line.contains("re-read its core skill"), "{line}");
+
+    // No further change: nothing more.
+    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new());
+    assert_eq!(role_words(&w).await.len(), 1);
+
+    // Its rules change: it is told of those alone, and its session's rules are written again.
+    std::fs::write(w.host.home().join("roles/ios").join(RULES), "You are the ios-app-coder, v2.\n").unwrap();
+    let told = w.tick().await.roles;
+    assert_eq!(told[0]["changed"], json!(["CLAUDE.md"]), "{told:?}");
+    let start = w.data().root().join("role/issues/web-1-1");
+    assert!(std::fs::read_to_string(start.join(RULES)).unwrap().ends_with("You are the ios-app-coder, v2.\n"));
+    assert_eq!(role_words(&w).await.len(), 2);
+    assert_eq!(w.tick().await.roles, Vec::<serde_json::Value>::new());
+
+    // `role_hash` stays the hash the attempt started with.
+    let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
+    assert_eq!(spent["attempts"][0]["role_hash"], json!("2b87fcb63ebf6484"), "{spent}");
+}
+
+#[tokio::test]
+async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_the_watch_saying_so() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
+    w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    assert_eq!(w.tick().await.roles[0]["delivery"], "missed");
+    let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
+    assert!(why.starts_with("word that its role changed did not reach it"), "{why}");
 }

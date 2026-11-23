@@ -513,7 +513,7 @@ impl App {
             attempts.push(json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
                 "account": st.account, "ended": ended, "ms": took, "tokens": spent,
                 "role": st.role.as_ref().map(|r| json!({ "dir": r.dir, "from": r.from })),
-                "role_hash": st.role.as_ref().map(|r| &r.hash) }));
+                "role_hash": st.role.as_ref().map(|r| &r.read.hash) }));
         }
         Ok(json!({ "ms": ms, "tokens": tokens, "attempts": attempts }))
     }

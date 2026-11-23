@@ -3,17 +3,23 @@
 //! with its brief; the watch's in its home, its rules for its brief. Both
 //! get the kit's first eligible harness on its account with the most left,
 //! the account's secrets by a file, this factorium on PATH and its database,
-//! the guard, and their rules. The environment names that tell a session's
+//! the guard, and their rules; a worker whose role changes under it is
+//! told once. The environment names that tell a session's
 //! commands who runs them live here and nowhere else.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use factorium_domain::kit::{Choice, Kit, Kits, kit_id};
+use factorium_domain::outbox::Sender;
+use factorium_domain::worker::{NoteRoleTold, RoleRead, TellRole, Workers};
 use factorium_harness::account::{self, Here};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
-use factum::Uuid;
+use factum::{Uuid, Value};
+use serde_json::json;
 
-use crate::{Answer, App, Refusal, fail};
+use crate::kept::WorkerBranch;
+use crate::{Answer, App, Refusal, Want, fail};
 
 /// The database a command opens, when `--db` does not say.
 pub const DB_ENV: &str = "FACTORIUM_DB";
@@ -173,9 +179,10 @@ pub(crate) struct Opened {
     pub(crate) terminal: String,
     pub(crate) brief: PathBuf,
     pub(crate) typed: Option<String>,
-    /// The watch's: the hash of the rules it was briefed with; a worker's
-    /// with a role: the hash of what its role gave it ([`role_dir`]).
+    /// The watch's: the hash of the rules it was briefed with.
     pub(crate) rules: Option<String>,
+    /// A worker's with a role: what its role gave it ([`role_dir`]).
+    pub(crate) role: Option<RoleRead>,
 }
 
 fn io(e: std::io::Error) -> Refusal {
@@ -239,7 +246,7 @@ impl App {
     /// Opens a terminal running a session of `role` on `pick`, its brief
     /// written for it.
     pub(crate) fn open_session(&self, role: Role, pick: &Pick) -> Answer<Opened> {
-        let rules_hash;
+        let (mut rules_hash, mut role_read) = (None, None);
         let (dir, worktree, brief, title, mut env) = match role {
             Role::Worker { id, worktree, name, title, brief, role } => {
                 let path = self.data().brief(name);
@@ -249,7 +256,7 @@ impl App {
                     None => self.data().worker_role(),
                     Some(_) => self.data().issue_role(name),
                 };
-                rules_hash = role_dir(&dir, role.map(Path::new)).map_err(io)?;
+                role_read = role_dir(&dir, role.map(Path::new)).map_err(io)?;
                 (dir, worktree.to_path_buf(), path, title.to_string(), vec![(WORKER_ENV, id.to_string())])
             }
             Role::Watch => {
@@ -283,7 +290,51 @@ impl App {
         };
         let (terminal, typed) = self.open_terminal(pick, &start, &worktree, &title)?;
         session.hand_over();
-        Ok(Opened { terminal, brief, typed, rules: rules_hash })
+        Ok(Opened { terminal, brief, typed, rules: rules_hash, role: role_read })
+    }
+
+    /// A role changed under a live worker (factorium#273): its session read
+    /// its role once, at its start, and a role directory is linked live.
+    /// Tells each live worker whose role changed since it last knew of it,
+    /// once, through its outbox as a comment is; its session's rules are
+    /// written again with the role's new ones, and what it was told is
+    /// recorded. One waiting for the watch, unless parked on its engine's
+    /// limit, is told once it works again. Answers each one told.
+    pub(crate) async fn tell_role_changes(&self) -> Answer<Vec<Value>> {
+        let mut told = Vec::new();
+        for row in self.live_workers().await? {
+            let wk = self.state::<Workers>(row.worker).await?;
+            let Some(known) = wk.role_known() else { continue };
+            let st = wk.started.as_ref().expect("a worker with a role started");
+            let dir = &st.role.as_ref().expect("it has a role").dir;
+            let now = read_role(Path::new(dir)).map_err(|e| Refusal::new("io", format!("its role {dir}: {e}")))?;
+            if now.hash == known.hash {
+                continue;
+            }
+            let Some(live) = self.live_or_none(row.worker, Want::Any).await? else { continue };
+            if live.waiting && !live.on_limit {
+                continue;
+            }
+            let changed = now.changed_from(&known.files);
+            let name = WorkerBranch { checkout: st.checkout.clone(), number: st.number, attempt: st.attempt }.worker();
+            let session_dir = self.data().issue_role(&name);
+            let mut also = String::new();
+            if changed.iter().any(|f| f == RULES) {
+                write_role_rules(&session_dir, Path::new(dir)).map_err(|e| Refusal::new("io", e.to_string()))?;
+                also = format!(
+                    ", and your own rules, written again with its new ones: `{}`",
+                    session_dir.join(RULES).display()
+                );
+            }
+            let text = format!(
+                "your role `{dir}` changed since you last read it: {}. Before your next step, re-read its core skill and each changed file{also}.",
+                changed.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+            );
+            let delivery = self.tell(&live.session, Sender::Role, &text, false).await?;
+            self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
+            told.push(json!({ "worker": row.worker, "changed": changed, "delivery": delivery.word() }));
+        }
+        Ok(told)
     }
 
     /// Opens the terminal of the session `start` says: its terminal, and
@@ -355,43 +406,58 @@ fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String
 /// ([`RULES`]) the worker's, then, where its issue names a role, that role's
 /// own rules; its skills ([`factorium_harness::SKILLS`]) the role's, by a
 /// link, else none. The role's directory is read, never written. Answers,
-/// where there is a role, a hash of what it gave: its rules and every file
-/// under its skills, read through the link now ([`role_hash`]).
-fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<Option<String>> {
+/// where there is a role, what it gave: its rules and every file under its
+/// skills, read now ([`read_role`]).
+fn role_dir(dir: &Path, role: Option<&Path>) -> std::io::Result<Option<RoleRead>> {
     let skills = dir.join(factorium_harness::SKILLS);
     let Some(role) = role else {
         std::fs::create_dir_all(&skills)?;
         return std::fs::write(dir.join(RULES), WORKER_RULES).map(|()| None);
     };
-    let own = std::fs::read_to_string(role.join(RULES)).unwrap_or_default();
     std::fs::create_dir_all(skills.parent().expect("a parent"))?;
     let _ = std::fs::remove_file(&skills).or_else(|_| std::fs::remove_dir_all(&skills));
     match role.join(factorium_harness::SKILLS) {
         theirs if theirs.is_dir() => std::os::unix::fs::symlink(theirs, &skills)?,
         _ => std::fs::create_dir_all(&skills)?,
     }
-    std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))?;
-    role_hash(own.as_bytes(), &skills).map(Some)
+    write_role_rules(dir, role)?;
+    read_role(role).map(Some)
 }
 
-/// A hash of a role's `rules` and of every file under `skills`, followed
-/// through links: each file's path under `skills` and its bytes, in path
-/// order, each part led by its length so no two contents read alike.
-fn role_hash(rules: &[u8], skills: &Path) -> std::io::Result<String> {
-    let mut files = Vec::new();
-    files_under(skills, Path::new(""), &mut files)?;
-    files.sort();
+/// Writes the rules of a worker's session in `dir`: the worker's, then
+/// `role`'s own, as they are now.
+fn write_role_rules(dir: &Path, role: &Path) -> std::io::Result<()> {
+    let own = std::fs::read_to_string(role.join(RULES)).unwrap_or_default();
+    std::fs::write(dir.join(RULES), format!("{WORKER_RULES}\n# Your role ({})\n\n{own}", role.display()))
+}
+
+/// What role directory `role` holds now: a hash of its rules and of every
+/// file under its skills, followed through links, each file's path under
+/// the skills and its bytes, in path order, each part led by its length so
+/// no two contents read alike; and each of those files by its path under
+/// `role`, with a hash of its bytes.
+fn read_role(role: &Path) -> std::io::Result<RoleRead> {
+    let rules = std::fs::read(role.join(RULES)).unwrap_or_default();
+    let skills = role.join(factorium_harness::SKILLS);
+    let mut found = Vec::new();
+    if skills.is_dir() {
+        files_under(&skills, Path::new(""), &mut found)?;
+    }
+    found.sort();
     let mut all = Vec::new();
     let mut part = |bytes: &[u8]| {
         all.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
         all.extend_from_slice(bytes);
     };
-    part(rules);
-    for rel in files {
+    part(&rules);
+    let mut files = BTreeMap::from([(RULES.to_string(), hash_of(&rules))]);
+    for rel in found {
+        let bytes = std::fs::read(skills.join(&rel))?;
         part(rel.to_string_lossy().as_bytes());
-        part(&std::fs::read(skills.join(&rel))?);
+        part(&bytes);
+        files.insert(Path::new(factorium_harness::SKILLS).join(&rel).to_string_lossy().into_owned(), hash_of(&bytes));
     }
-    Ok(hash_of(&all))
+    Ok(RoleRead { hash: hash_of(&all), files })
 }
 
 /// Each file under `dir/rel`, by its path under `dir`, links followed.

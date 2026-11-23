@@ -1,0 +1,10 @@
+{
+  "tree": "4b510ce6994216e293bfe46d7d7244484f8a4a2e+d1fba762150c532c",
+  "lines": 97,
+  "serves": "factorium#273",
+  "considered": "Reusing pass_comment's path (live_or_none, Sender::Comment) and the existing role_dir/role_hash; extending role_hash to also answer per-file hashes instead of a second reader",
+  "reviewer": "codex:01a205d0-90e5-7671-a5f5-de8bf5b705f8:default",
+  "author": "claude-code:3e0caf04-d4f1-5fc9-bc3e-ae3a4e36d20f:opus",
+  "cut": "In crates/domain/src/worker.rs, flatten RoleRead into StartedRole to preserve the stored fields and let role_known borrow either snapshot, removing the duplicate fields and cloning. Move crates/factorium/src/role.rs into crates/factorium/src/session/outbox.rs and import the launch helpers directly from the sibling module, removing the module declaration in lib.rs and the re-exports in session/mod.rs. In crates/factorium/tests/scenarios/on.rs, add the no-role notification assertions to the existing no-role attempt test and reuse its worker setup.",
+  "answer": "Flattened RoleRead into StartedRole (serde flatten, role_known borrows). Moved the tick step out of role.rs into session/launch.rs, not outbox.rs: launch.rs already owns read_role/write_role_rules, so the helpers stay private and the mod and re-exports go, while outbox.rs stays the delivery route only. Folded the no-role assertions into the existing no-role attempt test."
+}
