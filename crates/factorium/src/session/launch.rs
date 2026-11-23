@@ -299,9 +299,11 @@ impl App {
     /// once, through its outbox as a comment is; its session's rules are
     /// written again with the role's new ones, and what it was told is
     /// recorded. One waiting for the watch, unless parked on its engine's
-    /// limit, is told once it works again. Answers each one told.
+    /// limit, is told once it works again. What each is owed is recorded
+    /// first, then all of them are typed at at once (factorium#279).
+    /// Answers each one told.
     pub(crate) async fn tell_role_changes(&self) -> Answer<Vec<Value>> {
-        let mut told = Vec::new();
+        let mut owed = Vec::new();
         for row in self.live_workers().await? {
             let wk = self.state::<Workers>(row.worker).await?;
             let Some(known) = wk.role_known() else { continue };
@@ -330,11 +332,16 @@ impl App {
                 "your role `{dir}` changed since you last read it: {}. Before your next step, re-read its core skill and each changed file{also}.",
                 changed.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
             );
-            let delivery = self.tell(&live.session, Sender::Role, &text, false).await?;
+            let n = self.give(&live.session, Sender::Role, &text).await?;
             self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
-            told.push(json!({ "worker": row.worker, "changed": changed, "delivery": delivery.word() }));
+            owed.push((row.worker, changed, live.session, n));
         }
-        Ok(told)
+        let given: Vec<_> = owed.iter().map(|(_, _, s, n)| (s, Some((*n, false)))).collect();
+        let deliveries = self.flush(&given).await?;
+        let told = owed.iter().zip(deliveries).map(|((worker, changed, _, _), delivery)| {
+            json!({ "worker": worker, "changed": changed, "delivery": delivery.expect("the message given is tried").word() })
+        });
+        Ok(told.collect())
     }
 
     /// Opens the terminal of the session `start` says: its terminal, and

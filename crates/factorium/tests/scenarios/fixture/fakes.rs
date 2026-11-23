@@ -92,6 +92,10 @@ pub struct FakeOrca {
     /// While set, this runs with the worktree when one is asked to be
     /// removed, before Orca removes it.
     pub while_removing: Mutex<Option<Closing>>,
+    /// While set, a `terminal send --wait-submit` to a busy agent takes this
+    /// long before it answers, as real Orca waits its whole window for a turn
+    /// that does not start; sends to other terminals are not held up by it.
+    pub busy_submit_takes: Mutex<Option<std::time::Duration>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -156,6 +160,16 @@ impl FakeOrca {
                 during(flag(args, "--worktree"));
                 *self.while_removing.lock().unwrap() = Some(during);
             }
+        }
+        // Outside every lock: Orca waits on one terminal while it types at another.
+        let busy = || self.terminals.lock().unwrap().get(flag(args, "--terminal")).is_some_and(|t| t.busy);
+        let takes = *self.busy_submit_takes.lock().unwrap();
+        if let Some(takes) = takes
+            && args[..2] == ["terminal", "send"]
+            && args.contains(&"--wait-submit")
+            && busy()
+        {
+            std::thread::sleep(takes);
         }
         let mut held = self.held.lock().unwrap();
         let path_of = |sel: &str| sel.strip_prefix("path:").map(PathBuf::from);

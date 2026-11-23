@@ -385,3 +385,59 @@ async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_
     let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
     assert!(why.starts_with("word that its role changed did not reach it"), "{why}");
 }
+
+#[tokio::test]
+async fn a_lost_word_whose_wait_the_disk_refuses_fails_the_tick_and_is_not_dropped() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
+    w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    w.disk_refuses("WorkerWaits", true);
+    let refused = w.app.tick().await.unwrap_err();
+    assert!(refused.to_string().contains("disk I/O error"), "{refused}");
+}
+
+#[tokio::test]
+async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_after_another() {
+    // Real Orca waits its whole window on each busy agent (factorium#279): one after
+    // another, five of them held a tick for five windows.
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    for n in 1..=5 {
+        w.app.issue_add("web", &format!("Build part {n}"), "", false, &[]).await.unwrap();
+        w.tick().await;
+    }
+    let mut handles = Vec::new();
+    for n in 1..=5 {
+        let handle = w.worker_on("web", n).await["terminal"].as_str().unwrap().to_string();
+        w.set_busy(&handle, true, false);
+        handles.push(handle);
+    }
+    let window = std::time::Duration::from_secs(2);
+    *w.host.orca.busy_submit_takes.lock().unwrap() = Some(window);
+
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    let started = std::time::Instant::now();
+    let told = w.tick().await.roles;
+    let took = started.elapsed();
+    eprintln!("the tick that told 5 busy workers their role changed took {} ms", took.as_millis());
+    // One window, for all five at once, and under 2 s besides: one after another took five.
+    assert!(took < window + std::time::Duration::from_secs(2), "the tick waited on each in turn: {took:?}");
+    let words: Vec<_> = told.iter().map(|t| t["delivery"].clone()).collect();
+    assert_eq!(words, vec![json!("queued"); 5], "{told:?}");
+    for (n, handle) in (1..=5).zip(&handles) {
+        let wk = w.worker_on("web", n).await;
+        let messages = w.app.outbox_of(Some(id(&wk))).await.unwrap()["messages"].clone();
+        let role = messages.as_array().unwrap().iter().filter(|m| m["from"]["kind"] == "role").count();
+        assert_eq!(role, 1, "worker {n}'s outbox: {messages}");
+        assert_eq!(w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count(), 1);
+    }
+}
