@@ -140,7 +140,9 @@ impl App {
         steps.ended("reading the host", self.now());
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
-        for w in self.live_workers().await? {
+        let live = self.live_workers().await?;
+        self.retry_workers(&live.iter().map(|w| w.worker).collect::<Vec<_>>()).await?;
+        for w in live {
             if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
             {
                 t.seen.push(seen);

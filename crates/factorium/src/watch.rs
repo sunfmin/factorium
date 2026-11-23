@@ -85,7 +85,7 @@ impl App {
         let started = self.state::<Watches>(watch_id()).await?;
         let session = match (&terminal, self.watch_session(&started)) {
             (Some(_), Some(s)) => {
-                self.retry(&s).await?;
+                self.retry(&[&s]).await?;
                 self.watch_ready(&started).await?
             }
             _ => None,

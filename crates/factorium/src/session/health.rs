@@ -35,14 +35,23 @@ impl App {
         Ok((handed && matches!(self.see(&s, None), Some(Sight::Closed(Some(_))))).then_some(s))
     }
 
+    /// Tries again what each live worker's session holds, the sessions at
+    /// once (factorium#279), before [`App::worker_health`] looks at them:
+    /// a brief held is tried again even while its worker waits, as it is
+    /// its brief.
+    pub(crate) async fn retry_workers(&self, workers: &[Uuid]) -> Answer<()> {
+        let mut sessions = Vec::new();
+        for &worker in workers {
+            sessions.extend(self.live_or_none(worker, Want::Any).await?.map(|live| live.session));
+        }
+        self.retry(&sessions.iter().collect::<Vec<_>>()).await
+    }
+
     /// Looks at one live worker, with its `share` of the host: the
     /// observation is recorded and decided on in one command, and what it
     /// decided is carried out. One waiting for the watch is looked at too:
     /// its engine may be spent. Answers what it found, if anything.
     pub(crate) async fn worker_health(&self, worker: Uuid, share: Share, s: &Settings) -> Answer<Option<Value>> {
-        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
-        // Its brief held is tried again even while it waits: it is its brief.
-        self.retry(&live.session).await?;
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
         let past = live.limit.as_ref().map(|l| l.said.as_str());
         let Some(sight) = self.see(&live.session, past) else { return Ok(None) };

@@ -24,11 +24,28 @@ impl App {
     /// how it went. `now`: first stops the running turn with the harness's
     /// own key, so a session stuck in a call reads it at once.
     pub(crate) async fn tell(&self, s: &Session, from: Sender, text: &str, now: bool) -> Answer<Outcome> {
+        let n = self.give(s, from, text).await?;
+        let tried = self.flush(&[(s, Some((n, now)))]).await?.pop().expect("one session flushed");
+        Ok(tried.into_iter().find(|(m, _)| *m == n).map(|(_, o)| o).expect("the message given is tried"))
+    }
+
+    /// Gives `text` from `from` to session `s`'s record, behind what it
+    /// holds, untried: its number. [`App::try_given`] tries it.
+    pub(crate) async fn give(&self, s: &Session, from: Sender, text: &str) -> Answer<u64> {
         let text = format_message(&from, text);
         self.submit::<GiveMessage>(Give { terminal: s.terminal.clone(), from, text }).await?;
-        let n = self.outbox(s).await?.messages.len() as u64;
-        let tried = self.flush(s, Some((n, now))).await?;
-        Ok(tried.into_iter().find(|(m, _)| *m == n).map(|(_, o)| o).expect("the message given is tried"))
+        Ok(self.outbox(s).await?.messages.len() as u64)
+    }
+
+    /// Tries what each session holds, message `n` of each among it, the
+    /// sessions at once (factorium#279): answers how each `n` went.
+    pub(crate) async fn try_given(&self, given: &[(&Session, u64)]) -> Answer<Vec<Outcome>> {
+        let asked: Vec<_> = given.iter().map(|(s, n)| (*s, Some((*n, false)))).collect();
+        let tried = self.flush(&asked).await?;
+        let of = |(tried, (_, n)): (Vec<(u64, Outcome)>, &(&Session, u64))| {
+            tried.into_iter().find(|(m, _)| m == n).map(|(_, o)| o).expect("the message given is tried")
+        };
+        Ok(tried.into_iter().zip(given).map(of).collect())
     }
 
     /// Hands a session the line its start left to be typed, once its
@@ -38,9 +55,11 @@ impl App {
         self.tell(s, Sender::Brief, typed, false).await
     }
 
-    /// Tries again what session `s` holds: on each look at it.
-    pub(crate) async fn retry(&self, s: &Session) -> Answer<()> {
-        self.flush(s, None).await.map(drop)
+    /// Tries again what each of `sessions` holds, the sessions at once: on
+    /// each look at them.
+    pub(crate) async fn retry(&self, sessions: &[&Session]) -> Answer<()> {
+        let asked: Vec<_> = sessions.iter().map(|s| (*s, None)).collect();
+        self.flush(&asked).await.map(drop)
     }
 
     /// `factorium outbox`: what was passed to worker `worker`'s session, or
@@ -60,42 +79,71 @@ impl App {
         self.state::<Outboxes>(outbox_id(&s.terminal)).await
     }
 
-    /// Tries each message `s` has still to be tried, oldest first; `now`:
-    /// message `n` stops the running turn first. What comes after a brief
-    /// still held waits on it: a comment goes into the brief, anything else
-    /// is refused as the brief was. Answers how each try went.
-    async fn flush(&self, s: &Session, now: Option<(u64, bool)>) -> Answer<Vec<(u64, Outcome)>> {
-        let mut blocked: Option<(Sender, Outcome)> = None;
-        let mut tried = Vec::new();
-        let limit = match s.worker {
-            Some(id) => self.state::<w::Workers>(id).await?.limit,
-            None => None,
-        };
-        for m in self.outbox(s).await?.messages.into_iter().filter(Message::pending) {
-            let outcome = match (&blocked, &m.from) {
-                (Some((Sender::Brief, _)), Sender::Comment | Sender::Role) => add_to_brief(&s.brief, &m.text)
-                    .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
-                (Some((_, held)), _) => held.clone(),
-                (None, _) => match self.held(s, limit.as_ref()) {
-                    Some(held) => held,
-                    None => self.deliver(s, &m, now == Some((m.n, true))),
-                },
+    /// Tries each message each session has still to be tried, oldest first;
+    /// `now`: its message `n` stops the running turn first. What comes after
+    /// a brief still held waits on it: a comment goes into the brief,
+    /// anything else is refused as the brief was. The sessions are typed at
+    /// at once, each one's next message on a thread of its own: Orca waits
+    /// on a busy agent for its whole window (factorium#279). Answers how
+    /// each try went, by session.
+    async fn flush(&self, asked: &[(&Session, Option<(u64, bool)>)]) -> Answer<Vec<Vec<(u64, Outcome)>>> {
+        let mut each = Vec::new();
+        for (s, now) in asked {
+            let limit = match s.worker {
+                Some(id) => self.state::<w::Workers>(id).await?.limit,
+                None => None,
             };
-            self.submit::<TryMessage>(Try { terminal: s.terminal.clone(), n: m.n, outcome: outcome.clone() }).await?;
-            let m = Message { outcome: Some(outcome.clone()), ..m };
-            if m.pending() {
-                blocked = Some((m.from.clone(), outcome.clone()));
-            }
-            if let (Some(worker), Some(why)) = (s.worker, m.lost()) {
-                match self.submit::<w::Wait>(w::Because { worker, why }).await {
-                    // An ended worker waits for no one.
-                    Err(r) if r.code == "ended" => {}
-                    other => other?,
-                }
-            }
-            tried.push((m.n, outcome));
+            let pending = self.outbox(s).await?.messages.into_iter().filter(Message::pending).collect();
+            each.push(Flushing { s, now: *now, limit, pending, blocked: None, tried: Vec::new() });
         }
-        Ok(tried)
+        loop {
+            let next: Vec<(usize, Message)> =
+                each.iter_mut().enumerate().filter_map(|(i, f)| f.pending.pop_front().map(|m| (i, m))).collect();
+            if next.is_empty() {
+                break;
+            }
+            let outcomes: Vec<Outcome> = match &next[..] {
+                [(i, m)] => vec![self.try_one(&each[*i], m)],
+                _ => std::thread::scope(|scope| {
+                    let each = &each;
+                    let running: Vec<_> =
+                        next.iter().map(|(i, m)| scope.spawn(move || self.try_one(&each[*i], m))).collect();
+                    running.into_iter().map(|r| r.join().expect("a try does not panic")).collect()
+                }),
+            };
+            for ((i, m), outcome) in next.into_iter().zip(outcomes) {
+                let f = &mut each[i];
+                self.submit::<TryMessage>(Try { terminal: f.s.terminal.clone(), n: m.n, outcome: outcome.clone() })
+                    .await?;
+                let m = Message { outcome: Some(outcome.clone()), ..m };
+                if m.pending() {
+                    f.blocked = Some((m.from.clone(), outcome.clone()));
+                }
+                if let (Some(worker), Some(why)) = (f.s.worker, m.lost()) {
+                    match self.submit::<w::Wait>(w::Because { worker, why }).await {
+                        // An ended worker waits for no one.
+                        Err(r) if r.code == "ended" => {}
+                        other => other?,
+                    }
+                }
+                f.tried.push((m.n, outcome));
+            }
+        }
+        Ok(each.into_iter().map(|f| f.tried).collect())
+    }
+
+    /// How one try of message `m` of the session `f` flushes goes.
+    fn try_one(&self, f: &Flushing, m: &Message) -> Outcome {
+        let s = f.s;
+        match (&f.blocked, &m.from) {
+            (Some((Sender::Brief, _)), Sender::Comment | Sender::Role) => add_to_brief(&s.brief, &m.text)
+                .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
+            (Some((_, held)), _) => held.clone(),
+            (None, _) => match self.held(s, f.limit.as_ref()) {
+                Some(held) => held,
+                None => self.deliver(s, m, f.now == Some((m.n, true))),
+            },
+        }
     }
 
     /// Whether what is for session `s` is held, not typed: its engine is at
@@ -159,6 +207,17 @@ impl App {
         };
         Outcome::Missed { why: format!("typed, it started no turn and none runs; its screen ends: {shows}") }
     }
+}
+
+/// A session being flushed: what it has still to be tried this flush, what
+/// holds the rest up, and how each try went.
+struct Flushing<'a> {
+    s: &'a Session,
+    now: Option<(u64, bool)>,
+    limit: Option<w::Limit>,
+    pending: std::collections::VecDeque<Message>,
+    blocked: Option<(Sender, Outcome)>,
+    tried: Vec<(u64, Outcome)>,
 }
 
 /// How long a session has, after Orca's window, to write the prompt it took.
