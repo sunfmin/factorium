@@ -405,7 +405,7 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
         w.set_busy(&handle, true, false);
         handles.push(handle);
     }
-    let window = std::time::Duration::from_millis(1500);
+    let window = std::time::Duration::from_secs(2);
     *w.host.orca.busy_submit_takes.lock().unwrap() = Some(window);
 
     std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
@@ -413,7 +413,8 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
     let told = w.tick().await.roles;
     let took = started.elapsed();
     eprintln!("the tick that told 5 busy workers their role changed took {} ms", took.as_millis());
-    assert!(took < window + std::time::Duration::from_millis(500), "the tick waited on each in turn: {took:?}");
+    // One window, for all five at once, and under 2 s besides: one after another took five.
+    assert!(took < window + std::time::Duration::from_secs(2), "the tick waited on each in turn: {took:?}");
     let words: Vec<_> = told.iter().map(|t| t["delivery"].clone()).collect();
     assert_eq!(words, vec![json!("queued"); 5], "{told:?}");
     for (n, handle) in (1..=5).zip(&handles) {

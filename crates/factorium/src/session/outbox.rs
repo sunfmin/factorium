@@ -90,15 +90,12 @@ impl App {
             if next.is_empty() {
                 break;
             }
-            let outcomes: Vec<Outcome> = match &next[..] {
-                [(i, m)] => vec![self.try_one(&each[*i], m)],
-                _ => std::thread::scope(|scope| {
-                    let each = &each;
-                    let running: Vec<_> =
-                        next.iter().map(|(i, m)| scope.spawn(move || self.try_one(&each[*i], m))).collect();
-                    running.into_iter().map(|r| r.join().expect("a try does not panic")).collect()
-                }),
-            };
+            let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
+                let each = &each;
+                let running: Vec<_> =
+                    next.iter().map(|(i, m)| scope.spawn(move || self.try_one(&each[*i], m))).collect();
+                running.into_iter().map(|r| r.join().expect("a try does not panic")).collect()
+            });
             for ((i, m), outcome) in next.into_iter().zip(outcomes) {
                 let f = &mut each[i];
                 self.submit::<TryMessage>(Try { terminal: f.s.terminal.clone(), n: m.n, outcome: outcome.clone() })
