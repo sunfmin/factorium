@@ -5,7 +5,7 @@
 //! binary's ticks all fail (factorium#143).
 use std::path::{Path, PathBuf};
 
-use factorium_domain::daemon::{NoteRollback, Rollback, RolledBack};
+use factorium_domain::daemon::{NoteRollback, NoteSwap, Refused, Rollback, RolledBack, Swap};
 use factorium_domain::settings::{Setting, Settings};
 use serde::{Deserialize, Serialize};
 
@@ -73,16 +73,26 @@ impl crate::App {
             let (me, link) = m.running.clone()?;
             (me, link, m.refused.clone())
         };
-        let to = link.canonicalize().ok().filter(|to| *to != me && Some(to) != refused.as_ref())?;
-        let (fresh, dir) = (self.proofs.of(&to).is_none(), self.data().proofs());
-        let proven = match wait {
-            true => Some(self.proofs.prove(&self.db, &to, &dir)),
-            false => self.proofs.started(&self.db, &to, &dir),
+        let to = link.canonicalize().ok()?;
+        let (same, dir) = (to == me || Some(&to) == refused.as_ref(), self.data().proofs());
+        let proven = match (same, wait) {
+            (true, _) => Some(Ok(())),
+            (false, true) => Some(self.proofs.prove(&self.db, &to, &dir)),
+            (false, false) => self.proofs.started(&self.db, &to, &dir),
         };
-        if let Some(Err(why)) = proven.as_ref().filter(|_| fresh) {
-            eprintln!("not swapping to {}: {why}", to.display());
+        // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
+        if let Some(p) = &proven {
+            self.memory.lock().unwrap().refusal =
+                Some(p.clone().err().map(|why| Refused { version: version_of(&to), why }));
         }
-        proven?.ok().map(|()| link)
+        proven?.ok().filter(|()| !same).map(|()| link)
+    }
+
+    /// Records the linked binary the daemon does not swap to, as its proof
+    /// failed, or that none is, as [`Self::swapped`] last found it.
+    pub(crate) async fn note_refusal(&self) -> crate::Answer<()> {
+        let Some(refused) = self.memory.lock().unwrap().refusal.take() else { return Ok(()) };
+        self.submit::<NoteSwap>(Swap { refused }).await
     }
 
     /// The kept binary to exec in place of this one, once its ticks all failed.

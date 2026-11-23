@@ -1,0 +1,21 @@
+{
+  "tree": "7131ffb099a689c791b0a5a2ed039a3fc9d2cd7f+d1fba762150c532c",
+  "picker": "codex:01a205b9-086b-77d1-9f21-f800768ca279:default",
+  "author": "claude-code:390c38cc-5ff1-51a5-893a-6a800a6033ce:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/swap.rs:77:37: replace || with && in crate::App::swapped",
+        "why": "The relink scenario checks that the old refusal clears and no restart occurs, which can still pass if the running binary is unnecessarily proved and fails.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/upgrade.rs:35:48: replace - with + in App::upgrade_from_tap",
+        "why": "Both retry scenarios time a retry from the first attempt, so a fixture that records that attempt at zero would make addition and subtraction indistinguishable.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

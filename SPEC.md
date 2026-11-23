@@ -334,7 +334,19 @@ reads the store; a rollback's kept binary is gone back to only when no
 link to swap to is proven (factorium#252). A cut of the formula proves
 it right after the install (the daemon's cut beside its ticks, recorded on
 the tick after the proof ended); one that fails is a failed cut, its why the
-error and the copy's path (kept for a look), and the old binary runs on. So no session
+error and the copy's path (kept for a look), and the old binary runs on.
+Which host installs factorium, and when (factorium#269): a host one of
+whose checkouts declares the cut of the daemon's own formula (its base,
+as last fetched, names it in `[cut]`) installs it at that cut, and only
+then; every other host's daemon, Homebrew's, upgrades its formula from
+the tap itself, each `upgrade_every` (an hour) since its last try, while
+no line move runs beside the ticks: `brew update`, then `brew upgrade`,
+on a thread beside the ticks, recorded on the tick after it ended. One
+that fails is a finding (`daemon:upgrade`, brew's why) until a later try
+works. What it links is swapped to by the rule above, once proven; a
+linked binary whose proof failed is a finding naming its version and
+the proof's why (`daemon:refused:<version>`) while the link names it,
+and the old binary runs on (scenarios: `upgrade.rs`). So no session
 stops it: the guard refuses `stop` to the watch, which lives under the
 daemon, and to workers. At start it looks for
 git, orca and the kit's harnesses; a missing one is a finding. A failing

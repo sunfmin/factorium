@@ -317,6 +317,25 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             ),
         );
     }
+    if let Some(r) = &seen.daemon.refused {
+        add(
+            format!("daemon:refused:{}", r.version),
+            format!("the daemon does not swap to factorium {}, which Homebrew links: {}", r.version, r.why),
+            &format!(
+                "the old binary runs on; fix what the error names (the copy it names is kept for a look) and cut a \
+                 newer version; the daemon swaps to that once Homebrew links it and it proves, never to {}",
+                r.version
+            ),
+        );
+    }
+    if let Some(why) = seen.daemon.upgrade.as_ref().and_then(|u| u.failed.as_ref()) {
+        add(
+            "daemon:upgrade".into(),
+            format!("the daemon could not upgrade its own formula from the tap: {why}"),
+            "fix what brew says (the network, the tap, a lock); the daemon tries again each `upgrade_every`, and \
+             a try that works ends this",
+        );
+    }
     for DeadLetters { projection: p, count: n } in &seen.dead_letters {
         add(format!("dead:{p}"), format!("projection {p} has {n} dead letters"), "a code fix, then retry them");
     }

@@ -28,6 +28,23 @@ pub struct RolledBack {
     pub error: String,
 }
 
+/// A binary Homebrew links that the daemon does not swap to, as its proof
+/// failed (§4): its version, and why.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Refused {
+    pub version: String,
+    pub why: String,
+}
+
+/// The daemon's last try to install the newest version of its own formula
+/// from the tap, on a host that does not cut it (factorium#269): when it
+/// ended, and why it failed, if it did.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Upgrade {
+    pub at: i64,
+    pub failed: Option<String>,
+}
+
 /// A tick's longest step: its name and how long it took, ms.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Step {
@@ -83,6 +100,12 @@ pub struct Daemon {
     /// Its last tick past half the hang bound.
     #[serde(default)]
     pub slow: Option<SlowTick>,
+    /// The linked binary it does not swap to, until a link names another.
+    #[serde(default)]
+    pub refused: Option<Refused>,
+    /// Its last upgrade from the tap.
+    #[serde(default)]
+    pub upgrade: Option<Upgrade>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +117,8 @@ pub enum DaemonEvent {
     RolledBack { at: i64, rolled_back: RolledBack },
     RollbackOver,
     TickSlow(SlowTick),
+    SwapRefused(Option<Refused>),
+    UpgradeTried(Upgrade),
 }
 
 pub struct Daemons;
@@ -117,6 +142,8 @@ impl Aggregate for Daemons {
             DaemonEvent::RolledBack { rolled_back, .. } => s.rolled_back = Some(rolled_back),
             DaemonEvent::RollbackOver => s.rolled_back = None,
             DaemonEvent::TickSlow(slow) => s.slow = Some(slow),
+            DaemonEvent::SwapRefused(r) => s.refused = r,
+            DaemonEvent::UpgradeTried(u) => s.upgrade = Some(u),
         }
     }
 }
@@ -172,6 +199,29 @@ command!(NoteRollback, "daemon.rollback", Daemons, Rollback, |_p| daemon_id(), |
     })
 });
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Swap {
+    /// The linked binary whose proof failed; `None`: the link names this
+    /// binary's version, or one that proved.
+    pub refused: Option<Refused>,
+}
+
+command!(NoteSwap, "daemon.swap", Daemons, Swap, |_p| daemon_id(), |s, p, now| {
+    Ok::<_, factum_core::Rejection>(
+        (p.refused != s.refused).then(|| DaemonEvent::SwapRefused(p.refused.clone())).into_iter().collect(),
+    )
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Upgraded {
+    /// Why the upgrade from the tap failed; `None`: brew upgraded, or had nothing newer.
+    pub failed: Option<String>,
+}
+
+command!(NoteUpgrade, "daemon.upgrade", Daemons, Upgraded, |_p| daemon_id(), |s, p, now| {
+    Ok::<_, factum_core::Rejection>(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
+});
+
 /// What the daemon's own files say of it, as the process edge reads them:
 /// the live pid its pid file names, whether its lock is held, and when it
 /// last ticked (ms on its clock).
@@ -224,6 +274,17 @@ mod tests {
         assert!(down(&Probe::default(), 10_000, 0).unwrap().contains("names no live process"));
         assert!(down(&Probe { locked: false, ..running.clone() }, 10_000, 0).unwrap().contains("its lock"));
         assert_eq!(down(&Probe { ticked: None, ..running }, 10_000, i64::MAX / 2), None, "an older binary runs");
+    }
+
+    #[test]
+    fn a_refused_swap_stands_until_a_link_names_another() {
+        let mut s = Daemon::default();
+        let r = Refused { version: "0.1.1".into(), why: "doctor failed".into() };
+        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(Some(r.clone())));
+        Daemons::evolve(&mut s, DaemonEvent::TickDone);
+        assert_eq!(s.refused, Some(r));
+        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(None));
+        assert_eq!(s.refused, None);
     }
 
     #[test]

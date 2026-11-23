@@ -49,6 +49,8 @@ pub struct Tick {
     /// The binary to run in place of this one once the tick ends: Homebrew
     /// links another version of the daemon's own formula, whoever cut it.
     pub restart: Option<String>,
+    /// The upgrade of the daemon's own formula from the tap, started or ended.
+    pub upgrade: Option<Value>,
     /// How long the tick took, ms on the app's clock.
     pub took_ms: i64,
     /// The step it spent most in.
@@ -72,6 +74,7 @@ impl Tick {
             || !self.seen.is_empty()
             || !self.idle.is_empty()
             || !self.resumed.is_empty()
+            || self.upgrade.is_some()
     }
 }
 
@@ -173,7 +176,10 @@ impl App {
         steps.ended("resuming parked workers", self.now());
         t.watch = self.look_if_due(&settings).await?;
         steps.ended("the watch's look", self.now());
+        t.upgrade = self.upgrade_from_tap(&checkouts, &settings).await?;
+        steps.ended("upgrading from the tap", self.now());
         t.restart = self.swap_due().map(|b| b.to_string_lossy().into_owned());
+        self.note_refusal().await?;
         Ok(t)
     }
 
