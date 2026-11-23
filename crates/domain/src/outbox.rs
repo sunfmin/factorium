@@ -57,9 +57,9 @@ impl Sender {
 
     /// Whether a message from it tells of nothing in its worker's task: word
     /// that its role changed. Typed and missed, it is kept and typed again on
-    /// the session's next look, and its worker goes to no one over it
-    /// (factorium#281).
-    fn notice(&self) -> bool {
+    /// the session's next look, and its worker goes to no one over it; so
+    /// no look waits on it past Orca's window (factorium#281).
+    pub fn notice(&self) -> bool {
         *self == Sender::Role
     }
 

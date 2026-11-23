@@ -165,6 +165,15 @@ impl App {
         if m.from == Sender::Brief {
             return orca.send(&s.terminal, &m.text).map_or_else(|e| not_typed("orca", e), |()| Outcome::Typed);
         }
+        let home = self.session_home(s.harness, s.account.as_deref());
+        // A notice missed before may have been taken after that look: it is
+        // not typed twice.
+        let given = (m.at / 1000).saturating_sub(1) as u64;
+        if matches!(m.outcome, Some(Outcome::Missed { .. }))
+            && s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, given) == Some(true)
+        {
+            return Outcome::Submitted;
+        }
         let since = (self.now() / 1000).saturating_sub(1) as u64;
         let key = now.then(|| s.harness.interrupt());
         let seen = match orca.deliver(&s.terminal, &m.text, key) {
@@ -178,16 +187,17 @@ impl App {
         // within a second; the session's own file, where its harness keeps
         // one, says whether the text was taken as a prompt. One taken at the
         // end of Orca's window is written a moment after it: the file is
-        // read again for a few seconds before the text is called missed.
-        let home = self.session_home(s.harness, s.account.as_deref());
-        for waited in 0..=GRACE_SECS {
+        // read again for a few seconds before the text is called missed; a
+        // notice is looked for again on the session's next look instead.
+        let grace = if m.from.notice() { 0 } else { GRACE_SECS };
+        for waited in 0..=grace {
             if s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, since) == Some(true) {
                 return Outcome::Submitted;
             }
             if matches!(self.turn(s), Some(Turn::Open { .. })) {
                 return Outcome::Queued;
             }
-            if waited < GRACE_SECS {
+            if waited < grace {
                 self.host.programs().run("sleep", &["1"]);
             }
         }
