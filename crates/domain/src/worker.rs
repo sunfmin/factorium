@@ -415,7 +415,6 @@ on_worker!(AskLanding, "worker.done", Of, |s, p, now| {
     match s.status {
         Status::Working => Ok(vec![WorkerEvent::LandingAsked { at: now.0 }]),
         Status::Landing => Ok(Vec::new()),
-        Status::Finishing => no("finishing", "the worker asked to finish without a landing"),
         _ => no("waiting", "the worker waits for the watch"),
     }
 });
@@ -427,12 +426,10 @@ on_worker!(AskFinish, "worker.finish", Because, |s, p, now| {
     if p.why.trim().is_empty() {
         return no("no_evidence", "say what you did and how you verified it: it closes your issue");
     }
-    match s.status {
-        Status::Working => Ok(vec![WorkerEvent::FinishAsked { evidence: p.why.clone(), at: now.0 }]),
-        Status::Finishing => Ok(Vec::new()),
-        Status::Landing => no("landing", "the worker asked to land"),
-        _ => no("waiting", "the worker waits for the watch"),
+    if s.status != Status::Working {
+        return no("not_working", "only a working worker finishes");
     }
+    Ok(vec![WorkerEvent::FinishAsked { evidence: p.why.clone(), at: now.0 }])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -225,7 +225,7 @@ impl App {
     pub(crate) async fn finish_unlanded(&self) -> Answer<Vec<serde_json::Value>> {
         let mut finished = Vec::new();
         for row in self.rows(tracker::workers(Some(Status::Finishing), false)).await? {
-            let evidence = self.state::<Workers>(row.worker).await?.why.unwrap_or_default();
+            let evidence = row.state.why.unwrap_or_default();
             let reason = format!("finished without a landing, its work changing no code: {evidence}");
             self.close(&row.checkout, row.number, &reason, false).await?;
             finished.push(json!({ "finished": format!("{}#{}", row.checkout, row.number), "evidence": evidence }));

@@ -103,11 +103,8 @@ impl App {
     /// reason, running no gate, and ends the worker.
     pub async fn worker_done_unlanded(&self, worker: Uuid, evidence: &str) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
-        let ahead = self.commits_of_its_own(&st)?;
-        if ahead > 0 {
-            let why = format!(
-                "your branch has {ahead} commit(s) of its own: they land with `factorium worker done`; finishing without a landing would drop them"
-            );
+        if self.commits_of_its_own(&st)? > 0 {
+            let why = "your branch has commits of its own: they land with `factorium worker done`, never dropped";
             return Err(Refusal::new("has_commits", why));
         }
         self.submit::<w::AskFinish>(w::Because { worker, why: evidence.into() }).await?;
