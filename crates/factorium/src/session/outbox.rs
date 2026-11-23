@@ -25,27 +25,15 @@ impl App {
     /// own key, so a session stuck in a call reads it at once.
     pub(crate) async fn tell(&self, s: &Session, from: Sender, text: &str, now: bool) -> Answer<Outcome> {
         let n = self.give(s, from, text).await?;
-        let tried = self.flush(&[(s, Some((n, now)))]).await?.pop().expect("one session flushed");
-        Ok(tried.into_iter().find(|(m, _)| *m == n).map(|(_, o)| o).expect("the message given is tried"))
+        Ok(self.flush(&[(s, Some((n, now)))]).await?.remove(0).expect("the message given is tried"))
     }
 
     /// Gives `text` from `from` to session `s`'s record, behind what it
-    /// holds, untried: its number. [`App::try_given`] tries it.
+    /// holds, untried: its number, for [`App::flush`] to try.
     pub(crate) async fn give(&self, s: &Session, from: Sender, text: &str) -> Answer<u64> {
         let text = format_message(&from, text);
         self.submit::<GiveMessage>(Give { terminal: s.terminal.clone(), from, text }).await?;
         Ok(self.outbox(s).await?.messages.len() as u64)
-    }
-
-    /// Tries what each session holds, message `n` of each among it, the
-    /// sessions at once (factorium#279): answers how each `n` went.
-    pub(crate) async fn try_given(&self, given: &[(&Session, u64)]) -> Answer<Vec<Outcome>> {
-        let asked: Vec<_> = given.iter().map(|(s, n)| (*s, Some((*n, false)))).collect();
-        let tried = self.flush(&asked).await?;
-        let of = |(tried, (_, n)): (Vec<(u64, Outcome)>, &(&Session, u64))| {
-            tried.into_iter().find(|(m, _)| m == n).map(|(_, o)| o).expect("the message given is tried")
-        };
-        Ok(tried.into_iter().zip(given).map(of).collect())
     }
 
     /// Hands a session the line its start left to be typed, once its
@@ -84,9 +72,9 @@ impl App {
     /// a brief still held waits on it: a comment goes into the brief,
     /// anything else is refused as the brief was. The sessions are typed at
     /// at once, each one's next message on a thread of its own: Orca waits
-    /// on a busy agent for its whole window (factorium#279). Answers how
-    /// each try went, by session.
-    async fn flush(&self, asked: &[(&Session, Option<(u64, bool)>)]) -> Answer<Vec<Vec<(u64, Outcome)>>> {
+    /// on a busy agent for its whole window (factorium#279). Answers, by
+    /// session, how its message `n` went.
+    pub(crate) async fn flush(&self, asked: &[(&Session, Option<(u64, bool)>)]) -> Answer<Vec<Option<Outcome>>> {
         let mut each = Vec::new();
         for (s, now) in asked {
             let limit = match s.worker {
@@ -94,7 +82,7 @@ impl App {
                 None => None,
             };
             let pending = self.outbox(s).await?.messages.into_iter().filter(Message::pending).collect();
-            each.push(Flushing { s, now: *now, limit, pending, blocked: None, tried: Vec::new() });
+            each.push(Flushing { s, now: *now, limit, pending, blocked: None, told: None });
         }
         loop {
             let next: Vec<(usize, Message)> =
@@ -126,10 +114,12 @@ impl App {
                         other => other?,
                     }
                 }
-                f.tried.push((m.n, outcome));
+                if f.now.is_some_and(|(n, _)| n == m.n) {
+                    f.told = Some(outcome);
+                }
             }
         }
-        Ok(each.into_iter().map(|f| f.tried).collect())
+        Ok(each.into_iter().map(|f| f.told).collect())
     }
 
     /// How one try of message `m` of the session `f` flushes goes.
@@ -210,14 +200,14 @@ impl App {
 }
 
 /// A session being flushed: what it has still to be tried this flush, what
-/// holds the rest up, and how each try went.
+/// holds the rest up, and how the message it was asked of went.
 struct Flushing<'a> {
     s: &'a Session,
     now: Option<(u64, bool)>,
     limit: Option<w::Limit>,
     pending: std::collections::VecDeque<Message>,
     blocked: Option<(Sender, Outcome)>,
-    tried: Vec<(u64, Outcome)>,
+    told: Option<Outcome>,
 }
 
 /// How long a session has, after Orca's window, to write the prompt it took.

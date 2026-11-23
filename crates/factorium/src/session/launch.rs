@@ -336,10 +336,10 @@ impl App {
             self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
             owed.push((row.worker, changed, live.session, n));
         }
-        let given: Vec<_> = owed.iter().map(|(_, _, s, n)| (s, *n)).collect();
-        let deliveries = self.try_given(&given).await?;
+        let given: Vec<_> = owed.iter().map(|(_, _, s, n)| (s, Some((*n, false)))).collect();
+        let deliveries = self.flush(&given).await?;
         let told = owed.iter().zip(deliveries).map(|((worker, changed, _, _), delivery)| {
-            json!({ "worker": worker, "changed": changed, "delivery": delivery.word() })
+            json!({ "worker": worker, "changed": changed, "delivery": delivery.expect("the message given is tried").word() })
         });
         Ok(told.collect())
     }
