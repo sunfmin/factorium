@@ -44,7 +44,10 @@ impl App {
             let mut also = String::new();
             if changed.iter().any(|f| f == rules) {
                 write_role_rules(&session_dir, Path::new(dir)).map_err(|e| Refusal::new("io", e.to_string()))?;
-                also = format!(", and your own rules, written again with its new ones: `{}`", session_dir.join(rules).display());
+                also = format!(
+                    ", and your own rules, written again with its new ones: `{}`",
+                    session_dir.join(rules).display()
+                );
             }
             let text = format!(
                 "your role `{dir}` changed since you last read it: {}. Before your next step, re-read its core skill and each changed file{also}.",
