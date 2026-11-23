@@ -2,7 +2,7 @@
 //! session, and the watch's own commands.
 
 use factorium_domain::doctor;
-use factorium_domain::issue::Author;
+use factorium_domain::issue::{Author, Issue};
 use factorium_domain::outbox::{Outcome, Sender};
 use factorium_domain::settings::{Setting, Settings, Time};
 use factorium_domain::tracker;
@@ -11,7 +11,7 @@ use factorium_domain::worker::{self as w, Status};
 use factum::{Uuid, Value};
 use serde_json::json;
 
-use crate::life::End;
+use crate::life::{End, brief_head};
 use crate::session::{Opened, Role};
 use crate::{Answer, App, Live, Refusal, Want};
 
@@ -209,5 +209,45 @@ impl App {
         }
         let d = self.tell(&live.session, Sender::Comment, text, false).await?;
         Ok((d.word(), d.why().map(str::to_string)))
+    }
+
+    /// An edit of a worker's issue, from `was` to `is`, reaching the
+    /// worker: the head of its brief (title and body) is rewritten to the
+    /// issue as it is now, so the brief never shows an old body as current;
+    /// a body changed is then told to it as a comment is
+    /// ([`App::pass_comment`]), pointing at its brief. Answers how, as
+    /// `pass_comment` does (`brief`: a waiting worker's brief was
+    /// rewritten, and it is not typed at), when the body changed.
+    pub(crate) async fn pass_edit(
+        &self,
+        worker: Uuid,
+        was: &Issue,
+        is: &Issue,
+    ) -> Answer<Option<(&'static str, Option<String>)>> {
+        let (old, new) = (brief_head(was), brief_head(is));
+        if old == new {
+            return Ok(None);
+        }
+        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
+        let brief = &live.started.brief;
+        let rewritten =
+            std::fs::read_to_string(brief).map_err(|e| e.to_string()).and_then(|b| match b.strip_prefix(&old) {
+                Some(rest) => std::fs::write(brief, format!("{new}{rest}")).map_err(|e| e.to_string()),
+                None => Err("it does not open with the body it holds".into()),
+            });
+        if was.body == is.body {
+            return Ok(None);
+        }
+        if let Err(why) = rewritten {
+            return Ok(Some(("none", Some(format!("its brief {brief}: {why}")))));
+        }
+        if live.waiting && !live.on_limit {
+            return Ok(Some(("brief", None)));
+        }
+        let text = format!(
+            "the owner edited your issue's body; your brief {brief} now holds it as it is. Read it again and go by it, not by the body you started from."
+        );
+        let d = self.tell(&live.session, Sender::Body, &text, false).await?;
+        Ok(Some((d.word(), d.why().map(str::to_string))))
     }
 }

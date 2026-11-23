@@ -19,6 +19,7 @@ pub mod idle;
 pub mod issue;
 pub mod kit;
 pub mod line;
+pub mod needs;
 pub mod neutral;
 pub mod outage;
 pub mod outbox;

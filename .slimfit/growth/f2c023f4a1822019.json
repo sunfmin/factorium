@@ -1,0 +1,10 @@
+{
+  "tree": "68c4fcb722800259e0f82df1c43874b620bff2a1+d1fba762150c532c",
+  "lines": 172,
+  "serves": "factorium#277",
+  "considered": "the daemon's start-time missing-programs check (daemon_start), which reads PATH once and cannot install; the pick/admission held path in next_issue; a per-tick map of checked roles, cut to a set of lacking ones",
+  "reviewer": "codex:01a20720-2fda-7ea3-97c4-dc84a25723de:default",
+  "author": "claude-code:ac119c2e-a54c-5428-9d61-3cd9e10f416b:opus",
+  "cut": "In crates/domain/src/daemon.rs, use the existing RoleChecked payload as the event’s newtype payload instead of declaring its fields twice. In crates/factorium/src/daemon.rs and crates/factorium/src/needs.rs, keep a set of blocked roles in next_issue and move the manifest check into check_role, deleting Checked and role_ready since a passing role immediately ends the scan.",
+  "answer": "Made both: DaemonEvent::RoleChecked carries the RoleChecked payload; next_issue keeps a set of roles found lacking this tick, and role_ready holds the record check and the doctor/install (Checked and the separate check_role are gone)."
+}

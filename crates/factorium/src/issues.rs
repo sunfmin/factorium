@@ -142,7 +142,18 @@ impl App {
         let fresh = self.give_numbers(unnumbered(&i, body.unwrap_or(&i.body))).await?;
         let (title, body) = (title.map(Into::into), body.map(Into::into));
         self.submit::<EditIssue>(Edit { checkout: checkout.into(), number, title, body, fresh }).await?;
-        self.issue_show(checkout, number).await
+        let passed = match i.worker {
+            Some(worker) => self.pass_edit(worker, &i, &self.issue(checkout, number).await?).await?,
+            None => None,
+        };
+        let mut shown = self.issue_show(checkout, number).await?;
+        if let Some((delivery, why)) = passed {
+            shown["delivery"] = json!(delivery);
+            if let Some(why) = why {
+                shown["undelivered"] = json!(why);
+            }
+        }
+        Ok(shown)
     }
 
     /// `issue edit --role`/`--no-role`: names `role` (checked as at

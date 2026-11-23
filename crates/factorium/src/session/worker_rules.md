@@ -62,5 +62,8 @@ Your brief (the file you were handed) says what the issue is.
 - A comment the owner adds to your issue reaches you at once, typed in
   this terminal as `factorium (a comment on your issue): …` (or in your
   brief, if it came before you were handed it). Take it into your work.
+- When the owner edits your issue's body, your brief is rewritten to it,
+  and you are told in this terminal as `factorium (your issue's body
+  changed): …`. Read your brief again and go by the body it holds now.
 - You may run only `factorium worker …` commands of factorium (`worker
   file` among them).

@@ -239,10 +239,13 @@ impl App {
         Ok(filed)
     }
 
-    /// The oldest ready issue no worker holds and nothing open blocks, and
-    /// whose account, if it names one, can start now.
+    /// The oldest ready issue no worker holds and nothing open blocks,
+    /// whose account, if it names one, can start now, and whose role has
+    /// what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
+        // Roles found lacking this tick: one that passes starts its issue at once.
+        let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
         for r in self.rows(tracker::untaken()).await? {
             let (checkout, number) = (r.checkout, r.number);
@@ -265,6 +268,15 @@ impl App {
             // can; with none, its start answers why it is held.
             if self.pick(&checkout, issue.on.account.as_deref()).await.is_err() {
                 held.get_or_insert((checkout, number));
+                continue;
+            }
+            // Its role lacking what it needs of this host, it waits; doctor
+            // hands the watch what it lacks.
+            let role = self.checkout(&checkout).await?.role_for(issue.on.role.as_deref()).map(|(r, _)| r.to_string());
+            if let Some(role) = role
+                && (lacking.contains(&role) || !self.role_ready(&role).await?)
+            {
+                lacking.insert(role);
                 continue;
             }
             return Ok(Some((checkout, number)));

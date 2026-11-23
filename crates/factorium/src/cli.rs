@@ -220,6 +220,9 @@ pub enum IssueCmd {
         /// The role its worker plays: a directory, by its absolute path,
         /// whose rules (CLAUDE.md) and skills (.claude/skills) its worker
         /// starts with beside factorium's worker rules. Read, never written.
+        /// One holding a rolesmith.toml is checked before each start
+        /// (`rolesmith doctor --project DIR`), a program it lacks installed;
+        /// while it lacks anything its issues wait, and doctor names what.
         #[arg(long, value_name = "DIR")]
         role: Option<String>,
         /// The engine account its worker starts on (mytokens
@@ -241,7 +244,13 @@ pub enum IssueCmd {
     /// tokens its session spent (`null`: its harness's files do not say),
     /// with their sums.
     Show { checkout: String, number: u64 },
-    /// Changes an issue's title, body or role.
+    /// Changes an issue's title, body or role. A live worker on it gets the
+    /// edit at once: its brief is rewritten to the title and body as they
+    /// are now, and a body changed is typed at its session as a comment is,
+    /// telling it to read its brief again (a waiting worker's brief is
+    /// rewritten, and it is not typed at). The answer's `delivery` says how
+    /// a changed body reached it (`brief`: only its brief), `undelivered`
+    /// why it did not.
     Edit {
         checkout: String,
         number: u64,

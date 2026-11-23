@@ -461,6 +461,78 @@ pub fn link_bin(root: &Path, formula: &str) {
     }
 }
 
+/// rolesmith as factorium runs it, `doctor --project <dir> --json` and
+/// `tool install --project <dir> --json`, answering as rolesmith does: a
+/// directory without `rolesmith.toml` is refused; else each thing its roles
+/// lack, an install giving the programs it can.
+#[derive(Default)]
+pub struct FakeRolesmith {
+    /// Each project's directory → what its roles lack, as `doctor` lists
+    /// each under `error.missing` (`kind`, `name`, `reason`, `fix`).
+    pub lacks: BTreeMap<String, Vec<Value>>,
+    /// The programs an install cannot give: its script fails.
+    pub uninstallable: Vec<String>,
+}
+
+impl FakeRolesmith {
+    /// A program `name` that `dir`'s roles lack, as doctor names it.
+    pub fn lacks_program(&mut self, dir: &str, name: &str) {
+        let fix = format!("rolesmith tool install --project {dir}");
+        let lack = json!({ "kind": "program", "name": name, "reason": format!("check `{name} --version` exits 127"), "fix": fix });
+        self.lacks.entry(dir.into()).or_default().push(lack);
+    }
+
+    /// A mytokens entry `name` that `dir`'s roles lack, as doctor names it.
+    pub fn lacks_entry(&mut self, dir: &str, name: &str) {
+        let fix = format!("mytokens put {name} --fields TOKEN");
+        let lack = json!({ "kind": "entry", "name": name, "reason": "no mytokens entry", "fix": fix });
+        self.lacks.entry(dir.into()).or_default().push(lack);
+    }
+
+    fn answer(&mut self, args: &[&str]) -> Said {
+        let refused = |message: String, extra: Option<(&str, Value)>| {
+            let mut error = json!({ "kind": "failed", "message": message });
+            if let Some((key, list)) = extra {
+                error[key] = list;
+            }
+            Said { ok: false, out: json!({ "error": error }).to_string(), err: format!("rolesmith: {message}\n") }
+        };
+        let (verb, dir) = match args {
+            ["doctor", "--project", dir, "--json"] => ("doctor", *dir),
+            ["tool", "install", "--project", dir, "--json"] => ("install", *dir),
+            _ => return refused(format!("no stand-in for {args:?}"), None),
+        };
+        if !Path::new(dir).join("rolesmith.toml").is_file() {
+            return refused(format!("{dir} has no rolesmith.toml"), None);
+        }
+        let lacks = self.lacks.entry(dir.into()).or_default();
+        let ok = |out: Value| Said { ok: true, out: out.to_string(), err: String::new() };
+        match verb {
+            "doctor" if lacks.is_empty() => {
+                ok(json!({ "entries": [], "host": null, "programs": [], "project": dir, "roles": [] }))
+            }
+            "doctor" => refused(
+                format!("the project lacks {} thing(s), on this machine:", lacks.len()),
+                Some(("missing", json!(lacks))),
+            ),
+            _ => {
+                // In order; the first that fails stops it, those before it installed.
+                let programs = lacks.iter().filter(|l| l["kind"] == "program").map(|l| l["name"].clone());
+                let names: Vec<String> = programs.map(|n| n.as_str().unwrap_or_default().to_string()).collect();
+                let failing = names.iter().position(|n| self.uninstallable.contains(n));
+                let installed = &names[..failing.unwrap_or(names.len())];
+                lacks.retain(|l| !installed.iter().any(|n| l["name"] == n.as_str()));
+                if let Some(i) = failing {
+                    return refused(format!("tool {}: its script exits 1: no such toolchain", names[i]), None);
+                }
+                let tools: Vec<Value> =
+                    installed.iter().map(|n| json!({ "name": n, "method": "script", "formula": null })).collect();
+                ok(json!({ "host": null, "project": dir, "roles": [], "tools": tools }))
+            }
+        }
+    }
+}
+
 /// The machine as a scenario has it.
 pub struct FakeHost {
     pub orca: FakeOrca,
@@ -474,6 +546,8 @@ pub struct FakeHost {
     /// slimfit: its whole command line, else its subcommand → what it prints
     /// (`help picker`, `help reviewer`, `check`).
     pub slimfit: Mutex<BTreeMap<String, String>>,
+    /// rolesmith: what each project's roles lack of this host.
+    pub rolesmith: Mutex<FakeRolesmith>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
     /// ssh: each host it reaches → the environment a command there runs
@@ -506,7 +580,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
-        let (lingers, dropping, hosts) = Default::default();
+        let (lingers, dropping, hosts, rolesmith) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -516,6 +590,7 @@ impl FakeHost {
             reading_procs,
             tokens,
             slimfit,
+            rolesmith,
             missing,
             hosts,
             service,
@@ -573,6 +648,7 @@ impl Programs for FakeHost {
                 Said { ok, out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
             "ssh" => self.ssh(args),
+            "rolesmith" => self.rolesmith.lock().unwrap().answer(args),
             "ps" => Said { ok: true, out: self.brew.lock().unwrap().ps.clone(), err: String::new() },
             "sleep" => {
                 if let Some(then) = self.while_sleeping.lock().unwrap().take() {

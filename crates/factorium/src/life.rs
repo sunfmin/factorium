@@ -265,6 +265,12 @@ impl App {
     }
 }
 
+/// The head of a worker's brief: its issue's title and body, as an edit
+/// rewrites it ([`App::pass_edit`]).
+pub(crate) fn brief_head(i: &factorium_domain::issue::Issue) -> String {
+    format!("# {}#{}: {}\n\n{}\n", i.checkout, i.number, i.title, i.body)
+}
+
 /// The brief a worker is handed: its issue, what an earlier attempt left in
 /// its worktree, and how it finishes.
 fn worker_brief(
@@ -273,7 +279,7 @@ fn worker_brief(
     branch: &str,
     resumed: Option<&Resumed>,
 ) -> String {
-    let mut b = format!("# {}#{}: {}\n\n{}\n", c.name, i.number, i.title, i.body);
+    let mut b = brief_head(i);
     if !i.comments.is_empty() {
         b.push_str("\n## Comments\n\n");
         for comment in &i.comments {
