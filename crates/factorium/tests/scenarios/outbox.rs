@@ -148,6 +148,14 @@ async fn a_message_an_unknown_dialog_takes_is_missed_and_its_worker_goes_to_the_
         if !matches!(kind, Kind::Restart) {
             assert!(why.contains("Enter to confirm"), "{kind:?}: {why}");
         }
+        // Who it was from, in its own words.
+        let from = match kind {
+            Kind::Tell => "the watch's word did not reach it",
+            Kind::Comment => "a comment on its issue did not reach it",
+            Kind::Red => "factorium's word did not reach it",
+            Kind::Restart => "",
+        };
+        assert!(why.starts_with(from), "{kind:?}: {why}");
         match kind {
             Kind::Tell | Kind::Comment => assert_eq!(said["delivery"], "missed", "{kind:?}"),
             Kind::Restart => assert_eq!(said["resumed"], false, "{kind:?}: it waits on"),
