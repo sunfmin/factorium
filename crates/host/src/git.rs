@@ -52,15 +52,21 @@ impl Git {
 
     /// Runs git; its output trimmed, or its error.
     pub fn run(&self, args: &[&str]) -> Result<String, String> {
+        self.run_with(args, &[])
+    }
+
+    /// [`Git::run`], with `env` added to git's environment.
+    fn run_with(&self, args: &[&str], env: &[(&str, &Path)]) -> Result<String, String> {
         // What factorium itself commits (a landing merge, a cut tag, the
         // watch's home) needs an identity; a host with none commits as factorium.
-        let commits = matches!(args.first(), Some(&("commit" | "merge" | "tag")));
+        let commits = matches!(args.first(), Some(&("commit" | "commit-tree" | "merge" | "tag")));
         let as_factorium = commits && !self.holds(&["config", "user.email"]);
         let date = self.clock.as_ref().filter(|_| commits).map(|c| format!("@{} +0000", c.now().div_euclid(1000)));
         let output = |program: &Path| {
             let mut git = Command::new(program);
             // The host's own config is what its home holds.
             git.env("HOME", &self.home).env_remove("XDG_CONFIG_HOME").env_remove("GIT_CONFIG_GLOBAL");
+            git.envs(env.iter().copied());
             if let Some(d) = &date {
                 git.env("GIT_AUTHOR_DATE", d).env("GIT_COMMITTER_DATE", d);
             }
@@ -269,6 +275,34 @@ impl Git {
     pub fn landings(&self, base: &str, head: &str) -> Result<Vec<String>, String> {
         let log = self.run(&["log", "--first-parent", "--oneline", "--no-decorate", &format!("{base}..{head}")])?;
         Ok(log.lines().map(str::to_string).collect())
+    }
+
+    /// A commit of everything this worktree holds: `HEAD`, and on top of it,
+    /// if it has changes not committed (those git does not track and does
+    /// not ignore among them), one commit of them with `message`. Its work
+    /// tree, index and branch are left as they are: the commit is made
+    /// through an index of its own. Answers the commit.
+    pub fn snapshot(&self, message: &str) -> Result<String, String> {
+        let head = self.sha("HEAD")?;
+        if !self.dirty()? {
+            return Ok(head);
+        }
+        let index = PathBuf::from(self.run(&["rev-parse", "--absolute-git-dir"])?).join("factorium-snapshot-index");
+        let own = [("GIT_INDEX_FILE", index.as_path())];
+        let made = (|| {
+            self.run_with(&["read-tree", &head], &own)?;
+            self.run_with(&["add", "--all"], &own)?;
+            let tree = self.run_with(&["write-tree"], &own)?;
+            self.run(&["commit-tree", &tree, "-p", &head, "-m", message])
+        })();
+        let _ = std::fs::remove_file(&index);
+        made
+    }
+
+    /// The tip of `branch` on origin, without fetching it; `None`: origin has none.
+    pub fn origin_tip(&self, branch: &str) -> Result<Option<String>, String> {
+        let listed = self.run(&["ls-remote", "origin", &format!("refs/heads/{branch}")])?;
+        Ok(listed.split_whitespace().next().map(str::to_string))
     }
 
     /// The URL of origin.

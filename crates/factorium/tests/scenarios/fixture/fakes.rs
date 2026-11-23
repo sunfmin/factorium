@@ -1,6 +1,6 @@
 //! The machine a scenario runs on: Orca, Homebrew, mytokens, slimfit and launchd as
-//! programs whose answers the scenario gives, the host's readings and
-//! processes, and its one clock. Git is real.
+//! programs whose answers the scenario gives, ssh to the other hosts it
+//! knows, the host's readings and processes, and its one clock. Git is real.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -462,6 +462,10 @@ pub struct FakeHost {
     pub slimfit: Mutex<BTreeMap<String, String>>,
     /// Programs not found on PATH.
     pub missing: Mutex<Vec<String>>,
+    /// ssh: each host it reaches → the environment a command there runs
+    /// in, as sshd gives it (`SHELL`, the user's login shell; `PATH`, the
+    /// one a shell that is not a login one has).
+    pub hosts: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
     /// The agents launchd has loaded, as `<domain>/<uid>/<label>`.
     pub service: Mutex<Vec<String>>,
     /// How many prints after its bootout still find an agent, as launchd
@@ -488,7 +492,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
-        let (lingers, dropping) = Default::default();
+        let (lingers, dropping, hosts) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -499,6 +503,7 @@ impl FakeHost {
             tokens,
             slimfit,
             missing,
+            hosts,
             service,
             lingers,
             dropping,
@@ -553,6 +558,7 @@ impl Programs for FakeHost {
                 let ok = out.as_ref().is_some_and(|o| !o.starts_with(r#"{"error""#));
                 Said { ok, out: out.unwrap_or_default(), err: "slimfit: no such answer".into() }
             }
+            "ssh" => self.ssh(args),
             "ps" => Said { ok: true, out: self.brew.lock().unwrap().ps.clone(), err: String::new() },
             "sleep" => {
                 if let Some(then) = self.while_sleeping.lock().unwrap().take() {
@@ -609,6 +615,33 @@ impl Programs for FakeHost {
 
     fn found(&self, program: &str) -> bool {
         !self.missing.lock().unwrap().iter().any(|m| m == program)
+    }
+}
+
+impl FakeHost {
+    /// ssh as factorium runs it, `ssh -o BatchMode=yes <target> <command>`:
+    /// on a host it knows, `<command>` runs as sshd runs one, with `sh -c`
+    /// in that host's environment alone (and a test build's coverage file),
+    /// from its home, and answers as it exits; any other is not reached
+    /// (exit 255), as one whose name does not resolve.
+    fn ssh(&self, args: &[&str]) -> Said {
+        let ["-o", "BatchMode=yes", target, command] = args else {
+            return Said { ok: false, err: format!("ssh: no stand-in for {args:?}"), ..Said::default() };
+        };
+        let Some(env) = self.hosts.lock().unwrap().get(*target).cloned() else {
+            let err =
+                format!("ssh: Could not resolve hostname {target}: nodename nor servname provided, or not known\n");
+            return Said { ok: false, out: String::new(), err };
+        };
+        let mut sh = Command::new("/bin/sh");
+        sh.arg("-c").arg(command).env_clear().current_dir(env.get("HOME").map_or("/", String::as_str));
+        let profile = std::env::var_os("LLVM_PROFILE_FILE").map(|p| ("LLVM_PROFILE_FILE", p));
+        let out = sh.envs(env).envs(profile).output().unwrap();
+        Said {
+            ok: out.status.success(),
+            out: String::from_utf8_lossy(&out.stdout).into_owned(),
+            err: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
     }
 }
 

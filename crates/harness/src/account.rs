@@ -221,7 +221,7 @@ pub(crate) fn login_home(user_home: &Path, name: &str) -> PathBuf {
 
 /// This machine's name, as `hostname -s` says it: what an account's
 /// `MACHINE` names. The system's name up to its first `.`.
-fn this_machine() -> Result<String, String> {
+pub fn this_machine() -> Result<String, String> {
     let system = gethostname::gethostname();
     let system = system.to_string_lossy();
     let name = short_name(&system);
