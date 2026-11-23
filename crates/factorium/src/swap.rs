@@ -74,16 +74,12 @@ impl crate::App {
             (me, link, m.refused.clone())
         };
         let to = link.canonicalize().ok()?;
-        let (same, fresh, dir) =
-            (to == me || Some(&to) == refused.as_ref(), self.proofs.of(&to).is_none(), self.data().proofs());
+        let (same, dir) = (to == me || Some(&to) == refused.as_ref(), self.data().proofs());
         let proven = match (same, wait) {
             (true, _) => Some(Ok(())),
             (false, true) => Some(self.proofs.prove(&self.db, &to, &dir)),
             (false, false) => self.proofs.started(&self.db, &to, &dir),
         };
-        if let Some(Err(why)) = proven.as_ref().filter(|_| fresh && !same) {
-            eprintln!("not swapping to {}: {why}", to.display());
-        }
         // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
         if let Some(p) = &proven {
             self.memory.lock().unwrap().refusal =

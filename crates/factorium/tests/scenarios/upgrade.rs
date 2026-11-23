@@ -52,7 +52,7 @@ async fn a_host_that_does_not_cut_factorium_upgrades_it_from_the_tap_and_swaps_o
 
     // Not again before `upgrade_every` (an hour) since that try; again once it passed.
     w.advance(59);
-    w.tick().await;
+    assert_eq!(w.tick().await.upgrade, None, "not due");
     assert_eq!(upgrades(&w), 1);
     w.advance(1);
     upgraded(&w).await;
@@ -76,7 +76,7 @@ async fn a_version_from_the_tap_that_fails_its_proof_leaves_the_old_one_running_
     let opt = w.dir.join("brew/opt/factorium");
     std::fs::remove_file(&opt).unwrap();
     std::os::unix::fs::symlink(w.dir.join("brew/Cellar/factorium/0.0.9"), &opt).unwrap();
-    w.tick().await;
+    assert_eq!(w.tick().await.restart, None, "no swap to the binary that runs");
     assert_eq!(w.finding("daemon:refused:0.1.0").await, None);
 }
 
