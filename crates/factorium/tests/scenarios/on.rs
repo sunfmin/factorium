@@ -369,3 +369,19 @@ async fn a_worker_whose_role_changes_under_it_is_told_once_which_files_changed()
     let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
     assert_eq!(spent["attempts"][0]["role_hash"], json!("2b87fcb63ebf6484"), "{spent}");
 }
+
+#[tokio::test]
+async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_the_watch_saying_so() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
+    w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    assert_eq!(w.tick().await.roles[0]["delivery"], "missed");
+    let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
+    assert!(why.starts_with("word that its role changed did not reach it"), "{why}");
+}
