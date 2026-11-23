@@ -46,12 +46,11 @@ impl World {
 
     /// A checkout `name` that is a clone of `of`'s remote `name`: the same
     /// origin, on another host.
-    pub async fn checkout_of(&self, of: &World, name: &str) -> PathBuf {
+    pub async fn checkout_of(&self, of: &World, name: &str) {
         let remote = of.dir.join("remotes").join(format!("{name}.git"));
         let path = self.dir.join("repos").join(name);
         self.git(Path::new(&self.dir), &["clone", "--quiet", &remote.to_string_lossy(), &path.to_string_lossy()])
             .unwrap();
         self.app.checkout_add(name, &path, "main", "proving", None).await.unwrap();
-        path
     }
 }

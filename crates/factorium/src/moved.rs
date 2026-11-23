@@ -11,11 +11,6 @@ use serde_json::{Value, json};
 
 use crate::{Answer, App, Refusal, fail};
 
-/// Origin's branch a moved issue's work is pushed to.
-fn branch(checkout: &str, number: u64) -> String {
-    format!("factorium/move/{checkout}-{number}")
-}
-
 /// The work an issue carried: its branch on origin and that branch's tip.
 struct Carried {
     branch: String,
@@ -37,7 +32,8 @@ impl App {
         }
         let origin = self.host.git(&c.path).origin().map_err(fail("git"))?;
         self.holds_there(to, checkout, &origin)?;
-        let from = format!("{} {checkout}#{number}", here());
+        let here = factorium_harness::account::this_machine().unwrap_or_else(|_| "this host".into());
+        let from = format!("{here} {checkout}#{number}");
         let mut done = Vec::new();
         let partly = |done: &[String], r: Refusal| {
             let done = if done.is_empty() { "nothing".to_string() } else { done.join("; ") };
@@ -65,11 +61,9 @@ impl App {
             .as_ref()
             .map_or(String::new(), |k| format!(", its work on origin's `{}` at {}", k.branch, k.commit));
         let text = format!("Moved to `{named}`{work}: it goes on there.");
-        let closing = async {
-            self.note(checkout, number, Author::Factorium, &text).await?;
-            self.close(checkout, number, &format!("moved to {named}"), true).await
-        };
-        let shown = closing.await.map_err(|r| partly(&done, r))?;
+        self.note(checkout, number, Author::Factorium, &text).await.map_err(|r| partly(&done, r))?;
+        let shown = self.close(checkout, number, &format!("moved to {named}"), true).await;
+        let shown = shown.map_err(|r| partly(&done, r))?;
         Ok(json!({
             "moved_to": named,
             "host": to,
@@ -86,7 +80,8 @@ impl App {
         let listed = answer_of(&self.ssh(to, "factorium checkout list")?, to)?;
         let names: Vec<&str> = listed.as_array().into_iter().flatten().filter_map(|c| c["name"].as_str()).collect();
         let Some(path) = listed.as_array().into_iter().flatten().find(|c| c["name"] == checkout) else {
-            let why = format!("{to}'s factorium has no checkout {checkout} (it lists: {})", list_of(&names));
+            let names = if names.is_empty() { "none".to_string() } else { names.join(", ") };
+            let why = format!("{to}'s factorium has no checkout {checkout} (it lists: {names})");
             return Err(Refusal::new("no_checkout_there", why));
         };
         let path = path["path"].as_str().unwrap_or_default();
@@ -106,7 +101,7 @@ impl App {
         let tree = self.host.git(&st.worktree);
         let message = format!("Work in progress of {}#{}, not gated: moved to {to}", issue.checkout, issue.number);
         let commit = tree.snapshot(&message).map_err(fail("git"))?;
-        let branch = branch(&issue.checkout, issue.number);
+        let branch = format!("factorium/move/{}-{}", issue.checkout, issue.number);
         let was = tree.origin_tip(&branch).map_err(fail("git"))?;
         tree.push_requiring(&commit, &branch, was.as_deref()).map_err(fail("git"))?;
         Ok(Some(Carried { branch, commit }))
@@ -143,16 +138,6 @@ impl App {
 fn answer_of(out: &str, to: &str) -> Answer<Value> {
     serde_json::from_str(out)
         .map_err(|e| Refusal::new("bad_answer", format!("{to}'s factorium answered no JSON ({e}): {out}")))
-}
-
-/// `names`, comma separated; `none` if there are none.
-fn list_of(names: &[&str]) -> String {
-    if names.is_empty() { "none".into() } else { names.join(", ") }
-}
-
-/// This host's name, as `hostname -s` says it.
-fn here() -> String {
-    factorium_harness::account::this_machine().unwrap_or_else(|_| "this host".into())
 }
 
 /// Whether two origin URLs name one repo: alike once a trailing `/` and
