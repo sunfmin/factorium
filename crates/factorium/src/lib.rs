@@ -18,6 +18,7 @@ mod lock;
 mod outage;
 mod owner;
 mod pick;
+mod role;
 mod service;
 mod session;
 mod swap;
@@ -134,6 +135,7 @@ fn model() -> Model {
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()
         .command::<worker::NoteSpent>()
+        .command::<worker::NoteRoleTold>()
         .command::<worker::DeclareWait>()
         .command::<health::Observe>()
         .aggregate::<gate::Gates>()

@@ -41,6 +41,8 @@ pub struct Tick {
     pub started: Option<Value>,
     /// Parked workers sent back to work: what their issues waited for is met.
     pub resumed: Vec<Value>,
+    /// Workers told their role changed under them.
+    pub roles: Vec<Value>,
     /// Issues filed to bump a pin of another checkout behind its base tip.
     pub bumped: Vec<Value>,
     /// Why nothing started, when something was ready.
@@ -59,7 +61,7 @@ pub struct Tick {
 
 impl Tick {
     /// Its line in daemon.log, if daemon.log has it: it was slow, or did something (landed, moved
-    /// a line, saw, started or resumed a worker, or moved idle work).
+    /// a line, saw, started, resumed or told a worker its role changed, or moved idle work).
     pub fn line(&self) -> Option<String> {
         self.logged().then(|| serde_json::to_string(self).unwrap_or_default())
     }
@@ -72,6 +74,7 @@ impl Tick {
             || !self.seen.is_empty()
             || !self.idle.is_empty()
             || !self.resumed.is_empty()
+            || !self.roles.is_empty()
     }
 }
 
@@ -141,6 +144,8 @@ impl App {
             }
         }
         steps.ended("watching workers", self.now());
+        t.roles = self.tell_role_changes().await?;
+        steps.ended("telling workers their role changed", self.now());
         // One start, if admission allows.
         if let Some((checkout, number)) = self.next_issue().await? {
             let held = admission::admit(&load.admission(), &load.queue, self.now(), &settings);

@@ -6,6 +6,7 @@
 
 use factum_core::{Aggregate, Rejection, Uuid};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::{command, no, only};
 
@@ -53,6 +54,30 @@ pub struct StartedRole {
     /// A hash of what the role gave it: its rules and every file under its
     /// skills, read through the link at the start.
     pub hash: String,
+    /// Each of those files by its path under the role's directory
+    /// (`CLAUDE.md`, `.claude/skills/…`), and a hash of its bytes; empty in
+    /// an attempt started before factorium#273.
+    #[serde(default)]
+    pub files: BTreeMap<String, String>,
+}
+
+/// What a role's directory holds, as read once: [`StartedRole::hash`] and
+/// [`StartedRole::files`].
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RoleRead {
+    pub hash: String,
+    pub files: BTreeMap<String, String>,
+}
+
+impl RoleRead {
+    /// The files whose bytes differ from `before`'s, or that only one of
+    /// the two holds, in path order.
+    pub fn changed_from(&self, before: &BTreeMap<String, String>) -> Vec<String> {
+        let mut paths: Vec<&String> = self.files.keys().chain(before.keys()).collect();
+        paths.sort();
+        paths.dedup();
+        paths.into_iter().filter(|p| self.files.get(*p) != before.get(*p)).cloned().collect()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -108,6 +133,10 @@ pub struct Worker {
     /// same words read again are not a new one.
     #[serde(default)]
     pub limit: Option<Limit>,
+    /// Its role as it was last told it changed; `None`: as it started
+    /// (factorium#273).
+    #[serde(default)]
+    pub role_told: Option<RoleRead>,
 }
 
 /// A limit its engine reached, as its screen said, until when, and when it
@@ -120,6 +149,13 @@ pub struct Limit {
 }
 
 impl Worker {
+    /// What its role held as it last knew it: as it was last told it
+    /// changed, else as it started; `None`: it has no role.
+    pub fn role_known(&self) -> Option<RoleRead> {
+        let role = self.started.as_ref()?.role.as_ref()?;
+        Some(self.role_told.clone().unwrap_or_else(|| RoleRead { hash: role.hash.clone(), files: role.files.clone() }))
+    }
+
     /// The limit it waits on, parked on it since it was seen, until its
     /// reset: no finding meanwhile.
     pub fn waits_on_limit(&self) -> Option<&Limit> {
@@ -246,6 +282,8 @@ pub enum WorkerEvent {
     /// Its engine is at its limit, as its screen said, until then (ms): it
     /// waits, parked until the reset.
     WorkerLimited(Limit),
+    /// It was told its role's directory changed to hold this.
+    RoleTold(RoleRead),
 }
 
 /// A worker's status, why, and since when, in ms.
@@ -317,6 +355,7 @@ impl Aggregate for Workers {
             WorkerEvent::WaitDeclared(d) => s.declared = Some(d),
             WorkerEvent::WaitEnded => s.declared = None,
             WorkerEvent::WorkerLimited(l) => (s.limit, s.parked) = (Some(l), true),
+            WorkerEvent::RoleTold(read) => s.role_told = Some(read),
             _ => {}
         }
     }
@@ -512,4 +551,20 @@ pub struct Spend {
 on_worker!(NoteSpent, "worker.spent", Spend, |s, p, now| {
     live(s)?;
     Ok(vec![WorkerEvent::Spent(p.tokens)])
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TellRole {
+    pub worker: Uuid,
+    pub read: RoleRead,
+}
+
+// It was told its role changed to hold this: told once per change.
+on_worker!(NoteRoleTold, "worker.role_told", TellRole, |s, p, now| {
+    live(s)?;
+    Ok(if s.role_known().is_some_and(|k| k.hash == p.read.hash) {
+        Vec::new()
+    } else {
+        vec![WorkerEvent::RoleTold(p.read.clone())]
+    })
 });

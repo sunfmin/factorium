@@ -241,10 +241,11 @@ impl App {
             role: role_for.map(|(r, _)| r),
         };
         let opened = self.open_session(role, pick)?;
-        let role = role_for.zip(opened.rules).map(|((dir, from), hash)| StartedRole {
+        let role = role_for.zip(opened.role).map(|((dir, from), read)| StartedRole {
             dir: dir.into(),
             from: from.into(),
-            hash,
+            hash: read.hash,
+            files: read.files,
         });
         let started = Started {
             checkout: c.name.clone(),

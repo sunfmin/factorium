@@ -73,7 +73,7 @@ impl App {
         };
         for m in self.outbox(s).await?.messages.into_iter().filter(Message::pending) {
             let outcome = match (&blocked, &m.from) {
-                (Some((Sender::Brief, _)), Sender::Comment) => add_to_brief(&s.brief, &m.text)
+                (Some((Sender::Brief, _)), Sender::Comment | Sender::Role) => add_to_brief(&s.brief, &m.text)
                     .map_or_else(|e| not_typed("io", format!("its brief {}: {e}", s.brief)), |()| Outcome::Brief),
                 (Some((_, held)), _) => held.clone(),
                 (None, _) => match self.held(s, limit.as_ref()) {
@@ -186,7 +186,9 @@ fn format_message(from: &Sender, text: &str) -> String {
     text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" | ")
 }
 
-/// Adds a comment to a brief not yet handed, under its own heading.
+/// Adds a comment, or word that its role changed, to a brief not yet
+/// handed, under its own heading: a comment without its prefix, the word
+/// with its own.
 fn add_to_brief(brief: &str, typed: &str) -> std::io::Result<()> {
     const HEAD: &str = "\n## Comments since\n\n";
     let text = typed.strip_prefix(&Sender::Comment.prefix()).unwrap_or(typed);
