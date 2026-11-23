@@ -11,8 +11,10 @@
 //!   unchanged past `silent_bound`;
 //! - **silent**: its turn closed, and no done, past `silent_bound`, with
 //!   no heavy entry of its own in flight: its clock starts again when one
-//!   ends; nor within a wait it declared on a long command of its own
-//!   (held to two hours), the finding past it naming what it said;
+//!   ends; nor while its issue waits for anything unmet (factorium#283),
+//!   its clock starting again once all of it is met; nor within a wait it
+//!   declared on a long command of its own (held to two hours), the
+//!   finding past it naming what it said;
 //! - **quota**: its account used up; the account rests an hour.
 //! - **limit**: its engine at its limit, until the reset its screen gives:
 //!   it waits, parked until then, no finding meanwhile; landing, it is left
@@ -83,6 +85,9 @@ pub struct Observation {
     /// the hold bound.
     #[serde(default)]
     pub heavy: bool,
+    /// Its issue waits for something unmet: an open issue, a cut, a time.
+    #[serde(default)]
+    pub blocked: bool,
     /// Where the evidence of its processes goes, should it be hot.
     pub evidence: String,
     pub settings: Settings,
@@ -138,8 +143,9 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
         Sight::Closed(_) => None,
     };
     let mut events = Vec::new();
-    // Its own heavy entry in flight: the silence clock waits for it.
-    let freed_at = match (o.heavy, w.heavy) {
+    // Its own heavy entry in flight, or its issue blocked: the silence clock waits for it.
+    let held = o.heavy || o.blocked;
+    let freed_at = match (held, w.heavy) {
         (true, false) => {
             events.push(WorkerEvent::HeavyHeld);
             w.freed_at
@@ -191,9 +197,9 @@ fn judge(w: &Worker, o: &Observation, now: i64) -> Vec<WorkerEvent> {
         )));
         return events;
     }
-    // Silent: its turn closed, no done and nothing of its own in flight, past the bound.
+    // Silent: its turn closed, no done and nothing holding it, past the bound.
     if let Sight::Closed(at) = o.sight
-        && !o.heavy
+        && !held
     {
         let idle_since = at.map_or(w.since, |t| t.max(w.since));
         let idle_since = freed_at.map_or(idle_since, |t| t.max(idle_since));

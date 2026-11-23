@@ -57,7 +57,9 @@ impl App {
         let Some(sight) = self.see(&live.session, past) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
-        let seen = Observation { worker, sight, load, quiet, heavy, evidence, settings: s.clone() };
+        let issue = self.issue(&live.started.checkout, live.started.number).await?;
+        let blocked = self.blockers(&issue).await?.iter().any(|(_, met)| met.is_none());
+        let seen = Observation { worker, sight, load, quiet, heavy, blocked, evidence, settings: s.clone() };
         match Verdict::of(&self.decide::<Observe>(seen).await?) {
             Verdict::Fine => Ok(None),
             Verdict::Waits { why, hot } => {
