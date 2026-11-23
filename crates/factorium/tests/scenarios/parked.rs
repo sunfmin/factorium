@@ -181,3 +181,52 @@ async fn a_worker_blocked_while_it_works_goes_back_when_it_waits_with_the_blocke
     assert_eq!(status(&w, &wk).await, "working");
     assert!(said(&w, "web", 1).await.last().unwrap().contains("#2 (landed as "));
 }
+
+/// Ticks every 10 min for `mins` minutes.
+async fn idle_for(w: &World, mins: i64) {
+    for _ in 0..mins / 10 {
+        w.advance(10);
+        w.tick().await;
+    }
+}
+
+#[tokio::test]
+async fn a_blocked_idle_worker_is_never_silent_and_is_counted_again_once_sent_back() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "blocked").await;
+    w.watch_session(false);
+    w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
+    w.tick().await;
+    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
+    w.app.worker_waiting(id(&wk), "blocked on #2", 45 * 60_000).await.unwrap();
+    // Past its declared wait and the two hours it is held to, #2 still open
+    // (factorium#283): it is parked, not silent, and no round runs for it.
+    idle_for(&w, 150).await;
+    assert_eq!(status(&w, &wk).await, "working");
+    assert!(!doctor(&w, &wk).await.1, "no finding for it");
+
+    // #2 is met: it is sent back, and its silence counts from then.
+    w.app.issue_close("web", 2, "not needed").await.unwrap();
+    assert_eq!(w.tick().await.resumed.len(), 1);
+    idle_for(&w, 30).await;
+    assert_eq!(status(&w, &wk).await, "working", "at the bound, not past it");
+    w.advance(1);
+    w.tick().await;
+    let silent = w.worker_on("web", 1).await;
+    assert!(silent["why"].as_str().unwrap().starts_with("silent for 31 min"), "{silent}");
+}
+
+#[tokio::test]
+async fn a_worker_whose_issue_waits_for_a_time_is_not_silent_before_it() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "later").await;
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
+    let at = w.app_now() + 150 * 60_000;
+    w.app.issue_block("web", 1, Blocker::NotBefore(at), false).await.unwrap();
+    idle_for(&w, 140).await;
+    assert_eq!(status(&w, &wk).await, "working");
+    assert!(!doctor(&w, &wk).await.1, "no finding for it");
+}

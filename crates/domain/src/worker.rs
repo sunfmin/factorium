@@ -110,11 +110,12 @@ pub struct Worker {
     /// that screen's hash, and since when, in ms.
     #[serde(default)]
     pub quiet: Option<(u64, i64)>,
-    /// A heavy entry of its own is in flight.
+    /// Something holds its silence clock: a heavy entry of its own in
+    /// flight, or its issue blocked.
     #[serde(default)]
     pub heavy: bool,
-    /// When its last heavy entry in flight ended, in ms: its silence counts
-    /// from no earlier.
+    /// When what last held its silence clock let go, in ms: its silence
+    /// counts from no earlier.
     #[serde(default)]
     pub freed_at: Option<i64>,
     /// Its issue was blocked: the watch parked it behind what its issue
@@ -247,9 +248,10 @@ pub enum WorkerEvent {
     },
     /// Its processes or its screen moved again, or its turn closed.
     Stirred,
-    /// A heavy entry of its own went in flight: waiting or running.
+    /// Its silence clock is held: a heavy entry of its own went in flight
+    /// (waiting or running), or its issue was blocked.
     HeavyHeld,
-    /// Its heavy entries in flight all ended.
+    /// What held its silence clock all let go.
     HeavyFreed {
         at: i64,
     },

@@ -158,7 +158,8 @@ leaves it out: the daemon runs the look.
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
-silent past its bound (not within a wait it declared on a long command of
+silent past its bound (not while its issue waits for anything unmet, its
+silence counted from when all of it is met, factorium#283; nor within a wait it declared on a long command of
 its own, `worker waiting --why … --until …`, held to two hours, which doctor
 shows; past it, the finding names what it said), or hung past it (its turn open, its processes next
 to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut (until the next promotion of a newer commit owes it again, §1.14), admission held

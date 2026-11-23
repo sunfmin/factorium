@@ -1,0 +1,15 @@
+{
+  "tree": "4fe7a12e697921a283d21b7914b2f9cdb74c5763+d1fba762150c532c",
+  "picker": "codex:01a20a86-518f-7940-bc43-1b0062fbe452:default",
+  "author": "claude-code:96ce1e39-4706-5b11-b6c7-9fa4763f6969:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/health.rs:147:24: replace || with && in judge",
+        "why": "Parking may mask the lost hold for blocked workers, and the added scenarios do not exercise a heavy entry on its own.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
