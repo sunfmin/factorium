@@ -16,6 +16,7 @@ mod line;
 mod load;
 mod lock;
 mod moved;
+mod needs;
 mod outage;
 mod owner;
 mod pick;
@@ -167,6 +168,7 @@ fn model() -> Model {
         .command::<daemon::NoteRollback>()
         .command::<daemon::NoteSwap>()
         .command::<daemon::NoteUpgrade>()
+        .command::<daemon::NoteRole>()
         .aggregate::<watch::Watches>()
         .command::<watch::StartWatch>()
         .command::<watch::EndWatch>()

@@ -6,6 +6,9 @@
 use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
+use crate::needs::Lacking;
 use crate::{command, id};
 
 pub fn daemon_id() -> factum_core::Uuid {
@@ -106,19 +109,38 @@ pub struct Daemon {
     /// Its last upgrade from the tap.
     #[serde(default)]
     pub upgrade: Option<Upgrade>,
+    /// Each role directory whose last check before a start found it lacking
+    /// what its workers need (factorium#277), by its path: its issues wait.
+    #[serde(default)]
+    pub roles: BTreeMap<String, Lacking>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DaemonEvent {
-    DaemonStarted { at: i64, path: String, missing: Vec<String> },
-    TickFailed { at: i64, error: String },
+    DaemonStarted {
+        at: i64,
+        path: String,
+        missing: Vec<String>,
+    },
+    TickFailed {
+        at: i64,
+        error: String,
+    },
     TickDone,
-    RolledBack { at: i64, rolled_back: RolledBack },
+    RolledBack {
+        at: i64,
+        rolled_back: RolledBack,
+    },
     RollbackOver,
     TickSlow(SlowTick),
     SwapRefused(Option<Refused>),
     UpgradeTried(Upgrade),
+    /// A role directory was checked: what it lacks, `None`: nothing.
+    RoleChecked {
+        dir: String,
+        lacking: Option<Lacking>,
+    },
 }
 
 pub struct Daemons;
@@ -144,6 +166,8 @@ impl Aggregate for Daemons {
             DaemonEvent::TickSlow(slow) => s.slow = Some(slow),
             DaemonEvent::SwapRefused(r) => s.refused = r,
             DaemonEvent::UpgradeTried(u) => s.upgrade = Some(u),
+            DaemonEvent::RoleChecked { dir, lacking: Some(l) } => _ = s.roles.insert(dir, l),
+            DaemonEvent::RoleChecked { dir, lacking: None } => _ = s.roles.remove(&dir),
         }
     }
 }
@@ -220,6 +244,24 @@ pub struct Upgraded {
 
 command!(NoteUpgrade, "daemon.upgrade", Daemons, Upgraded, |_p| daemon_id(), |s, p, now| {
     Ok::<_, factum_core::Rejection>(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoleChecked {
+    pub dir: String,
+    /// What it lacks; `None`: nothing.
+    pub lacking: Option<Lacking>,
+}
+
+// A role directory's check before a start: kept only when it changes what is known of it.
+command!(NoteRole, "daemon.role", Daemons, RoleChecked, |_p| daemon_id(), |s, p, _now| {
+    let changed = s.roles.get(&p.dir) != p.lacking.as_ref();
+    Ok::<_, factum_core::Rejection>(
+        changed
+            .then(|| DaemonEvent::RoleChecked { dir: p.dir.clone(), lacking: p.lacking.clone() })
+            .into_iter()
+            .collect(),
+    )
 });
 
 /// What the daemon's own files say of it, as the process edge reads them:
