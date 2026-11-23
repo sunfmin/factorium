@@ -275,6 +275,25 @@ pub enum IssueCmd {
     },
     /// Readies an issue that waits for a person.
     Ready { checkout: String, number: u64 },
+    /// Moves an issue to another host's factorium, reached by ssh (`--to`,
+    /// as ssh names it; run there in a login shell). Checks first that its
+    /// factorium lists a checkout of this name with this one's origin,
+    /// changing nothing here until it does. Then: its worker here ends,
+    /// its worktree kept, as `wait-for-human`; what that worktree holds
+    /// that origin does not (its commits, and its changes not committed as
+    /// one commit on top) is pushed to origin's
+    /// `factorium/move/<checkout>-<n>`; it is filed there (its body, where
+    /// it came from, the branch to continue from, then its comments; its
+    /// role, account and blockers, this host's, are named, not carried);
+    /// and it is closed here with a comment naming the issue there.
+    /// Answers the issue there (`moved_to`) and the branch. A step that
+    /// fails answers what was done before it; the issue here stays open.
+    Move {
+        checkout: String,
+        number: u64,
+        #[arg(long, value_name = "SSH_TARGET")]
+        to: String,
+    },
     /// Starts an issue over: removes the worktree its last attempt kept, so
     /// the next start begins from proving; the old branch is kept as
     /// `<branch>-abandoned` and named in a comment with the why. Refused
@@ -506,6 +525,7 @@ impl Top {
                     app.issue_wait_for_human(&checkout, number, &why).await
                 }
                 IssueCmd::Ready { checkout, number } => app.issue_ready(&checkout, number).await,
+                IssueCmd::Move { checkout, number, to } => app.issue_move(&checkout, number, &to).await,
                 IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
                 IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
                 IssueCmd::Block { checkout, number, by, until, undo } => {

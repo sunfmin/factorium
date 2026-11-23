@@ -13,12 +13,13 @@
 //!   whether it succeeded), `"out"` (that and its stdout), or a list of
 //!   JSON pointers into its stdout, `*` standing for each item of an array
 //!   or object. Programs the scenarios stand in for (orca, brew, mytokens,
-//!   slimfit, launchctl, sleep) go to the fake; any other runs for real on
+//!   slimfit, launchctl, sleep, ssh) go to the fake; any other runs for real on
 //!   both sides (git, to make a case's repo).
 //! - `{"orca": method, "args": […]}`: calls factorium's own reader of Orca
 //!   (`factorium::host::Orca`) and prints what it made of the answers.
 //! - `{"world": {…}}`: sets what a scenario sets of the fake's world
-//!   (`tokens`, `slimfit`, `installed`, `tap`, `busy`, `unobserved` and `background`); `real` skips it.
+//!   (`tokens`, `slimfit`, `ssh`, `installed`, `tap`, `busy`, `unobserved`
+//!   and `background`); `real` skips it.
 //! - `"only": "fake" | "real"` on any step runs it on that side alone,
 //!   unprinted: how each side is brought to the same state.
 //! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
@@ -45,7 +46,7 @@ use fakes::FakeHost;
 use serde_json::{Value, json};
 
 /// What the scenarios stand in for: the rest is real on both sides.
-const FAKED: [&str; 6] = ["orca", "brew", "mytokens", "slimfit", "launchctl", "sleep"];
+const FAKED: [&str; 7] = ["orca", "brew", "mytokens", "slimfit", "launchctl", "sleep", "ssh"];
 
 /// The programs a side runs: the fake's world, or the machine.
 struct Side(Option<FakeHost>);
@@ -67,6 +68,8 @@ fn set(fake: &FakeHost, to: &Value) {
     };
     fake.tokens.lock().unwrap().extend(strings(&to["tokens"]));
     fake.slimfit.lock().unwrap().extend(strings(&to["slimfit"]));
+    let hosts = to["ssh"].as_object().into_iter().flatten();
+    fake.hosts.lock().unwrap().extend(hosts.map(|(host, env)| (host.clone(), strings(env))));
     let mut brew = fake.brew.lock().unwrap();
     brew.installed.extend(strings(&to["installed"]));
     brew.tap.extend(strings(&to["tap"]));
