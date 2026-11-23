@@ -38,7 +38,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let gate = w.app.worker_gate(id(&wk)).await.unwrap();
     assert_eq!((gate["green"].clone(), gate["ran"].clone()), (json!(true), json!(null)));
     assert_eq!(w.app.worker_gate(id(&wk)).await.unwrap()["ran"], false, "a green tree is not gated twice");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     assert_eq!(worker(&w.app).await["status"], "landing");
 
     let t = w.tick().await;
@@ -73,16 +73,47 @@ async fn done_takes_only_committed_work_of_its_own() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
     let tree = worktree(&wk);
-    refused(w.app.worker_done(id(&wk)).await, "nothing");
+    refused(w.app.worker_done(id(&wk), None).await, "nothing");
     std::fs::write(tree.join("loose"), "x").unwrap();
-    refused(w.app.worker_done(id(&wk)).await, "dirty");
+    refused(w.app.worker_done(id(&wk), None).await, "dirty");
     w.git(&tree, &["add", "-A"]).unwrap();
     w.git(&tree, &["commit", "-qm", "x"]).unwrap();
     // Landing takes its branch: on another, it is refused.
     w.git(&tree, &["checkout", "-qb", "elsewhere"]).unwrap();
-    refused(w.app.worker_done(id(&wk)).await, "off_branch");
+    refused(w.app.worker_done(id(&wk), None).await, "off_branch");
     w.git(&tree, &["checkout", "-q", "-"]).unwrap();
-    w.app.worker_done(id(&wk)).await.unwrap();
+    // Commits land: finishing without a landing refuses them, so no work is dropped.
+    refused(w.app.worker_done(id(&wk), Some("published")).await, "has_commits");
+    assert_eq!(worker(&w.app).await["status"], "working");
+    w.app.worker_done(id(&wk), None).await.unwrap();
+}
+
+/// An issue whose work changes no code (a publish, a measurement) finishes
+/// without a landing: its evidence closes it, and no gate runs.
+#[tokio::test]
+async fn done_without_landing_closes_an_issue_whose_work_changes_no_code() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let tree = worktree(&wk);
+    let proving = w.remote_tip("web", "proving");
+    let nothing = w.app.worker_done(id(&wk), None).await.unwrap_err();
+    assert!(nothing.to_string().contains("--no-landing"), "the refusal names the way: {nothing}");
+    refused(w.app.worker_done(id(&wk), Some(" ")).await, "no_evidence");
+
+    let evidence = "published from proving's tip: 30 files, 0 wrong";
+    w.app.worker_done(id(&wk), Some(evidence)).await.unwrap();
+    assert_eq!(worker(&w.app).await["status"], "finishing");
+
+    let t = w.tick().await;
+    assert!(t.landed.is_empty(), "nothing lands: {:?}", t.landed);
+    assert_eq!(t.finished[0]["finished"], "web#1");
+    assert_eq!(w.remote_tip("web", "proving"), proving, "proving does not move");
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
+    assert!(issue["reason"].as_str().unwrap().contains(evidence), "{issue}");
+    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert!(crate::fixture::closed(&w.app, "term-1").await, "its session ends");
+    assert!(!tree.exists(), "its worktree goes");
 }
 
 #[tokio::test]
@@ -93,7 +124,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     let proving = w.remote_tip("web", "proving");
 
     w.commit(&tree, "RED", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"));
     assert_eq!(t.landed[0]["status"], "working", "back to work");
@@ -104,7 +135,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     assert!(told.last().unwrap().contains("landing was red"), "{told:?}");
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "ready");
 
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
     let waiting = worker(&w.app).await;
     assert_eq!(waiting["status"], "waiting");
@@ -119,11 +150,11 @@ async fn a_red_landing_then_a_fix_lands() {
     let wk = w.working(CLAUDE, "t").await;
     let tree = worktree(&wk);
     w.commit(&tree, "RED", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
     w.git(&tree, &["rm", "-q", "RED"]).unwrap();
     w.git(&tree, &["commit", "-qm", "fix"]).unwrap();
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
@@ -136,7 +167,7 @@ async fn a_branch_that_does_not_merge_is_red() {
     // The proving branch moves under it, the same file changed.
     w.push_by_hand("web", "proving", "README", "theirs\n");
 
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
 }
@@ -155,7 +186,7 @@ async fn red_on_moved_proving(w: &World) -> serde_json::Value {
     let tree = worktree(&wk);
     w.commit(&tree, "README", "mine\n");
     w.push_by_hand("web", "proving", "README", "theirs 1\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
     assert_eq!(worker(&w.app).await["status"], "working");
@@ -171,7 +202,7 @@ async fn a_branch_that_merged_the_red_tip_and_conflicts_on_a_newer_one_is_told_a
     // Another landing moves proving before this one's second try.
     w.push_by_hand("web", "proving", "README", "theirs 2\n");
 
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     let red = t.landed[0]["red"].as_str().unwrap();
     assert!(red.contains("does not merge") && red.contains("Proving moved since"), "{red}");
@@ -183,7 +214,7 @@ async fn a_branch_that_merged_the_red_tip_and_conflicts_on_a_newer_one_is_told_a
 
     // It merges that tip too, and lands.
     merge_proving(&w, &tree);
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
@@ -193,7 +224,7 @@ async fn a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_t
     let w = World::new();
     let wk = red_on_moved_proving(&w).await;
     w.commit(&worktree(&wk), "other", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
     let waiting = worker(&w.app).await;
     assert_eq!(waiting["status"], "waiting");
@@ -203,7 +234,7 @@ async fn a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_t
     let w = World::new();
     let wk = red_on_moved_proving(&w).await;
     w.push_by_hand("web", "proving", "README", "theirs 2\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
     assert_eq!(worker(&w.app).await["status"], "waiting", "the branch does not hold the red's tip");
 
@@ -213,7 +244,7 @@ async fn a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_t
     let tree = worktree(&wk);
     merge_proving(&w, &tree);
     w.commit(&tree, "RED", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert!(t.landed[0]["red"].as_str().unwrap().contains("fast gate is red"), "{:?}", t.landed);
     assert_eq!(worker(&w.app).await["status"], "waiting", "a gate red after a merge red");
@@ -228,7 +259,7 @@ async fn past_moved_reds_max_of_them_in_a_row_it_goes_to_the_watch() {
     for n in 2..=4 {
         merge_proving(&w, &tree);
         w.push_by_hand("web", "proving", "README", &format!("theirs {n}\n"));
-        w.app.worker_done(id(&wk)).await.unwrap();
+        w.app.worker_done(id(&wk), None).await.unwrap();
         w.tick().await;
         let status = worker(&w.app).await["status"].clone();
         assert_eq!(status, if n < 4 { "working" } else { "waiting" }, "red {n}");
@@ -329,7 +360,7 @@ async fn readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept()
     w.git(&tree, &["merge", "--quiet", "--no-edit", "origin/proving"]).unwrap();
     w.git(&tree, &["add", "-A"]).unwrap();
     w.git(&tree, &["commit", "--quiet", "-m", "finish"]).unwrap();
-    w.app.worker_done(id(&worker(&w.app).await)).await.unwrap();
+    w.app.worker_done(id(&worker(&w.app).await), None).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
     assert!(!tree.exists(), "landed, the worktree goes");
 }
@@ -424,7 +455,7 @@ async fn held_landings_wait_until_released() {
     let wk = w.working(CLAUDE, "t").await;
     w.commit(&worktree(&wk), "f", "x");
     w.app.hold("web", Some("the proving branch is being repaired")).await.unwrap();
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     assert!(w.tick().await.landed.is_empty());
     w.app.hold("web", None).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
@@ -441,7 +472,7 @@ async fn an_escalation_waits_for_the_watch() {
         (waiting["status"].clone(), waiting["why"].clone()),
         (json!("waiting"), json!("escalated: which API version?"))
     );
-    refused(w.app.worker_done(id(&wk)).await, "nothing");
+    refused(w.app.worker_done(id(&wk), None).await, "nothing");
 }
 
 #[tokio::test]
@@ -596,7 +627,7 @@ async fn conflicting_on_records(w: &World, also: &str) -> serde_json::Value {
         w.commit(&tree, also, "mine\n");
         w.push_by_hand("web", "proving", also, "theirs\n");
     }
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     wk
 }
 

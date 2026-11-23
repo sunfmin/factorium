@@ -79,14 +79,30 @@ impl App {
     }
 
     /// Asks to land: the worktree must be committed, with commits of its own.
-    pub async fn worker_done(&self, worker: Uuid) -> Answer {
+    /// With `no_landing`, the evidence of an issue whose work changes no code,
+    /// asks to finish without a landing instead, refused when it has commits:
+    /// the daemon closes the issue with that evidence, running no gate.
+    pub async fn worker_done(&self, worker: Uuid, no_landing: Option<&str>) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
         let git = self.host.git(&st.worktree);
         if git.dirty().map_err(fail("git"))? {
             return Err(Refusal::new("dirty", "commit or remove your changes first: landing takes only commits"));
         }
-        if git.ahead(&st.base, "HEAD").map_err(fail("git"))? == 0 {
-            return Err(Refusal::new("nothing", "your branch has no commits to land"));
+        let ahead = git.ahead(&st.base, "HEAD").map_err(fail("git"))?;
+        if let Some(evidence) = no_landing {
+            if ahead > 0 {
+                let why = "your branch has commits of its own: they land with `factorium worker done`, never dropped";
+                return Err(Refusal::new("has_commits", why));
+            }
+            self.submit::<w::AskFinish>(w::Because { worker, why: evidence.into() }).await?;
+            let said = "Finishing is queued: your issue closes with your evidence, and your session ends. Stop here.";
+            return Ok(json!({ "finishing": true, "evidence": evidence, "said": said }));
+        }
+        if ahead == 0 {
+            let why = "your branch has no commits to land. If your issue's work changes no code (a publish, an \
+                       upload, a measurement), finish it without a landing: `factorium worker done --no-landing \
+                       \"<what you did and how you verified it>\"`";
+            return Err(Refusal::new("nothing", why));
         }
         if git.branch().as_deref() != Some(st.branch.as_str()) {
             let why = format!("check out your branch {} again: landing takes it", st.branch);

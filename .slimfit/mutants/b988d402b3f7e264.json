@@ -1,0 +1,15 @@
+{
+  "tree": "9657bb461ccb96beb8e56d1717162e7866aa96c4+d1fba762150c532c",
+  "picker": "codex:01a2092a-cada-7e33-83cf-c25c5b5537f9:default",
+  "author": "claude-code:27bd4ee8-222f-5720-b75e-16c29f909e3d:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/health.rs:112:32: replace match guard matches!(w.status, Status::Landing | Status::Finishing) with false in spent",
+        "why": "The new completion test never reports a session limit while the worker is Finishing, so it may miss the loss of that exemption.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

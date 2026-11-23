@@ -21,7 +21,7 @@ async fn gates_run_at_factoriums_priority_and_a_cut_below_it() {
     let wk = worker(&w.app).await;
     w.commit(&worktree(&wk), "a", "x");
     assert_eq!(w.app.worker_gate(id(&wk)).await.unwrap()["green"], true, "a worker's fast gate");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert_eq!(t.landed[0]["landed"], "web#1", "the fast gate on proving: {t:?}");
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "the slow gate: {:?}", t.lines);

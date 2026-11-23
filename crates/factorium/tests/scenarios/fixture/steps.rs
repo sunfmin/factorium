@@ -21,7 +21,7 @@ impl World {
     /// it asks to land.
     pub async fn done(&self, wk: &Value, file: &str, text: &str) {
         self.commit(&worktree(wk), file, text);
-        self.app.worker_done(id(wk)).await.unwrap();
+        self.app.worker_done(id(wk), None).await.unwrap();
     }
 
     /// The worker on `checkout`#`number` commits `file` and is done, and

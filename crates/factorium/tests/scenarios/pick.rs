@@ -136,7 +136,7 @@ async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_no
         assert_eq!(kept[0]["text"], "pick-mutants: no picker asked; slimfit lists no candidates");
 
         // Nothing more to record: the change lands, its gate green.
-        w.app.worker_done(id(&wk)).await.unwrap();
+        w.app.worker_done(id(&wk), None).await.unwrap();
         let tick = w.tick().await;
         assert!(tick.landed.iter().any(|l| l["landed"] == "web#1"), "{tick:?}");
     });

@@ -33,7 +33,7 @@ async fn a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip() {
     let tree = worktree(&wk);
     w.git(&tree, &["rm", "-q", "SLOWRED"]).unwrap();
     w.git(&tree, &["commit", "-q", "-m", "green"]).unwrap();
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
 }

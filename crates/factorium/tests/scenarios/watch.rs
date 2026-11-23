@@ -135,7 +135,7 @@ async fn an_ended_worker_is_refused_alike_by_its_own_commands_and_the_watch_s() 
     assert_eq!(w.app.watch_restart(id(&wk), "go on", false).await.unwrap()["ended"], true);
     let kept = w.comments("web", 1).await.len();
     let refused = crate::fixture::refused;
-    refused(w.app.worker_done(id(&wk)).await, "ended");
+    refused(w.app.worker_done(id(&wk), None).await, "ended");
     refused(w.app.watch_restart(id(&wk), "go on", false).await, "ended");
     refused(w.app.watch_tell(id(&wk), "hello", false).await, "ended");
     assert_eq!(w.comments("web", 1).await.len(), kept, "nothing is kept for an ended worker");
@@ -529,7 +529,7 @@ async fn a_waiting_worker_the_watch_s_tell_reaches_works_again_and_its_done_land
     assert_eq!(told["delivery"], "submitted");
     assert_eq!(worker(&w.app).await["status"], "working", "it read the watch's word");
     w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
@@ -544,7 +544,7 @@ async fn a_finding_still_standing_after_its_round_gets_another_carrying_the_last
     w.tick().await;
     w.app.watch_report("Answered: v2.", None).await.unwrap();
     w.commit(&crate::fixture::worktree(&wk), "v2.txt", "v2\n");
-    crate::fixture::refused(w.app.worker_done(id(&wk)).await, "waiting");
+    crate::fixture::refused(w.app.worker_done(id(&wk), None).await, "waiting");
     w.advance(25);
     w.tick().await;
     assert_eq!(w.app.watch_next().await.unwrap()["round"], json!(null), "not before round_again");

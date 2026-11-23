@@ -1,5 +1,6 @@
 //! A worker: one harness session working one issue in its own worktree.
-//! It works until it asks to land (`done`); a red landing sends it back to
+//! It works until it asks to land (`done`), or, its work changing no code,
+//! to finish without a landing (`done --no-landing`); a red landing sends it back to
 //! work, and a second red in a row, an escalation, or a failure waits for
 //! the watch. A branch that does not merge because proving moved again
 //! since the last red is not the second (factorium#171). A green landing, or the watch, ends it.
@@ -17,6 +18,9 @@ pub enum Status {
     Working,
     /// Asked to land; the lander has not answered.
     Landing,
+    /// Asked to finish without a landing, its work changing no code; the
+    /// daemon has not closed its issue yet. `why` holds its evidence.
+    Finishing,
     /// Waits for the watch: escalated, failed, or red twice.
     Waiting,
     Ended,
@@ -191,6 +195,11 @@ pub enum WorkerEvent {
     LandingAsked {
         at: i64,
     },
+    /// It asked to finish without a landing, for this evidence.
+    FinishAsked {
+        evidence: String,
+        at: i64,
+    },
     LandingRed {
         why: String,
         at: i64,
@@ -300,6 +309,7 @@ impl WorkerEvent {
         let (status, why, since) = match self {
             WorkerEvent::WorkerStarted(st) => (Status::Working, None, st.at),
             WorkerEvent::LandingAsked { at } => (Status::Landing, None, *at),
+            WorkerEvent::FinishAsked { evidence, at } => (Status::Finishing, Some(evidence.clone()), *at),
             WorkerEvent::LandingRed { why, at, .. } => (Status::Working, Some(why.clone()), *at),
             WorkerEvent::WorkerLanded { at, .. } => (Status::Ended, Some("landed".into()), *at),
             WorkerEvent::WorkerWaits { why, at } => (Status::Waiting, Some(why.clone()), *at),
@@ -407,6 +417,19 @@ on_worker!(AskLanding, "worker.done", Of, |s, p, now| {
         Status::Landing => Ok(Vec::new()),
         _ => no("waiting", "the worker waits for the watch"),
     }
+});
+
+// It asks to finish without a landing: its issue's work changes no code
+// (a publish, a measurement), and `why` is the evidence that closes it.
+on_worker!(AskFinish, "worker.finish", Because, |s, p, now| {
+    live(s)?;
+    if p.why.trim().is_empty() {
+        return no("no_evidence", "say what you did and how you verified it: it closes your issue");
+    }
+    if s.status != Status::Working {
+        return no("not_working", "only a working worker finishes");
+    }
+    Ok(vec![WorkerEvent::FinishAsked { evidence: p.why.clone(), at: now.0 }])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

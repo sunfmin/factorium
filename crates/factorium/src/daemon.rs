@@ -35,6 +35,9 @@ pub struct Tick {
     pub landed: Vec<Value>,
     /// Issues closed whose worker landed: the close a dead daemon left undone.
     pub closed: Vec<Value>,
+    /// Issues closed whose worker finished without a landing (`worker done
+    /// --no-landing`), with its evidence.
+    pub finished: Vec<Value>,
     pub lines: Vec<Value>,
     /// Idle work that ended, yielded or started.
     pub idle: Vec<Value>,
@@ -127,7 +130,8 @@ impl App {
         // Idle work that ended, or yields: before the lines, so it never runs ahead of them.
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
-        steps.ended("idle work's check and closing landed issues", self.now());
+        t.finished = self.finish_unlanded().await?;
+        steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
         (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;

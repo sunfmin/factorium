@@ -365,7 +365,15 @@ pub enum WorkerCmd {
     /// Runs the repo's fast gate on your worktree, through the queue.
     Gate,
     /// Asks to land your branch. Then stop: you are told if it is red.
-    Done,
+    Done {
+        /// Finishes without a landing, for an issue whose work changes no
+        /// code (a publish, an upload, a measurement): your issue closes
+        /// with this evidence (what you did, how you verified it) as its
+        /// reason, no gate runs, and your session ends. Refused while your
+        /// branch has commits of its own: those land.
+        #[arg(long, value_name = "EVIDENCE")]
+        no_landing: Option<String>,
+    },
     /// Hands you to the watch with what you need, kept as a comment on your
     /// issue. Then stop.
     Escalate { why: String },
@@ -578,7 +586,7 @@ impl Top {
             Top::Settings { name, value } => app.settings_set(name.as_deref(), value).await,
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
-                WorkerCmd::Done => app.worker_done(worker_id()?).await,
+                WorkerCmd::Done { no_landing } => app.worker_done(worker_id()?, no_landing.as_deref()).await,
                 WorkerCmd::PickMutants => app.worker_pick_mutants(worker_id()?).await,
                 WorkerCmd::ReviewGrowth => app.worker_review_growth(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,

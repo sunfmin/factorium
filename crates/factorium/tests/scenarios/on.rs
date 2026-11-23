@@ -66,7 +66,7 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
 
     let tree = crate::fixture::worktree(&wk);
     w.commit(&tree, "review.txt", "ok\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.advance(5);
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
     // Ended, what it spent was kept as it ended: its harness may clear its session files.

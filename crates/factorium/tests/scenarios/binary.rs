@@ -217,10 +217,11 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run_with(&dir, &worker, &file);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_worker", "{answer}");
-    for command in ["done", "pick-mutants", "review-growth"] {
-        let (ok, answer) = run_with(&dir, &worker, &["worker", command]);
+    let done_unlanded: &[&str] = &["worker", "done", "--no-landing", "published"];
+    for command in [&["worker", "done"][..], done_unlanded, &["worker", "pick-mutants"], &["worker", "review-growth"]] {
+        let (ok, answer) = run_with(&dir, &worker, command);
         assert!(!ok);
-        assert_eq!(answer["error"]["code"], "no_worker", "{command}: a worker command runs for a worker");
+        assert_eq!(answer["error"]["code"], "no_worker", "{command:?}: a worker command runs for a worker");
     }
     // A comment's text comes from --text, else from stdin; empty, it is refused before the worker is looked up.
     let (ok, answer) = run_with(&dir, &worker, &["worker", "comment", "--text", " "]);
