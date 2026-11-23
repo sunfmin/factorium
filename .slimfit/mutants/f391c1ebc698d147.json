@@ -1,0 +1,15 @@
+{
+  "tree": "42b5ca591c0502c76feb84305e7093ea054d6059+d1fba762150c532c",
+  "picker": "codex:01a206fe-4403-75e2-b6b0-929dd139ae6d:default",
+  "author": "claude-code:e2a83380-d4a7-58a9-966c-60473196bdfd:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/outbox.rs:65:9: replace Sender::noun -> &'static str with \"\"",
+        "why": "The body edit scenarios check delivery, brief contents, and the terminal prefix, leaving the sender description unasserted.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
