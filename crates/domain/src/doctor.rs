@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::admission::{self, Reading};
 use crate::daemon::Daemon;
 use crate::declared::Kind;
 use crate::heavy::{LineJob, Queue};
@@ -42,6 +43,50 @@ pub struct Seen {
     /// Workers' worktrees that no open issue's attempt owns.
     #[serde(default)]
     pub orphaned: Vec<Orphaned>,
+    /// Ready issues no worker holds, of listed checkouts, oldest first.
+    #[serde(default)]
+    pub ready: Vec<ReadySeen>,
+    /// Admission's reading, as the tick reads it.
+    #[serde(default)]
+    pub reading: Reading,
+    /// Whether the kit has no entry: nothing starts until it has one.
+    #[serde(default)]
+    pub kit_empty: bool,
+}
+
+/// A ready issue no worker holds, as admission would take it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReadySeen {
+    /// checkout#number.
+    pub issue: String,
+    /// What it waits for before it may start (an open blocker, its time, a
+    /// claim): admission does not consider it yet.
+    #[serde(default)]
+    pub waits: bool,
+    /// Why the kit starts nothing for it now (no harness, its accounts used
+    /// up), if it cannot.
+    #[serde(default)]
+    pub kit: Option<String>,
+}
+
+/// Why admission starts none of the ready issues now: each reason it holds
+/// (the host's readings beside their settings, the workers' share, the
+/// heavy queue's wait) and, when no issue's harness or account can start,
+/// the kit's. Empty when no issue may start yet, or one could start now.
+pub fn unstarted(seen: &Seen, s: &Settings, now: i64) -> Vec<String> {
+    let mut ready = seen.ready.iter().filter(|r| !r.waits).peekable();
+    if ready.peek().is_none() {
+        return Vec::new();
+    }
+    let mut why = admission::holds(&seen.reading, &seen.queue, now, s);
+    // Each issue's kit answer, or none once one issue's kit can start.
+    let kit: Option<Vec<&String>> = ready.map(|r| r.kit.as_ref()).collect();
+    for kit in kit.into_iter().flatten().map(|k| format!("kit: {k}")) {
+        if !why.contains(&kit) {
+            why.push(kit);
+        }
+    }
+    why
 }
 
 /// A worker's worktree that no open issue's attempt owns, and why.
@@ -218,6 +263,16 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             format!("held:{}", why.split(':').next().unwrap_or(why)),
             format!("admission held for {} min: {why}", (now - since) / 60_000),
             "find what holds the resource: a hot process, a full disk; free it",
+        );
+    }
+    if seen.kit_empty && !seen.ready.is_empty() {
+        let issues: Vec<&str> = seen.ready.iter().map(|r| r.issue.as_str()).collect();
+        add(
+            "kit:empty".into(),
+            format!("the kit is empty, so no worker can start: {} ready ({})", issues.len(), issues.join(", ")),
+            "set the harnesses this host starts, highest priority first: `factorium kit set \
+             \"<harness>=<command>[@<model>]\"…`, e.g. `factorium kit set \"claude-code=claude \
+             --dangerously-skip-permissions@opus\"`",
         );
     }
     for program in &seen.daemon.missing {

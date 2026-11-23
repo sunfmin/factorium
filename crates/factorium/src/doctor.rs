@@ -3,6 +3,7 @@
 
 use factorium_domain::idle::{Idles, idle_id};
 use factorium_domain::issue::{self, IssueEvent, Issues};
+use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::{daemon, decided, doctor, heavy, watch, worker};
@@ -45,7 +46,11 @@ impl App {
             let idle_off = c.idle_off;
             seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off });
         }
+        seen.ready = self.ready_seen().await?;
+        seen.kit_empty = self.state::<Kits>(kit_id()).await?.entries.is_empty();
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
+        // Admission's reading: what the heavy queue granted left out, as the tick reads it.
+        seen.reading = self.load().await?.admission();
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone().map(|(since, why)| doctor::HeldSeen { since, why });
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
@@ -58,6 +63,27 @@ impl App {
             seen.dead_letters.push(doctor::DeadLetters { projection, count: dead.len() });
         }
         Ok(seen)
+    }
+
+    /// Each ready issue no worker holds, of a listed checkout, as the
+    /// daemon's next start reads it (claims are read, not cleared): whether
+    /// it waits for a blocker or a claim, and why the kit cannot start it.
+    async fn ready_seen(&self) -> Answer<Vec<doctor::ReadySeen>> {
+        let mut ready = Vec::new();
+        for r in self.rows(tracker::untaken()).await? {
+            if self.checkout(&r.checkout).await.is_err() {
+                continue;
+            }
+            let i = self.issue(&r.checkout, r.number).await?;
+            let waits = i.claim.is_some() || !self.blockers(&i).await?.iter().all(|(_, met)| met.is_some());
+            // As the daemon's next start does, any pick refused holds it.
+            let kit = match waits {
+                true => None,
+                false => self.pick(&r.checkout, i.on.account.as_deref()).await.err().map(|e| e.message),
+            };
+            ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
+        }
+        Ok(ready)
     }
 
     /// Every issue that waits for a person, oldest wait first: its title,
@@ -153,8 +179,7 @@ impl App {
         if let Some(last) = w.reports.last() {
             self.submit::<watch::SeeHuman>(watch::Seen { round: last.round }).await?;
         }
-        // Admission's reading: what the heavy queue granted left out, as the tick reads it.
-        let reading = self.load().await?.admission();
+        let unstarted = doctor::unstarted(&seen, &settings, self.now());
         let holds: Vec<_> =
             seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
         let skipped: Vec<Value> =
@@ -192,7 +217,7 @@ impl App {
             .collect();
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
-        Ok(json!({
+        let mut view = json!({
             // The engine accounts no session can start on here, and why.
             "accounts_skipped": skipped,
             "heavy": seen.queue.entries,
@@ -216,12 +241,17 @@ impl App {
             "not_before": timed,
             // Waiting workers parked until their engine's limit resets, until when (ms).
             "limited": limited,
-            "reading": reading,
+            "reading": seen.reading,
             // The daemon's last tick past half the hang bound: when, how long, its longest step.
             "slow_tick": seen.daemon.slow,
             // Working workers waiting on a long command of their own, as they declared, until when (ms).
             "waiting": declared,
             "watch": { "terminal": w.terminal, "round": w.round, "episodes": w.episodes.len() },
-        }))
+        });
+        // Ready issues wait and admission starts none: each reason it holds now. Absent while one could start.
+        if !unstarted.is_empty() {
+            view["unstarted"] = json!(unstarted);
+        }
+        Ok(view)
     }
 }

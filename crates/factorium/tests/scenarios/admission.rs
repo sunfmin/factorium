@@ -465,3 +465,94 @@ async fn a_declared_wait_past_the_cap_is_held_to_two_hours() {
     let no = w.app.worker_waiting(id(&wk), "more", 60_000).await.unwrap_err();
     assert_eq!(no.code, "waiting", "a worker waiting for the watch declares nothing");
 }
+
+#[tokio::test]
+async fn doctor_says_why_nothing_starts_and_an_empty_kit_is_a_finding_with_its_fix() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    // 18.5 GiB free under the floor of 20, and the CPU over its limit: each named, in its setting's unit.
+    *w.host.reading.lock().unwrap() = factorium::host::Reading {
+        cpu_busy: 90,
+        memory_free: 60,
+        disk_free: 18 * GIB + GIB / 2,
+        disk_total: 100 * GIB,
+    };
+    assert!(w.tick().await.started.is_none());
+    let d = w.doctor().await;
+    assert_eq!(
+        d["unstarted"],
+        json!(["disk: 18.5 GiB free, under the floor of 20 GiB", "cpu: 90% busy, over 75%", "kit: the kit is empty"]),
+        "{d}"
+    );
+    let kit = w.finding("kit:empty").await.expect("an empty kit with an issue ready is a finding");
+    assert!(kit["what"].as_str().unwrap().contains("web#1"), "{kit}");
+    assert!(kit["fix"].as_str().unwrap().contains("factorium kit set"), "{kit}");
+
+    // The kit set, the host alone holds it.
+    w.kit().await;
+    assert!(w.finding("kit:empty").await.is_none());
+    let d = w.doctor().await;
+    assert_eq!(d["unstarted"], json!(["disk: 18.5 GiB free, under the floor of 20 GiB", "cpu: 90% busy, over 75%"]));
+
+    // An issue could start: no such field.
+    *w.host.reading.lock().unwrap() =
+        factorium::host::Reading { cpu_busy: 10, memory_free: 60, disk_free: 500 * GIB, disk_total: 1000 * GIB };
+    assert!(w.doctor().await.get("unstarted").is_none());
+    assert!(w.tick().await.started.is_some());
+    // Nothing ready: none either, however full the host.
+    w.host.reading.lock().unwrap().cpu_busy = 95;
+    assert!(w.doctor().await.get("unstarted").is_none());
+}
+
+#[tokio::test]
+async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason_but_an_empty_kit_is_still_a_finding() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    let blocker = factorium_domain::issue::Blocker::Here(1);
+    w.app.issue_add("web", "b", "", false, &[blocker]).await.unwrap();
+    w.app.issue_wait_for_human("web", 1, "not yet").await.unwrap();
+    assert!(w.doctor().await.get("unstarted").is_none(), "web#2 waits for web#1");
+    assert!(w.finding("kit:empty").await.is_some());
+}
+
+/// doctor's reasons from a reading, the heavy queue and the kit's answer alone.
+#[test]
+fn every_reason_admission_holds_is_named_and_the_kit_only_when_no_issue_can_start() {
+    use factorium_domain::admission::Reading;
+    use factorium_domain::doctor::{ReadySeen, Seen, unstarted};
+    use factorium_domain::heavy::{Entry, Queue};
+    let used = |issue: &str| ReadySeen {
+        issue: issue.into(),
+        waits: false,
+        kit: Some("codex: every account is used up".into()),
+    };
+    let queued = Entry { what: "cargo test".into(), queued_at: 1_000_000, ..Entry::default() };
+    let seen = Seen {
+        ready: vec![used("web#1"), used("web#2")],
+        reading: Reading { cpu_busy: 10, memory_free: 3, disk_free: 500 * GIB, workers_cpu: 90 },
+        queue: Queue { entries: vec![queued], ..Queue::default() },
+        ..Seen::default()
+    };
+    let s = Default::default();
+    assert_eq!(
+        unstarted(&seen, &s, 1_301_000),
+        [
+            "memory: 3% free, under 15%",
+            "workers: 90% of the CPU, over their 80%",
+            "queue: `cargo test` has waited 301s for its turn, over 300s",
+            "kit: codex: every account is used up",
+        ]
+    );
+    // Waited its bound and no longer: the queue holds nothing.
+    assert!(!unstarted(&seen, &s, 1_300_000).iter().any(|w| w.starts_with("queue")));
+    // One issue the kit can start: the kit holds nothing.
+    let mut one = seen.clone();
+    one.ready.push(ReadySeen { issue: "web#3".into(), ..ReadySeen::default() });
+    assert!(!unstarted(&one, &s, 1_301_000).iter().any(|w| w.starts_with("kit")));
+    // Room, and an issue the kit can start: nothing holds.
+    let room = Reading { memory_free: 50, disk_free: 500 * GIB, ..Reading::default() };
+    let free = Seen { ready: vec![ReadySeen::default()], reading: room, ..Seen::default() };
+    assert_eq!(unstarted(&free, &s, 0), Vec::<String>::new());
+}
