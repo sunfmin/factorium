@@ -109,6 +109,15 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     let again = w.finding(&format!("role:{ios}")).await.expect("it stands");
     assert!(again["what"].as_str().unwrap().contains("`rolesmith tool install` failed"), "{again}");
 
+    // The program installed by hand, only the entry lacking: the failed install no longer stands.
+    w.host.rolesmith.lock().unwrap().lacks.get_mut(&ios).unwrap().retain(|l| l["kind"] == "entry");
+    let n = ran_so_far(&w);
+    assert_eq!(started(&w.tick().await), None, "an entry still lacking holds it");
+    assert_eq!(rolesmith_ran(&w, n), std::slice::from_ref(&doctor), "an entry is never installed");
+    let entry = w.finding(&format!("role:{ios}")).await.expect("it stands");
+    let what = entry["what"].as_str().unwrap();
+    assert!(what.contains("entry `apple-id`") && !what.contains("metal") && !what.contains("failed"), "{what}");
+
     // Once all is there, the next tick starts its oldest issue, and the finding goes.
     w.host.rolesmith.lock().unwrap().lacks.clear();
     assert_eq!(started(&w.tick().await), Some(json!("web#1")));
