@@ -1,0 +1,15 @@
+{
+  "tree": "471e1a20bb960300a6fc6c91712e4ce4c6c6dbf2+c907b356f1feecd0",
+  "picker": "codex:01a2066a-f331-7a52-bc01-2500d91675a9:default",
+  "author": "claude-code:c06005e8-8ba3-52e1-8604-ac5453e99861:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/moved.rs:159:29: replace match guard !h.contains('/') with true in repo_of",
+        "why": "The scp-style cases place the colon before any slash, so they still pass if the guard disappears. A local path with a colon after a slash would be misclassified.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

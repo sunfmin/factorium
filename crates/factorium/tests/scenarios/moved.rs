@@ -3,6 +3,7 @@
 //! passes; then its worker ends here, its worktree kept; its work goes to a
 //! branch of its own on origin; it is filed there, and closed here.
 
+use factorium::host::Host;
 use serde_json::json;
 
 use crate::fixture::{World, comments, worker, worktree};
@@ -130,4 +131,38 @@ async fn a_move_the_other_host_cannot_take_is_refused_with_nothing_changed_here(
         assert!(w.git(&remote, &["rev-parse", "--verify", BRANCH]).is_err(), "{code}: no branch is pushed");
     }
     assert_eq!(other.app.issue_list(None, true).await.unwrap(), json!([]), "nothing was filed there");
+}
+
+#[tokio::test]
+async fn origins_that_name_one_repo_in_other_forms_are_one_and_others_are_not() {
+    // Here's origin as stored, the `insteadOf` this host's ~/.gitconfig
+    // rewrites it with, and there's: no issue is worked, so nothing is
+    // pushed and no URL is reached.
+    let rewrite = "[url \"ssh://git@example.com/\"]\n\tinsteadOf = https://example.com/\n";
+    let cases = [
+        ("https://example.com/felix/web.git", Some(rewrite), "https://example.com/felix/web.git", None),
+        ("git@example.com:felix/web", None, "https://example.com/felix/web/", None),
+        ("ssh://git@Example.com/felix/web.git", None, "git@example.com:felix/web.git", None),
+        // A local path whose colon comes after a slash is no scp-like `host:path`.
+        ("/srv/a:b/web.git", None, "file:///srv/a:b/web.git", None),
+        ("https://example.com/felix/web.git", None, "https://example.org/felix/web.git", Some("other_origin")),
+        ("https://example.com/felix/web.git", Some(rewrite), "https://example.com/ann/web.git", Some("other_origin")),
+    ];
+    for (here, config, theirs, refused) in cases {
+        let (w, there) = (World::new(), World::new());
+        issue(&w, false).await;
+        there.checkout_of(&w, "web").await;
+        there.reached_by(&w, THERE);
+        w.git(&w.dir.join("repos").join("web"), &["remote", "set-url", "origin", here]).unwrap();
+        there.git(&there.dir.join("repos").join("web"), &["remote", "set-url", "origin", theirs]).unwrap();
+        if let Some(config) = config {
+            let mut file = std::fs::OpenOptions::new().append(true).open(w.host.home().join(".gitconfig")).unwrap();
+            std::io::Write::write_all(&mut file, config.as_bytes()).unwrap();
+        }
+        let moved = w.app.issue_move("web", 1, THERE).await;
+        match refused {
+            None => assert_eq!(moved.unwrap()["moved_to"], json!("felix@there web#1"), "{here} = {theirs}"),
+            Some(code) => assert_eq!(moved.unwrap_err().code, code, "{here} ≠ {theirs}"),
+        }
+    }
 }

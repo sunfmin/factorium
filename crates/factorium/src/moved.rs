@@ -140,11 +140,31 @@ fn answer_of(out: &str, to: &str) -> Answer<Value> {
         .map_err(|e| Refusal::new("bad_answer", format!("{to}'s factorium answered no JSON ({e}): {out}")))
 }
 
-/// Whether two origin URLs name one repo: alike once a trailing `/` and
-/// `.git` are taken off.
+/// Whether two origin URLs name one repo: the same host and path, whatever
+/// the scheme and user (`https://`, `ssh://git@`, scp-like `git@host:path`,
+/// as a host's `insteadOf` may rewrite one into another), and with or
+/// without a trailing `/` or `.git`.
 fn same_origin(a: &str, b: &str) -> bool {
-    let bare = |u: &str| u.trim().trim_end_matches('/').trim_end_matches(".git").to_string();
-    bare(a) == bare(b)
+    repo_of(a) == repo_of(b)
+}
+
+/// The host (lowercased, its user and port taken off) and path an origin
+/// URL names; a local path's host is empty.
+fn repo_of(url: &str) -> (String, String) {
+    let url = url.trim();
+    let (host, path) = match url.split_once("://") {
+        Some((_, rest)) => rest.split_once('/').map_or((rest, ""), |(h, p)| (h, p)),
+        // scp-like `[user@]host:path`: a colon before any slash.
+        None => match url.split_once(':') {
+            Some((h, p)) if !h.contains('/') => (h, p),
+            _ => ("", url),
+        },
+    };
+    let host = host.rsplit('@').next().unwrap_or_default();
+    let host = host.split(':').next().unwrap_or_default().to_lowercase();
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_start_matches('/');
+    (host, path.to_string())
 }
 
 /// The body the issue is filed with there: its body here, then where it
