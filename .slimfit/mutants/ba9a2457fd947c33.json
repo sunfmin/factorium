@@ -1,0 +1,15 @@
+{
+  "tree": "68c4fcb722800259e0f82df1c43874b620bff2a1+d1fba762150c532c",
+  "picker": "codex:01a20721-8f1a-7f53-95f1-471f61aa5233:default",
+  "author": "claude-code:ac119c2e-a54c-5428-9d61-3cd9e10f416b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/needs.rs:36:37: replace && with || in App::role_ready",
+        "why": "The scenarios cover an unchanged lack and full recovery, so they may miss a stale install error carried forward when only a mytokens entry is still missing.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
