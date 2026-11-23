@@ -1,0 +1,27 @@
+{
+  "tree": "e1dd0e7cb73b1508d0856737c98f30533a4f1c67+d1fba762150c532c",
+  "picker": "codex:01a205a4-4cc8-77b3-8a39-7b95f83e1937:default",
+  "author": "claude-code:981eaffb-b99d-5871-b6d0-43609fd53c57:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/admission.rs:61:27: replace - with + in holds",
+        "why": "The exact queue-message assertion uses queued_at = 0, so it cannot distinguish adding the enqueue timestamp from subtracting it.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/admission.rs:58:52: replace - with + in holds",
+        "why": "The shown queue test starts at timestamp zero, leaving open whether a recently enqueued command at a nonzero timestamp would be held prematurely.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/neutral/admission.rs:28:5: replace room -> Result<(), String> with Ok(())",
+        "why": "Admission and the new doctor tests now reach short without calling room, so callers that still use room may lose its resource checks undetected.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
