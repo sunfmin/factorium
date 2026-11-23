@@ -251,7 +251,20 @@ impl Typed {
             "attachment" => self.attachment.as_ref().filter(|a| a.kind == "queued_command")?.prompt.as_deref(),
             _ => None,
         }
+        .map(unpasted)
     }
+}
+
+/// Text as it was typed, out of the block Claude Code writes a long paste
+/// in: `<pasted_content id="…">`, the text, `</pasted_content id="…">`
+/// (2.1.3xx; rollmind#58's and #69's workers took word that their role
+/// changed so on 2026-11-23, factorium#281).
+fn unpasted(text: &str) -> &str {
+    let text = text.trim();
+    let Some((id, body)) = text.strip_prefix("<pasted_content id=\"").and_then(|rest| rest.split_once("\">")) else {
+        return text;
+    };
+    body.strip_suffix(&format!("</pasted_content id=\"{id}\">")).map_or(text, str::trim)
 }
 
 /// An attachment to a turn; a `queued_command` holds the text typed during it

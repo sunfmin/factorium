@@ -55,6 +55,14 @@ impl Sender {
         *self == Sender::Brief
     }
 
+    /// Whether a message from it tells of nothing in its worker's task: word
+    /// that its role changed. Typed and missed, it is kept and typed again on
+    /// the session's next look, and its worker goes to no one over it; so
+    /// no look waits on it past Orca's window (factorium#281).
+    pub fn notice(&self) -> bool {
+        *self == Sender::Role
+    }
+
     /// Whether no one hears at once that a message from it was refused, so
     /// a worker it does not reach goes to the watch: factorium's own word.
     fn unheard(&self) -> bool {
@@ -139,10 +147,11 @@ pub struct Message {
 }
 
 impl Message {
-    /// Still to be tried: never tried, or held.
+    /// Still to be tried: never tried, held, or a notice missed.
     pub fn pending(&self) -> bool {
         match &self.outcome {
             None => true,
+            Some(Outcome::Missed { .. }) => self.from.notice(),
             Some(Outcome::NotTyped { .. }) => self.from.holds(),
             Some(Outcome::Held { .. }) => true,
             Some(_) => false,
@@ -150,10 +159,10 @@ impl Message {
     }
 
     /// Why the worker it was for goes to the watch over it: typed and
-    /// missed, or refused with no one to hear it.
+    /// missed, not a notice, or refused with no one to hear it.
     pub fn lost(&self) -> Option<String> {
         let why = match &self.outcome {
-            Some(Outcome::Missed { why }) => why,
+            Some(Outcome::Missed { why }) if !self.from.notice() => why,
             Some(Outcome::NotTyped { why, .. }) if self.from.unheard() => why,
             _ => return None,
         };

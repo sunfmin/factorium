@@ -1,0 +1,21 @@
+{
+  "tree": "e580f75861bdbd97e71bc551130e48866ce4dc1a+d1fba762150c532c",
+  "picker": "codex:01a208a4-e56d-7e62-b74d-643ab17f55e7:default",
+  "author": "claude-code:6d094ec2-fc22-519f-afd3-f6f1ed8aeb40:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/outbox.rs:73:9: replace Sender::noun -> &'static str with \"\"",
+        "why": "The removed dialog scenario asserted the sender-specific reason, while the replacement disk-refusal scenario checks only for the I/O error.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/on.rs:374: word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_the_watch_saying_so",
+      "crates/factorium/tests/scenarios/on.rs:390: a_lost_word_whose_wait_the_disk_refuses_fails_the_tick_and_is_not_dropped"
+    ]
+  }
+}

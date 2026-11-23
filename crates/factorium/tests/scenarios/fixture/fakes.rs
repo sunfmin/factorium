@@ -92,10 +92,11 @@ pub struct FakeOrca {
     /// While set, this runs with the worktree when one is asked to be
     /// removed, before Orca removes it.
     pub while_removing: Mutex<Option<Closing>>,
-    /// While set, a `terminal send --wait-submit` to a busy agent takes this
-    /// long before it answers, as real Orca waits its whole window for a turn
-    /// that does not start; sends to other terminals are not held up by it.
-    pub busy_submit_takes: Mutex<Option<std::time::Duration>>,
+    /// While set, a `terminal send --wait-submit` that starts no turn (to a
+    /// busy agent, one Orca does not see, or one in a dialog) takes this long
+    /// before it answers, as real Orca waits its whole window for a turn that
+    /// does not start; sends to other terminals are not held up by it.
+    pub window: Mutex<Option<std::time::Duration>>,
 }
 
 fn said(ok: bool, out: Value) -> Said {
@@ -162,12 +163,15 @@ impl FakeOrca {
             }
         }
         // Outside every lock: Orca waits on one terminal while it types at another.
-        let busy = || self.terminals.lock().unwrap().get(flag(args, "--terminal")).is_some_and(|t| t.busy);
-        let takes = *self.busy_submit_takes.lock().unwrap();
+        let no_turn = || {
+            let t = self.terminals.lock().unwrap();
+            t.get(flag(args, "--terminal")).is_some_and(|t| t.busy || t.unobserved || t.dialog)
+        };
+        let takes = *self.window.lock().unwrap();
         if let Some(takes) = takes
             && args[..2] == ["terminal", "send"]
             && args.contains(&"--wait-submit")
-            && busy()
+            && no_turn()
         {
             std::thread::sleep(takes);
         }
@@ -565,6 +569,8 @@ pub struct FakeHost {
     pub ran: Mutex<Vec<String>>,
     /// Runs, once, on the next `sleep`: what happens while the app waits.
     pub while_sleeping: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// While set, `sleep` takes the seconds it is given; otherwise none.
+    pub sleeps_take: Mutex<bool>,
     /// While set, this process reads as gone too: what a later process sees
     /// of one of its runs that died.
     pub gone: Mutex<bool>,
@@ -580,6 +586,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
+        let sleeps_take = Default::default();
         let (lingers, dropping, hosts, rolesmith) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
@@ -598,6 +605,7 @@ impl FakeHost {
             dropping,
             ran,
             while_sleeping,
+            sleeps_take,
             gone,
             clock,
             root: root.to_path_buf(),
@@ -653,6 +661,10 @@ impl Programs for FakeHost {
             "sleep" => {
                 if let Some(then) = self.while_sleeping.lock().unwrap().take() {
                     then();
+                }
+                if *self.sleeps_take.lock().unwrap() {
+                    let secs = args.first().and_then(|a| a.parse().ok()).unwrap_or(0);
+                    std::thread::sleep(std::time::Duration::from_secs(secs));
                 }
                 Said { ok: true, ..Default::default() }
             }

@@ -254,7 +254,7 @@ async fn a_watch_whose_rules_cannot_be_written_is_refused_io_and_no_terminal_ope
 }
 
 /// A session file's stamp after any tell a scenario sends.
-const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
+pub(crate) const NEXT_CENTURY: &str = "2100-01-01T00:00:00.000Z";
 
 #[tokio::test]
 async fn a_tell_orca_saw_no_turn_for_is_submitted_when_claude_code_s_session_took_it() {

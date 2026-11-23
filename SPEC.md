@@ -290,7 +290,14 @@ Nothing is typed before the harness is up, nor ahead of the brief. A brief
 not typed is held and tried again on the session's next look; anything
 else not typed is refused to its sender, and a red no one hears refused
 sends its worker to the watch. A missed message sends its worker to the
-watch at once; a missed round is passed again on the next look.
+watch at once; a missed round is passed again on the next look. Word that
+its role changed changes nothing in the worker's task: missed, it sends its
+worker to no one and holds up nothing after it, and is looked for again on
+each next look: found taken in its session file since, it arrived; not
+found, it is typed again. So no look waits on it past Orca's window: it is
+given no grace after it, as other messages are (factorium#281). A prompt Claude Code took is
+read from its session file as typed, or in the block it writes a long paste
+in (`<pasted_content id="…">`).
 `factorium outbox [--worker <id>]` answers the record.
 
 `issue comment` records the comment and reaches the live worker on the

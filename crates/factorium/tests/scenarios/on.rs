@@ -9,6 +9,7 @@ use factorium_harness::{Harness, RULES, SKILLS};
 use serde_json::json;
 
 use crate::fixture::{CLAUDE, World, id, refused, worker, write_session_in};
+use crate::watch::NEXT_CENTURY;
 
 /// A claude-code account `name` in mytokens.
 fn account(w: &World, name: &str) {
@@ -370,8 +371,67 @@ async fn a_worker_whose_role_changes_under_it_is_told_once_which_files_changed()
     assert_eq!(spent["attempts"][0]["role_hash"], json!("2b87fcb63ebf6484"), "{spent}");
 }
 
+/// The foot of rollmind#58's and #69's workers' screens on 2026-11-23, idle
+/// at their prompt with shells and an agent run in the background, and of
+/// rollmind#59's, with an agent alone.
+const IN_THE_BACKGROUND: [[&str; 3]; 2] = [
+    ["❯ ", "⏵⏵ bypass permissions on · 2 shells · ← 1 agent · ↓ to manage", ""],
+    ["❯ ", "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent", ""],
+];
+
+/// factorium#281: those workers took word that their role changed as a
+/// prompt, a turn of a few seconds Orca's window saw no start of; Claude
+/// Code wrote the long line in the block it pastes into. Found in the
+/// session file, it was submitted; found only after the look that typed it,
+/// it is found on the next look, and not typed again.
 #[tokio::test]
-async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_the_watch_saying_so() {
+async fn word_that_its_role_changed_an_idle_worker_takes_as_a_paste_is_submitted_and_it_works_on() {
+    for footer in IN_THE_BACKGROUND {
+        let w = World::new();
+        w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+        let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+        checkout_as(&w, "web", &ios).await;
+        w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let wk = w.worker_on("web", 1).await;
+        let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+        w.set_busy(handle, false, true);
+        w.set_screen(handle, &footer);
+        std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+        let told = w.tick().await.roles;
+        assert_eq!(told[0]["delivery"], "missed", "{footer:?}: not in its session file yet: {told:?}");
+        assert_eq!(worker(&w.app).await["status"], "working", "{footer:?}");
+
+        // Its session writes the paste it took.
+        let typed = role_words(&w).await.pop().unwrap();
+        let pasted = format!("\n\n<pasted_content id=\"571f\">\n{typed}\n</pasted_content id=\"571f\">\n");
+        let took = json!({
+            "type": "user", "timestamp": NEXT_CENTURY, "cwd": cwd, "isSidechain": false,
+            "message": { "role": "user", "content": pasted },
+        });
+        let file = w.host.home().join(".claude/projects/web/session.jsonl");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{took}\n")).unwrap();
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
+        w.tick().await;
+        assert_eq!(role_outcomes(&w).await, vec![json!("submitted")], "{footer:?}");
+        assert_eq!((role_words(&w).await.len(), worker(&w.app).await["status"].clone()), (1, json!("working")));
+    }
+}
+
+/// What became of word that its role changed, in the outbox of the worker on `web#1`.
+async fn role_outcomes(w: &World) -> Vec<serde_json::Value> {
+    let messages = w.app.outbox_of(Some(id(&w.worker_on("web", 1).await))).await.unwrap()["messages"].clone();
+    let role = messages.as_array().unwrap().iter().filter(|m| m["from"]["kind"] == "role");
+    role.map(|m| m["outcome"]["outcome"].clone()).collect()
+}
+
+/// factorium#281: word that its role changed changes nothing in a worker's
+/// task, so missing it sends the worker to no one; it is typed again on the
+/// next look, and once taken, no more.
+#[tokio::test]
+async fn word_that_its_role_changed_an_unknown_dialog_takes_is_typed_again_on_the_next_look_and_its_worker_works_on() {
     let w = World::new();
     w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
@@ -382,23 +442,30 @@ async fn word_that_its_role_changed_an_unknown_dialog_takes_sends_the_worker_to_
     w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
     std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
     assert_eq!(w.tick().await.roles[0]["delivery"], "missed");
-    let why = worker(&w.app).await["why"].as_str().unwrap().to_string();
-    assert!(why.starts_with("word that its role changed did not reach it"), "{why}");
+    assert_eq!(worker(&w.app).await["status"], "working", "not parked for the watch");
+    assert_eq!(role_outcomes(&w).await, vec![json!("missed")]);
+
+    // Still in the dialog: missed again, still working.
+    w.tick().await;
+    assert_eq!((role_words(&w).await.len(), worker(&w.app).await["status"].clone()), (2, json!("working")));
+
+    // The dialog gone, the next look types it again, and it starts a turn.
+    w.set_busy(&handle, false, false);
+    w.host.orca.terminals.lock().unwrap().get_mut(&handle).unwrap().dialog = false;
+    w.tick().await;
+    assert_eq!(role_outcomes(&w).await, vec![json!("submitted")]);
+    assert_eq!(worker(&w.app).await["status"], "working");
+    w.tick().await;
+    assert_eq!(role_words(&w).await.len(), 3, "taken once, typed no more");
 }
 
 #[tokio::test]
-async fn a_lost_word_whose_wait_the_disk_refuses_fails_the_tick_and_is_not_dropped() {
+async fn a_lost_word_whose_wait_the_disk_refuses_fails_and_is_not_dropped() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
-    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
-    checkout_as(&w, "web", &ios).await;
-    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
-    w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
-    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    let wk = w.working(CLAUDE, "t").await;
+    w.open_dialog(wk["terminal"].as_str().unwrap(), &["Try the new thing?", "› Yes", "Enter to confirm"]);
     w.disk_refuses("WorkerWaits", true);
-    let refused = w.app.tick().await.unwrap_err();
+    let refused = w.app.watch_tell(id(&wk), "look at the FIFO", false).await.unwrap_err();
     assert!(refused.to_string().contains("disk I/O error"), "{refused}");
 }
 
@@ -422,7 +489,7 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
         handles.push(handle);
     }
     let window = std::time::Duration::from_secs(2);
-    *w.host.orca.busy_submit_takes.lock().unwrap() = Some(window);
+    *w.host.orca.window.lock().unwrap() = Some(window);
 
     std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
     let started = std::time::Instant::now();
@@ -439,5 +506,57 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
         let role = messages.as_array().unwrap().iter().filter(|m| m["from"]["kind"] == "role").count();
         assert_eq!(role, 1, "worker {n}'s outbox: {messages}");
         assert_eq!(w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count(), 1);
+    }
+}
+
+/// factorium#281: on 0.1.98 the step that told 5 workers their role changed
+/// took 28.1 s, two of them missed, each waited out a grace after Orca's
+/// window. A notice missed waits for the next look instead, and that look
+/// is one window too.
+#[tokio::test]
+async fn a_role_change_two_of_five_workers_miss_holds_the_tick_one_window_and_so_does_its_retry() {
+    let w = World::new();
+    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    let mut handles = Vec::new();
+    for n in 1..=5 {
+        w.app.issue_add("web", &format!("Build part {n}"), "", false, &[]).await.unwrap();
+        w.tick().await;
+    }
+    for n in 1..=5 {
+        let handle = w.worker_on("web", n).await["terminal"].as_str().unwrap().to_string();
+        match n {
+            1..=3 => w.set_busy(&handle, true, false),
+            _ => w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]),
+        }
+        handles.push(handle);
+    }
+    let window = std::time::Duration::from_secs(2);
+    *w.host.orca.window.lock().unwrap() = Some(window);
+    *w.host.sleeps_take.lock().unwrap() = true;
+    let bound = window + std::time::Duration::from_secs(2);
+
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    let started = std::time::Instant::now();
+    let told = w.tick().await.roles;
+    let took = started.elapsed();
+    eprintln!("the tick that told 5 workers, 2 missing, took {} ms", took.as_millis());
+    let mut words: Vec<_> = told.iter().map(|t| t["delivery"].as_str().unwrap().to_string()).collect();
+    words.sort();
+    assert_eq!(words, ["missed", "missed", "queued", "queued", "queued"], "{told:?}");
+    assert!(took < bound, "a miss held the tick past one window: {took:?}");
+
+    // The next look types the two again, still in their dialogs, in one window.
+    let started = std::time::Instant::now();
+    w.tick().await;
+    let took = started.elapsed();
+    eprintln!("the tick that retried 2 missed took {} ms", took.as_millis());
+    assert!(took < bound, "a retry held the tick past one window: {took:?}");
+    for (n, handle) in (1..=5).zip(&handles) {
+        let typed = w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count();
+        assert_eq!((n, typed), (n, if n <= 3 { 1 } else { 2 }));
+        assert_eq!(w.worker_on("web", n).await["status"], "working", "worker {n}");
     }
 }
