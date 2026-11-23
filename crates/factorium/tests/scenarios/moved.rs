@@ -143,6 +143,8 @@ async fn origins_that_name_one_repo_in_other_forms_are_one_and_others_are_not() 
         ("https://example.com/felix/web.git", Some(rewrite), "https://example.com/felix/web.git", None),
         ("git@example.com:felix/web", None, "https://example.com/felix/web/", None),
         ("ssh://git@Example.com/felix/web.git", None, "git@example.com:felix/web.git", None),
+        // A local path whose colon comes after a slash is no scp-like `host:path`.
+        ("/srv/a:b/web.git", None, "file:///srv/a:b/web.git", None),
         ("https://example.com/felix/web.git", None, "https://example.org/felix/web.git", Some("other_origin")),
         ("https://example.com/felix/web.git", Some(rewrite), "https://example.com/ann/web.git", Some("other_origin")),
     ];
