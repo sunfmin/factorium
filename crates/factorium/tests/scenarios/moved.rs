@@ -189,4 +189,11 @@ async fn an_issue_that_waits_for_a_person_here_waits_for_one_there_and_a_ready_o
 
     w.app.issue_move("web", 2, THERE).await.unwrap();
     assert_eq!(there.app.issue_show("web", 2).await.unwrap()["status"], json!("ready"));
+
+    // Added waiting, with no why: there it names where it waited.
+    w.app.issue_add("web", "Ship it?", "", true, &[]).await.unwrap();
+    w.app.issue_move("web", 3, THERE).await.unwrap();
+    let filed = there.app.issue_show("web", 3).await.unwrap();
+    assert_eq!(filed["status"], json!("waiting_for_human"), "{filed:#}");
+    assert_eq!(filed["reason"], json!(format!("it waited for a person at `{here} web#3`")), "{filed:#}");
 }
