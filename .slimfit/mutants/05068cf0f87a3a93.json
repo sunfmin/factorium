@@ -1,0 +1,27 @@
+{
+  "tree": "c886764912c6551a8bc3798a5fe453a1e1f3ae21+d1fba762150c532c",
+  "picker": "codex:01a20726-645d-76d0-b02c-f599c53b4241:default",
+  "author": "claude-code:48f5511f-05c0-5009-a84a-228452ef4af0:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/session/outbox.rs:110:35: replace match guard r.code == \"ended\" with true in App::flush",
+        "why": "A failed wait update with an error other than `ended` would be silently ignored, and the busy-worker scenario does not induce a wait update failure.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:110:35: replace match guard r.code == \"ended\" with false in App::flush",
+        "why": "A worker ending between message delivery and the wait update would fail the whole flush, and the busy-worker scenario keeps all five workers live.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:131:50: replace == with != in App::try_one",
+        "why": "The delivery outcomes may leave it untested whether an urgent send interrupts only for the requested message when older messages are pending.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
