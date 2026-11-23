@@ -105,7 +105,7 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     // The same lack is not installed again, tick by tick; the finding stands.
     let n = ran_so_far(&w);
     assert_eq!(started(&w.tick().await), None);
-    assert_eq!(rolesmith_ran(&w, n), [doctor.clone()]);
+    assert_eq!(rolesmith_ran(&w, n), std::slice::from_ref(&doctor));
     let again = w.finding(&format!("role:{ios}")).await.expect("it stands");
     assert!(again["what"].as_str().unwrap().contains("`rolesmith tool install` failed"), "{again}");
 
