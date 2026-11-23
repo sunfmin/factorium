@@ -346,7 +346,7 @@ async fn a_worktree_s_life_from_start_to_close_is_a_behaviour_of_its_model() {
     t.step(&w, "edit").await;
     commits(&w, &third);
     t.step(&w, "commit").await;
-    w.app.worker_done(id(&third)).await.unwrap();
+    w.app.worker_done(id(&third), None).await.unwrap();
     w.tick().await;
     t.step(&w, "land").await;
     assert!(!worktree(&third).exists(), "landed, it goes");
@@ -664,7 +664,7 @@ async fn a_landed_worktree_holding_a_nested_one_with_work_stays_and_doctor_names
     w.git(&tree, &["worktree", "add", "--quiet", "--detach", &inner.to_string_lossy(), "HEAD"]).unwrap();
     std::fs::write(inner.join("mine.txt"), "work").unwrap();
     w.commit(&tree, ".gitignore", "before\n");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "closed", "landed");
     assert!(inner.join("mine.txt").exists(), "the nested one's work stays, and its worktree with it");

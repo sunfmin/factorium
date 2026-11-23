@@ -44,7 +44,7 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     w.watch_session(false);
     let tree = worktree(&wk);
     w.commit(&tree, "RED", "x");
-    w.app.worker_done(id(&wk)).await.unwrap();
+    w.app.worker_done(id(&wk), None).await.unwrap();
     let typed = sent(&w, &wk).len();
     spent(&w, &wk, 1);
 

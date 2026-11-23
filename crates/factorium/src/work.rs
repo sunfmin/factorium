@@ -79,10 +79,26 @@ impl App {
     }
 
     /// Asks to land: the worktree must be committed, with commits of its own.
-    pub async fn worker_done(&self, worker: Uuid) -> Answer {
+    /// With `no_landing`, the evidence of an issue whose work changes no code,
+    /// asks to finish without a landing instead, refused when it has commits:
+    /// the daemon closes the issue with that evidence, running no gate.
+    pub async fn worker_done(&self, worker: Uuid, no_landing: Option<&str>) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
         let git = self.host.git(&st.worktree);
-        if self.commits_of_its_own(&st)? == 0 {
+        if git.dirty().map_err(fail("git"))? {
+            return Err(Refusal::new("dirty", "commit or remove your changes first: landing takes only commits"));
+        }
+        let ahead = git.ahead(&st.base, "HEAD").map_err(fail("git"))?;
+        if let Some(evidence) = no_landing {
+            if ahead > 0 {
+                let why = "your branch has commits of its own: they land with `factorium worker done`, never dropped";
+                return Err(Refusal::new("has_commits", why));
+            }
+            self.submit::<w::AskFinish>(w::Because { worker, why: evidence.into() }).await?;
+            let said = "Finishing is queued: your issue closes with your evidence, and your session ends. Stop here.";
+            return Ok(json!({ "finishing": true, "evidence": evidence, "said": said }));
+        }
+        if ahead == 0 {
             let why = "your branch has no commits to land. If your issue's work changes no code (a publish, an \
                        upload, a measurement), finish it without a landing: `factorium worker done --no-landing \
                        \"<what you did and how you verified it>\"`";
@@ -95,31 +111,6 @@ impl App {
         self.submit::<w::AskLanding>(w::Of { worker }).await?;
         let said = "Landing is queued. Stop here: if it is red you will be told why in this terminal; if it is green your session ends.";
         Ok(json!({ "landing": true, "said": said }))
-    }
-
-    /// Asks to finish without a landing, for an issue whose work changes no
-    /// code: the worktree must be clean, with no commits of its own, which
-    /// would be dropped. The daemon closes the issue with `evidence` as its
-    /// reason, running no gate, and ends the worker.
-    pub async fn worker_done_unlanded(&self, worker: Uuid, evidence: &str) -> Answer {
-        let st = self.live(worker, Want::Any).await?.started;
-        if self.commits_of_its_own(&st)? > 0 {
-            let why = "your branch has commits of its own: they land with `factorium worker done`, never dropped";
-            return Err(Refusal::new("has_commits", why));
-        }
-        self.submit::<w::AskFinish>(w::Because { worker, why: evidence.into() }).await?;
-        let said = "Finishing is queued: your issue closes with your evidence, and your session ends. Stop here.";
-        Ok(json!({ "finishing": true, "evidence": evidence, "said": said }))
-    }
-
-    /// The commits worker `st`'s committed worktree holds beyond the proving
-    /// tip it started from. Refused while changes are not committed.
-    fn commits_of_its_own(&self, st: &Started) -> Answer<u64> {
-        let git = self.host.git(&st.worktree);
-        if git.dirty().map_err(fail("git"))? {
-            return Err(Refusal::new("dirty", "commit or remove your changes first: landing takes only commits"));
-        }
-        git.ahead(&st.base, "HEAD").map_err(fail("git"))
     }
 
     /// Hands the worker to the watch.

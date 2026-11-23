@@ -586,10 +586,7 @@ impl Top {
             Top::Settings { name, value } => app.settings_set(name.as_deref(), value).await,
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
-                WorkerCmd::Done { no_landing: None } => app.worker_done(worker_id()?).await,
-                WorkerCmd::Done { no_landing: Some(evidence) } => {
-                    app.worker_done_unlanded(worker_id()?, &evidence).await
-                }
+                WorkerCmd::Done { no_landing } => app.worker_done(worker_id()?, no_landing.as_deref()).await,
                 WorkerCmd::PickMutants => app.worker_pick_mutants(worker_id()?).await,
                 WorkerCmd::ReviewGrowth => app.worker_review_growth(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
