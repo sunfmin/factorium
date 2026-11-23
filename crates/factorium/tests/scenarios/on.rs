@@ -34,10 +34,10 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
 
     // A role not named by an absolute directory, or an account not here, is refused.
     let on = |role: &str, account: &str| On { role: Some(role.into()), account: Some(account.into()) };
-    refused(w.app.issue_add_on("web", "t", "", false, &[], on("lore/roles/reviewer", "guild")).await, "no_role");
-    refused(w.app.issue_add_on("web", "t", "", false, &[], on(&role_text, "nobody")).await, "no_account");
+    refused(w.app.issue_add_on("web", "t", "", None, &[], on("lore/roles/reviewer", "guild")).await, "no_role");
+    refused(w.app.issue_add_on("web", "t", "", None, &[], on(&role_text, "nobody")).await, "no_account");
 
-    let shown = w.app.issue_add_on("web", "Review it", "", false, &[], on(&role_text, "guild")).await.unwrap();
+    let shown = w.app.issue_add_on("web", "Review it", "", None, &[], on(&role_text, "guild")).await.unwrap();
     assert_eq!((shown["role"].clone(), shown["account"].clone()), (json!(role_text), json!("guild")));
     assert_eq!(shown["spent"], json!({ "ms": 0, "tokens": null, "attempts": [] }), "nothing taken yet");
     w.tick().await;
@@ -99,7 +99,7 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields.to_string());
     account(&w, "guild");
     let on_night = On { role: None, account: Some("night".into()) };
-    w.app.issue_add_on("web", "On the night account", "", false, &[], on_night).await.unwrap();
+    w.app.issue_add_on("web", "On the night account", "", None, &[], on_night).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!((wk["harness"].clone(), wk["account"].clone()), (json!("codex"), json!("night")));
@@ -116,7 +116,7 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     let role = w.host.home().join("roles/plain");
     std::fs::create_dir_all(&role).unwrap();
     let on_role = On { role: Some(role.to_string_lossy().into_owned()), account: None };
-    let shown = w.app.issue_add_on("web", "A role alone", "", false, &[], on_role).await.unwrap();
+    let shown = w.app.issue_add_on("web", "A role alone", "", None, &[], on_role).await.unwrap();
     assert_eq!((shown["role"].clone(), shown["account"].clone()), (json!(role.to_string_lossy()), json!(null)));
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#2")), "{t:?}");
@@ -164,7 +164,7 @@ async fn a_live_worker_keeps_the_role_it_started_with_and_the_next_attempt_takes
     w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
     let first = role_at(&w, "first", "You are the first.\n", "one");
     let on = On { role: Some(first.clone()), account: None };
-    w.app.issue_add_on("web", "t", "", false, &[], on).await.unwrap();
+    w.app.issue_add_on("web", "t", "", None, &[], on).await.unwrap();
     w.tick().await;
     let wk = w.worker_on("web", 1).await;
     let start = w.data().root().join("role/issues/web-1-1");
@@ -192,7 +192,7 @@ async fn no_role_takes_the_role_away_and_a_missing_or_relative_dir_is_refused_as
     w.checkout("web").await;
     w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
     let role = role_at(&w, "r", "You are r.\n", "s");
-    w.app.issue_add_on("web", "t", "", false, &[], On { role: Some(role.clone()), account: None }).await.unwrap();
+    w.app.issue_add_on("web", "t", "", None, &[], On { role: Some(role.clone()), account: None }).await.unwrap();
 
     refused(w.app.issue_name_role("web", 1, Some("roles/r")).await, "no_role");
     let missing = w.host.home().join("roles/none").to_string_lossy().into_owned();
@@ -243,7 +243,7 @@ async fn an_issue_s_own_role_wins_over_its_checkout_s_default() {
     let docs = role_at(&w, "docs", "You are the writer.\n", "prose");
     checkout_as(&w, "web", &ios).await;
     w.app
-        .issue_add_on("web", "Write it up", "", false, &[], On { role: Some(docs.clone()), account: None })
+        .issue_add_on("web", "Write it up", "", None, &[], On { role: Some(docs.clone()), account: None })
         .await
         .unwrap();
     let shown = w.app.issue_show("web", 1).await.unwrap();

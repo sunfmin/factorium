@@ -53,7 +53,14 @@ impl App {
         }
 
         let body = moved_body(&issue, &from, carried.as_ref(), self.now());
-        let there = self.file_there(to, checkout, &issue.title, &body).map_err(|r| partly(&done, r))?;
+        // It waits for a person there as it did here: no worker there takes
+        // it before one decides (factorium#276).
+        let waits = (issue.status == Status::WaitingForHuman).then(|| match &issue.reason {
+            Some(r) => format!("it waited for a person at `{from}`: {r}"),
+            None => format!("it waited for a person at `{from}`"),
+        });
+        let there = self.file_there(to, checkout, &issue.title, &body, waits.as_deref());
+        let there = there.map_err(|r| partly(&done, r))?;
         let named = format!("{to} {checkout}#{there}");
         done.push(format!("filed there as {named}"));
 
@@ -107,9 +114,13 @@ impl App {
         Ok(Some(Carried { branch, commit }))
     }
 
-    /// Files an issue of `checkout` on the factorium `to` reaches; answers its number there.
-    fn file_there(&self, to: &str, checkout: &str, title: &str, body: &str) -> Answer<u64> {
-        let line = format!("factorium issue add {} {} --body={}", quoted(checkout), quoted(title), quoted(body));
+    /// Files an issue of `checkout` on the factorium `to` reaches, waiting
+    /// for a person from the start, for `waits`, if given; answers its
+    /// number there.
+    fn file_there(&self, to: &str, checkout: &str, title: &str, body: &str, waits: Option<&str>) -> Answer<u64> {
+        let waits = waits.map_or(String::new(), |why| format!(" --waiting-for-human --why={}", quoted(why)));
+        let (checkout, title, body) = (quoted(checkout), quoted(title), quoted(body));
+        let line = format!("factorium issue add {checkout} {title}{waits} --body={body}");
         let filed = answer_of(&self.ssh(to, &line)?, to)?;
         let why = || Refusal::new("bad_answer", format!("{to}'s factorium answered no issue number: {filed}"));
         filed["number"].as_u64().ok_or_else(why)
