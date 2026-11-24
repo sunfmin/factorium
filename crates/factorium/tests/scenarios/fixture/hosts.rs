@@ -10,7 +10,7 @@ use super::{World, program};
 /// The programs through which the binary reaches the host's own service and
 /// sessions: each a stub that fails there, so no command run there reaches
 /// this machine's.
-const HOST_PROGRAMS: [&str; 4] = ["launchctl", "orca", "mytokens", "brew"];
+const HOST_PROGRAMS: [&str; 4] = ["launchctl", "orca", "stablehand", "brew"];
 
 impl World {
     /// Lets `from` reach this world's host by ssh as `target`: a command

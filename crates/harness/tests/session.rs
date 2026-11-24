@@ -59,6 +59,7 @@ fn a_codex_session_handed_the_brief_as_its_goal_is_the_worktree_s() {
         guard: "factorium",
         home: &home,
         user_home: &kept,
+        logins: &[],
         env: Vec::new(),
         brief,
         secrets: None,

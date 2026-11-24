@@ -4,7 +4,7 @@
 //! the session's id, model and tokens. Whoever asks says what the question
 //! is; nothing here knows why.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::Harness;
 use crate::harness::Login;
@@ -85,24 +85,31 @@ impl Harness {
 
     /// Makes the empty directory `fresh` the user directory of one session
     /// asked headless, for a harness logged in by a file there: that login
-    /// linked — the `account`'s, else the host user's under `user_home` —
-    /// and the files it is asked with; nothing else of either home, so no
-    /// hook, memory, skill or setting of theirs. A link, so a login renewed
-    /// there stays fresh in both places.
-    pub fn ask_home(self, user_home: &Path, account: Option<&str>, fresh: &Path) -> Result<(), String> {
+    /// linked — the account's `logins` (`stablehand credential`: where the
+    /// home holds each, the file it links to), else the host user's under
+    /// `user_home` — and the files it is asked with; nothing else of either
+    /// home, so no hook, memory, skill or setting of theirs. A link, so a
+    /// login renewed there stays fresh in both places.
+    pub fn ask_home(self, user_home: &Path, logins: &[(String, PathBuf)], fresh: &Path) -> Result<(), String> {
         let (Some(h), Login::Machine { .. }) = (self.headless(), self.login()) else { return Ok(()) };
-        let link = self.links().first().ok_or_else(|| format!("{} names no login file", self.key()))?;
-        let login = match account {
-            Some(name) => crate::account::login_home(user_home, name).join(link.kept),
-            None => user_home.join(link.home),
+        let own;
+        let logins = match logins {
+            [] => {
+                let link = self.links().first().ok_or_else(|| format!("{} names no login file", self.key()))?;
+                own = [(link.kept.to_string(), user_home.join(link.home))];
+                &own[..]
+            }
+            theirs => theirs,
         };
-        if !login.exists() {
-            return Err(format!("{} is not logged in: no {}", self.key(), login.display()));
-        }
         let io = |e: std::io::Error| format!("{}: {e}", fresh.display());
-        let linked = fresh.join(link.kept);
-        linked.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;
-        std::os::unix::fs::symlink(&login, linked).map_err(io)?;
+        for (at, login) in logins {
+            if !login.exists() {
+                return Err(format!("{} is not logged in: no {}", self.key(), login.display()));
+            }
+            let linked = fresh.join(at);
+            linked.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;
+            std::os::unix::fs::symlink(login, linked).map_err(io)?;
+        }
         for (file, text) in (h.files)()? {
             let path = fresh.join(file);
             path.parent().map(std::fs::create_dir_all).transpose().map_err(io)?;

@@ -28,6 +28,12 @@ impl Line {
         self
     }
 
+    /// Adds `name`, which its caller checked is a shell variable's name.
+    fn variable(mut self, name: &str) -> Line {
+        self.text.push_str(name);
+        self
+    }
+
     /// Adds `text` as one word, whatever it holds.
     pub(crate) fn word(mut self, text: &str) -> Line {
         self.text.push_str(&quoted(text));
@@ -91,9 +97,16 @@ pub(crate) fn secrets_first(file: &str, line: &str) -> String {
 }
 
 /// The text of a secrets file a start line reads first: each of `secrets`
-/// exported, its value one word.
-pub fn secrets_file(secrets: &[(&'static str, String)]) -> String {
-    let lines = secrets.iter().map(|(name, value)| Line::new().fixed("export ").fixed(name).fixed("=").word(value));
+/// exported, its value one word. A name no shell variable has (a
+/// letter or `_`, then letters, digits and `_`) is left out: it would be
+/// shell text, not a name.
+pub fn secrets_file(secrets: &[(String, String)]) -> String {
+    let variable = |n: &str| {
+        n.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let named = secrets.iter().filter(|(name, _)| variable(name));
+    let lines = named.map(|(name, value)| Line::new().fixed("export ").variable(name).fixed("=").word(value));
     lines.map(|line| line.fixed("\n").quoted_only()).collect()
 }
 
@@ -135,12 +148,6 @@ pub(crate) fn guard_printing(program: &str, harness: &'static str, refusal: &'st
 
 fn guarded(line: Line, program: &str, harness: &'static str) -> Line {
     line.word(program).fixed(" guard ").fixed(harness)
-}
-
-/// The line a person runs to log an account of the harness `harness` in
-/// once: it told, by the variable `user_dir`, that its home is `home`.
-pub(crate) fn login(user_dir: &'static str, home: &str, harness: &'static str) -> String {
-    Line::new().fixed(user_dir).fixed("=").word(home).fixed(" ").fixed(harness).quoted_only()
 }
 
 /// `text` as one word of a shell line, whatever it holds: the one way

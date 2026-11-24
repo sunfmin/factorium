@@ -98,7 +98,8 @@ class Factorium < Formula
     <<~EOS
       factorium starts its sessions through Orca:
         brew install --cask stablyai/orca/orca
-      Engine accounts are read from mytokens.
+      Engine accounts are stablehand's:
+        brew install sunfmin/tap/stablehand
     EOS
   end
 

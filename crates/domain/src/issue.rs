@@ -62,7 +62,7 @@ pub struct On {
     /// worker rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// The engine account its worker starts on (`agent-account-<name>`).
+    /// The engine account its worker starts on, by its name in stablehand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }

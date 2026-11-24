@@ -1,0 +1,32 @@
+{
+  "tree": "19c9c53e3a1a77be6bc7fdd06d28384690be804f+d1fba762150c532c",
+  "picker": "codex:01a20d57-83bb-7c52-973d-b7e2a3e83953:default",
+  "author": "claude-code:58bf32b2-0e26-5e76-9f3c-0bbba6df152e:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/harness/src/ask.rs:94:9: replace Harness::ask_home -> Result<(), String> with Ok(())",
+        "why": "The picker scenarios cover a portable token, so they may miss a headless picker failing to link its bound account’s login into the fresh home.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/launch.rs:431:9: replace <impl Drop for SessionEnv>::drop with ()",
+        "why": "The replacement secret-file test checks removal after sourcing, so it may miss a credentials file left behind when a session fails to launch.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/accounts.rs:10: an_account_is_usable_only_by_the_way_its_harness_logs_in",
+      "crates/factorium/tests/scenarios/accounts.rs:35: an_account_secret_stays_off_the_command_line_and_its_file_is_gone_once_read",
+      "crates/factorium/tests/scenarios/accounts.rs:88: doctor_says_why_each_account_cannot_be_used_here_and_sessions_start_on_the_rest",
+      "crates/factorium/tests/scenarios/accounts.rs:142: doctor_says_when_mytokens_lists_no_account",
+      "crates/factorium/tests/scenarios/accounts.rs:150: a_login_account_s_sessions_start_in_its_home_and_their_turns_are_read_there",
+      "crates/factorium/tests/scenarios/accounts.rs:184: only_a_well_formed_account_secret_is_an_account",
+      "crates/factorium/tests/scenarios/accounts.rs:211: a_used_up_account_rests_an_hour_and_no_worker_starts_on_it_meanwhile"
+    ]
+  }
+}

@@ -14,7 +14,7 @@ use factorium_domain::line_id;
 use factorium_domain::settings::{Declare, DeclareResource, Resource, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, shown};
 use factorium_harness::Harness;
-use factum::{Uuid, Value};
+use factum::Uuid;
 use serde_json::json;
 
 use crate::{Answer, App, Refusal};
@@ -144,24 +144,6 @@ impl App {
         harness.map(known).transpose()?;
         self.submit::<PinCheckout>(Pin { checkout: checkout.into(), harness: harness.map(Into::into) }).await?;
         self.kit().await
-    }
-
-    /// The engine accounts mytokens holds, as this machine can use them,
-    /// with what each has left.
-    pub async fn accounts(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
-        let now = self.now();
-        let none = Account::default();
-        let rows: Vec<Value> = self
-            .accounts_here()
-            .usable
-            .into_iter()
-            .map(|u| {
-                let a = kit.accounts.get(&u.name).unwrap_or(&none);
-                json!({ "name": u.name, "harness": u.harness.key(), "left": a.left(now), "limited_until": a.limited_until })
-            })
-            .collect();
-        Ok(Value::Array(rows))
     }
 
     // ---- settings and holds ----

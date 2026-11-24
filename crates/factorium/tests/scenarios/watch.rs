@@ -181,10 +181,7 @@ async fn while_orca_gives_no_answer_the_watch_ends_no_worker_and_starts_no_secon
 #[tokio::test]
 async fn the_worker_and_the_watch_start_alike_each_as_its_role() {
     let w = World::on("other.db");
-    w.host.tokens.lock().unwrap().insert(
-        "agent-account-team".into(),
-        r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-very-secret"}}"#.into(),
-    );
+    w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-ant-very-secret");
     let wk = escalated_alone(&w).await;
     let db = w.db.to_string_lossy().into_owned();
     let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();

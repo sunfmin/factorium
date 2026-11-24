@@ -20,10 +20,15 @@ pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, op
     write_session_in(w, h, account, cwd, &brief.to_string_lossy(), open, at);
 }
 
-/// The stand-in session of `h` run in `dir` and handed `brief`.
+/// The stand-in session of `h` run in `dir` and handed `brief`, on
+/// `account`: on a bound login, in the home this host keeps for it.
 pub fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str, brief: &str, open: bool, at: u64) {
     let kept = w.data().kept(h.key());
-    h.write_session(&h.home(&w.host.home(), account, &kept), dir, brief, open, at).unwrap();
+    let books = w.host.stablehand.lock().unwrap();
+    let bound = account.filter(|a| books.accounts.get(*a).is_some_and(|x| x.home.is_some()));
+    let home = bound.map(|a| w.data().kept_on(h.key(), a));
+    drop(books);
+    h.write_session(&h.home(&w.host.home(), home.as_deref(), &kept), dir, brief, open, at).unwrap();
 }
 
 impl World {

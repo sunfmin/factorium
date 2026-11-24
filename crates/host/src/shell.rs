@@ -177,7 +177,7 @@ impl Said {
 }
 
 /// Running a program to its end and reading its answer: the one way the app
-/// reaches orca, brew and mytokens. A scenario stands in here with recorded
+/// reaches orca, brew and stablehand. A scenario stands in here with recorded
 /// answers, so what the app makes of them runs as it does for real.
 pub trait Programs: Send + Sync {
     fn run(&self, program: &str, args: &[&str]) -> Said;

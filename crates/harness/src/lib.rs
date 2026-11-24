@@ -2,8 +2,8 @@
 //! pi, Codex, DSH, Kimi Code, Grok and Antigravity CLI: how a session of each
 //! starts and is handed its brief, how its hook is asked about a tool call,
 //! where it keeps its session and which lines start or end a turn, which
-//! screen words mean a quota or a refusal, and the engine accounts mytokens
-//! holds. Whoever starts a session says what it is started with (`Start`);
+//! screen words mean a quota or a refusal, and the name of the machine an
+//! engine account's bound login names. Whoever starts a session says what it is started with (`Start`);
 //! nothing here knows why.
 
 pub mod account;

@@ -1,8 +1,8 @@
 //! A session for a role: who runs a command, what each may run, and how a
 //! session of a role is opened. A worker's session starts in its worktree
 //! with its brief; the watch's in its home, its rules for its brief. Both
-//! get the kit's first eligible harness on its account with the most left,
-//! the account's secrets by a file, this factorium on PATH and its database,
+//! get the kit's first eligible harness on the account stablehand picks,
+//! the account's login (`stablehand credential`: a token by a file, or its login files linked), this factorium on PATH and its database,
 //! the guard, and their rules; a worker whose role changes under it is
 //! told once. The environment names that tell a session's
 //! commands who runs them live here and nowhere else.
@@ -10,14 +10,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use factorium_domain::kit::{Choice, Kit, Kits, kit_id};
+use factorium_domain::kit::{Choice, Kit, Kits, Picked, kit_id};
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{NoteRoleTold, RoleRead, TellRole, Workers};
-use factorium_harness::account::{self, Here};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::{Uuid, Value};
 use serde_json::json;
 
+use crate::accounts::Credential;
 use crate::kept::WorkerBranch;
 use crate::{Answer, App, Refusal, Want, fail};
 
@@ -168,8 +168,14 @@ pub(crate) struct Pick {
     pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) command: String,
-    /// The account's environment, kept off the terminal's command line.
-    pub(crate) secrets: Vec<(&'static str, String)>,
+    /// The home this host keeps for sessions on the account's bound login;
+    /// `None`: no account, or a portable login.
+    pub(crate) home: Option<PathBuf>,
+    /// The account's portable login, its variables, kept off the terminal's
+    /// command line.
+    pub(crate) secrets: Vec<(String, String)>,
+    /// The account's bound login's files, linked into its home (`Start::logins`).
+    pub(crate) logins: Vec<(String, PathBuf)>,
 }
 
 /// A session opened: its terminal, the brief it was handed, and the line to
@@ -190,11 +196,6 @@ fn io(e: std::io::Error) -> Refusal {
 }
 
 impl App {
-    /// The accounts mytokens holds, as this machine can use them now.
-    pub(crate) fn accounts_here(&self) -> Here {
-        account::here(&|args| self.host.mytokens(args), &self.host.home())
-    }
-
     /// The watch's home and the brief its session is handed there.
     pub(crate) fn watch_home(&self) -> (PathBuf, PathBuf) {
         (self.data().watch(), self.data().watch_brief())
@@ -212,35 +213,73 @@ impl App {
     }
 
     /// What a session for `checkout` (the watch: `""`) starts on now, on
-    /// `account` where its issue names one; refused `no_harness` when nothing
-    /// of the kit can.
+    /// `account` where its issue names one (unless stablehand's pick of its
+    /// engine passed it over), with its account's environment; refused
+    /// `no_harness` when nothing of the kit can.
     pub(crate) async fn pick(&self, checkout: &str, account: Option<&str>) -> Answer<Pick> {
-        self.pick_by(|kit, now, here| match account {
-            Some(account) => kit.choose_on(checkout, account, now, here),
-            None => kit.choose(checkout, now, here),
+        let choice = self.choice(checkout, account).await?;
+        self.pick_of(choice)
+    }
+
+    /// What [`App::pick`] would start a session for `checkout` on now, its
+    /// account's environment not read: whether one can start.
+    pub(crate) async fn choice(&self, checkout: &str, account: Option<&str>) -> Answer<Choice> {
+        let engine = match account {
+            Some(a) => {
+                let kept = self.kept_account(a).map_err(|r| Refusal::new("no_harness", r.message))?;
+                if let Some(why) = kept.unusable {
+                    return Err(Refusal::new("no_harness", format!("account {a} cannot be used here: {why}")));
+                }
+                Some(kept.engine)
+            }
+            None => None,
+        };
+        self.choose_by(|kit, now, pick| match (account, &engine) {
+            (Some(a), Some(e)) => kit.choose_on(checkout, a, e, &pick(e)?),
+            _ => kit.choose(checkout, now, pick),
         })
         .await
     }
 
-    /// What a session starts on now, as `choose` chooses from the kit and
-    /// the accounts here (name, harness); refused `no_harness` when it cannot.
+    /// What a session starts on now, as `choose` chooses from the kit, the
+    /// time and stablehand's pick of an engine, with its account's
+    /// environment; refused `no_harness` when it cannot.
     pub(crate) async fn pick_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &[(String, String)]) -> Result<Choice, String>,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
     ) -> Answer<Pick> {
+        let choice = self.choose_by(choose).await?;
+        self.pick_of(choice)
+    }
+
+    /// What `choose` chooses from the kit, the time and stablehand's pick
+    /// of an engine (`stablehand pick`), told the sessions factorium runs on
+    /// each account; refused `no_harness` when it cannot.
+    async fn choose_by(
+        &self,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
+    ) -> Answer<Choice> {
         let kit = self.state::<Kits>(kit_id()).await?;
-        let accounts = self.accounts_here().usable;
-        let here: Vec<(String, String)> = accounts.iter().map(|a| (a.name.clone(), a.harness.key().into())).collect();
-        let choice = choose(&kit, self.now(), &here).map_err(fail("no_harness"))?;
+        let running = self.running().await?;
+        choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))
+    }
+
+    /// A session on `choice`, handed its account's login as stablehand
+    /// gives it (`stablehand credential`).
+    fn pick_of(&self, choice: Choice) -> Answer<Pick> {
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
-        let secrets = choice
-            .account
-            .as_ref()
-            .and_then(|a| accounts.into_iter().find(|u| &u.name == a))
-            .map(|u| u.env)
-            .unwrap_or_default();
-        Ok(Pick { harness, account: choice.account, model: choice.entry.model, command: choice.entry.command, secrets })
+        let (home, credential) = match &choice.account {
+            Some(a) => {
+                let credential = self.credential(a).map_err(|r| Refusal::new("no_harness", r.message))?;
+                let home = (!credential.files.is_empty()).then(|| self.data().kept_on(harness.key(), a));
+                (home, credential)
+            }
+            None => (None, Credential { env: Vec::new(), files: Vec::new() }),
+        };
+        let (model, command) = (choice.entry.model, choice.entry.command);
+        let (secrets, logins) = (credential.env, credential.files);
+        Ok(Pick { harness, account: choice.account, home, model, command, secrets, logins })
     }
 
     /// Opens a terminal running a session of `role` on `pick`, its brief
@@ -275,7 +314,7 @@ impl App {
         env.push(("PATH", session.path().to_string()));
         let (dir_text, worktree_text, brief_text) =
             (dir.to_string_lossy(), worktree.to_string_lossy(), brief.to_string_lossy());
-        let (home, user_home) = (self.session_home(pick.harness, pick.account.as_deref()), self.host.home());
+        let (home, user_home) = (self.home_at(pick.harness, pick.home.as_deref()), self.host.home());
         let start = Start {
             command: &pick.command,
             dir: &dir_text,
@@ -284,6 +323,7 @@ impl App {
             guard: &session.exe,
             home: &home,
             user_home: &user_home,
+            logins: &pick.logins,
             env,
             brief: &brief_text,
             secrets: session.secrets_file(),
@@ -399,7 +439,7 @@ impl Drop for SessionEnv {
 }
 
 /// Writes `secrets` to a new file only this user may read: its path.
-fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String> {
+fn write_secrets(app: &App, secrets: &[(String, String)]) -> Answer<String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let dir = app.data().secrets();
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;

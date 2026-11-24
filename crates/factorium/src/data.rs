@@ -71,6 +71,12 @@ impl Data {
         self.0.join("kept").join(harness)
     }
 
+    /// The home a harness keeps for sessions on the bound login of
+    /// `account` (a name stablehand keeps, one word), by the harness's key.
+    pub fn kept_on(&self, harness: &str, account: &str) -> PathBuf {
+        self.0.join("kept").join(format!("{harness}@{account}"))
+    }
+
     /// The clones of `kind`, one directory per checkout.
     pub fn clones(&self, kind: LineClone) -> PathBuf {
         self.0.join(kind.name())

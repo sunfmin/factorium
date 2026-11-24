@@ -52,10 +52,23 @@ pub struct Seen {
     /// Whether the kit has no entry: nothing starts until it has one.
     #[serde(default)]
     pub kit_empty: bool,
+    /// Why stablehand, the accounts' one home, cannot be asked which account
+    /// a session of the kit starts on, if it cannot: no worker starts then.
+    #[serde(default)]
+    pub stablehand: Option<StablehandSeen>,
     /// The running entries holding a named resource whose holder is gone,
     /// and why: a command's waiter died, or its worker ended.
     #[serde(default)]
     pub holders_gone: Vec<(factum_core::Uuid, String)>,
+}
+
+/// stablehand, as a start asks it, failing.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StablehandSeen {
+    /// Whether it is on the PATH at all.
+    pub found: bool,
+    /// What failed: the command and what it answered.
+    pub why: String,
 }
 
 /// A ready issue no worker holds, as admission would take it.
@@ -286,6 +299,17 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "set the harnesses this host starts, highest priority first: `factorium kit set \
              \"<harness>=<command>[@<model>]\"…`, e.g. `factorium kit set \"claude-code=claude \
              --dangerously-skip-permissions@opus\"`",
+        );
+    }
+    if let Some(StablehandSeen { found, why }) = &seen.stablehand {
+        let fix = match found {
+            false => "install it: `brew install sunfmin/tap/stablehand`; the next tick asks it again".to_string(),
+            true => format!("do what its answer says ({why}); the next tick asks it again"),
+        };
+        add(
+            "stablehand".into(),
+            format!("stablehand cannot say which account a session starts on, so no worker of the kit starts: {why}"),
+            &fix,
         );
     }
     for program in &seen.daemon.missing {

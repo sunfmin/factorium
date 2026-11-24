@@ -15,7 +15,8 @@
 //!   its clock starting again once all of it is met; nor within a wait it
 //!   declared on a long command of its own (held to two hours), the
 //!   finding past it naming what it said;
-//! - **quota**: its account used up; the account rests an hour.
+//! - **quota**: its account used up: stablehand is told so, until it next
+//!   reads the account; the host's own login of its harness rests an hour.
 //! - **limit**: its engine at its limit, until the reset its screen gives:
 //!   it waits, parked until then, no finding meanwhile; landing, it is left
 //!   to its landing. The same words read again (its screen after the

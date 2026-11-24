@@ -1,14 +1,15 @@
 //! A session's health, seen from outside: whether the watch's session can
 //! take a round, and a worker's
 //! observation, which the domain's health rules decide on: what goes wrong
-//! goes to the watch; a used-up account is noted and the issue is started
-//! again on another; an engine at its limit parks its worker until the
-//! reset, noted on its account or harness.
+//! goes to the watch; a used-up account is told to stablehand and the issue
+//! is started again on another; an engine at its limit parks its worker
+//! until the reset, told to stablehand of its account, else noted on its
+//! harness.
 
 use std::path::Path;
 
 use factorium_domain::health::{Observation, Observe, Sight, Verdict};
-use factorium_domain::kit::{AccountNote, HarnessNote, LimitAccount, LimitHarness};
+use factorium_domain::kit::{HarnessNote, LimitHarness};
 use factorium_domain::outbox::{HoldTaken, HoldTakenMessages};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
@@ -69,30 +70,37 @@ impl App {
                 Ok(Some(json!({ "worker": worker, "waits": why })))
             }
             Verdict::UsedUp { said, until } => {
-                self.rest(&live.started, until).await?;
+                let unbooked = self.rest(&live.started, until, false).await?;
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
-                Ok(Some(json!({ "worker": worker, "ended": "quota", "said": said })))
+                Ok(Some(unbooked_in(json!({ "worker": worker, "ended": "quota", "said": said }), unbooked)))
             }
             // Parked until the reset; its account, or its harness on the host's
             // own login, starts no worker before it.
             Verdict::Limited { said, until } => {
-                self.rest(&live.started, until).await?;
+                let unbooked = self.rest(&live.started, until, true).await?;
                 // What it took just before is no proof it read it: held again.
                 let submitted = live.since.max(self.now() - TAKEN_MS);
                 let terminal = live.session.terminal().to_string();
                 let taken = HoldTaken { terminal, submitted, queued: live.since, until };
                 self.submit::<HoldTakenMessages>(taken).await?;
-                Ok(Some(json!({ "worker": worker, "limited": until, "said": said })))
+                Ok(Some(unbooked_in(json!({ "worker": worker, "limited": until, "said": said }), unbooked)))
             }
         }
     }
 
-    /// Worker `st`'s account, or its harness on the host's own login, starts
-    /// no worker before `until` (ms).
-    async fn rest(&self, st: &Started, until: i64) -> Answer<()> {
+    /// Worker `st`'s account met its limit: stablehand is told so
+    /// (`stablehand limit`), until `until` (ms) where the screen said when it
+    /// `resets`, else until stablehand next reads the account; its harness
+    /// on the host's own login starts no worker before `until`. Answers why
+    /// stablehand could not be told, if it could not: the worker's end
+    /// does not wait on it.
+    async fn rest(&self, st: &Started, until: i64, resets: bool) -> Answer<Option<String>> {
         match &st.account {
-            Some(account) => self.submit::<LimitAccount>(AccountNote { name: account.clone(), until }).await,
-            None => self.submit::<LimitHarness>(HarnessNote { harness: st.harness.clone(), until }).await,
+            Some(account) => Ok(self.report_limit(account, resets.then_some(until)).err()),
+            None => {
+                self.submit::<LimitHarness>(HarnessNote { harness: st.harness.clone(), until }).await?;
+                Ok(None)
+            }
         }
     }
 
@@ -108,4 +116,13 @@ impl App {
         let _ = std::fs::create_dir_all(path.parent().expect("a parent"));
         let _ = std::fs::write(path, format!("    pid    ppid    cpu       rss command\n{}\n", procs.join("\n")));
     }
+}
+
+/// What a tick saw of a worker, with why stablehand could not be told of
+/// its account's limit (`unbooked`), if it could not.
+fn unbooked_in(mut seen: Value, unbooked: Option<String>) -> Value {
+    if let Some(why) = unbooked {
+        seen["unbooked"] = json!(why);
+    }
+    seen
 }
