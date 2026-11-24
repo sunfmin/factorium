@@ -275,11 +275,11 @@ impl Harness {
     }
 
     /// Where its sessions keep their files on this host, decided once from
-    /// the host user's home `user_home`, the home `account` of the bound
-    /// login its session starts on (stablehand's, where its login is), if
-    /// one, and the directory `kept` this host keeps for the harness: that
-    /// account's home; else its own directory under the host user's home
-    /// where it has one, else the kept directory.
+    /// the host user's home `user_home`, the directory `account` this host
+    /// keeps for sessions on a bound login (its login files linked there,
+    /// `Start::logins`), if one, and the directory `kept` this host keeps
+    /// for the harness: the account's; else its own directory under the host
+    /// user's home where it has one, else the kept directory.
     pub fn home(self, user_home: &Path, account: Option<&Path>, kept: &Path) -> Home {
         Home::new(match (account, each!(self, |K| K::USER_HOME)) {
             (Some(home), _) => home.to_path_buf(),
@@ -380,12 +380,14 @@ impl Harness {
 fn launch<K: Kind>(start: &Start) -> Result<Launch, String> {
     let home = start.home.path();
     let mut kept = vec![Kept::Dir { path: home.to_path_buf() }];
-    let links = K::KEPT_LINKS
-        .iter()
+    // The account's login, where it has one, in place of the host user's.
+    let theirs = |kept: &str| start.logins.iter().any(|(at, _)| overlaps(at, kept));
+    let links = (K::KEPT_LINKS.iter().filter(|link| !theirs(link.kept)))
         .map(|link| (start.user_home.join(link.home), home.join(link.kept)))
         .filter(|(to, _)| to.exists())
         .map(|(to, path)| Kept::Link { path, to });
     kept.extend(links);
+    kept.extend(start.logins.iter().map(|(at, to)| Kept::Link { path: home.join(at), to: to.clone() }));
     let files = K::kept(start)?;
     kept.extend(files.into_iter().map(|(path, text)| Kept::File { path: home.join(path), text }));
     let mut line = Line::new().fixed("cd ").word(K::start_dir(start)).fixed(" && export");
@@ -403,6 +405,13 @@ fn launch<K: Kind>(start: &Start) -> Result<Launch, String> {
         None => line,
     };
     Ok(Launch { kept, line, typed })
+}
+
+/// Whether the paths `a` and `b`, relative to one home, are one, or one
+/// lies inside the other.
+fn overlaps(a: &str, b: &str) -> bool {
+    let (a, b) = (Path::new(a), Path::new(b));
+    a.starts_with(b) || b.starts_with(a)
 }
 
 fn command<K: Kind>(given: &str) -> String {

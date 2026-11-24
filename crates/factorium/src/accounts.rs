@@ -2,7 +2,7 @@
 //! docs/adr/0001): their one home — which there are, how each logs in, and
 //! the limits each met. factorium asks it which account one more session
 //! starts on (`stablehand pick`, told how many sessions factorium runs on
-//! each), what that session starts with (`stablehand env`), and tells it of
+//! each), what that session is handed of its login (`stablehand credential`), and tells it of
 //! a limit a session's screen showed (`stablehand limit`). It keeps no
 //! account of its own.
 
@@ -25,6 +25,15 @@ pub(crate) struct Shown {
     pub(crate) home: Option<PathBuf>,
     /// Why no session may start on it here, if none may.
     pub(crate) unusable: Option<String>,
+}
+
+/// What a session on an account is handed of its login.
+pub(crate) struct Credential {
+    /// A portable login's variables (its token), for the secrets file.
+    pub(crate) env: Vec<(String, String)>,
+    /// A bound login's files: where the session's home holds each, and the
+    /// file in the account's home it links to.
+    pub(crate) files: Vec<(String, PathBuf)>,
 }
 
 impl App {
@@ -106,21 +115,24 @@ impl App {
         Ok(Shown { engine, home, unusable })
     }
 
-    /// The home of `account`'s bound login, where its sessions keep their
-    /// files; `None`: a portable login, or stablehand could not say.
-    pub(crate) fn account_home(&self, account: &str) -> Option<PathBuf> {
-        self.kept_account(account).ok()?.home
+    /// The home this host keeps for sessions of `harness` on `account`'s
+    /// bound login, where its login files are linked; `None`: a portable
+    /// login, or stablehand could not say.
+    pub(crate) fn account_home(&self, harness: Harness, account: &str) -> Option<PathBuf> {
+        self.kept_account(account).ok()?.home.map(|_| self.data().kept_on(harness.key(), account))
     }
 
-    /// What a session on `account` starts with (`stablehand env --json`),
-    /// but the variable that names its home, `home`: the session's home is
-    /// set where its harness starts it.
-    pub(crate) fn account_env(&self, account: &str, home: Option<&std::path::Path>) -> Answer<Vec<(String, String)>> {
-        let answer = self.stablehand(&["env", account, "--json"])?;
-        let home = home.map(|h| h.to_string_lossy().into_owned());
+    /// What a session on `account` is handed of its login (`stablehand
+    /// credential --json`): a portable login's variables, or a bound
+    /// login's files, each as (where the session's home holds it, the file
+    /// in the account's home).
+    pub(crate) fn credential(&self, account: &str) -> Answer<Credential> {
+        let answer = self.stablehand(&["credential", account, "--json"])?;
         let env = answer["env"].as_object().into_iter().flatten();
-        let values = env.filter_map(|(name, v)| Some((name.clone(), v.as_str()?.to_string())));
-        Ok(values.filter(|(_, v)| Some(v) != home.as_ref()).collect())
+        let env = env.filter_map(|(name, v)| Some((name.clone(), v.as_str()?.to_string())));
+        let files = answer["files"].as_array().into_iter().flatten();
+        let files = files.filter_map(|f| Some((f["as"].as_str()?.to_string(), PathBuf::from(f["path"].as_str()?))));
+        Ok(Credential { env: env.collect(), files: files.collect() })
     }
 
     /// Tells stablehand a session on `account` met its limit

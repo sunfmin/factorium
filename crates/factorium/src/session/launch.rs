@@ -2,7 +2,7 @@
 //! session of a role is opened. A worker's session starts in its worktree
 //! with its brief; the watch's in its home, its rules for its brief. Both
 //! get the kit's first eligible harness on the account stablehand picks,
-//! the account's secrets (`stablehand env`) by a file, this factorium on PATH and its database,
+//! the account's login (`stablehand credential`: a token by a file, or its login files linked), this factorium on PATH and its database,
 //! the guard, and their rules; a worker whose role changes under it is
 //! told once. The environment names that tell a session's
 //! commands who runs them live here and nowhere else.
@@ -17,6 +17,7 @@ use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::{Uuid, Value};
 use serde_json::json;
 
+use crate::accounts::Credential;
 use crate::kept::WorkerBranch;
 use crate::{Answer, App, Refusal, Want, fail};
 
@@ -167,11 +168,14 @@ pub(crate) struct Pick {
     pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) command: String,
-    /// The account's bound login's home, where its sessions keep their
-    /// files; `None`: no account, or a portable login.
+    /// The home this host keeps for sessions on the account's bound login;
+    /// `None`: no account, or a portable login.
     pub(crate) home: Option<PathBuf>,
-    /// The account's environment, kept off the terminal's command line.
+    /// The account's portable login, its variables, kept off the terminal's
+    /// command line.
     pub(crate) secrets: Vec<(String, String)>,
+    /// The account's bound login's files, linked into its home (`Start::logins`).
+    pub(crate) logins: Vec<(String, PathBuf)>,
 }
 
 /// A session opened: its terminal, the brief it was handed, and the line to
@@ -260,21 +264,22 @@ impl App {
         choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))
     }
 
-    /// A session on `choice`, its account's environment stablehand's
-    /// (`stablehand env`).
+    /// A session on `choice`, handed its account's login as stablehand
+    /// gives it (`stablehand credential`).
     fn pick_of(&self, choice: Choice) -> Answer<Pick> {
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
-        let (home, secrets) = match &choice.account {
+        let (home, credential) = match &choice.account {
             Some(a) => {
-                let home = self.account_home(a);
-                let env = self.account_env(a, home.as_deref()).map_err(|r| Refusal::new("no_harness", r.message))?;
-                (home, env)
+                let credential = self.credential(a).map_err(|r| Refusal::new("no_harness", r.message))?;
+                let home = (!credential.files.is_empty()).then(|| self.data().kept_on(harness.key(), a));
+                (home, credential)
             }
-            None => (None, Vec::new()),
+            None => (None, Credential { env: Vec::new(), files: Vec::new() }),
         };
         let (model, command) = (choice.entry.model, choice.entry.command);
-        Ok(Pick { harness, account: choice.account, home, model, command, secrets })
+        let (secrets, logins) = (credential.env, credential.files);
+        Ok(Pick { harness, account: choice.account, home, model, command, secrets, logins })
     }
 
     /// Opens a terminal running a session of `role` on `pick`, its brief
@@ -318,6 +323,7 @@ impl App {
             guard: &session.exe,
             home: &home,
             user_home: &user_home,
+            logins: &pick.logins,
             env,
             brief: &brief_text,
             secrets: session.secrets_file(),

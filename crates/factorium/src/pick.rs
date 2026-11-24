@@ -191,7 +191,7 @@ impl App {
         let home = self.host.home();
         if again.is_none() {
             std::fs::create_dir_all(&user_dir).map_err(io)?;
-            on.harness.ask_home(&home, on.home.as_deref(), &user_dir).map_err(fail(&failed))?;
+            on.harness.ask_home(&home, &on.logins, &user_dir).map_err(fail(&failed))?;
         }
         std::fs::write(&q, question).map_err(io)?;
         // Dropped once the ask is done, as it ends: no secrets file outlives it.

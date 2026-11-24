@@ -1,6 +1,7 @@
 //! Accounts are stablehand's (factorium#288): a worker starts on the
 //! account `stablehand pick` takes, told the sessions factorium runs on
-//! each; its session starts with `stablehand env`, its secret by a file;
+//! each; its session is handed its login by `stablehand credential`, a token by a
+//! file, a bound login's files linked into a home kept for the account;
 //! a limit its screen shows is told to `stablehand limit`; and
 //! `factorium accounts` answers `stablehand status`.
 
@@ -58,7 +59,7 @@ async fn a_worker_starts_on_stablehand_s_pick_its_secret_off_the_command_line_an
     assert_eq!(wk["account"], "team");
     let pick = format!("pick --engine claude-code --machine {}", this_machine());
     assert!(asked(&w).contains(&pick), "on this machine, none running yet: {:?}", asked(&w));
-    assert!(asked(&w).contains(&"env team --json".to_string()), "{:?}", asked(&w));
+    assert!(asked(&w).contains(&"credential team --json".to_string()), "{:?}", asked(&w));
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("sk-ant-"), "{line}");
     let bin = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
@@ -100,23 +101,29 @@ async fn stablehand_is_told_the_sessions_factorium_runs_on_each_account_and_a_fu
     let pick = format!("pick --engine claude-code --machine {} --running team=1", this_machine());
     assert!(asked(&w).contains(&pick), "{:?}", asked(&w));
     assert!(t.held.as_deref().unwrap().contains("stablehand picks no account (team: team: full)"), "{t:?}");
-    let envs = asked(&w).iter().filter(|a| a.starts_with("env ")).count();
+    let envs = asked(&w).iter().filter(|a| a.starts_with("credential ")).count();
     assert_eq!(envs, 1, "the secret is read for the one start, not for each look at a waiting issue");
 }
 
 #[tokio::test]
-async fn a_bound_login_s_sessions_start_in_its_home_as_stablehand_keeps_it_and_their_turns_are_read_there() {
+async fn a_bound_login_s_sessions_start_in_a_home_of_their_own_its_login_linked_and_their_turns_are_read_there() {
     let w = World::new();
-    let home = bound(&w, "night");
+    let account = bound(&w, "night");
+    // The host user's own codex login: not the session's.
+    let own = w.host.home().join(".codex/auth.json");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, "{}").unwrap();
     let wk = w.working("codex=codex", "t").await;
     assert_eq!(wk["account"], "night");
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
-    // One home, the login's: nothing sets it back to another, and no
-    // secrets file holds it again.
+    // Its home is the one this host keeps for the account, not the
+    // account's: only its login file is linked in from there.
+    let home = w.data().kept_on("codex", "night");
     assert_eq!(line.matches("CODEX_HOME=").count(), 1, "{line}");
     let at = home.display();
     assert!(line.contains(&format!("CODEX_HOME='{at}'")) || line.contains(&format!("CODEX_HOME={at} ")), "{line}");
-    assert!(!line.starts_with(". "), "stablehand's env names only its home: no secrets to read: {line}");
+    assert_eq!(std::fs::read_link(home.join("auth.json")).unwrap(), account.join("auth.json"));
+    assert!(!line.starts_with(". "), "a bound login has no secret to read: {line}");
 
     let cwd = wk["worktree"].as_str().unwrap();
     let now = (w.app_now() / 1000) as u64;
@@ -254,4 +261,24 @@ async fn the_watch_starts_on_its_account_s_secret() {
     let watch = t.values().find(|t| t.title == "factorium watch").expect("the watch's terminal");
     let reads = watch.line.starts_with(". ") && watch.line.contains(&format!("{}/", w.data().secrets().display()));
     assert!(reads && !watch.line.contains("sk-ant"), "it reads its secret from a file first");
+}
+
+#[tokio::test]
+async fn an_account_s_login_file_takes_the_place_of_the_host_user_s_link_that_would_hold_it() {
+    let w = World::new();
+    // kimi links the host user's whole `credentials` directory; an
+    // account's login is one file in it.
+    let own = w.host.home().join(".kimi-code/credentials");
+    std::fs::create_dir_all(&own).unwrap();
+    let account = w.host.home().join("logins/moon");
+    std::fs::create_dir_all(&account).unwrap();
+    w.host.stablehand.lock().unwrap().bound("moon", "kimi", &this_machine(), &account);
+    let wk = w.working("kimi=kimi", "t").await;
+    assert_eq!(wk["account"], "moon");
+    let home = w.data().kept_on("kimi", "moon");
+    let credentials = home.join("credentials");
+    assert!(!credentials.is_symlink(), "not the host user's: {}", credentials.display());
+    let linked = std::fs::read_link(credentials.join("kimi-code.json")).unwrap();
+    assert_eq!(linked, account.join("credentials/kimi-code.json"));
+    assert!(std::fs::read_dir(&own).unwrap().next().is_none(), "nothing is written into the host user's");
 }

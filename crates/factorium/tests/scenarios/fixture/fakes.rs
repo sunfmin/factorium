@@ -561,22 +561,39 @@ pub struct FakeAccount {
     pub home: Option<String>,
     pub sessions: Option<u32>,
     pub off: bool,
+    /// A portable login's: whether its token command prints a token. A
+    /// bound one is logged in when its home holds its login file.
     pub logged_in: bool,
-    /// A portable login's token, as sesame keeps it.
+    /// A portable login's token, as its token command prints it.
     pub token: Option<String>,
 }
 
-/// The variable each engine's bound login reads for its home, and the one
-/// its token goes in, as `stablehand env --help` lists them.
-fn engine_vars(engine: &str) -> Option<(&'static str, Option<&'static str>)> {
+impl FakeAccount {
+    /// Whether it is logged in here: a bound login, by its login file in its
+    /// home on this machine; a portable one, by its token.
+    fn logged_in_here(&self) -> bool {
+        match (&self.machine, &self.home, engine_vars(&self.engine)) {
+            (Some(m), Some(home), Some((_, _, file))) => {
+                *m == stablehand_machine() && Path::new(home).join(file).exists()
+            }
+            (Some(_), ..) => false,
+            (None, ..) => self.logged_in && self.token.is_some(),
+        }
+    }
+}
+
+/// The variable each engine's bound login reads for its home, the one its
+/// token goes in, and its login file in its home, as `stablehand credential
+/// --help` lists them.
+fn engine_vars(engine: &str) -> Option<(&'static str, Option<&'static str>, &'static str)> {
     Some(match engine {
-        "claude-code" => ("CLAUDE_CONFIG_DIR", Some("CLAUDE_CODE_OAUTH_TOKEN")),
-        "codex" => ("CODEX_HOME", None),
-        "pi" => ("PI_CODING_AGENT_DIR", None),
-        "kimi" => ("KIMI_CODE_HOME", None),
-        "agy" => ("HOME", None),
-        "grok" => ("GROK_HOME", None),
-        "dsh" => ("DSH_HOME", None),
+        "claude-code" => ("CLAUDE_CONFIG_DIR", Some("CLAUDE_CODE_OAUTH_TOKEN"), ".credentials.json"),
+        "codex" => ("CODEX_HOME", None, "auth.json"),
+        "pi" => ("PI_CODING_AGENT_DIR", None, "auth.json"),
+        "kimi" => ("KIMI_CODE_HOME", None, "credentials/kimi-code.json"),
+        "agy" => ("HOME", None, ".gemini/antigravity-cli/antigravity-oauth-token"),
+        "grok" => ("GROK_HOME", None, "auth.json"),
+        "dsh" => ("DSH_HOME", None, ".credentials.yaml"),
         _ => return None,
     })
 }
@@ -607,6 +624,12 @@ impl FakeStablehand {
     /// An account `name` of `engine` whose login is bound to `machine`,
     /// its home `home`, logged in there.
     pub fn bound(&mut self, name: &str, engine: &str, machine: &str, home: &Path) {
+        // Logged in: its login file is in its home, where it can be.
+        if let Some((_, _, file)) = engine_vars(engine) {
+            let login = home.join(file);
+            let _ = login.parent().map(std::fs::create_dir_all);
+            let _ = std::fs::write(login, "{}");
+        }
         let home = Some(home.display().to_string());
         let sessions = (engine == "claude-code").then_some(2);
         let account = FakeAccount {
@@ -614,7 +637,6 @@ impl FakeStablehand {
             machine: Some(machine.into()),
             home,
             sessions,
-            logged_in: true,
             ..FakeAccount::default()
         };
         self.accounts.insert(name.into(), account);
@@ -653,44 +675,37 @@ impl FakeStablehand {
                 self.accounts.insert(name.to_string(), account);
                 ok(json!({ "account": self.shown(name) }))
             }
-            ["account", "login", name] => {
-                let Some(a) = self.accounts.get_mut(*name) else { return no_account(name) };
-                match &a.machine {
-                    Some(m) if *m != stablehand_machine() => {
-                        refused("login_refused", format!("account `{name}`'s login is bound to {m}"))
-                    }
-                    Some(_) if a.home.is_none() => refused("login_refused", format!("account `{name}` has no home")),
-                    Some(_) => {
-                        a.logged_in = true;
-                        ok(self.show(name))
-                    }
-                    None => refused("login_refused", "a portable login's token is sesame's".into()),
-                }
-            }
             ["account", "show", name] => match self.accounts.contains_key(*name) {
                 true => ok(self.show(name)),
                 false => no_account(name),
             },
-            ["env", name, "--json"] => {
+            ["credential", name, "--json"] => {
                 let Some(a) = self.accounts.get(*name) else { return no_account(name) };
-                let Some((home_var, token_var)) = engine_vars(&a.engine) else {
+                let Some((_, token_var, login_file)) = engine_vars(&a.engine) else {
                     return refused("fault", "no engine".into());
                 };
                 let no_session = |why: String| Said { ok: false, ..refused("no_session", why) };
-                if a.off || !a.logged_in {
+                if a.off || !a.logged_in_here() {
                     return no_session(format!("account `{name}` is not logged in"));
                 }
-                let env = match (&a.machine, &a.home, token_var, &a.token) {
+                match (&a.machine, &a.home, token_var, &a.token) {
                     (Some(m), _, _, _) if *m != stablehand_machine() => {
-                        return no_session(format!("account `{name}` is bound to {m}"));
+                        no_session(format!("account `{name}` is bound to {m}"))
                     }
-                    (Some(_), Some(home), _, _) => json!({ home_var: home }),
-                    (Some(_), None, _, _) => return no_session(format!("account `{name}` has no home")),
-                    (None, _, Some(var), Some(token)) => json!({ var: token }),
-                    (None, ..) => return no_session(format!("account `{name}` is not logged in")),
-                };
-                let login = if a.machine.is_some() { "bound" } else { "portable" };
-                ok(json!({ "name": name, "login": login, "env": env }))
+                    (Some(_), Some(home), _, _) => {
+                        let path = Path::new(home).join(login_file);
+                        if !path.exists() {
+                            return no_session(format!("account `{name}` is not logged in: no {}", path.display()));
+                        }
+                        let files = json!([{ "path": path.display().to_string(), "as": login_file }]);
+                        ok(json!({ "name": name, "login": "bound", "files": files }))
+                    }
+                    (Some(_), None, _, _) => no_session(format!("account `{name}` has no home")),
+                    (None, _, Some(var), Some(token)) => {
+                        ok(json!({ "name": name, "login": "portable", "env": { var: token } }))
+                    }
+                    (None, ..) => no_session(format!("account `{name}` is not logged in")),
+                }
             }
             ["limit", name, ..] => {
                 if !self.accounts.contains_key(*name) {
@@ -737,7 +752,7 @@ impl FakeStablehand {
 
     /// What `account show` answers of `name`.
     fn show(&self, name: &str) -> Value {
-        json!({ "account": self.shown(name), "logged_in": self.accounts[name].logged_in })
+        json!({ "account": self.shown(name), "logged_in": self.accounts[name].logged_in_here() })
     }
 
     /// `pick --engine <engine> --machine <machine> --running <running>`.
@@ -770,7 +785,7 @@ impl FakeStablehand {
                 ("off", None)
             } else if a.machine.as_ref().is_some_and(|m| *m != machine) {
                 ("elsewhere", None)
-            } else if !a.logged_in {
+            } else if !a.logged_in_here() {
                 ("not_logged_in", None)
             } else if let Some(until) = limit {
                 ("limit", until)

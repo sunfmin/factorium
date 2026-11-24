@@ -36,6 +36,11 @@ pub struct Start<'a> {
     pub home: &'a Home,
     /// The host user's home, whose login files a kept directory links to.
     pub user_home: &'a Path,
+    /// The login files of the account the session starts on (`stablehand
+    /// credential`), each as (where the home holds it, the file it links
+    /// to): linked in place of the host user's, and of any link of its own
+    /// that holds one or lies inside one.
+    pub logins: &'a [(String, PathBuf)],
     /// The variables put in the session's environment, in this order, after
     /// the harness's own. Each value goes in as one word.
     pub env: Vec<(&'static str, String)>,
