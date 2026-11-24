@@ -221,17 +221,56 @@ async fn a_dead_holders_resource_is_given_back() {
 async fn a_hold_whose_worker_ended_is_given_back_and_workers_show_holds() {
     let w = World::new();
     w.working(CLAUDE, "a").await;
-    declare(&w, &["FMGG"]).await;
+    declare(&w, &["FMGG", "MAC"]).await;
     let me = id(&worker(&w.app).await);
     w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000).await.unwrap();
+    w.app.worker_hold(me, &["MAC".into()], 160 * 60_000).await.unwrap();
     let shown = worker(&w.app).await;
     assert_eq!(shown["holds"][0]["name"], "FMGG", "{shown}");
     assert_eq!(shown["holds"][0]["holders"][0]["hold"], true, "{shown}");
     w.app.issue_close("web", 1, "left as it is").await.unwrap();
     w.tick_alone().await;
     assert!(resource(&w, "FMGG").await["holders"].as_array().unwrap().is_empty(), "given back");
+    assert!(resource(&w, "MAC").await["holders"].as_array().unwrap().is_empty(), "given back");
+    // Both given back in one tick: each stays on record.
     let keys = finding_keys(&w.doctor().await);
-    assert!(keys.iter().any(|k| k.starts_with("resource:") && k.ends_with(":FMGG")), "{keys:?}");
+    for name in ["FMGG", "MAC"] {
+        assert!(keys.iter().any(|k| k.starts_with("resource:") && k.ends_with(&format!(":{name}"))), "{keys:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_hold_answers_itself_and_release_gives_back_only_ones_own() {
+    let w = World::new();
+    declare(&w, &["FMGG", "MAC"]).await;
+    let me = Uuid::now_v7();
+    w.app.worker_hold(me, &["MAC".into()], 60_000).await.unwrap();
+    let held = w.app.worker_hold(me, &["FMGG".into()], 60_000).await.unwrap();
+    assert_eq!(held["held"]["what"], "hold of FMGG", "the hold it took, not an older one: {held}");
+}
+
+#[tokio::test]
+async fn releasing_what_another_holds_is_refused_and_leaves_it_held() {
+    let w = World::new();
+    declare(&w, &["FMGG", "MAC"]).await;
+    let (me, other) = (Uuid::now_v7(), Uuid::now_v7());
+    w.app.worker_hold(me, &["MAC".into()], 60_000).await.unwrap();
+    w.app.worker_hold(other, &["FMGG".into()], 60_000).await.unwrap();
+    let refused = w.app.worker_release(me, "FMGG").await.expect_err("it holds no FMGG");
+    assert_eq!(refused.code, "not_held");
+    assert_eq!(whats(&resource(&w, "FMGG").await["holders"]), ["hold of FMGG"]);
+}
+
+#[tokio::test]
+async fn a_hold_at_its_until_is_no_finding_yet() {
+    let w = World::new();
+    declare(&w, &["FMGG"]).await;
+    let held = w.app.worker_hold(Uuid::now_v7(), &["FMGG".into()], 60 * 60_000).await.unwrap();
+    let key = format!("resource:{}", held["held"]["entry"].as_str().unwrap());
+    w.advance(60);
+    assert!(!finding_keys(&w.doctor().await).contains(&key), "at its until");
+    w.clock.advance(1);
+    assert!(finding_keys(&w.doctor().await).contains(&key), "past it");
 }
 
 #[tokio::test]
