@@ -5,7 +5,7 @@
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::issue::{Author, Issue, Status};
-use factorium_domain::when;
+use factorium_domain::{moved, when};
 use factorium_harness::quoted;
 use serde_json::{Value, json};
 
@@ -35,13 +35,8 @@ impl App {
         let here = factorium_harness::account::this_machine().unwrap_or_else(|_| "this host".into());
         let from = format!("{here} {checkout}#{number}");
         let mut done = Vec::new();
-        let partly = |done: &[String], r: Refusal| {
-            let done = if done.is_empty() { "nothing".to_string() } else { done.join("; ") };
-            Refusal::new(
-                &r.code,
-                format!("{}. The move stopped there, {checkout}#{number} open here; done: {done}", r.message),
-            )
-        };
+        let ours = format!("{checkout}#{number}");
+        let partly = |done: &[String], r: Refusal| Refusal::new(&r.code, moved::stopped(&r.message, &ours, done));
 
         let why = format!("it moves to {to}");
         self.issue_wait_for_human(checkout, number, &why).await.map_err(|r| partly(&done, r))?;

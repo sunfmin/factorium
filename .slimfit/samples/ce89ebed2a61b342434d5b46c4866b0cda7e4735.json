@@ -1,0 +1,33 @@
+{
+  "tip": "ce89ebed2a61b342434d5b46c4866b0cda7e4735",
+  "from": "d1387704c1fe93e4076d405fc4f2912803e9f44b",
+  "pool": 968,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/host/src/git.rs:304:9: replace Git::origin_tip -> Result<Option<String>, String> with Ok(Some(String::new()))",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:174:27: replace - with + in App::deliver",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:174:34: replace < with > in App::deliver",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/accounts.rs:60:9: replace App::running -> Answer<BTreeMap<String, u32>> with Answer::new(BTreeMap::new())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:130:9: replace Window::open_for -> Option<i64> with Some(-1)",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:379:30: replace && with || in Queue::queue_of",
+        "outcome": "killed"
+      }
+    ]
+  }
+}

@@ -356,6 +356,31 @@ async fn a_cut_whose_upgrade_fails_other_than_by_a_lock_fails_at_once() {
     assert!(brew_waits(&w).is_empty());
 }
 
+/// Its tag pushed, the cut's install is refused by brew (truefit's brew
+/// fault `upgrade-refused`): the cut fails with brew's words and is a
+/// finding, its tag stays on origin, and once brew installs that version
+/// the next tick reads it back, with no new cut.
+#[tokio::test]
+async fn a_cut_whose_install_brew_refuses_after_its_tag_keeps_the_tag_and_is_read_back() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().fault("upgrade-refused", true);
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("installing web failed") && why.contains("curl"), "{why}");
+    let tag = w.remote_tip("web", "v0.1.0^{commit}");
+    assert!(w.finding("cut:web:v0.1.0").await.is_some(), "{:?}", w.findings().await);
+    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.0.9");
+
+    w.host.brew.lock().unwrap().fault("upgrade-refused", false);
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.1.0".into());
+    let t = w.tick().await;
+    let read = t.lines.iter().find(|l| l["cut"] == "web").expect("the failure is read back");
+    assert_eq!((&read["read_back"], &read["commit"]), (&json!(true), &json!(tag)), "{read}");
+    assert_eq!(w.finding("cut:web:v0.1.0").await, None);
+}
+
 /// A cut failed on the Homebrew lock, and the brew that held it then
 /// installed that version: the next tick reads the install back and clears
 /// the failure, without a new cut (factorium#185).
