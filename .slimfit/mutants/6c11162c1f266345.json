@@ -1,0 +1,33 @@
+{
+  "tree": "3c3d043d972c5f5201e732e4e73f361c426debd3+d1fba762150c532c",
+  "picker": "codex:01a20cf4-3942-7ea2-9244-9e3592cdc5c1:default",
+  "author": "claude-code:ebcffb6b-dd7b-55f3-b49d-2e9a4a2b6e6f:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/session/outbox.rs:174:34: replace < with <= in App::deliver",
+        "why": "The timeout test checks at 9 and 11 minutes, leaving expiry at exactly 10 minutes untested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:167:27: replace / with * in App::deliver",
+        "why": "The queued scenarios leave the message unread, so a cutoff that hides a valid transcript acknowledgment could survive.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:167:27: replace / with % in App::deliver",
+        "why": "A cutoff near the start of the transcript could count an older identical prompt as delivery of the current message.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:108:35: delete ! in App::flush",
+        "why": "The new scenarios exercise one queued message at a time, so they may miss a queued message blocking a later message in the same flush.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
