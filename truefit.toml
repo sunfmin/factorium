@@ -449,7 +449,7 @@ stdin = """
 """
 
 # The heavy queue's design (SPEC §1 row 9), model-checked by TLC
-# (truefit ADR 0001): models/HeavyQueue.tla, one model checked under three
+# (truefit ADR 0001): models/HeavyQueue.tla, one model checked under four
 # configs, each the smallest that still shows its properties fail on a
 # broken variant (`models/heavy.sh broken`), and each bounded in depth.
 # A scenario's run is checked as its trace (`models/heavy.sh trace`).
@@ -458,17 +458,39 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "d1387704c1fe93e4076d405fc4f2912803e9f44b"
+commit = "ce89ebed2a61b342434d5b46c4866b0cda7e4735"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
-  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start" },
-  { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, oldest, overdue" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over" },
+  { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, line, oldest, overdue" },
   { action = "AtOnce", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
-  { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "next" },
-  { action = "LineAhead", file = "crates/domain/src/neutral/queue.rs", function = "next" },
+  { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
+  { action = "LineAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
   { action = "Settled", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
+]
+
+# The queue of resources (SPEC §1.9, factorium#284, #286): the same model
+# with a named resource beside "host", a worker's hold and its window, and
+# the line ordered by declared hold and the starve bound.
+[[model]]
+name = "heavy-resources"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyResources.cfg"
+limit = 120
+commit = "ce89ebed2a61b342434d5b46c4866b0cda7e4735"
+covers = [
+  { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy), App::worker_hold, App::exclusive" },
+  { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy, Heavy::evolve (HeavyQueued)" },
+  { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy (hold granted)" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "Queue::may_start, Queue::covered, Queue::holders, Queue::full_for, Queue::passed_over, Queue::queue_of, Entry::outside, Window::open_for, Heavy::evolve (HeavyStarted)" },
+  { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "Order::key, Order::starved, Order::holds, line, next" },
+  { action = "Release", file = "crates/factorium/src/heavy.rs", function = "App::worker_release, App::give_back" },
+  { action = "SlotsKept", file = "crates/domain/src/heavy.rs", function = "Queue::full_for, Queue::holders" },
+  { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "Order::key, line" },
+  { action = "InWindow", file = "crates/domain/src/heavy.rs", function = "Entry::outside, Queued::joined" },
+  { action = "InsideHold", file = "crates/domain/src/heavy.rs", function = "Queue::covered" },
 ]
 
 [[model]]
