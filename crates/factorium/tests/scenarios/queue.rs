@@ -241,10 +241,11 @@ async fn a_busy_checkout_queues_its_cut_a_hold_bound_early_and_cuts_within_the_b
     assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, within the bound less the lead");
     let t = w
         .while_busy(async {
-            w.advance(2);
+            // Due at the minute the bound less the lead is reached, not after.
+            w.advance(1);
             let t = w.tick().await;
             assert_eq!(w.queued().await.len(), 2, "the busy command and the cut, queued a hold bound early");
-            w.advance(27);
+            w.advance(28);
             let keys = w.finding_keys().await;
             assert!(!keys.iter().any(|k| k.starts_with("uncut:") || k.starts_with("queue:")), "{keys:?}");
             t
