@@ -307,13 +307,16 @@ Unqueued(i) ==
 \* the installed binary, whose rules are the newest, keeping its entry, or
 \* fails to and leaves it, its place kept; idle work leaves it (the daemon
 \* execs after). A worker's hold, granted, runs nothing: its waiter answers
-\* with it, and it stays held (App::heavy).
+\* with it, and it stays held (App::heavy). A refusal is a step of its own
+\* (`stale`), as heavy.start answers it: what an ask leaves tells the two
+\* apart.
 Ask(i) ==
     /\ waiter[i].phase = "waits" /\ q[i].in
     /\ \E t \in Times, room \in BOOLEAN : \E read \in Max(0, t - ReadLag)..t :
         LET d == Decide(i, room, read, t) IN
         /\ now' = t
-        /\ last' = [act |-> "ask", i |-> i, t |-> t, room |-> room, read |-> read]
+        /\ last' = [act |-> IF d = "stale" THEN "stale" ELSE "ask",
+                    i |-> i, t |-> t, room |-> room, read |-> read]
         /\ \/ /\ d = "start"
               /\ q' = [q EXCEPT ![i].started_at = t]
               /\ last_start' = IF "host" \in Res(i) THEN t ELSE last_start
@@ -446,6 +449,12 @@ Spec == Init /\ [][Next]_vars
 
 \* What tells states apart: `last` only says which step reached one.
 View == <<q, last_start, rules, now, waiter, ask>>
+\* Under a config whose invariants read `last`: which step reached a state,
+\* and whose, tell it apart too (its time is `now`; what it read, only the
+\* action properties). Under View, a step that changes nothing else (an
+\* ask told to wait) reaches a state already seen, whose invariants TLC
+\* does not check again.
+StepView == <<q, last_start, rules, now, waiter, ask, last.act, last.i>>
 \* A bound on the steps a model check explores (TLCGet("level")).
 CONSTANT Depth
 Shallow == TLCGet("level") < Depth
@@ -455,7 +464,7 @@ Shallow == TLCGet("level") < Depth
 (* of every step, `last'` as that step and the unprimed state as before;   *)
 (* an invariant reads `last` as the step that reached the state.           *)
 
-Asked == last'.act = "ask"
+Asked == last'.act \in {"ask", "stale"}
 Who == last'.i
 At == last'.t
 Started == Asked /\ q[Who].started_at = None /\ q'[Who].started_at # None
@@ -565,12 +574,18 @@ UnqueuedAnswers ==
 
 \* A stale entry holds none up: with nothing running, the oldest waiting
 \* entry under the daemon's rules starts at once when it asks, a stale one
-\* waiting ahead of it (factorium#241).
+\* waiting ahead of it (factorium#241). An invariant of the state an ask
+\* leaves (its `last`): an ask that leaves its entry waiting changes
+\* nothing else (a refused one's is a `stale` step), so the queue it read
+\* is the queue after it. Of a waiter's ask: idle work, which leaves the
+\* queue on any answer but start, asks under AtOnce (HeavyStarts.cfg).
+AskedBy(i) == last.act = "ask" /\ last.i = i
 StaleHoldsNone ==
-    [][ (/\ Asked /\ Res(Who) = {"host"} /\ HostIdle /\ waiter[Who].rules >= rules /\ Stale # {}
-         /\ Who \in InLine("host", At) /\ Who = OldestOf(InLine("host", At))
-         /\ ~\E j \in InLine("host", At) : Overdue(j, At))
-        => q'[Who].started_at # None ]_vars
+    \A i \in Ids :
+        ~(/\ AskedBy(i) /\ i \in Waiting
+          /\ Res(i) = {"host"} /\ HostIdle /\ waiter[i].rules >= rules /\ Stale # {}
+          /\ i \in InLine("host", last.t) /\ i = OldestOf(InLine("host", last.t))
+          /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t))
 
 \* A waiter of an older binary is refused, and keeps its place: its entry
 \* does not start, and stays as it was while its waiter goes on.
@@ -580,11 +595,14 @@ StaleRefused ==
         /\ waiter'[Who].phase = "waits" => q'[Who] = q[Who] ]_vars
 
 \* An entry asked again keeps the place it had: rejoined, it is queued
-\* before every waiting entry queued after its first ask.
+\* before every waiting entry queued after its first ask. An invariant of
+\* the state a rejoin leaves (its `last`): a rejoin changes no entry but
+\* its own, and its waiter keeps the place.
 KeptPlace ==
-    [][ last'.act = "rejoin" =>
-        \A j \in Waiting \ {Who} :
-            q[j].queued_at > waiter[Who].place => q'[Who].queued_at < q[j].queued_at ]_vars
+    \A i \in Ids :
+        (last.act = "rejoin" /\ last.i = i) =>
+            \A j \in Waiting \ {i} :
+                q[j].queued_at > waiter[i].place => q[i].queued_at < q[j].queued_at
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
