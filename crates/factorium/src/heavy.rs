@@ -494,8 +494,7 @@ impl App {
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
         let (settle, rules, order) = (settings.ms(Time::HeavySettle), self.rules.clone(), settings.order());
-        let (starve, hold_default) = (order.starve, order.default);
-        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules, starve, hold_default }).await {
+        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules, order }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
             Err(r) => Err(r),

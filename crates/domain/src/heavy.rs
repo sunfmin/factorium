@@ -125,17 +125,12 @@ pub struct Window {
 const DAY_MIN: i64 = 24 * 60;
 
 impl Window {
-    /// Minutes since `from` at `now`, of the day, and ms into the minute.
-    fn since_from(&self, now: i64) -> (i64, i64) {
-        let minute = (now.div_euclid(60_000) + i64::from(self.offset)).rem_euclid(DAY_MIN);
-        ((minute - i64::from(self.from)).rem_euclid(DAY_MIN), now.rem_euclid(60_000))
-    }
-
     /// How long it has been open at `now`, ms; none: it is closed.
     pub fn open_for(&self, now: i64) -> Option<i64> {
-        let (since, into) = self.since_from(now);
-        let len = (i64::from(self.to) - i64::from(self.from)).rem_euclid(DAY_MIN);
-        (since < len).then_some(since * 60_000 + into)
+        let day = DAY_MIN * 60_000;
+        let since = (now + i64::from(self.offset - self.from as i32) * 60_000).rem_euclid(day);
+        let len = (i64::from(self.to) - i64::from(self.from)).rem_euclid(DAY_MIN) * 60_000;
+        (since < len).then_some(since)
     }
 
     /// As the owner names it: `22:00-07:00`.
@@ -403,11 +398,10 @@ impl Queue {
         names.sort();
         names.dedup();
         let resource = |name: &str| {
-            let asking: Vec<Entry> =
-                self.waiting().filter(|e| e.asks_for(name) && !self.covered(e, name)).cloned().collect();
             // The line as it stands once a slot is free: waiting for this one's holders is waiting in it.
-            let waits = |e: &&Entry| self.full_for(e).is_some_and(|r| r == name) || self.passed_over(e, now).is_none();
-            let (inline, over): (Vec<Entry>, Vec<Entry>) = asking.iter().cloned().partition(|e| waits(&e));
+            let waits = |e: &Entry| self.full_for(e).is_some_and(|r| r == name) || self.passed_over(e, now).is_none();
+            let (inline, mut over): (Vec<Entry>, Vec<Entry>) =
+                self.waiting().filter(|e| e.asks_for(name) && !self.covered(e, name)).cloned().partition(waits);
             let line = queue::line(&inline, now, order);
             let mut waiting: Vec<Holding> = Vec::new();
             for (i, e) in line.iter().enumerate() {
@@ -417,9 +411,8 @@ impl Queue {
                 };
                 waiting.push(Holding { why, ..Holding::from(*e) });
             }
-            let mut over: Vec<&Entry> = over.iter().collect();
             over.sort_by_key(|e| (e.queued_at, e.id));
-            waiting.extend(over.into_iter().map(|e| Holding { why: self.passed_over(e, now), ..Holding::from(e) }));
+            waiting.extend(over.iter().map(|e| Holding { why: self.passed_over(e, now), ..Holding::from(e) }));
             let holders = self.holders(name).map(Holding::from).collect();
             Resource { name: name.into(), rule: self.rule(name), holders, waiting }
         };
@@ -779,12 +772,9 @@ pub struct Begin {
     /// The rules it asks under: [`RULES`] of the binary that asks.
     #[serde(default)]
     pub rules: String,
-    /// `starve_bound`, ms: none, the oldest first.
+    /// How the line is ordered: none, the oldest first.
     #[serde(default)]
-    pub starve: i64,
-    /// `hold_default`, ms.
-    #[serde(default)]
-    pub hold_default: i64,
+    pub order: queue::Order,
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
@@ -792,8 +782,7 @@ command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
         let why = format!("asks under the rules of {}, which {} replaced", p.rules, s.rules);
         return no("stale", why);
     }
-    let order = queue::Order { starve: p.starve, default: p.hold_default };
-    let at = Reading { read_at: p.read_at, settle: p.settle, order };
+    let at = Reading { read_at: p.read_at, settle: p.settle, order: p.order };
     match s.may_start(p.id, p.room.clone(), at, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),

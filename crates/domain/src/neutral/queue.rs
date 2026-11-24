@@ -38,7 +38,7 @@ pub trait Queued {
 /// How the line is ordered: how long one waits before it goes ahead of all
 /// those that have not, and how long one that declares no hold is read to
 /// hold, ms.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Order {
     pub starve: i64,
     pub default: i64,

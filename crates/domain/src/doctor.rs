@@ -401,6 +401,7 @@ fn resources(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, S
     let min = |ms: i64| ms / 60_000;
     let unqueue = "read its worker's terminal and issue; if it no longer holds it for anyone, take it off with \
                    `factorium unqueue <entry>`: the resource goes to the next waiting for it";
+    let all = q.resources(now, s.order());
     for e in q.running() {
         let named: Vec<&str> = e.asks().into_iter().filter(|r| *r != HOST).collect();
         if named.is_empty() {
@@ -408,12 +409,7 @@ fn resources(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, S
         }
         let worker = e.worker.map_or(String::new(), |w| format!(", worker {w}"));
         let by = format!("`{}` (entry {}{worker})", e.what, e.id);
-        let waiting: usize = q
-            .resources(now, s.order())
-            .iter()
-            .filter(|r| named.contains(&r.name.as_str()))
-            .map(|r| r.waiting.len())
-            .sum();
+        let waiting: usize = all.iter().filter(|r| named.contains(&r.name.as_str())).map(|r| r.waiting.len()).sum();
         let why = if let Some((_, gone)) = seen.holders_gone.iter().find(|(id, _)| *id == e.id) {
             Some(format!("and {gone}; the next tick gives it back"))
         } else {
@@ -453,14 +449,15 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
     let stall = s.ms(Time::StallBound);
     let min = |ms: i64| ms / 60_000;
     // What waits first in the queue, named so the watch can take it off.
-    let head = q.oldest(now).map_or(String::new(), |e| {
+    let oldest = q.oldest(now);
+    let head = oldest.map_or(String::new(), |e| {
         let ago = min(now - e.queued_at);
         format!("; the heavy queue's oldest waiting is `{}` (entry {}), queued {ago} min ago", e.what, e.id)
     });
     let unqueue = "if an entry of the heavy queue (doctor's `heavy`) does not move — its owner no longer asks for it, \
                    or it runs past the hold bound — take it off with `factorium unqueue <entry>`; an owner still \
                    alive queues again behind the rest";
-    if let Some(e) = q.oldest(now) {
+    if let Some(e) = oldest {
         let waited = now - e.queued_at;
         let idle = q.running().next().is_none();
         if (idle && waited > stall) || waited > s.ms(Time::HoldBound) + stall {

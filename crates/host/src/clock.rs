@@ -18,8 +18,10 @@ pub trait Clock: Send + Sync + std::fmt::Debug {
     /// Ends once this clock reads `ms` later than it does now.
     fn sleep(&self, ms: u64) -> Sleep<'_>;
     /// The host's offset from UTC at `at` (ms since the epoch), minutes
-    /// east: what its local time of day is read by.
-    fn offset_min(&self, at: i64) -> i32;
+    /// east: what its local time of day is read by. UTC unless it says.
+    fn offset_min(&self, _at: i64) -> i32 {
+        0
+    }
 }
 
 /// The system's clock.
@@ -105,11 +107,6 @@ impl Clock for ManualClock {
             let _gone = gone;
             let _ = at.wait_for(|t| *t >= until).await;
         })
-    }
-
-    /// A scenario's host keeps UTC.
-    fn offset_min(&self, _at: i64) -> i32 {
-        0
     }
 }
 
