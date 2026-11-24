@@ -96,17 +96,20 @@ pub struct Entry {
     /// [`HOST`] alone, as every entry before resources asked.
     #[serde(default)]
     pub resources: Vec<String>,
-    /// A worker's hold across commands (`worker hold`): once granted it
-    /// outlives its waiter, until `worker release` or its worker ends.
-    #[serde(default)]
-    pub hold: bool,
-    /// How long a hold declared it holds, ms: never cut short before then;
-    /// past it, a finding.
+    /// How long a worker's hold across commands (`worker hold`) declared
+    /// it holds, ms: an entry with one is a hold, which once granted
+    /// outlives its waiter until `worker release` or its worker ends. Never
+    /// cut short before then; past it, a finding.
     #[serde(default)]
     pub hold_for: Option<i64>,
 }
 
 impl Entry {
+    /// Whether it is a worker's hold across commands.
+    pub fn is_hold(&self) -> bool {
+        self.hold_for.is_some()
+    }
+
     /// The resources it asks for: [`HOST`] when it names none.
     pub fn asks(&self) -> Vec<&str> {
         if self.resources.is_empty() { vec![HOST] } else { self.resources.iter().map(String::as_str).collect() }
@@ -197,7 +200,7 @@ pub struct Holding {
 
 impl From<&Entry> for Holding {
     fn from(e: &Entry) -> Holding {
-        let (entry, what, worker, hold, until) = (e.id, e.what.clone(), e.worker, e.hold, e.until());
+        let (entry, what, worker, hold, until) = (e.id, e.what.clone(), e.worker, e.is_hold(), e.until());
         Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until }
     }
 }
@@ -272,9 +275,9 @@ impl Queue {
     /// Whether `e` asks for `name` inside its worker's own hold of it: the
     /// hold holds it, so the command takes no slot of its own.
     fn covered(&self, e: &Entry, name: &str) -> bool {
-        !e.hold
+        !e.is_hold()
             && e.worker.is_some()
-            && self.running().any(|h| h.hold && h.worker == e.worker && h.id != e.id && h.asks_for(name))
+            && self.running().any(|h| h.is_hold() && h.worker == e.worker && h.asks_for(name))
     }
 
     /// The running entries holding `name`, but commands inside their worker's hold of it.
@@ -460,8 +463,6 @@ pub enum HeavyEvent {
         #[serde(default)]
         slots: BTreeMap<String, u64>,
         #[serde(default)]
-        hold: bool,
-        #[serde(default)]
         hold_for: Option<i64>,
     },
     HeavyStarted {
@@ -511,7 +512,6 @@ impl Aggregate for Heavy {
                 rules,
                 resources,
                 slots,
-                hold,
                 hold_for,
             } => {
                 s.slots.extend(slots);
@@ -532,7 +532,6 @@ impl Aggregate for Heavy {
                     session,
                     rules,
                     resources,
-                    hold,
                     hold_for,
                 };
                 s.entries.push(e)
@@ -608,10 +607,7 @@ pub struct Enqueue {
     /// The slots of each named one, as the host's settings declare them.
     #[serde(default)]
     pub slots: BTreeMap<String, u64>,
-    /// A worker's hold across commands.
-    #[serde(default)]
-    pub hold: bool,
-    /// How long the hold declared it holds, ms.
+    /// How long a worker's hold across commands declared it holds, ms: none, a command.
     #[serde(default)]
     pub hold_for: Option<i64>,
 }
@@ -633,7 +629,6 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         rules: p.rules.clone(),
         resources: p.resources.clone(),
         slots: p.slots.clone(),
-        hold: p.hold,
         hold_for: p.hold_for,
     }])
 });
@@ -753,7 +748,7 @@ mod tests {
     #[test]
     fn a_workers_command_inside_its_hold_takes_no_slot_of_its_own() {
         let w = Some(Uuid::from_u128(9));
-        let hold = Entry { started_at: Some(1), hold: true, worker: w, ..on(entry(1, 0), &["FMGG"]) };
+        let hold = Entry { started_at: Some(1), hold_for: Some(60), worker: w, ..on(entry(1, 0), &["FMGG"]) };
         let (mine, theirs) = (Entry { worker: w, ..on(entry(2, 2), &["FMGG"]) }, on(entry(3, 1), &["FMGG"]));
         let q = Queue { entries: vec![hold, mine.clone(), theirs.clone()], ..Queue::default() };
         assert_eq!(q.may_start(mine.id, Ok(()), 10, 0, 10), Ok(()));

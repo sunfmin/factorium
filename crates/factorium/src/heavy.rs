@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy,
-    queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Queue, Rules, Runs,
+    StartHeavy, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -48,7 +48,6 @@ pub(crate) struct Job<'a> {
     resources: Vec<String>,
     /// A worker's hold across commands, `hold_for` ms by its declaration:
     /// granted, it runs nothing and stays held after its waiter answers.
-    hold: bool,
     hold_for: Option<i64>,
 }
 
@@ -82,7 +81,7 @@ impl<'a> Job<'a> {
     pub(crate) fn hold(resources: Vec<String>, hold_for: i64, dir: &'a Path) -> Self {
         let what = format!("hold of {}", resources.join(" and "));
         let job = Job::new(what, dir, &[], Duration::ZERO, Priority::Normal);
-        Job { resources, hold: true, hold_for: Some(hold_for), ..job }
+        Job { resources, hold_for: Some(hold_for), ..job }
     }
     /// Idle work's `steps` in its clone `dir`, all within `limit` s on the app's clock: in the background.
     pub(crate) fn idle(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
@@ -99,8 +98,8 @@ impl<'a> Job<'a> {
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
         let env = Vec::new();
         let (worker, bound_at, resources, hold_for) = (None, None, Vec::new(), None);
-        let (program, whole, hold) = (false, false, false);
-        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold, hold_for }
+        let (program, whole) = (false, false);
+        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold_for }
     }
 }
 
@@ -205,7 +204,7 @@ impl App {
         let job = Job::hold(resources.to_vec(), hold_for, &dir).of(Some(worker), None);
         self.heavy(job, Turn::Wait).await?;
         let q = self.state::<Heavy>(queue_id()).await?;
-        let mine = q.running().find(|e| e.hold && e.worker == Some(worker) && e.resources == resources);
+        let mine = q.running().find(|e| e.is_hold() && e.worker == Some(worker) && e.resources == resources);
         let held = mine.map(factorium_domain::heavy::Holding::from);
         Ok(serde_json::json!({ "resources": resources, "held": held }))
     }
@@ -213,7 +212,8 @@ impl App {
     /// `worker release`: gives back `worker`'s holds of `name`; refused if it holds none.
     pub async fn worker_release(&self, worker: Uuid, name: &str) -> Answer {
         let q = self.state::<Heavy>(queue_id()).await?;
-        let mine: Vec<_> = q.running().filter(|e| e.hold && e.worker == Some(worker) && e.asks_for(name)).collect();
+        let mine: Vec<_> =
+            q.running().filter(|e| e.is_hold() && e.worker == Some(worker) && e.asks_for(name)).collect();
         if mine.is_empty() {
             return Err(Refusal::new("not_held", format!("you hold no {name}")));
         }
@@ -281,7 +281,7 @@ impl App {
             self.memory.lock().unwrap().beside.push(Beside(run, of));
             return Ok(Some(Vec::new()));
         }
-        if job.hold {
+        if job.hold_for.is_some() {
             // Granted: it is held until released, or its worker ends.
             return Ok(Some(Vec::new()));
         }
@@ -414,28 +414,34 @@ impl App {
     /// Gives back each named resource whose holder is gone: a command's
     /// whose waiter died, as `alive` says of its pid, or a hold's whose
     /// worker ended. On record, a finding for doctor (factorium#284).
-    pub(crate) async fn give_back(&self, alive: impl Fn(u32) -> bool) -> Answer<()> {
-        let q = self.state::<Heavy>(queue_id()).await?;
-        for e in q.running().filter(|e| e.asks().iter().any(|r| *r != factorium_domain::heavy::HOST)) {
-            let why = match self.holder_gone(e, &alive).await? {
-                Some(why) => why,
-                None => continue,
-            };
-            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: Some(why.into()) }).await?;
+    pub(crate) async fn give_back(&self, q: &Queue, alive: impl Fn(u32) -> bool) -> Answer<()> {
+        for (id, why) in self.gone_holders(q, alive).await? {
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: Some(why.into()) }).await?;
         }
         Ok(())
     }
 
-    /// Why the running `e`'s holder is gone, if it is: a command's waiter
-    /// died (a hold's waiter answered long since), or its worker ended.
-    pub(crate) async fn holder_gone(&self, e: &Entry, alive: &impl Fn(u32) -> bool) -> Answer<Option<&'static str>> {
-        if !e.hold && !alive(e.pid) {
-            return Ok(Some("its waiter died"));
+    /// Each running entry of `q` holding a named resource whose holder is gone, and why: a
+    /// command's waiter died, as `alive` says of its pid (a hold's answered long since), or its
+    /// worker ended.
+    pub(crate) async fn gone_holders(
+        &self,
+        q: &Queue,
+        alive: impl Fn(u32) -> bool,
+    ) -> Answer<Vec<(Uuid, &'static str)>> {
+        let mut gone = Vec::new();
+        for e in q.running().filter(|e| e.asks().iter().any(|r| *r != factorium_domain::heavy::HOST)) {
+            use factorium_domain::worker::{Status, Workers};
+            let ended = async |w| Ok::<_, Refusal>(self.state::<Workers>(w).await?.status == Status::Ended);
+            if !e.is_hold() && !alive(e.pid) {
+                gone.push((e.id, "its waiter died"));
+            } else if let Some(w) = e.worker
+                && ended(w).await?
+            {
+                gone.push((e.id, "its worker ended"));
+            }
         }
-        let Some(w) = e.worker else { return Ok(None) };
-        let ended =
-            self.state::<factorium_domain::worker::Workers>(w).await?.status == factorium_domain::worker::Status::Ended;
-        Ok(ended.then_some("its worker ended"))
+        Ok(gone)
     }
 
     /// Records that the rules this app asks under are the queue's: the daemon's, as it starts.
@@ -453,8 +459,9 @@ impl App {
         let q = self.state::<Heavy>(queue_id()).await?;
         let pid = std::process::id();
         // A granted hold outlives its waiter: only its release or its worker's end gives it back.
-        let dead =
-            |e: &&Entry| e.id != id && e.pid != pid && !(e.hold && e.started_at.is_some()) && !self.host.alive(e.pid);
+        let dead = |e: &&Entry| {
+            e.id != id && e.pid != pid && !(e.is_hold() && e.started_at.is_some()) && !self.host.alive(e.pid)
+        };
         for e in q.entries.iter().filter(dead) {
             let gone = e.started_at.is_some().then(|| "its waiter died".to_string());
             self.submit::<EndHeavy>(End { id: e.id, keeps: true, gone }).await?;
@@ -467,9 +474,9 @@ impl App {
         // queued): a binary that execed in its place keeps its entry.
         let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
-        let (resources, hold, hold_for) = (job.resources.clone(), job.hold, job.hold_for);
+        let (resources, hold_for) = (job.resources.clone(), job.hold_for);
         let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
-        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold, hold_for };
+        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold_for };
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();

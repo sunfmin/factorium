@@ -52,12 +52,8 @@ impl App {
         // Admission's reading: what the heavy queue granted left out, as the tick reads it.
         let load = self.load().await?;
         seen.reading = load.admission();
-        let named = |e: &&heavy::Entry| e.asks().iter().any(|r| *r != heavy::HOST);
-        for e in seen.queue.running().filter(named) {
-            if let Some(why) = self.holder_gone(e, &|pid| load.alive(pid)).await? {
-                seen.holders_gone.push((e.id, why.into()));
-            }
-        }
+        let gone = self.gone_holders(&seen.queue, |pid| load.alive(pid)).await?;
+        seen.holders_gone = gone.into_iter().map(|(id, why)| (id, why.into())).collect();
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone().map(|(since, why)| doctor::HeldSeen { since, why });
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;

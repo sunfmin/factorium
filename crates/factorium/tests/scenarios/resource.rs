@@ -225,8 +225,8 @@ async fn a_hold_whose_worker_ended_is_given_back_and_workers_show_holds() {
     let me = id(&worker(&w.app).await);
     w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000).await.unwrap();
     let shown = worker(&w.app).await;
-    assert_eq!(shown["holds"][0]["resource"], "FMGG", "{shown}");
-    assert_eq!(shown["holds"][0]["hold"], true, "{shown}");
+    assert_eq!(shown["holds"][0]["name"], "FMGG", "{shown}");
+    assert_eq!(shown["holds"][0]["holders"][0]["hold"], true, "{shown}");
     w.app.issue_close("web", 1, "left as it is").await.unwrap();
     w.tick_alone().await;
     assert!(resource(&w, "FMGG").await["holders"].as_array().unwrap().is_empty(), "given back");

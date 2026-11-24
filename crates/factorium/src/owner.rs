@@ -97,16 +97,9 @@ impl App {
         let resources = self.state::<heavy::Heavy>(heavy::queue_id()).await?.resources();
         for row in v.as_array_mut().into_iter().flatten() {
             let me = row["worker"].as_str().and_then(|w| w.parse::<Uuid>().ok());
-            let mine = |h: &heavy::Holding| me.is_some() && h.worker == me;
-            let of = |hs: &'_ [heavy::Holding]| hs.iter().filter(|h| mine(h)).cloned().collect::<Vec<_>>();
-            let holds = resources.iter().flat_map(|r| of(&r.holders).into_iter().map(move |h| (r, h)));
-            let holds: Vec<Value> = holds
-                .map(|(r, h)| json!({ "resource": r.name, "entry": h.entry, "hold": h.hold, "since": h.since, "until": h.until }))
-                .collect();
-            let waits = resources.iter().flat_map(|r| of(&r.waiting).into_iter().map(move |h| (r, h)));
-            let waits: Vec<Value> = waits
-                .map(|(r, h)| json!({ "resource": r.name, "entry": h.entry, "since": h.since, "held_by": r.holders }))
-                .collect();
+            let mine = |hs: &[heavy::Holding]| hs.iter().any(|h| me.is_some() && h.worker == me);
+            let holds: Vec<_> = resources.iter().filter(|r| mine(&r.holders)).collect();
+            let waits: Vec<_> = resources.iter().filter(|r| mine(&r.waiting)).collect();
             (row["holds"], row["waits_for"]) = (json!(holds), json!(waits));
         }
         Ok(v)
