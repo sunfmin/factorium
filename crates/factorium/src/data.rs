@@ -117,6 +117,12 @@ impl Data {
         self.0.join("daemon.pid")
     }
 
+    /// There from the time `stop` unloads the service until `service
+    /// install` loads it again; while it is there, no command loads it back.
+    pub fn stopped(&self) -> PathBuf {
+        self.0.join("service.stopped")
+    }
+
     /// When the running daemon last ticked, ms on its clock: as it started,
     /// then after each tick.
     pub fn ticked(&self) -> PathBuf {

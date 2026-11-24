@@ -21,9 +21,13 @@ it builds them universal, and sunfmin/homebrew-tap's release workflow signs
 them with Developer ID, notarizes and publishes them
 ([ADR 4](docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md)).
 
-The daemon runs as a launchd agent, started at login and again whenever it
-exits. Install it from a shell whose PATH finds git, orca and the kit's
-harnesses: that PATH is written into the agent.
+The daemon runs as a launchd agent, started again whenever it exits.
+Install it from a shell whose PATH finds git, orca and the kit's
+harnesses: that PATH is written into the agent. launchd does not load it
+by itself after a reboot: a boot loads no Background agent from
+~/Library/LaunchAgents, at boot or at a login, and only root's jobs run
+before a login (factorium#287). So the first `factorium` command run after
+the boot loads it, unless `factorium stop` stopped it.
 
 ```sh
 factorium service install   # writes ~/Library/LaunchAgents/com.github.sunfmin.factorium.plist and loads it

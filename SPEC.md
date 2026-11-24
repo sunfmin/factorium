@@ -327,6 +327,10 @@ time.
 The daemon runs as a launchd agent (`factorium service install`,
 defined in `packaging/factorium.plist`) with the installing shell's PATH
 declared in it, restarted whenever it exits; `factorium stop` unloads it.
+A boot loads no Background agent into `user/<uid>`, at boot or at a login
+(factorium#287), so any command but `run`, `stop` and `service` loads the
+installed agent again when launchd does not hold it and no daemon runs,
+and says so on stderr; not after `stop`, until `service install`.
 A daemon Homebrew installed notes its formula's link at start; once the
 link names another version (a cut by the daemon, by `factorium cut`, or
 by hand), it execs the link between ticks, as the same pid, once that

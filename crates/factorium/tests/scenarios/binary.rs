@@ -431,6 +431,11 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     assert!(!ok && refused["error"]["code"] == "launchctl", "{refused}");
     let agent = dir.0.join("home/Library/LaunchAgents/com.github.sunfmin.factorium.plist");
     assert!(agent.exists());
+    // Installed, launchd not holding it: the next command tries to load it, and says how it went.
+    let out = self::bin(&dir).args(["checkout", "list"]).output().unwrap();
+    assert!(out.status.success(), "the command still answers");
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("loading it failed") && said.contains("bootstrap"), "{said}");
     let (ok, removed) = run(&dir, &["service", "remove"]);
     assert!(ok && removed["removed"] == true, "{removed}");
     assert!(!agent.exists());

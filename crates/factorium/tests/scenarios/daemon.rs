@@ -92,6 +92,38 @@ async fn the_service_is_installed_for_launchd_and_stop_unloads_it() {
     assert!(!file.exists() && !w.host.loaded());
 }
 
+/// A boot loads no Background agent from ~/Library/LaunchAgents, at boot or
+/// at a login (factorium#287): a command run with the agent installed,
+/// launchd not holding it and no daemon running loads it again, unless
+/// `factorium stop` stopped it; `service install` undoes that stop.
+#[tokio::test]
+async fn a_command_loads_the_installed_service_launchd_lost_unless_it_was_stopped() {
+    let w = World::new();
+    assert_eq!(w.app.service_revive().unwrap(), None, "none installed: nothing to load");
+    w.app.service_install().unwrap();
+    assert_eq!(w.app.service_revive().unwrap(), None, "loaded: nothing to load");
+
+    w.host.service.lock().unwrap().clear(); // the machine rebooted
+    let user = w.host.service_target("user");
+    assert_eq!(w.app.service_revive().unwrap(), Some(user.clone()));
+    assert!(w.host.loaded(), "loaded again");
+
+    w.app.stop().await.unwrap();
+    assert_eq!(w.app.service_revive().unwrap(), None, "stopped on purpose");
+    assert!(!w.host.loaded());
+    w.host.service.lock().unwrap().clear();
+    assert_eq!(w.app.service_revive().unwrap(), None, "stopped, and rebooted since");
+
+    w.app.service_install().unwrap();
+    w.host.service.lock().unwrap().clear();
+    assert_eq!(w.app.service_revive().unwrap(), Some(user), "install undid the stop");
+
+    w.host.service.lock().unwrap().clear();
+    w.host.missing.lock().unwrap().push("launchctl".into());
+    let e = w.app.service_revive().unwrap_err();
+    assert_eq!(e.code, "launchctl", "{e}");
+}
+
 #[test]
 fn install_bootstraps_once_launchd_has_dropped_the_agent_it_booted_out() {
     let w = World::new();
