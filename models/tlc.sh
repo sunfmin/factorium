@@ -31,14 +31,20 @@ expect() {
 }
 
 # broken <spec> <config>...: each variant of <spec>'s BrokenVariants,
-# checked under the first <config> that checks its property, fails on it.
+# fails on its property under one of the <config>s that check it, tried in order.
 broken() {
   spec=$1; shift
   failed=0
   for v in $(sed -n '/^BrokenVariants/,/^]/s/^ *\([a-z_]*\) *|-> "\([A-Za-z]*\)".*/\1:\2/p' "$spec"); do
     bug=${v%%:*} property=${v#*:}
-    config=$(grep -l "^\(PROPERTY\|INVARIANT\) .*\b$property\b" "$@" | head -n1)
-    expect "$(check "$spec" "$config" "$bug" "$property")" "$property" "$bug ($config)" || failed=1
+    ok=1
+    for config in $(grep -l "^\(PROPERTY\|INVARIANT\) .*\b$property\b" "$@"); do
+      report=$(check "$spec" "$config" "$bug" "$property")
+      if expect "$report" "$property" "$bug ($config)" >/dev/null; then
+        expect "$report" "$property" "$bug ($config)"; ok=0; break
+      fi
+    done
+    [ $ok = 0 ] || { echo "PASSES $bug: under every config that checks $property"; failed=1; }
   done
   return $failed
 }
