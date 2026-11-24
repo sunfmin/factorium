@@ -8,5 +8,14 @@ cd "$(dirname "$0")"
 # source of idle tasks, never a gate (factorium#163).
 ./lines.sh
 
+# The domain is tested only from the outermost layer (SPEC.md §6; its
+# `[lib] test = false`): a test there is never built, yet reads as one that
+# holds the code (factorium#304). Its rules are tested as scenarios, like
+# crates/factorium/tests/scenarios/order.rs.
+if grep -rnE '#\[(cfg\(test\)|test)\]' crates/domain; then
+    echo "checks.sh: a test in crates/domain never runs; move it to crates/factorium/tests/scenarios" >&2
+    exit 1
+fi
+
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --quiet -- -D warnings
