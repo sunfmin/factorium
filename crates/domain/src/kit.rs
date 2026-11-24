@@ -70,11 +70,8 @@ pub enum Picked {
 /// A step stablehand's pick passed over, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unpicked {
-    pub engine: String,
-    /// `None`: the engine was skipped whole (`no_account`).
+    /// `None`: its engine was skipped whole (`no_account`).
     pub account: Option<String>,
-    /// Its `reason`: `no_account`, `off`, `elsewhere`, `not_logged_in`, `limit`, …
-    pub reason: String,
     pub why: String,
 }
 
@@ -175,7 +172,10 @@ impl Kit {
     fn on(&self, engine: String, model: Option<String>, account: Option<String>) -> Result<Choice, String> {
         match self.commands.get(&engine) {
             Some(command) => Ok(Choice { command: command.clone(), harness: engine, model, account }),
-            None => Err(no_command(&engine)),
+            None => Err(format!(
+                "stablehand picks {engine}, and the kit has no command for it: `factorium kit set {engine}=<command>` \
+                 (with the kit's other commands), or take it out of `stablehand order`"
+            )),
         }
     }
 
@@ -196,15 +196,6 @@ impl Kit {
             Some(t) => Err(format!("{fault}; {FALLBACK} on the host's own login is at its limit until {t} (ms)")),
         }
     }
-}
-
-/// Why a session of `engine`, as stablehand picked it, cannot start: the
-/// kit has no command for it, and the fix.
-pub fn no_command(engine: &str) -> String {
-    format!(
-        "stablehand picks {engine}, and the kit has no command for it: `factorium kit set {engine}=<command>` \
-         (with the kit's other commands), or take it out of `stablehand order`"
-    )
 }
 
 /// A kit entry as factorium once kept its order: read from the events
@@ -330,8 +321,7 @@ mod tests {
     }
 
     fn unpicked(engine: &str, account: Option<&str>, reason: &str) -> Unpicked {
-        let why = format!("{}: {reason}", account.unwrap_or(engine));
-        Unpicked { engine: engine.into(), account: account.map(Into::into), reason: reason.into(), why }
+        Unpicked { account: account.map(Into::into), why: format!("{}: {reason}", account.unwrap_or(engine)) }
     }
 
     /// A start asks its pin's engine and its issue's model, and starts what

@@ -91,12 +91,7 @@ impl App {
             return Ok(Picked::On { engine, model: text(&answer, "model"), account });
         }
         let why = answer["why"].as_array().into_iter().flatten();
-        let why = why.map(|u| Unpicked {
-            engine: text(u, "engine").unwrap_or_default(),
-            account: text(u, "account"),
-            reason: text(u, "reason").unwrap_or_default(),
-            why: text(u, "why").unwrap_or_default(),
-        });
+        let why = why.map(|u| Unpicked { account: text(u, "account"), why: text(u, "why").unwrap_or_default() });
         Ok(Picked::None { until: text(&answer, "until"), why: why.collect() })
     }
 
