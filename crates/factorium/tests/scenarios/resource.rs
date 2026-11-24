@@ -355,8 +355,8 @@ async fn a_hold_with_a_window_waits_for_it_and_starts_inside_it() {
     let w = World::new();
     declare(&w, &["FMGG"]).await;
     // The scenario's host keeps UTC: a window opening an hour from now, for two.
-    let minute = |ms: i64| (ms / 60_000).rem_euclid(24 * 60) as u32;
-    let opens = minute(w.clock.now() + 3_600_000 + 59_999);
+    let opens_at = (w.clock.now() + 3_600_000 + 59_999) / 60_000 * 60_000;
+    let opens = (opens_at / 60_000).rem_euclid(24 * 60) as u32;
     let window = (opens, (opens + 120) % (24 * 60));
     let (cli, fmgg) = (w.run(), ["FMGG".to_string()]);
     let night = cli.worker_hold(Uuid::now_v7(), &fmgg, 600 * 60_000, Some(window));
@@ -370,7 +370,12 @@ async fn a_hold_with_a_window_waits_for_it_and_starts_inside_it() {
         w.poll(1).await;
         w.until(async || w.clock.asleep() == 1).await;
         assert!(resource(&w, "FMGG").await["holders"].as_array().unwrap().is_empty(), "outside its window still");
-        w.advance(31);
+        // A moment before it opens, read in the host's offset: still outside.
+        w.clock.advance(opens_at - 1 - POLL - w.clock.now());
+        w.poll(1).await;
+        w.until(async || w.clock.asleep() == 1).await;
+        assert!(resource(&w, "FMGG").await["holders"].as_array().unwrap().is_empty(), "a moment before it opens");
+        w.advance(1);
     };
     let (held, ()) = tokio::time::timeout(STUCK, async { tokio::join!(night, looks) }).await.expect("it starts inside");
     assert_eq!(held.unwrap()["held"]["window"].as_str().map(|s| s.len()), Some(11));

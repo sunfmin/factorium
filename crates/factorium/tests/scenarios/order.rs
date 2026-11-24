@@ -48,6 +48,7 @@ fn a_five_minute_hold_asked_after_a_160_minute_one_goes_first() {
     assert_eq!(shown.waiting.iter().map(|h| h.entry).collect::<Vec<_>>(), [command.id, long.id]);
     assert_eq!(shown.waiting[1].why.as_deref(), Some("behind `3`, a 30 min hold (the default)"));
     assert_eq!((shown.waiting[1].declared, shown.waiting[0].why.clone()), (Some(160 * MIN), None));
+    assert_eq!(whys(&q, HOST, 3 * MIN), Vec::<Option<String>>::new(), "none of them asks for the host");
     // Hours and minutes, as the owner reads them.
     let longer = hold(4, 0, 200, "FMGG");
     let q = Queue { entries: vec![long, longer], ..Queue::default() };
@@ -95,6 +96,7 @@ fn the_hosts_queue_keeps_its_order_where_none_declares_a_hold() {
     let order = |o| queue::line(&q.entries, 602 * MIN, o).iter().map(|e| e.id).collect::<Vec<_>>();
     assert_eq!(order(ORDER), order(Order::default()));
     assert_eq!(order(ORDER), [line.id, a.id, b.id]);
+    assert_eq!(whys(&q, HOST, 602 * MIN)[1].as_deref(), Some("behind `3`, a line move past its bound"));
     // At its bound, not past it: a line move is first only as the oldest.
     let (due, then) = (Entry { bound_at: Some(MIN), ..entry(4, 0) }, entry(5, MIN / 2));
     let q = Queue { entries: vec![due, then], ..Queue::default() };
