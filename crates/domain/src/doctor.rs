@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::admission::{self, Reading};
 use crate::daemon::Daemon;
 use crate::declared::Kind;
-use crate::heavy::{LineJob, Queue};
+use crate::heavy::{HOST, LineJob, Queue};
 use crate::idle::{Idle, Run};
 use crate::line::{self, Line, Move};
 use crate::settings::{Setting, Settings, Time};
@@ -52,6 +52,10 @@ pub struct Seen {
     /// Whether the kit has no entry: nothing starts until it has one.
     #[serde(default)]
     pub kit_empty: bool,
+    /// The running entries holding a named resource whose holder is gone,
+    /// and why: a command's waiter died, or its worker ended.
+    #[serde(default)]
+    pub holders_gone: Vec<(factum_core::Uuid, String)>,
 }
 
 /// A ready issue no worker holds, as admission would take it.
@@ -256,6 +260,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         }
     }
     stalls(seen, s, now, &mut add);
+    resources(seen, now, &mut add);
     if let Some(HeldSeen { since, why }) = &seen.held
         && now - since >= s.ms(Time::HeldFor)
     {
@@ -384,6 +389,56 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         );
     }
     f
+}
+
+/// How long a resource given back because its holder died stays a finding, ms.
+const GIVEN_BACK_SHOWN: i64 = 3_600_000;
+
+/// A named resource whose holder is gone, whose worker ended, or that it
+/// holds past the time it declared; one factorium gave back, for an hour.
+fn resources(seen: &Seen, now: i64, add: &mut impl FnMut(String, String, &str)) {
+    let q = &seen.queue;
+    let min = |ms: i64| ms / 60_000;
+    let unqueue = "read its worker's terminal and issue; if it no longer holds it for anyone, take it off with \
+                   `factorium unqueue <entry>`: the resource goes to the next waiting for it";
+    for e in q.running() {
+        let named: Vec<&str> = e.asks().into_iter().filter(|r| *r != HOST).collect();
+        if named.is_empty() {
+            continue;
+        }
+        let worker = e.worker.map_or(String::new(), |w| format!(", worker {w}"));
+        let by = format!("`{}` (entry {}{worker})", e.what, e.id);
+        let waiting: usize =
+            q.resources().iter().filter(|r| named.contains(&r.name.as_str())).map(|r| r.waiting.len()).sum();
+        let why = if let Some((_, gone)) = seen.holders_gone.iter().find(|(id, _)| *id == e.id) {
+            Some(format!("and {gone}; the next tick gives it back"))
+        } else {
+            e.until().filter(|u| now > *u).map(|u| format!("past the time it declared, by {} min", min(now - u)))
+        };
+        if let Some(why) = why {
+            add(
+                format!("resource:{}", e.id),
+                format!("{} held by {by}, {why}; {waiting} waiting for it", named.join(" and ")),
+                unqueue,
+            );
+        }
+    }
+    for g in q.given_back.iter().filter(|g| now - g.at <= GIVEN_BACK_SHOWN) {
+        let worker = g.worker.map_or(String::new(), |w| format!(" of worker {w}"));
+        add(
+            format!("resource:{}:{}", g.entry, g.resource),
+            format!(
+                "{} was given back {} min ago: its holder `{}` (entry {}){worker} held it, and {}",
+                g.resource,
+                min(now - g.at),
+                g.what,
+                g.entry,
+                g.why
+            ),
+            "read the worker's terminal and issue: what it ran on the resource may have ended unfinished; whoever \
+             needs it runs it again",
+        );
+    }
 }
 
 /// What the line owes and has not done within its bound: a heavy queue

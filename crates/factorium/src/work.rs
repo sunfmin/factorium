@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::json;
 
 use crate::gate::At;
-use crate::heavy::Asker;
+use crate::heavy::{Asker, Exclusive};
 use crate::session::Session;
 use crate::{Answer, App, Refusal, fail};
 
@@ -187,13 +187,19 @@ impl App {
     /// priority, so a time it measures (a test run, `slimfit check` or
     /// `ratchet`) is one a gate's run of the same tree agrees with.
     pub async fn worker_exclusive(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(Asker::Worker(worker), dir, cmd, false).await
+        self.worker_exclusive_as(worker, dir, cmd, Exclusive::default()).await
+    }
+
+    /// [`App::worker_exclusive`] as `how` says: at background priority, or
+    /// holding a resource the repo declares, for as long as it declares.
+    pub async fn worker_exclusive_as(&self, worker: Option<Uuid>, dir: &Path, cmd: &str, how: Exclusive) -> Answer {
+        self.exclusive(Asker::Worker(worker), dir, cmd, how).await
     }
 
     /// [`App::worker_exclusive`] at background priority: for work whose
     /// time no gate compares (a mutation run), so a gate beside it gets the
     /// CPU first.
     pub async fn worker_exclusive_background(&self, worker: Option<Uuid>, dir: &Path, cmd: &str) -> Answer {
-        self.exclusive(Asker::Worker(worker), dir, cmd, true).await
+        self.worker_exclusive_as(worker, dir, cmd, Exclusive { background: true, ..Exclusive::default() }).await
     }
 }

@@ -1,0 +1,33 @@
+{
+  "tree": "90e988f84fe953072f91d6825e5456e0aac33a2e+d1fba762150c532c",
+  "picker": "codex:01a20b64-8900-79d2-830f-fbd3501cc3b8:default",
+  "author": "claude-code:0327310b-759b-5013-83c5-29c6192ac764:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:216:76: replace && with || in App::worker_release",
+        "why": "The release scenario has one running hold, so it may miss releasing the caller's unrelated hold or another worker's running entry on the requested resource.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:207:81: replace && with || in App::worker_hold",
+        "why": "With one hold in the scenario, the returned entry can still be correct even though the mutant can select an older hold on a different resource.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/domain/src/doctor.rs:416:38: replace > with >= in resources",
+        "why": "The overdue scenario checks before the deadline and a minute after it, leaving the exact deadline untested.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:563:55: replace <= with > in <impl Aggregate for Heavy>::evolve",
+        "why": "Each cleanup scenario gives back one holder, so it may miss a later cleanup discarding an earlier record that's still recent.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}

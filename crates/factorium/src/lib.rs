@@ -44,6 +44,7 @@ use serde::de::DeserializeOwned;
 pub use daemon::{Tick, handed_lock};
 pub use data::{Data, LineClone};
 pub use factorium_host as host;
+pub use heavy::Exclusive;
 pub use session::{Caller, DB_ENV};
 pub(crate) use work::{Live, Want};
 
@@ -155,6 +156,7 @@ fn model() -> Model {
         .command::<kit::LimitHarness>()
         .aggregate::<settings::HostSettings>()
         .command::<settings::SetSetting>()
+        .command::<settings::DeclareResource>()
         .aggregate::<idle::Idles>()
         .command::<idle::RecordIdle>()
         .aggregate::<heavy::Heavy>()

@@ -1,5 +1,7 @@
 //! The host's settings: its bounds and shares. One stream; each setting has
-//! a default, and the `settings` command changes one at a time.
+//! a default, and the `settings` command changes one at a time. The host's
+//! named resources (a device every checkout's workers share) are declared
+//! here too, each with its slots and a note (factorium#284).
 //!
 //! Callers ask by variant: a [`Setting`] for a share, size or count in its
 //! own unit, a [`Time`] for a bound in ms. Only the CLI names one by text.
@@ -174,6 +176,17 @@ impl Setting {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub set: BTreeMap<String, u64>,
+    /// The named resources, by name.
+    #[serde(default)]
+    pub resources: BTreeMap<String, Resource>,
+}
+
+/// A named resource: how many hold it at once, and what it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resource {
+    pub slots: u64,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 impl Settings {
@@ -186,12 +199,31 @@ impl Settings {
     pub fn ms(&self, time: Time) -> i64 {
         self.get(S::Time(time)) as i64 * 1000
     }
+
+    /// The slots of each named resource `names` asks for that is declared;
+    /// else the first not declared, refused.
+    pub fn slots(&self, names: &[String]) -> Result<BTreeMap<String, u64>, String> {
+        let mut slots = BTreeMap::new();
+        for name in names.iter().filter(|n| n.as_str() != crate::heavy::HOST) {
+            let Some(r) = self.resources.get(name) else {
+                let declared: Vec<&String> = self.resources.keys().collect();
+                return Err(format!(
+                    "the host declares no resource {name} (it declares {declared:?}, and `host`): the owner \
+                     declares one with `factorium settings --resource {name} --slots 1 [--note <what it is>]`"
+                ));
+            };
+            slots.insert(name.clone(), r.slots);
+        }
+        Ok(slots)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum SettingsEvent {
     SettingSet { name: String, value: u64 },
+    ResourceSet { name: String, resource: Resource },
+    ResourceRemoved { name: String },
 }
 
 pub struct HostSettings;
@@ -201,8 +233,18 @@ impl Aggregate for HostSettings {
     type State = Settings;
     type Event = SettingsEvent;
 
-    fn evolve(s: &mut Settings, SettingsEvent::SettingSet { name, value }: SettingsEvent) {
-        s.set.insert(name, value);
+    fn evolve(s: &mut Settings, event: SettingsEvent) {
+        match event {
+            SettingsEvent::SettingSet { name, value } => {
+                s.set.insert(name, value);
+            }
+            SettingsEvent::ResourceSet { name, resource } => {
+                s.resources.insert(name, resource);
+            }
+            SettingsEvent::ResourceRemoved { name } => {
+                s.resources.remove(&name);
+            }
+        }
     }
 }
 
@@ -220,5 +262,30 @@ command!(SetSetting, "settings.set", HostSettings, Set, |_p| settings_id(), |s, 
         Vec::new()
     } else {
         vec![SettingsEvent::SettingSet { name: p.name.clone(), value: p.value }]
+    })
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Declare {
+    pub name: String,
+    /// Its slots and note; none: it is no longer declared.
+    pub resource: Option<Resource>,
+}
+
+command!(DeclareResource, "settings.resource", HostSettings, Declare, |_p| settings_id(), |s, p, _now| {
+    let name = p.name.as_str();
+    if name == crate::heavy::HOST {
+        return no("host_resource", "`host` is the host's load, by the room rule: it is not declared".to_string());
+    }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c)) {
+        return no("bad_resource", format!("{name:?}: a resource's name is letters, digits, `_`, `-` and `.`"));
+    }
+    Ok(match &p.resource {
+        Some(r) if r.slots == 0 => return no("bad_resource", "a resource has one slot at least".to_string()),
+        Some(r) if s.resources.get(name) != Some(r) => {
+            vec![SettingsEvent::ResourceSet { name: name.into(), resource: r.clone() }]
+        }
+        None if s.resources.contains_key(name) => vec![SettingsEvent::ResourceRemoved { name: name.into() }],
+        _ => Vec::new(),
     })
 });

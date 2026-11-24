@@ -68,12 +68,13 @@ impl Idle {
 }
 
 /// Whether the host is idle, or why not: no live worker works (each waits
-/// for the watch), the heavy queue holds nothing, and the host has room.
+/// for the watch), the `host` queue holds nothing, and the host has room.
 pub fn host_idle(workers: &[Status], queue: &Queue, room: Result<(), String>) -> Result<(), String> {
     if workers.iter().any(|s| *s != Status::Waiting && *s != Status::Ended) {
         return Err("a worker works".into());
     }
-    if let Some(e) = queue.entries.first() {
+    // A named resource held or waited for (a device) loads nothing of the host's.
+    if let Some(e) = queue.entries.iter().find(|e| e.asks_for(crate::heavy::HOST)) {
         return Err(format!("the heavy queue holds `{}`", e.what));
     }
     room

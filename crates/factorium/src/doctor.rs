@@ -50,7 +50,10 @@ impl App {
         seen.kit_empty = self.state::<Kits>(kit_id()).await?.entries.is_empty();
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         // Admission's reading: what the heavy queue granted left out, as the tick reads it.
-        seen.reading = self.load().await?.admission();
+        let load = self.load().await?;
+        seen.reading = load.admission();
+        let gone = self.gone_holders(&seen.queue, |pid| load.alive(pid)).await?;
+        seen.holders_gone = gone.into_iter().map(|(id, why)| (id, why.into())).collect();
         let w = self.state::<watch::Watches>(watch::watch_id()).await?;
         seen.held = w.held.clone().map(|(since, why)| doctor::HeldSeen { since, why });
         seen.daemon = self.state::<daemon::Daemons>(daemon::daemon_id()).await?;
@@ -221,6 +224,9 @@ impl App {
             // The engine accounts no session can start on here, and why.
             "accounts_skipped": skipped,
             "heavy": seen.queue.entries,
+            // Each resource a heavy entry holds or waits for: its holder (since, until it
+            // declared) and those waiting for it, oldest first.
+            "resources": seen.queue.resources(),
             // Each checkout's last idle run that ended green or red.
             "idle": idle,
             "findings": findings,

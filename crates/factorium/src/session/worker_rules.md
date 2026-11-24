@@ -11,6 +11,12 @@ Your brief (the file you were handed) says what the issue is.
   has room and runs it at a gate's priority, so what it times (tests,
   `slimfit check`) is what the gate would. Work whose time nothing
   compares (a mutation run) goes through `worker exclusive --background`.
+- A device or a host one worker uses at a time (a phone, a build host) is
+  a resource the owner declares: name it, `worker exclusive --resource
+  <name> -- <command>`, and only that command waits for it; for a hold
+  across several commands (a soak), `worker hold <name> --for 160m`, then
+  `worker release <name>`. Never `issue block` on another issue only
+  because both use the same device. `doctor` shows who holds it.
 - A change's mutants are picked by a second agent, never you (`slimfit help
   picker`): `factorium worker pick-mutants` starts it and answers the picks
   and the commands that run and record them.

@@ -47,6 +47,11 @@ impl Load {
         Load { host: host.reading(), procs: host.processes(), queue, alive, cores }
     }
 
+    /// Whether `pid`, one of the queue's entries' waiters, was alive as read.
+    pub(crate) fn alive(&self, pid: u32) -> bool {
+        self.alive.contains(&pid)
+    }
+
     /// The queue's reading: nothing left out, as it bounds its own slots.
     pub(crate) fn room(&self) -> Reading {
         whole(&self.host)
@@ -62,11 +67,13 @@ impl Load {
 
     /// Admission's reading: every process the queue granted left out.
     pub(crate) fn admission(&self) -> Reading {
-        self.outside(&self.granted(|_| true))
+        // Only what holds the host is the queue's to bound.
+        self.outside(&self.granted(|e| e.asks_for(factorium_domain::heavy::HOST)))
     }
 
     /// `worker`'s part at `now`: an entry of its own waiting, or started
-    /// within `hold` ms and alive, keeps it from being silent.
+    /// within `hold` ms and alive, keeps it from being silent: one waiting
+    /// for a resource is waiting, not silent.
     pub(crate) fn worker(&self, worker: Uuid, now: i64, hold: i64) -> Share {
         let mine = |e: &Entry| e.worker == Some(worker);
         let (held, tag) = (self.granted(mine), Some(worker.to_string()));
