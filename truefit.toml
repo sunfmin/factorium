@@ -670,7 +670,7 @@ check = ["test"]
 
 [[promise]]
 name = "used-up-account-waits"
-says = "While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can."
+says = "its issue waits, behind ready issues that can start, and holds admission (`kit: …`, the pick's reasons) only when none can"
 source = "SPEC.md:37"
 check = ["test"]
 

@@ -1,8 +1,8 @@
 //! A session for a role: who runs a command, what each may run, and how a
 //! session of a role is opened. A worker's session starts in its worktree
 //! with its brief; the watch's in its home, its rules for its brief. Both
-//! get the kit's first eligible harness on its account with the most left,
-//! the account's secrets by a file, this factorium on PATH and its database,
+//! get the kit's first eligible harness on the account stablehand picks,
+//! the account's secrets (`stablehand env`) by a file, this factorium on PATH and its database,
 //! the guard, and their rules; a worker whose role changes under it is
 //! told once. The environment names that tell a session's
 //! commands who runs them live here and nowhere else.

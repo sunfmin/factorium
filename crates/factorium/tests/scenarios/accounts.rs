@@ -18,7 +18,7 @@ pub(crate) fn this_machine() -> String {
 }
 
 /// A codex account `name` bound to this machine, its home where stablehand
-/// keeps it (not under `~/.agent-accounts`): that home.
+/// keeps it, wherever that is: that home.
 fn bound(w: &World, name: &str) -> std::path::PathBuf {
     let home = w.host.home().join("logins").join(name);
     std::fs::create_dir_all(&home).unwrap();

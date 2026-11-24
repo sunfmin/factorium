@@ -119,8 +119,9 @@ pub enum Top {
     /// The kit: the harnesses this host starts, in priority order.
     #[command(subcommand)]
     Kit(KitCmd),
-    /// Answers the engine accounts mytokens holds (`agent-account-<name>`),
-    /// as this machine can use them, with what each has left.
+    /// Answers the engine accounts as stablehand's books say now: the
+    /// `accounts` of `stablehand status`, each with its windows and pace.
+    /// stablehand is their one home: none is kept here.
     Accounts,
     /// Answers the settings; with a name, one; with a value, sets it.
     ///
@@ -252,9 +253,11 @@ pub enum IssueCmd {
         /// while it lacks anything its issues wait, and doctor names what.
         #[arg(long, value_name = "DIR")]
         role: Option<String>,
-        /// The engine account its worker starts on (mytokens
-        /// `agent-account-<NAME>`), on the kit's entry of that account's
-        /// harness. While it is used up its issue waits.
+        /// The engine account its worker starts on, by its name in
+        /// stablehand, on the kit's entry of that account's engine. Refused
+        /// unless `stablehand account show NAME` knows it and a session may
+        /// start on it here. While stablehand's pick passes it over (at its
+        /// limit, or full) its issue waits.
         #[arg(long, value_name = "NAME")]
         account: Option<String>,
     },

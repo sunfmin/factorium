@@ -1,6 +1,6 @@
 [package]
 name = "factorium-harness"
-description = "What factorium knows of each harness: how a session of it starts and is handed its brief, how its hook is asked about a tool call, where it keeps its session and which lines start or end a turn, which screen words mean a quota or a refusal, and the engine accounts mytokens holds"
+description = "What factorium knows of each harness: how a session of it starts and is handed its brief, how its hook is asked about a tool call, where it keeps its session and which lines start or end a turn, which screen words mean a quota or a refusal, and the machine an engine account's bound login names"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
