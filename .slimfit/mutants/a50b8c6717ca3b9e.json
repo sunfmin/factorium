@@ -1,0 +1,6 @@
+{
+  "tree": "1a8313a8bd8bb6d0c580280e8178e469a8bcf777+d1fba762150c532c",
+  "picker": "codex:01a20ef1-32ef-7932-9454-d08bc7906bfd:default",
+  "author": "claude-code:3faa48c0-b018-56bb-a7f8-42a38bcfb2f4:opus",
+  "none": "The source change replaces two trait method bodies with required declarations, leaving no mutant candidates to run."
+}
