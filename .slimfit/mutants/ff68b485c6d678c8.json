@@ -1,0 +1,21 @@
+{
+  "tree": "cc3f11b5994236695e7b7d711695a6ac4c9d3726+d1fba762150c532c",
+  "picker": "codex:01a20c64-9f16-7151-8b11-ef50215ddd49:default",
+  "author": "claude-code:39d27213-4d3b-55f3-99dc-b08ee618842d:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/doctor.rs:81:43: replace || with && in App::ready_seen",
+        "why": "The blocked-issue test also has an empty kit, which can mask doctor treating an unclaimed issue with an unmet blocker as ready.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/work.rs:174:39: delete ! in App::worker_file",
+        "why": "The shown filing scenario targets another checkout, so it cannot catch the reversed behavior of --independent for same-checkout follow-ups.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
