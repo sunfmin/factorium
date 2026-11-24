@@ -1,0 +1,10 @@
+{
+  "tree": "73d89fe34e9870c779e98f93abd75a497fab2e5d+d1fba762150c532c",
+  "lines": 169,
+  "serves": "factorium#286",
+  "considered": "neutral/queue.rs line/next/oldest (extended with Order rather than a second ordering), the overdue-goes-ahead step (kept as is, starved entries reuse its key), Queue::passed_over (the window joins it as a third reason, no new pass), Holding (gained declared/window/why instead of a new doctor type), when.rs (window parsing beside utc)",
+  "reviewer": "codex:01a20c59-6d1c-77a1-a515-7ae9a52ff8f6:default",
+  "author": "claude-code:d7b02ebf-418e-5b1b-8199-196f4cfab07c:opus",
+  "cut": "In crates/domain/src/heavy.rs, partition the filtered waiters directly, sort the passed-over entries in place, and compute elapsed time since opening in Window::open_for so since_from can go. In crates/domain/src/heavy.rs and crates/factorium/src/heavy.rs, carry queue::Order through Begin with serde defaults instead of splitting and rebuilding it. In crates/domain/src/doctor.rs, reuse one resource snapshot across all holders and one oldest lookup across both stall messages. In crates/host/src/clock.rs, make UTC the default Clock::offset_min implementation and delete the identical ManualClock implementation.",
+  "answer": "Made all four (25d408a): resources partitions the filtered waiters and sorts the passed-over in place; Window::open_for computes the time since opening in ms and since_from is gone; Begin carries queue::Order (serde default) and StartHeavy reads it as is; doctor builds one resources snapshot for all holders and one oldest lookup for both stall messages; Clock::offset_min defaults to UTC and ManualClock no longer repeats it. Also moved the never-run #286 unit tests out of the domain (test = false) into scenarios/order.rs."
+}

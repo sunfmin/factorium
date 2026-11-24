@@ -1,0 +1,33 @@
+{
+  "tree": "73d89fe34e9870c779e98f93abd75a497fab2e5d+d1fba762150c532c",
+  "picker": "codex:01a20c6f-f8e0-7651-80e1-3c3bc1cec9e0:default",
+  "author": "claude-code:d7b02ebf-418e-5b1b-8199-196f4cfab07c:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/heavy.rs:513:52: replace > with < in behind",
+        "why": "The scenarios check the explanation exactly at the deadline and check ordering after it, leaving the overdue explanation unasserted.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/clock.rs:23:9: replace Clock::offset_min -> i32 with 1",
+        "why": "The window scenario checks well before opening and after a coarse clock advance, so a one-minute early opening can pass.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/admission.rs:58:69: replace > with >= in holds",
+        "why": "This blocks worker admission exactly at the queue wait bound, an instant the shown scenarios do not assert.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:404:60: replace && with || in Queue::resources",
+        "why": "This can show a waiter in an unrelated resource's queue, while the new ordering scenarios inspect only the resource the waiter requested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
