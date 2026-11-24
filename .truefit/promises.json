@@ -34,6 +34,11 @@
     "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a worker starts on the account with the most left, and a login that refreshes is bound to one machine; admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
     "source": "SPEC.md:390"
   },
+  "078d4b2ca043": {
+    "mark": "promise",
+    "sentence": "`watch tell` to a worker that waits for the watch is `watch restart`: it ends the wait, so a word that sends the worker back to work never leaves it waiting, its `done` refused (factorium#268). Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
+    "source": "SPEC.md:45"
+  },
   "09fb6e467023": {
     "mark": "not",
     "sentence": "**Scenarios through `App`.** `App` is the program's one entry: every CLI command is one method of it, and the daemon's tick is one too.",
@@ -43,6 +48,16 @@
     "mark": "not",
     "sentence": "`owner.rs` was the binary's biggest, busiest file (459 lines, 35 commits in 90 days). Its history shows why: most of those commits only added a line to `model()`, the list of every aggregate and command the engine runs.",
     "source": "docs/adr/0001-owner-commands-by-concept.md:7"
+  },
+  "0c13987e59f0": {
+    "mark": "promise",
+    "sentence": "A heavy command asks for one or more (`worker exclusive --resource <name> …`, `heavy run --resource <name> …`; none named is `host`), granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.",
+    "source": "SPEC.md:39"
+  },
+  "0d2cacf5d06c": {
+    "mark": "promise",
+    "sentence": "A block made before whys were asked for reads \"(no reason given)\". Two issues that only use one device or host do not block each other: that is a resource (§1.9), which the watch turns such a block into.",
+    "source": "SPEC.md:71"
   },
   "0d9fd79a8a5f": {
     "mark": "promise",
@@ -79,10 +94,21 @@
     "sentence": "Until factorium#240 a cut (`packaging/release.sh cut`) built on the cutting host, for aarch64 only, and published from there: the archive to the tap's release, the formula to the tap, `depends_on arch: :arm64`. The binary was only ad hoc signed; Intel Macs could not run it and Gatekeeper rejected a copy downloaded in a browser.",
     "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:8"
   },
+  "18135f5883da": {
+    "mark": "promise",
+    "sentence": "A resource is a name and a capacity rule, with one queue each, the rule of the neutral queue (`neutral/queue.rs`): the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves; one past its bound goes ahead of those that yield (factorium#286). Nobody knows how long an issue takes before it starts; a holder knows how long it holds when it asks, so the order is the resource queue's, never the issue's: it replaces hand-ordered `issue block` chains between issues that share a device.",
+    "source": "SPEC.md:39"
+  },
   "1da033da2bee": {
     "mark": "not",
     "sentence": "`next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`)",
     "source": "SPEC.md:182"
+  },
+  "1f10c88529f4": {
+    "mark": "not",
+    "sentence": "`host`'s entries declare no hold, so its queue is oldest first; only the room test differs by rule, and a new kind of lock is a new rule and nothing else.",
+    "source": "SPEC.md:39",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
   "1f5231afd89c": {
     "mark": "not",
@@ -108,6 +134,11 @@
     "mark": "promise",
     "sentence": "A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed.",
     "source": "SPEC.md:33"
+  },
+  "287daf6d0a6f": {
+    "mark": "promise",
+    "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts a **round**: a brief, an hour (`round_bound`), and a report the watch files with `factorium watch report`. No finding stays standing after its round with nobody looking at it: an episode still found `round_again` (30 min) after its round ended — reported, or past its bound — starts another, whose brief carries the last report (\"last time you reported …; the finding is still there\"), up to `rounds_max` (3) rounds; past them it starts none, and doctor lists it under `unresolved`, with its rounds and last report, for the owner, while it stands.",
+    "source": "SPEC.md:45"
   },
   "2880fcdce877": {
     "mark": "not",
@@ -149,6 +180,22 @@
     "sentence": "A cut's change (steps, tagging, the install) edits `line/cut.rs` only.",
     "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:43"
   },
+  "3e7d0c2902c4": {
+    "mark": "not",
+    "sentence": "The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; where a session on an account keeps its files (the account itself is stablehand's). Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
+    "source": "SPEC.md:420",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "535e8408a8fd": {
+    "mark": "promise",
+    "sentence": "Every block says why (factorium#285): `--blocked-by` and `issue block --by` are refused without `--why <text>` (one why serves all the `--blocked-by` of one `add`), kept with the block; `issue show` answers each thing it waits for in `waits`, with its why and how it was met, and doctor's `parked` names each unmet one with its why.",
+    "source": "SPEC.md:66"
+  },
+  "55ad5ef6d0b6": {
+    "mark": "promise",
+    "sentence": "A worker's hold across commands (`worker hold <name> … --for <duration>`, a soak) waits as a command does; with `--between 22:00-07:00` (the host's local time, every day; an overnight run on the charger) it is passed over outside its window, joining the line only inside it, its starve bound counted from the window's opening; granted, it outlives its waiter until `worker release <name>` or its worker ends, and the worker's own commands asking for what it holds run inside it, taking no slot of their own.",
+    "source": "SPEC.md:39"
+  },
   "572a962a4f23": {
     "mark": "promise",
     "sentence": "Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound.",
@@ -189,6 +236,12 @@
     "sentence": "While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can.",
     "source": "SPEC.md:37"
   },
+  "74a0f7cd0c23": {
+    "mark": "not",
+    "sentence": "Promotion and cut (one per checkout, which the daemon orders itself), the issue claim and the accounts' windows are not resources: each could become a rule when a second need shows (factorium#284). The resource `host`: a command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run.",
+    "source": "SPEC.md:39",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
   "7b6a22997151": {
     "mark": "not",
     "sentence": "`issues.rs` is the tracker: every `issue …` command and the issue helpers other modules call (`issue`, `note`). An issue that leaves its worker (`close`, `wait-for-human`) does so through one private step that ends the worker with the reason and says whether its worktree is kept.",
@@ -208,6 +261,11 @@
     "mark": "not",
     "sentence": "Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
     "source": "SPEC.md:260"
+  },
+  "82a192dbb3f5": {
+    "mark": "promise",
+    "sentence": "A hold is never cut short, whatever the hold bound; past its declared until it is a finding for the watch, as a silent worker is.",
+    "source": "SPEC.md:39"
   },
   "87ae7757cc5d": {
     "mark": "promise",
@@ -234,6 +292,22 @@
     "mark": "not",
     "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
     "why": "truefit.toml is the check ladder's own registry, not code that keeps a promise: these fixes added the worktrees and line models with their covers (factorium#187, #188, #189) and moved each model's commit to the one it describes. The promises those models keep (WorkNeverLost, OneOwner, a landing at most once, ...) are checked by those models against the code they cover; the config's edits are bookkeeping of that, with no behaviour of their own to check."
+  },
+  "926c047b4d0d": {
+    "mark": "promise",
+    "sentence": "Which host installs factorium, and when (factorium#269): a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then; every other host's daemon, Homebrew's, upgrades its formula from the tap itself, each `upgrade_every` (an hour) since its last try, while no line move runs beside the ticks: `brew update`, then `brew upgrade`, on a thread beside the ticks, recorded on the tick after it ended.",
+    "source": "SPEC.md:368"
+  },
+  "9278d176bd2b": {
+    "mark": "not",
+    "sentence": "Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its default, may name a role directory, §1.2–1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports: `issue move`, §4, is not that, for no state is shared between hosts and nothing is read from the other host afterwards: one owner command hands one issue over by filing it there); Jira deliveries; the asking session; remote refs as state; caches as state.",
+    "source": "SPEC.md:572",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "946dbe0dbd8b": {
+    "mark": "promise",
+    "sentence": "Its steps run beside the daemon's ticks as a promotion's slow gate does; the tag and the install follow on the tick after they ended, and the installed binary's proof (§4) runs beside the ticks too: the cut is recorded, made or failed with the proof's why, on the first tick after the proof ended, and until then none of the checkout's other moves is carried (factorium#242). A failed cut holds every later cut of its checkout until one of three: each tick reads it back and records it made once its tag and install hold; a cut by hand tries again; or a promotion moves the base to a commit other than the one it was cut from (the fix reaches the base only so), and the cut is owed again by the rule above.",
+    "source": "SPEC.md:44"
   },
   "972618f2a67f": {
     "mark": "promise",
@@ -326,6 +400,11 @@
     "sentence": "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks.",
     "source": "SPEC.md:339"
   },
+  "b9a5917830e2": {
+    "mark": "promise",
+    "sentence": "`slots = n`: n holders at most (1 is a mutex): a named resource, declared in the host's settings (`settings --resource <name> --slots <n> [--note <what it is>]`, `--remove`; a phone serves every checkout on the host, so no checkout's `factorium.toml` names it). `room`: as many as the host's readings allow: the resource `host`, which is never declared — the heavy queue, as below.",
+    "source": "SPEC.md:39"
+  },
   "bf18b78a3358": {
     "mark": "promise",
     "sentence": "A daemon Homebrew installed notes its formula's link at start; once the link names another version (a cut by the daemon, by `factorium cut`, or by hand), it execs the link between ticks, as the same pid, once that binary is proven to open this host's database: it answers `doctor` on a copy (SQLite's backup, never the live file). A cut of the formula proves it right after the install; one that fails is a failed cut, its why the error and the copy's path (kept for a look), and the old binary runs on.",
@@ -356,6 +435,11 @@
     "sentence": "**Every scenario is held to account**, by two mechanisms and no whole-workspace mutation run (factorium#114): a change's mutants, and slimfit's coverage-plus-review task, which finds a scenario that only repeats another, or shares its setup, to delete or merge.",
     "source": "SPEC.md:331"
   },
+  "d14d1e374722": {
+    "mark": "promise",
+    "sentence": "A store written by an older binary is read by a newer one as it is: no script is run by hand, so the swap's proof (§4) passes on it and the daemon moves to the newer binary by itself (factorium#270). The log is never rewritten; a change to what is kept is carried by the code that reads it.",
+    "source": "SPEC.md:268"
+  },
   "d2507572d91f": {
     "mark": "promise",
     "sentence": "A slow one, past half the hang bound (five `tick_every`, never under two minutes: a daemon silent that long is taken to hang), is kept, and for an hour is a finding naming how long it took and that step (factorium#231).",
@@ -365,6 +449,12 @@
     "mark": "promise",
     "sentence": "One of another checkout is `--blocked-by <checkout>#N`, met once it is closed (landed); `<checkout>#N@cut` is met only once a cut of that checkout holds its landing, and installed it where its `[cut]` names a formula, for a tool used from another repo.",
     "source": "SPEC.md:56"
+  },
+  "d5c0f18234d3": {
+    "mark": "not",
+    "sentence": "A personal account has no account-wide secrets; slimfit#100 put the one copy of them in sunfmin/homebrew-tap, whose `release` workflow signs every tool (its contract: the tap's `.github/workflows/README.md`).",
+    "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:15",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
   "d5cdf980819b": {
     "mark": "promise",
@@ -407,10 +497,21 @@
     "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
     "why": "truefit.toml is the check registry itself: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line), re-pin a model's commit, or add covers for new code; the promises those fixes keep live in models/*.tla and the code their covers name, not in this file"
   },
+  "e4845e97332c": {
+    "mark": "promise",
+    "sentence": "launchd does not load it by itself after a reboot: a boot loads no Background agent from ~/Library/LaunchAgents, at boot or at a login, and only root's jobs run before a login (factorium#287). So the first `factorium` command run after the boot loads it, unless `factorium stop` stopped it.",
+    "source": "README.md:26"
+  },
   "e87d32e6357e": {
     "mark": "promise",
     "sentence": "It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written.",
     "source": "SPEC.md:33"
+  },
+  "e923ae7a4aa5": {
+    "mark": "not",
+    "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a login that refreshes is bound to one machine (which account a worker starts on is stablehand's pick now, §1.7); admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
+    "source": "SPEC.md:561",
+    "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
   "ea300ca7d549": {
     "mark": "promise",
@@ -440,6 +541,11 @@
   "ee84ad56b950": {
     "mark": "promise",
     "sentence": "It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick.",
+    "source": "SPEC.md:46"
+  },
+  "f4743d2d491c": {
+    "mark": "promise",
+    "sentence": "It is refused when the base declares no `[idle]`, and while idle work of any checkout runs or waits on the host, naming that entry and `factorium unqueue <id>`. **Off on a host**: `[idle]` lives in the repo, so every host with a checkout of it would run it and file the same tasks into its own tracker.",
     "source": "SPEC.md:46"
   },
   "f4cb25b8878b": {

@@ -1095,3 +1095,91 @@ name = "tag-only-after-signed-run"
 says = "Only after the step passes does the daemon tag"
 source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:45"
 check = ["test"]
+
+[[promise]]
+name = "shortest-hold-first"
+says = "the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves"
+source = "SPEC.md:39"
+check = ["test"]
+why = "factorium has no `truefit sim`, and models/HeavyQueue.tla orders oldest first only; the order is one pure function (neutral/queue.rs next) of the entries one tick reads, and order.rs and resource.rs drive short, long and starved holds through it"
+
+[[promise]]
+name = "slots-at-most-n"
+says = "`slots = n`: n holders at most (1 is a mutex)"
+source = "SPEC.md:39"
+check = ["test"]
+why = "factorium has no `truefit sim`, and models/HeavyQueue.tla has no named resource; a start is decided by one tick under the daemon's lock from the held entries (neutral/queue.rs may_start), and resource.rs runs two asking for one slot one after the other"
+
+[[promise]]
+name = "resources-all-or-none"
+says = "granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another"
+source = "SPEC.md:39"
+check = ["test"]
+why = "factorium has no `truefit sim`, and models/HeavyQueue.tla has no named resource; the grant is one decision of one tick over every resource asked for, and resource.rs runs one asking for two while another holds one of them"
+
+[[promise]]
+name = "hold-window-and-release"
+says = "with `--between 22:00-07:00` (the host's local time, every day; an overnight run on the charger) it is passed over outside its window, joining the line only inside it, its starve bound counted from the window's opening; granted, it outlives its waiter until `worker release <name>` or its worker ends, and the worker's own commands asking for what it holds run inside it, taking no slot of their own"
+source = "SPEC.md:39"
+check = ["test"]
+
+[[promise]]
+name = "hold-never-cut-short"
+says = "A hold is never cut short, whatever the hold bound; past its declared until it is a finding for the watch, as a silent worker is."
+source = "SPEC.md:39"
+check = ["test"]
+
+[[promise]]
+name = "failed-cut-holds-later-cuts"
+says = "until then none of the checkout's other moves is carried (factorium#242). A failed cut holds every later cut of its checkout until one of three"
+source = "SPEC.md:44"
+check = ["test"]
+
+[[promise]]
+name = "no-finding-unlooked"
+says = "No finding stays standing after its round with nobody looking at it"
+source = "SPEC.md:45"
+check = ["test"]
+
+[[promise]]
+name = "tell-ends-the-wait"
+says = "a word that sends the worker back to work never leaves it waiting, its `done` refused (factorium#268)"
+source = "SPEC.md:45"
+check = ["test"]
+why = "`watch tell` to a waiting worker is one command that ends the wait and types the word in one step, whatever the daemon's ticks do; watch.rs tells a waiting worker and lands its `done`"
+
+[[promise]]
+name = "idle-by-hand-refused"
+says = "It is refused when the base declares no `[idle]`, and while idle work of any checkout runs or waits on the host, naming that entry and `factorium unqueue <id>`."
+source = "SPEC.md:46"
+check = ["test"]
+
+[[promise]]
+name = "every-block-says-why"
+says = "`--blocked-by` and `issue block --by` are refused without `--why <text>`"
+source = "SPEC.md:66"
+check = ["test"]
+
+[[promise]]
+name = "old-block-no-reason-given"
+says = "A block made before whys were asked for reads \"(no reason given)\"."
+source = "SPEC.md:71"
+check = ["test"]
+
+[[promise]]
+name = "older-store-read-as-it-is"
+says = "A store written by an older binary is read by a newer one as it is: no script is run by hand"
+source = "SPEC.md:268"
+check = ["test"]
+
+[[promise]]
+name = "installs-only-at-its-cut"
+says = "a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then"
+source = "SPEC.md:368"
+check = ["test"]
+
+[[promise]]
+name = "command-loads-lost-service"
+says = "So the first `factorium` command run after the boot loads it, unless `factorium stop` stopped it."
+source = "README.md:26"
+check = ["test"]
