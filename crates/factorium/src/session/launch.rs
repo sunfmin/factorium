@@ -10,10 +10,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use factorium_domain::kit::{Choice, Kit, Kits, kit_id};
+use factorium_domain::kit::{Choice, Kit, Kits, Picked, kit_id};
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{NoteRoleTold, RoleRead, TellRole, Workers};
-use factorium_harness::account::{self, Here};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::{Uuid, Value};
 use serde_json::json;
@@ -168,8 +167,11 @@ pub(crate) struct Pick {
     pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) command: String,
+    /// The account's bound login's home, where its sessions keep their
+    /// files; `None`: no account, or a portable login.
+    pub(crate) home: Option<PathBuf>,
     /// The account's environment, kept off the terminal's command line.
-    pub(crate) secrets: Vec<(&'static str, String)>,
+    pub(crate) secrets: Vec<(String, String)>,
 }
 
 /// A session opened: its terminal, the brief it was handed, and the line to
@@ -190,11 +192,6 @@ fn io(e: std::io::Error) -> Refusal {
 }
 
 impl App {
-    /// The accounts mytokens holds, as this machine can use them now.
-    pub(crate) fn accounts_here(&self) -> Here {
-        account::here(&|args| self.host.mytokens(args), &self.host.home())
-    }
-
     /// The watch's home and the brief its session is handed there.
     pub(crate) fn watch_home(&self) -> (PathBuf, PathBuf) {
         (self.data().watch(), self.data().watch_brief())
@@ -212,35 +209,51 @@ impl App {
     }
 
     /// What a session for `checkout` (the watch: `""`) starts on now, on
-    /// `account` where its issue names one; refused `no_harness` when nothing
-    /// of the kit can.
+    /// `account` where its issue names one (unless stablehand's pick of its
+    /// engine passed it over); refused `no_harness` when nothing of the kit
+    /// can.
     pub(crate) async fn pick(&self, checkout: &str, account: Option<&str>) -> Answer<Pick> {
-        self.pick_by(|kit, now, here| match account {
-            Some(account) => kit.choose_on(checkout, account, now, here),
-            None => kit.choose(checkout, now, here),
+        let engine = match account {
+            Some(a) => {
+                let kept = self.kept_account(a).map_err(|r| Refusal::new("no_harness", r.message))?;
+                if let Some(why) = kept.unusable {
+                    return Err(Refusal::new("no_harness", format!("account {a} cannot be used here: {why}")));
+                }
+                Some(kept.engine)
+            }
+            None => None,
+        };
+        self.pick_by(|kit, now, pick| match (account, &engine) {
+            (Some(a), Some(e)) => kit.choose_on(checkout, a, e, &pick(e)?),
+            _ => kit.choose(checkout, now, pick),
         })
         .await
     }
 
-    /// What a session starts on now, as `choose` chooses from the kit and
-    /// the accounts here (name, harness); refused `no_harness` when it cannot.
+    /// What a session starts on now, as `choose` chooses from the kit, the
+    /// time and stablehand's pick of an engine, told the sessions factorium
+    /// runs on each account; refused `no_harness` when it cannot. Its
+    /// account's environment is stablehand's (`stablehand env`).
     pub(crate) async fn pick_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &[(String, String)]) -> Result<Choice, String>,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
     ) -> Answer<Pick> {
         let kit = self.state::<Kits>(kit_id()).await?;
-        let accounts = self.accounts_here().usable;
-        let here: Vec<(String, String)> = accounts.iter().map(|a| (a.name.clone(), a.harness.key().into())).collect();
-        let choice = choose(&kit, self.now(), &here).map_err(fail("no_harness"))?;
+        let running = self.running().await?;
+        let choice =
+            choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))?;
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
-        let secrets = choice
-            .account
-            .as_ref()
-            .and_then(|a| accounts.into_iter().find(|u| &u.name == a))
-            .map(|u| u.env)
-            .unwrap_or_default();
-        Ok(Pick { harness, account: choice.account, model: choice.entry.model, command: choice.entry.command, secrets })
+        let (home, secrets) = match &choice.account {
+            Some(a) => {
+                let home = self.account_home(a);
+                let env = self.account_env(a, home.as_deref()).map_err(|r| Refusal::new("no_harness", r.message))?;
+                (home, env)
+            }
+            None => (None, Vec::new()),
+        };
+        let (model, command) = (choice.entry.model, choice.entry.command);
+        Ok(Pick { harness, account: choice.account, home, model, command, secrets })
     }
 
     /// Opens a terminal running a session of `role` on `pick`, its brief
@@ -275,7 +288,7 @@ impl App {
         env.push(("PATH", session.path().to_string()));
         let (dir_text, worktree_text, brief_text) =
             (dir.to_string_lossy(), worktree.to_string_lossy(), brief.to_string_lossy());
-        let (home, user_home) = (self.session_home(pick.harness, pick.account.as_deref()), self.host.home());
+        let (home, user_home) = (self.home_at(pick.harness, pick.home.as_deref()), self.host.home());
         let start = Start {
             command: &pick.command,
             dir: &dir_text,
@@ -399,7 +412,7 @@ impl Drop for SessionEnv {
 }
 
 /// Writes `secrets` to a new file only this user may read: its path.
-fn write_secrets(app: &App, secrets: &[(&'static str, String)]) -> Answer<String> {
+fn write_secrets(app: &App, secrets: &[(String, String)]) -> Answer<String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let dir = app.data().secrets();
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(io)?;

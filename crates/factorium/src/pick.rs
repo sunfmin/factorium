@@ -100,7 +100,7 @@ impl App {
         loop {
             let asks =
                 |key: &str| !failed.iter().any(|(h, _)| h == key) && Harness::read(key).is_some_and(Harness::asks);
-            let on = match self.pick_by(|kit, now, here| kit.choose_picker(&st.harness, asks, now, here)).await {
+            let on = match self.pick_by(|kit, now, pick| kit.choose_picker(&st.harness, asks, now, pick)).await {
                 Ok(on) => on,
                 Err(none) => return Err(last.unwrap_or(none)),
             };
@@ -191,7 +191,7 @@ impl App {
         let home = self.host.home();
         if again.is_none() {
             std::fs::create_dir_all(&user_dir).map_err(io)?;
-            on.harness.ask_home(&home, on.account.as_deref(), &user_dir).map_err(fail(&failed))?;
+            on.harness.ask_home(&home, on.home.as_deref(), &user_dir).map_err(fail(&failed))?;
         }
         std::fs::write(&q, question).map_err(io)?;
         // Dropped once the ask is done, as it ends: no secrets file outlives it.

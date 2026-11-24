@@ -49,8 +49,16 @@ impl Session {
 }
 
 impl App {
-    /// Where a session of `harness` on `account` keeps its files.
+    /// Where a session of `harness` on `account` keeps its files: its bound
+    /// login's home, as stablehand keeps it, if it has one. One stablehand
+    /// cannot answer for is read as a portable login's.
     pub(crate) fn session_home(&self, harness: Harness, account: Option<&str>) -> Home {
+        self.home_at(harness, account.and_then(|a| self.account_home(a)).as_deref())
+    }
+
+    /// Where a session of `harness` keeps its files, on the account whose
+    /// bound login's home is `account`, if one.
+    pub(crate) fn home_at(&self, harness: Harness, account: Option<&std::path::Path>) -> Home {
         harness.home(&self.host.home(), account, &self.data().kept(harness.key()))
     }
 

@@ -40,7 +40,7 @@ fn sh(dir: &Path, line: &str) {
 /// The programs through which the binary reaches the host's own service and
 /// sessions: each a stub that fails, so no test stops, opens or reads the
 /// real ones (a test's `stop` once booted out the host's daemon).
-const HOST_PROGRAMS: [&str; 4] = ["launchctl", "orca", "mytokens", "brew"];
+const HOST_PROGRAMS: [&str; 4] = ["launchctl", "orca", "stablehand", "brew"];
 
 /// The binary on `dir`'s database (`XDG_DATA_HOME`) and an empty `HOME` (a
 /// fresh host), in no role, with [`HOST_PROGRAMS`] stubbed out.
@@ -708,10 +708,9 @@ fn the_daemon_looks_for_the_kit_s_programs_on_its_path_at_its_start() {
 fn a_program_s_answer_is_read_as_it_printed_it() {
     let dir = Dir::new();
     let _ = bin(&dir);
-    let token = r#"{"fields":{"HARNESS":"claude-code","CLAUDE_CODE_OAUTH_TOKEN":"t"}}"#;
-    let script =
-        format!("#!/bin/sh\ncase \"$1\" in list) echo 'agent-account-team/x' ;; get) echo '{token}' ;; esac\n");
-    let stub = dir.0.join("stubs").join("mytokens");
+    let status = r#"{"accounts":[{"name":"team","engine":"claude-code","pace":"steady"}]}"#;
+    let script = format!("#!/bin/sh\ncase \"$1\" in status) echo '{status}' ;; *) exit 1 ;; esac\n");
+    let stub = dir.0.join("stubs").join("stablehand");
     std::fs::write(&stub, script).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();

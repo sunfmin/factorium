@@ -505,18 +505,16 @@ impl App {
     }
 
     /// Refuses `on` unless its role is a directory named by its absolute
-    /// path and its account one mytokens holds that this host can use.
+    /// path and its account one stablehand keeps that a session may start
+    /// on here (`stablehand account show`).
     fn on_here(&self, on: &On) -> Answer<()> {
         self.role_here(on.role.as_deref())?;
         if let Some(account) = &on.account {
-            let here = self.accounts_here();
-            if !here.usable.iter().any(|u| &u.name == account) {
-                let skipped = here
-                    .skipped
-                    .iter()
-                    .find(|s| s.secret == format!("{}{account}", factorium_harness::account::PREFIX));
-                let why = skipped.map_or("mytokens holds no such account".to_string(), |s| s.why.clone());
-                return Err(Refusal::new("no_account", format!("account {account} cannot be used here: {why}")));
+            let refused =
+                |why: String| Refusal::new("no_account", format!("account {account} cannot be used here: {why}"));
+            let kept = self.kept_account(account).map_err(|r| refused(r.message))?;
+            if let Some(why) = kept.unusable {
+                return Err(refused(why));
             }
         }
         Ok(())

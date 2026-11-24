@@ -88,12 +88,13 @@ impl Harness {
     /// linked — the `account`'s, else the host user's under `user_home` —
     /// and the files it is asked with; nothing else of either home, so no
     /// hook, memory, skill or setting of theirs. A link, so a login renewed
-    /// there stays fresh in both places.
-    pub fn ask_home(self, user_home: &Path, account: Option<&str>, fresh: &Path) -> Result<(), String> {
+    /// there stays fresh in both places. `account`: the home of the bound
+    /// login it is asked on (stablehand's), if one.
+    pub fn ask_home(self, user_home: &Path, account: Option<&Path>, fresh: &Path) -> Result<(), String> {
         let (Some(h), Login::Machine { .. }) = (self.headless(), self.login()) else { return Ok(()) };
         let link = self.links().first().ok_or_else(|| format!("{} names no login file", self.key()))?;
         let login = match account {
-            Some(name) => crate::account::login_home(user_home, name).join(link.kept),
+            Some(home) => home.join(link.kept),
             None => user_home.join(link.home),
         };
         if !login.exists() {

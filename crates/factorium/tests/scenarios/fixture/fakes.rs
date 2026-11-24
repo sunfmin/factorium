@@ -1,4 +1,4 @@
-//! The machine a scenario runs on: Orca, Homebrew, mytokens, slimfit and launchd as
+//! The machine a scenario runs on: Orca, Homebrew, stablehand, slimfit and launchd as
 //! programs whose answers the scenario gives, ssh to the other hosts it
 //! knows, the host's readings and processes, and its one clock. Git is real.
 
@@ -537,6 +537,257 @@ impl FakeRolesmith {
     }
 }
 
+/// stablehand as a scenario has it: its register of engine accounts and the
+/// limits sessions reported, answering as stablehand does what factorium
+/// asks (`pick`, `env`, `limit`, `status`, `account show`), and what a case
+/// sets up with (`account add`, `account login`). It reads no engine: an
+/// account has no windows, so a pick is by name of those that can take one
+/// more session.
+#[derive(Default)]
+pub struct FakeStablehand {
+    /// Each account, by name.
+    pub accounts: BTreeMap<String, FakeAccount>,
+    /// Each account a session met the limit of → until when (ms); `None`:
+    /// until its next reading.
+    pub limits: BTreeMap<String, Option<i64>>,
+}
+
+/// An account as stablehand keeps it.
+#[derive(Clone, Debug, Default)]
+pub struct FakeAccount {
+    pub engine: String,
+    /// The machine its bound login lives on; `None`: a portable login.
+    pub machine: Option<String>,
+    pub home: Option<String>,
+    pub sessions: Option<u32>,
+    pub off: bool,
+    pub logged_in: bool,
+    /// A portable login's token, as sesame keeps it.
+    pub token: Option<String>,
+}
+
+/// The variable each engine's bound login reads for its home, and the one
+/// its token goes in, as `stablehand env --help` lists them.
+fn engine_vars(engine: &str) -> Option<(&'static str, Option<&'static str>)> {
+    Some(match engine {
+        "claude-code" => ("CLAUDE_CONFIG_DIR", Some("CLAUDE_CODE_OAUTH_TOKEN")),
+        "codex" => ("CODEX_HOME", None),
+        "pi" => ("PI_CODING_AGENT_DIR", None),
+        "kimi" => ("KIMI_CODE_HOME", None),
+        "agy" => ("HOME", None),
+        "grok" => ("GROK_HOME", None),
+        "dsh" => ("DSH_HOME", None),
+        _ => return None,
+    })
+}
+
+/// This machine as stablehand names it: `$STABLEHAND_MACHINE`, else
+/// `hostname -s`.
+fn stablehand_machine() -> String {
+    std::env::var("STABLEHAND_MACHINE").unwrap_or_else(|_| {
+        let out = Command::new("hostname").arg("-s").output().unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    })
+}
+
+impl FakeStablehand {
+    /// A portable account `name` of `engine`, logged in with `token`.
+    pub fn portable(&mut self, name: &str, engine: &str, token: &str) {
+        let sessions = (engine == "claude-code").then_some(2);
+        let account = FakeAccount {
+            engine: engine.into(),
+            sessions,
+            logged_in: true,
+            token: Some(token.into()),
+            ..FakeAccount::default()
+        };
+        self.accounts.insert(name.into(), account);
+    }
+
+    /// An account `name` of `engine` whose login is bound to `machine`,
+    /// its home `home`, logged in there.
+    pub fn bound(&mut self, name: &str, engine: &str, machine: &str, home: &Path) {
+        let home = Some(home.display().to_string());
+        let sessions = (engine == "claude-code").then_some(2);
+        let account = FakeAccount {
+            engine: engine.into(),
+            machine: Some(machine.into()),
+            home,
+            sessions,
+            logged_in: true,
+            ..FakeAccount::default()
+        };
+        self.accounts.insert(name.into(), account);
+    }
+
+    /// A reading of `name`: a limit that waited for one lifts.
+    pub fn read(&mut self, name: &str) {
+        if self.limits.get(name) == Some(&None) {
+            self.limits.remove(name);
+        }
+    }
+
+    fn answer(&mut self, args: &[&str], now: i64) -> Said {
+        let ok = |out: Value| Said { ok: true, out: out.to_string(), err: String::new() };
+        let refused = |code: &str, error: String| Said {
+            ok: false,
+            out: json!({ "error": error, "code": code }).to_string(),
+            err: String::new(),
+        };
+        let no_account = |name: &str| {
+            refused("no_account", format!("no account `{name}`: `stablehand account list` names those kept"))
+        };
+        let flag = |name: &str| args.iter().position(|a| *a == name).and_then(|i| args.get(i + 1)).copied();
+        match args {
+            ["account", "add", name, ..] => {
+                let Some(engine) = flag("--engine").filter(|e| engine_vars(e).is_some()) else {
+                    return refused("usage", "an engine stablehand knows".into());
+                };
+                if self.accounts.contains_key(*name) {
+                    return refused("name_taken", format!("an account `{name}` is kept already"));
+                }
+                let sessions =
+                    flag("--sessions").and_then(|s| s.parse().ok()).or((engine == "claude-code").then_some(2));
+                let (machine, home) = (flag("--machine").map(String::from), flag("--home").map(String::from));
+                let account = FakeAccount { engine: engine.into(), machine, home, sessions, ..FakeAccount::default() };
+                self.accounts.insert(name.to_string(), account);
+                ok(json!({ "account": self.shown(name) }))
+            }
+            ["account", "login", name] => {
+                let Some(a) = self.accounts.get_mut(*name) else { return no_account(name) };
+                match &a.machine {
+                    Some(m) if *m != stablehand_machine() => {
+                        refused("login_refused", format!("account `{name}`'s login is bound to {m}"))
+                    }
+                    Some(_) if a.home.is_none() => refused("login_refused", format!("account `{name}` has no home")),
+                    Some(_) => {
+                        a.logged_in = true;
+                        ok(self.show(name))
+                    }
+                    None => refused("login_refused", "a portable login's token is sesame's".into()),
+                }
+            }
+            ["account", "show", name] => match self.accounts.contains_key(*name) {
+                true => ok(self.show(name)),
+                false => no_account(name),
+            },
+            ["env", name, "--json"] => {
+                let Some(a) = self.accounts.get(*name) else { return no_account(name) };
+                let Some((home_var, token_var)) = engine_vars(&a.engine) else {
+                    return refused("fault", "no engine".into());
+                };
+                let no_session = |why: String| Said { ok: false, ..refused("no_session", why) };
+                if a.off || !a.logged_in {
+                    return no_session(format!("account `{name}` is not logged in"));
+                }
+                let env = match (&a.machine, &a.home, token_var, &a.token) {
+                    (Some(m), _, _, _) if *m != stablehand_machine() => {
+                        return no_session(format!("account `{name}` is bound to {m}"));
+                    }
+                    (Some(_), Some(home), _, _) => json!({ home_var: home }),
+                    (Some(_), None, _, _) => return no_session(format!("account `{name}` has no home")),
+                    (None, _, Some(var), Some(token)) => json!({ var: token }),
+                    (None, ..) => return no_session(format!("account `{name}` is not logged in")),
+                };
+                let login = if a.machine.is_some() { "bound" } else { "portable" };
+                ok(json!({ "name": name, "login": login, "env": env }))
+            }
+            ["limit", name, ..] => {
+                if !self.accounts.contains_key(*name) {
+                    return no_account(name);
+                }
+                let resets = match flag("--resets-at") {
+                    Some(t) => match factorium_domain::when::parse(t) {
+                        Ok(ms) if ms > now => Some(ms),
+                        _ => return refused("bad_limit", format!("`{t}` is no RFC 3339 time to come")),
+                    },
+                    None => None,
+                };
+                self.limits.insert(name.to_string(), resets);
+                let at = factorium_domain::when::utc(now);
+                let window = flag("--window");
+                ok(
+                    json!({ "limit": { "account": name, "at": at, "window": window, "resets_at": resets.map(factorium_domain::when::utc) } }),
+                )
+            }
+            ["pick", ..] => self.pick(flag("--engine"), flag("--machine"), flag("--running"), now),
+            ["status"] | ["status", _] => {
+                let only = args.get(1);
+                let accounts: Vec<Value> = (self.accounts.iter())
+                    .filter(|(n, _)| only.is_none_or(|o| o == n))
+                    .map(|(n, a)| {
+                        let limit = self.limits.get(n).filter(|l| l.is_none_or(|t| t > now));
+                        let limit = limit.map(|l| json!({ "resets_at": l.map(factorium_domain::when::utc), "window": null }));
+                        let pace = if limit.is_some() { "used_up" } else { "steady" };
+                        json!({ "name": n, "engine": a.engine, "off": a.off, "pace": pace, "limit": limit, "windows": [], "balances": [] })
+                    })
+                    .collect();
+                ok(json!({ "accounts": accounts }))
+            }
+            _ => refused("usage", format!("no stand-in for {args:?}")),
+        }
+    }
+
+    /// `account show`'s `account` of `name`.
+    fn shown(&self, name: &str) -> Value {
+        let a = &self.accounts[name];
+        let login = if a.machine.is_some() { "bound" } else { "portable" };
+        json!({ "name": name, "engine": a.engine, "login": login, "machine": a.machine, "home": a.home, "sessions": a.sessions, "off": a.off.then_some("off") })
+    }
+
+    /// What `account show` answers of `name`.
+    fn show(&self, name: &str) -> Value {
+        json!({ "account": self.shown(name), "logged_in": self.accounts[name].logged_in })
+    }
+
+    /// `pick --engine <engine> --machine <machine> --running <running>`.
+    fn pick(&self, engine: Option<&str>, machine: Option<&str>, running: Option<&str>, now: i64) -> Said {
+        let Some(engine) = engine.filter(|e| engine_vars(e).is_some()) else {
+            return Said {
+                ok: false,
+                out: json!({ "error": "no engine", "code": "usage" }).to_string(),
+                err: String::new(),
+            };
+        };
+        let machine = machine.map_or_else(stablehand_machine, String::from);
+        let mut counts = BTreeMap::new();
+        for pair in running.into_iter().flat_map(|r| r.split(',')).filter(|p| !p.is_empty()) {
+            let (name, n) = pair.split_once('=').unwrap_or((pair, "0"));
+            if !self.accounts.contains_key(name) {
+                let error = format!("no account `{name}`: `stablehand account list` names those kept");
+                return Said {
+                    ok: false,
+                    out: json!({ "error": error, "code": "no_account" }).to_string(),
+                    err: String::new(),
+                };
+            }
+            counts.insert(name, n.parse::<u32>().unwrap_or(0));
+        }
+        let mut why = Vec::new();
+        for (name, a) in self.accounts.iter().filter(|(_, a)| a.engine == engine) {
+            let limit = self.limits.get(name).copied().filter(|l| l.is_none_or(|t| t > now));
+            let (reason, until) = if a.off {
+                ("off", None)
+            } else if a.machine.as_ref().is_some_and(|m| *m != machine) {
+                ("elsewhere", None)
+            } else if !a.logged_in {
+                ("not_logged_in", None)
+            } else if let Some(until) = limit {
+                ("limit", until)
+            } else if a.sessions.is_some_and(|s| counts.get(name.as_str()).copied().unwrap_or(0) >= s) {
+                ("full", None)
+            } else {
+                let out = json!({ "account": name }).to_string();
+                return Said { ok: true, out, err: String::new() };
+            };
+            let until = until.map(factorium_domain::when::utc);
+            why.push(json!({ "account": name, "reason": reason, "why": format!("{name}: {reason}"), "until": until }));
+        }
+        let until = why.iter().filter_map(|u| u["until"].as_str().map(String::from)).min();
+        Said { ok: true, out: json!({ "none": true, "until": until, "why": why }).to_string(), err: String::new() }
+    }
+}
+
 /// The machine as a scenario has it.
 pub struct FakeHost {
     pub orca: FakeOrca,
@@ -545,8 +796,8 @@ pub struct FakeHost {
     pub procs: Mutex<Vec<Proc>>,
     /// Runs each time the processes are read, as every tick does.
     pub reading_procs: Mutex<Option<Box<dyn Fn() + Send>>>,
-    /// mytokens: service → what `get --json` prints.
-    pub tokens: Mutex<BTreeMap<String, String>>,
+    /// stablehand: its accounts and the limits reported.
+    pub stablehand: Mutex<FakeStablehand>,
     /// slimfit: its whole command line, else its subcommand → what it prints
     /// (`help picker`, `help reviewer`, `check`).
     pub slimfit: Mutex<BTreeMap<String, String>>,
@@ -585,7 +836,7 @@ impl FakeHost {
     pub fn at(root: &Path, clock: Arc<ManualClock>, reading: Reading) -> FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
-        let (tokens, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
+        let (stablehand, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
         let sleeps_take = Default::default();
         let (lingers, dropping, hosts, rolesmith) = Default::default();
         let reading = Mutex::new(reading);
@@ -595,7 +846,7 @@ impl FakeHost {
             reading,
             procs,
             reading_procs,
-            tokens,
+            stablehand,
             slimfit,
             rolesmith,
             missing,
@@ -639,15 +890,7 @@ impl Programs for FakeHost {
         match program {
             "orca" => self.orca.answer(&self.root, args),
             "brew" => self.brew.lock().unwrap().answer(&self.root, args),
-            "mytokens" => {
-                let t = self.tokens.lock().unwrap();
-                let out = match args {
-                    ["list"] => Some(t.keys().cloned().collect::<Vec<_>>().join("\n")),
-                    ["get", service, "--json"] => t.get(*service).cloned(),
-                    _ => None,
-                };
-                Said { ok: out.is_some(), out: out.unwrap_or_default(), err: "no such secret".into() }
-            }
+            "stablehand" => self.stablehand.lock().unwrap().answer(args, self.clock.now()),
             "slimfit" => {
                 let said = self.slimfit.lock().unwrap();
                 // A refusal is printed as slimfit prints one: `{"error": …}`, exit 2.

@@ -1,7 +1,8 @@
 //! The host's effects: git, Orca's terminals, shell commands under a limit,
-//! the host's readings, its processes, mytokens and Homebrew. Every one the
-//! app reaches through [`Host`] so that a scenario stands in for it; git and
-//! shell commands are always real. Orca, Homebrew and mytokens are programs
+//! the host's readings, its processes, and the programs the app reads the
+//! answers of. Every one the app reaches through [`Host`] so that a scenario
+//! stands in for it; git and shell commands are always real. Orca, Homebrew
+//! and stablehand are programs
 //! whose answers the app reads: a scenario stands in for the programs, never
 //! for what is made of their answers.
 
@@ -24,7 +25,8 @@ pub use shell::{PLACE, Priority, Programs, Ran, Said, System, end, run};
 
 /// What the app asks of the machine beyond git and the shell.
 pub trait Host: Send + Sync {
-    /// The programs the app runs and reads the answers of: orca, brew, mytokens.
+    /// The programs the app runs and reads the answers of: orca, brew,
+    /// stablehand, rolesmith, slimfit.
     fn programs(&self) -> &dyn Programs;
     /// The host's reading now.
     fn reading(&self) -> Reading;
@@ -52,12 +54,6 @@ impl dyn Host + '_ {
     /// Homebrew.
     pub fn brew(&self) -> Brew<'_> {
         Brew(self.programs())
-    }
-
-    /// What `mytokens <args>` printed, or why it failed (never what it printed).
-    pub fn mytokens(&self, args: &[&str]) -> Result<String, String> {
-        let said = self.programs().run("mytokens", args);
-        said.result("mytokens", args).map_err(|_| format!("mytokens {} failed", args.first().unwrap_or(&"")))
     }
 }
 

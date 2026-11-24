@@ -264,22 +264,9 @@ impl Harness {
         each!(self, |K| command::<K>(given))
     }
 
-    /// The line a person runs on a login account's machine to log it in
-    /// once, its home being `home`: the harness, told that home.
-    pub(crate) fn login_line(self, home: &Path) -> String {
-        let Login::Machine { user_dir } = self.login() else { return String::new() };
-        crate::line::login(user_dir, &home.to_string_lossy(), self.key())
-    }
-
     /// How an account of it is logged in.
     pub(crate) const fn login(self) -> Login {
         each!(self, |K| K::LOGIN)
-    }
-
-    /// The file under its user configuration whose being there means it is
-    /// logged in.
-    pub(crate) fn login_file(self) -> Option<&'static str> {
-        each!(self, |K| K::KEPT_LINKS).first().map(|link| link.kept)
     }
 
     /// The host user's files its kept directory links, its login first.
@@ -288,14 +275,15 @@ impl Harness {
     }
 
     /// Where its sessions keep their files on this host, decided once from
-    /// the host user's home `user_home`, the session's `account` and the
-    /// directory `kept` this host keeps for the harness: a login account's
-    /// own home, where its login is; else its own directory under the host
-    /// user's home where it has one, else the kept directory.
-    pub fn home(self, user_home: &Path, account: Option<&str>, kept: &Path) -> Home {
-        Home::new(match (account, self.login(), each!(self, |K| K::USER_HOME)) {
-            (Some(name), Login::Machine { .. }, _) => crate::account::login_home(user_home, name),
-            (_, _, Some(dir)) => user_home.join(dir),
+    /// the host user's home `user_home`, the home `account` of the bound
+    /// login its session starts on (stablehand's, where its login is), if
+    /// one, and the directory `kept` this host keeps for the harness: that
+    /// account's home; else its own directory under the host user's home
+    /// where it has one, else the kept directory.
+    pub fn home(self, user_home: &Path, account: Option<&Path>, kept: &Path) -> Home {
+        Home::new(match (account, each!(self, |K| K::USER_HOME)) {
+            (Some(home), _) => home.to_path_buf(),
+            (_, Some(dir)) => user_home.join(dir),
             _ => kept.to_path_buf(),
         })
     }

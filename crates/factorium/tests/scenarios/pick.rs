@@ -59,9 +59,8 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         assert_eq!(wk["harness"], on);
         // The worker's own harness runs on an account: so does its picker, its secret by a file.
         let account = if first.is_some() { "the host's own login" } else { "team" };
-        let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-it's"}});
         if first.is_none() {
-            w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
+            w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-it's");
         }
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
@@ -202,8 +201,7 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
     ];
     crate::fixture::each(&cases, |(then, text, code)| async move {
         let (w, wk, _) = changed(None, then, text).await;
-        let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-1"}});
-        w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
+        w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-1");
         w.app.settings_set(Some("pick_bound"), Some(1)).await.unwrap();
         refused(w.app.worker_pick_mutants(id(&wk)).await, code);
         assert_eq!(kept(&w).await, Vec::<Value>::new(), "{code}: nothing is kept of it");
@@ -230,8 +228,7 @@ async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_ta
         let (grouped, full, text) = (grouped.to_string(), full.to_string(), pick(name));
         async move {
             let (w, wk, picker) = changed(None, "", &text).await;
-            let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": "sk-1"}});
-            w.host.tokens.lock().unwrap().insert("agent-account-team".into(), fields.to_string());
+            w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-1");
             let dir = worktree(&wk).display().to_string();
             {
                 let mut said = w.host.slimfit.lock().unwrap();

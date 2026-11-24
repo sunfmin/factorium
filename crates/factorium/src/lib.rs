@@ -3,6 +3,7 @@
 //! call and prints the answer as JSON. Scenarios drive `App` the same way,
 //! so what they see is what the CLI prints.
 
+mod accounts;
 mod daemon;
 mod data;
 mod doctor;
@@ -152,7 +153,6 @@ fn model() -> Model {
         .aggregate::<kit::Kits>()
         .command::<kit::SetTheKit>()
         .command::<kit::PinCheckout>()
-        .command::<kit::LimitAccount>()
         .command::<kit::LimitHarness>()
         .aggregate::<settings::HostSettings>()
         .command::<settings::SetSetting>()

@@ -185,8 +185,6 @@ impl App {
         let unstarted = doctor::unstarted(&seen, &settings, self.now());
         let holds: Vec<_> =
             seen.lines.iter().filter_map(|l| Some((l.checkout.clone(), l.line.held.clone()?))).collect();
-        let skipped: Vec<Value> =
-            self.accounts_here().skipped.into_iter().map(|s| json!({ "secret": s.secret, "why": s.why })).collect();
         let parked: Vec<Value> = (seen.waiting.iter().filter(|w| !w.parked.is_empty()))
             .map(|w| json!({ "worker": w.worker, "issue": w.issue, "why": w.why, "waits_for": w.parked }))
             .collect();
@@ -221,8 +219,6 @@ impl App {
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         let mut view = json!({
-            // The engine accounts no session can start on here, and why.
-            "accounts_skipped": skipped,
             "heavy": seen.queue.entries,
             // Each resource a heavy entry holds or waits for: its holder (since, until it
             // declared) and those waiting for it, in the order they start: each one's declared hold, its

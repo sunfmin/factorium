@@ -1,5 +1,5 @@
 # factorium's ties to the programs it drives (truefit ADR 0001). The
-# scenarios stand in for Orca, Homebrew, mytokens, slimfit, rolesmith and launchd in
+# scenarios stand in for Orca, Homebrew, stablehand, slimfit, rolesmith and launchd in
 # process (crates/factorium/tests/scenarios/fixture/fakes.rs); `standin`
 # (crates/factorium/examples/standin.rs) runs those very fakes, or the real
 # programs, through one driver, and prints what factorium reads of each
@@ -23,10 +23,9 @@
 # - Homebrew: `update`, and `install` / `upgrade` of a formula that exists,
 #   change the host's Homebrew; only answers about one no tap has, and
 #   reads of factorium's own install, run.
-# - mytokens: `list`, and `get` of a secret that exists: mytokens has no
-#   scratch vault, so either reads the host's own tokens. `get` of a
-#   secret nobody has runs (on a mytokens server it also tells the owner
-#   through Bark).
+# - stablehand: its real run keeps books of its own in the case's
+#   directory, never the host's; a portable login's token is sesame's, the
+#   host's own, so no case logs one in.
 # - launchd: only a scratch agent, `/usr/bin/true`, never run at load.
 
 [contract]
@@ -269,17 +268,53 @@ stdin = """
 """
 
 [[standin]]
-name = "mytokens"
+name = "stablehand"
 run = ["crates/factorium/tests/contract/standin", "fake"]
 real = ["crates/factorium/tests/contract/standin", "real"]
-needs = "mytokens on PATH"
-# The app's version: mytokens is a link into it, and has no --version.
-version = ["sh", "-c", 'b=$(readlink "$(command -v mytokens)"); echo "MyTokens $(defaults read "${b%/MacOS/*}/Info" CFBundleShortVersionString)"']
+needs = "stablehand on PATH"
+version = ["stablehand", "--version"]
 
+# What factorium reads of stablehand's answers about a bound login: which
+# account a pick takes, and each it passes over with its reason; what a
+# session on one starts with; a limit a screen showed, without a reset
+# and with one; the books as `status` says them; and the refusals of an
+# account it does not keep. The real one runs on books of the case's own
+# (standin's `{dir}/.stablehand`), its engine's login a stand-in in
+# `{dir}/bin` that only marks it logged in. A portable login's token is
+# sesame's, the host's own: no case logs one in.
 [[standin.case]]
-name = "no-such-secret"
+name = "bound"
 stdin = """
-{"run": ["mytokens", "get", "factorium-truefit-none", "--json"], "read": "out"}
+{"run": ["sh", "-c", "mkdir -p bin home/night home/later && printf '#!/bin/sh\\\\ntouch \\"$CODEX_HOME/auth.json\\"\\\\n' > bin/codex && chmod +x bin/codex"], "read": "ok"}
+{"run": ["stablehand", "account", "add", "night", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/night"], "read": ["/account/name", "/account/login", "/account/home"]}
+{"run": ["stablehand", "account", "add", "later", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/later", "--sessions", "1"], "read": ["/account/sessions"]}
+{"run": ["stablehand", "account", "add", "away", "--engine", "codex", "--machine", "truefit-elsewhere", "--home", "/nowhere"], "read": ["/account/machine"]}
+{"run": ["stablehand", "account", "show", "night"], "read": ["/account/engine", "/account/login", "/account/home", "/account/machine", "/account/off", "/logged_in"]}
+{"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}"], "read": ["/account", "/none", "/until", "/why/*/account", "/why/*/reason", "/why/*/until"]}
+{"run": ["stablehand", "env", "night", "--json"], "read": ["/env", "/code"]}
+{"run": ["stablehand", "account", "login", "night"], "read": ["/logged_in"]}
+{"run": ["stablehand", "account", "login", "later"], "read": ["/logged_in"]}
+{"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}"], "read": ["/account"]}
+{"run": ["stablehand", "env", "night", "--json"], "read": ["/env", "/login"]}
+{"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}", "--running", "night=3,later=1"], "read": ["/account"]}
+{"run": ["stablehand", "limit", "night"], "read": ["/limit/account", "/limit/resets_at", "/limit/window"]}
+{"run": ["stablehand", "limit", "later", "--resets-at", "2030-01-01T00:00:00Z"], "read": ["/limit/account", "/limit/resets_at"]}
+{"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}"], "read": ["/account", "/none", "/until", "/why/*/account", "/why/*/reason", "/why/*/until"]}
+{"run": ["stablehand", "status"], "read": ["/accounts/*/name", "/accounts/*/engine", "/accounts/*/pace", "/accounts/*/limit/resets_at"]}
+{"run": ["stablehand", "pick", "--engine", "kimi", "--machine", "{machine}"], "read": ["/account", "/none", "/until", "/why"]}
+"""
+
+# What it refuses factorium: an account it does not keep, by every
+# command factorium names one to, and a limit that lifted already.
+[[standin.case]]
+name = "no-account"
+stdin = """
+{"run": ["stablehand", "account", "add", "night", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home"], "read": "ok"}
+{"run": ["stablehand", "account", "show", "ghost"], "read": ["/code"]}
+{"run": ["stablehand", "env", "ghost", "--json"], "read": ["/code"]}
+{"run": ["stablehand", "limit", "ghost"], "read": ["/code"]}
+{"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}", "--running", "ghost=1"], "read": ["/code"]}
+{"run": ["stablehand", "limit", "night", "--resets-at", "2001-01-01T00:00:00Z"], "read": ["/code"]}
 """
 
 [[standin]]

@@ -20,10 +20,14 @@ pub fn write_session(w: &World, h: Harness, account: Option<&str>, cwd: &str, op
     write_session_in(w, h, account, cwd, &brief.to_string_lossy(), open, at);
 }
 
-/// The stand-in session of `h` run in `dir` and handed `brief`.
+/// The stand-in session of `h` run in `dir` and handed `brief`, on
+/// `account`: in its bound login's home, as stablehand keeps it.
 pub fn write_session_in(w: &World, h: Harness, account: Option<&str>, dir: &str, brief: &str, open: bool, at: u64) {
     let kept = w.data().kept(h.key());
-    h.write_session(&h.home(&w.host.home(), account, &kept), dir, brief, open, at).unwrap();
+    let books = w.host.stablehand.lock().unwrap();
+    let home = account.and_then(|a| books.accounts.get(a)?.home.clone()).map(std::path::PathBuf::from);
+    drop(books);
+    h.write_session(&h.home(&w.host.home(), home.as_deref(), &kept), dir, brief, open, at).unwrap();
 }
 
 impl World {

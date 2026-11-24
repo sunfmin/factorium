@@ -12,19 +12,20 @@
 //!   does. `read` is what is printed of the answer: `"ok"` (the default,
 //!   whether it succeeded), `"out"` (that and its stdout), or a list of
 //!   JSON pointers into its stdout, `*` standing for each item of an array
-//!   or object. Programs the scenarios stand in for (orca, brew, mytokens,
-//!   slimfit, launchctl, sleep, ssh) go to the fake; any other runs for real on
+//!   or object. Programs the scenarios stand in for (orca, brew, stablehand,
+//!   slimfit, rolesmith, launchctl, sleep, ssh) go to the fake; any other runs for real on
 //!   both sides (git, to make a case's repo).
 //! - `{"orca": method, "args": […]}`: calls factorium's own reader of Orca
 //!   (`factorium::host::Orca`) and prints what it made of the answers.
 //! - `{"world": {…}}`: sets what a scenario sets of the fake's world
-//!   (`tokens`, `slimfit`, `ssh`, `installed`, `tap`, `busy`, `unobserved`
+//!   (`slimfit`, `ssh`, `installed`, `tap`, `busy`, `unobserved`
 //!   and `background`); `real` skips it.
 //! - `"only": "fake" | "real"` on any step runs it on that side alone,
 //!   unprinted: how each side is brought to the same state.
 //! - `"keep": {"name": pointer}` keeps a value of the answer (`""`: its
 //!   whole trimmed stdout) as `{name}` in later steps, beside `{dir}` (the
-//!   working directory), `{uid}`, `{nonce}` (unique to the run) and
+//!   working directory), `{uid}`, `{nonce}` (unique to the run), `{machine}` (this one, as
+//!   `hostname -s` names it) and
 //!   `{scratch}`: the Orca cases' one repo per host (truefit.toml).
 //! - `{"scratch": branch}`: makes `{scratch}` if need be, keeps its head as
 //!   `{sha}`, and removes its worktrees on `branch` and the branch.
@@ -46,15 +47,25 @@ use fakes::FakeHost;
 use serde_json::{Value, json};
 
 /// What the scenarios stand in for: the rest is real on both sides.
-const FAKED: [&str; 8] = ["orca", "brew", "mytokens", "slimfit", "rolesmith", "launchctl", "sleep", "ssh"];
+const FAKED: [&str; 8] = ["orca", "brew", "stablehand", "slimfit", "rolesmith", "launchctl", "sleep", "ssh"];
 
-/// The programs a side runs: the fake's world, or the machine.
-struct Side(Option<FakeHost>);
+/// The programs a side runs: the fake's world, or the machine, where
+/// stablehand runs on books of the case's own (`{dir}/.stablehand`), never
+/// the host's, and finds the engines a case makes in `{dir}/bin` first.
+struct Side(Option<FakeHost>, PathBuf);
 
 impl Programs for Side {
     fn run(&self, program: &str, args: &[&str]) -> Said {
         match &self.0 {
             Some(fake) if FAKED.contains(&program) => fake.run(program, args),
+            None if program == "stablehand" => {
+                let path = format!("{}:{}", self.1.join("bin").display(), std::env::var("PATH").unwrap_or_default());
+                let mut command = std::process::Command::new(program);
+                command.args(args).env("STABLEHAND_CONFIG_DIR", self.1.join(".stablehand")).env("PATH", path);
+                let out = command.stdin(std::process::Stdio::null()).output().unwrap();
+                let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+                Said { ok: out.status.success(), out: text(&out.stdout), err: text(&out.stderr) }
+            }
             _ => System.run(program, args),
         }
     }
@@ -66,7 +77,6 @@ fn set(fake: &FakeHost, to: &Value) {
         let pairs = v.as_object().into_iter().flatten();
         pairs.map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect()
     };
-    fake.tokens.lock().unwrap().extend(strings(&to["tokens"]));
     fake.slimfit.lock().unwrap().extend(strings(&to["slimfit"]));
     let hosts = to["ssh"].as_object().into_iter().flatten();
     fake.hosts.lock().unwrap().extend(hosts.map(|(host, env)| (host.clone(), strings(env))));
@@ -180,18 +190,24 @@ fn main() {
         _ => panic!("usage: standin fake|real < steps"),
     };
     let dir: PathBuf = std::env::current_dir().unwrap();
-    let side = Side(fake.then(|| {
-        let reading = Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 };
-        let host = FakeHost::at(&dir, Arc::new(ManualClock::new(0)), reading);
-        if let Ok(fault) = std::env::var("TRUEFIT_FAULT") {
-            host.orca.fault(&fault, true);
-        }
-        host
-    }));
+    let side = Side(
+        fake.then(|| {
+            let reading = Reading { cpu_busy: 0, memory_free: 100, disk_free: 1, disk_total: 1 };
+            // Its clock reads the time a real program reads, so a time past for one is past for both.
+            let now = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as i64;
+            let host = FakeHost::at(&dir, Arc::new(ManualClock::new(now)), reading);
+            if let Ok(fault) = std::env::var("TRUEFIT_FAULT") {
+                host.orca.fault(&fault, true);
+            }
+            host
+        }),
+        dir.clone(),
+    );
     let uid = std::fs::metadata(&dir).map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap();
+    let machine = factorium_harness::account::this_machine().unwrap();
     let nonce = format!("{}-{}", std::process::id(), std::time::UNIX_EPOCH.elapsed().unwrap().as_millis());
     let mut kept: BTreeMap<String, String> =
-        [("dir", dir.display().to_string()), ("uid", uid.to_string()), ("nonce", nonce)]
+        [("dir", dir.display().to_string()), ("uid", uid.to_string()), ("nonce", nonce), ("machine", machine)]
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();

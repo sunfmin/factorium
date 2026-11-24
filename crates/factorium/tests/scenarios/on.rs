@@ -11,10 +11,9 @@ use serde_json::json;
 use crate::fixture::{CLAUDE, World, id, refused, worker, write_session_in};
 use crate::watch::NEXT_CENTURY;
 
-/// A claude-code account `name` in mytokens.
+/// A claude-code account `name` stablehand keeps, logged in by a token.
 fn account(w: &World, name: &str) {
-    let fields = json!({"fields": {"HARNESS": "claude-code", "CLAUDE_CODE_OAUTH_TOKEN": format!("sk-{name}")}});
-    w.host.tokens.lock().unwrap().insert(format!("agent-account-{name}"), fields.to_string());
+    w.host.stablehand.lock().unwrap().portable(name, "claude-code", &format!("sk-{name}"));
 }
 
 #[tokio::test]
@@ -93,11 +92,9 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     let w = World::new();
     w.checkout("web").await;
     w.app.kit_set(&["codex=codex".into(), CLAUDE.into()]).await.unwrap();
-    let night = w.host.home().join(".agent-accounts/night");
+    let night = w.host.home().join("logins/night");
     std::fs::create_dir_all(&night).unwrap();
-    std::fs::write(night.join("auth.json"), "{}").unwrap();
-    let fields = json!({"fields": {"HARNESS": "codex", "MACHINE": crate::accounts::this_machine()}});
-    w.host.tokens.lock().unwrap().insert("agent-account-night".into(), fields.to_string());
+    w.host.stablehand.lock().unwrap().bound("night", "codex", &crate::accounts::this_machine(), &night);
     account(&w, "guild");
     let on_night = On { role: None, account: Some("night".into()) };
     w.app.issue_add_on("web", "On the night account", "", None, &[], on_night).await.unwrap();
@@ -111,7 +108,12 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     // Its issue is ready again, and alone it holds admission, saying why.
     let t = w.tick().await;
     assert_eq!(t.seen[0]["ended"], "quota");
-    assert!(t.held.as_deref().unwrap().contains("account night is used up"), "{t:?}");
+    assert_eq!(
+        w.host.stablehand.lock().unwrap().limits.get("night"),
+        Some(&None),
+        "stablehand was told, with no reset"
+    );
+    assert!(t.held.as_deref().unwrap().contains("account night takes no session now"), "{t:?}");
 
     // A role with no skills, and no account: it starts, ahead of the waiting one.
     let role = w.host.home().join("roles/plain");
@@ -124,6 +126,12 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     assert_eq!(w.worker_on("web", 2).await["account"], "guild", "the kit's choice: night is used up");
     let skills = w.data().root().join("role/issues/web-2-1").join(SKILLS);
     assert!(skills.is_dir() && std::fs::read_dir(&skills).unwrap().count() == 0, "no skills of its own");
+
+    // Read again, night takes a session: its issue starts on it.
+    w.host.stablehand.lock().unwrap().read("night");
+    let t = w.tick().await;
+    assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#1")), "{t:?}");
+    assert_eq!(w.worker_on("web", 1).await["account"], "night");
 }
 
 /// A role directory under the world's home, with rules `rules` and skill `skill`.

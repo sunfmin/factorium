@@ -196,13 +196,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
     }
     offered.sort();
     let expected = [
-        "account.rs: const PREFIX",
-        "account.rs: fn here",
         "account.rs: fn this_machine",
-        "account.rs: struct Here",
-        "account.rs: struct Skipped",
-        "account.rs: struct Usable",
-        "account.rs: type Mytokens",
         "ask.rs: fn ask_home",
         "ask.rs: fn ask_line",
         "ask.rs: fn asked",

@@ -1,6 +1,6 @@
 [package]
 name = "factorium-host"
-description = "The host's effects for factorium: git, Orca terminals, commands with limits, readings, processes, mytokens, Homebrew"
+description = "The host's effects for factorium: git, Orca terminals, commands with limits, readings, processes, stablehand, Homebrew"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
