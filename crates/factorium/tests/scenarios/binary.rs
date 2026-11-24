@@ -139,7 +139,16 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
         answer
     };
     issue(&["add", "web", "Then this", "--waiting-for-human"]);
-    assert_eq!(issue(&["block", "web", "2", "--by", "1"])["blocked_by"], json!([1]));
+    // Every block says why (factorium#285): without one it is refused, at block and at add.
+    for bare in [&["issue", "block", "web", "2", "--by", "1"][..], &["issue", "add", "web", "x", "--blocked-by", "1"]] {
+        let (ok, answer) = run(&dir, bare);
+        assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("no_why")), "{bare:?}: {answer}");
+    }
+    let alone = bin(&dir).args(["issue", "add", "web", "x", "--why", "nothing to wait for"]).output().unwrap();
+    assert!(!alone.status.success(), "a why names a wait");
+    let blocked = issue(&["block", "web", "2", "--by", "1", "--why", "needs its schema"]);
+    assert_eq!(blocked["blocked_by"], json!([1]));
+    assert_eq!(blocked["waits"][0]["why"], "needs its schema", "{blocked}");
     // A time it waits for: set with its offset, shown in UTC, undone with no time named.
     let until = issue(&["block", "web", "2", "--until", "2026-11-23T14:34:37+09:00"]);
     assert_eq!(until["not_before"]["utc"], "2026-11-23T05:34:37Z", "{until}");
@@ -213,7 +222,18 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     // `worker file` reaches the app, its body read from the file it names.
     let body = dir.0.join("body.md");
     std::fs::write(&body, "what web#1 left").unwrap();
-    let file = ["worker", "file", "web", "x", "--body-file", body.to_str().unwrap(), "--blocked-by", "web#1@cut"];
+    let file = [
+        "worker",
+        "file",
+        "web",
+        "x",
+        "--body-file",
+        body.to_str().unwrap(),
+        "--blocked-by",
+        "web#1@cut",
+        "--why",
+        "x",
+    ];
     let (ok, answer) = run_with(&dir, &worker, &file);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_worker", "{answer}");

@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use factorium_domain::declared::Kind;
-use factorium_domain::issue::{Author, Blocker};
+use factorium_domain::issue::{Author, Wait};
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
 use serde_json::json;
@@ -158,21 +158,22 @@ impl App {
     /// filed issue names the issue and worker that filed it, the worker's
     /// issue the issue it filed. Filed on the worker's own checkout, it also
     /// waits for the worker's issue, whose unlanded change a follow-up
-    /// usually builds on (factorium#184), unless `independent`. Answers the
-    /// filed issue, its blocks among it.
+    /// usually builds on (factorium#184), unless `independent`, for that
+    /// why. Answers the filed issue, its blocks among it.
     pub async fn worker_file(
         &self,
         worker: Uuid,
         checkout: &str,
         title: &str,
         body: &str,
-        blocked_by: &[Blocker],
+        blocked_by: &[Wait],
         independent: bool,
     ) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
         let mut blocked_by = blocked_by.to_vec();
         if checkout == st.checkout && !independent {
-            blocked_by.push(Blocker::Here(st.number));
+            let why = format!("a follow-up its worker filed: it builds on #{}'s change", st.number);
+            blocked_by.push(Wait::new(st.number, &why));
         }
         let filed = self.issue_add(checkout, title, body, false, &blocked_by).await?;
         let number = filed["number"].as_u64().expect("an issue shown has its number");

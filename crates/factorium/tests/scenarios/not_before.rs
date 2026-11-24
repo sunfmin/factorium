@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 
-use factorium_domain::issue::Blocker;
+use factorium_domain::issue::{Blocker, Wait};
 use factorium_domain::when;
 
 use crate::fixture::{CLAUDE, World, id};
@@ -66,7 +66,8 @@ async fn an_issue_not_before_a_time_starts_on_the_first_tick_at_it() {
     w.checkout("web").await;
     w.kit().await;
     let at = after(&w, 60);
-    let shown = w.app.issue_add("web", "recount", "", false, &[Blocker::NotBefore(at)]).await.unwrap();
+    let shown =
+        w.app.issue_add("web", "recount", "", false, &[Wait { by: Blocker::NotBefore(at), why: None }]).await.unwrap();
     assert_eq!(shown["not_before"], json!({ "ms": at, "utc": when::utc(at) }));
 
     assert!(w.tick().await.started.is_none(), "its time has not come");
@@ -89,7 +90,7 @@ async fn a_time_is_set_changed_and_undone_on_an_existing_issue() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let block = |at: i64, undo: bool| w.app.issue_block("web", 1, Blocker::NotBefore(at), undo);
+    let block = |at: i64, undo: bool| w.app.issue_block("web", 1, Blocker::NotBefore(at), None, undo);
     let (first, second) = (after(&w, 30), after(&w, 90));
     assert_eq!(block(first, false).await.unwrap()["not_before"]["ms"], first);
     assert_eq!(block(second, false).await.unwrap()["not_before"]["ms"], second, "it replaces the one before");
@@ -106,10 +107,10 @@ async fn a_waiting_worker_parked_until_a_time_goes_back_to_work_once_it_comes() 
     w.watch_session(false);
     w.app.worker_escalate(id(&wk), "needs 24h of counts").await.unwrap();
     let at = after(&w, 30);
-    w.app.issue_block("web", 1, Blocker::NotBefore(at), false).await.unwrap();
+    w.app.issue_block("web", 1, Blocker::NotBefore(at), None, false).await.unwrap();
     let d = w.run().doctor().await.unwrap();
     let name = format!("not before {}", when::utc(at));
-    assert_eq!(d["parked"][0]["waits_for"], json!([name]), "{d}");
+    assert_eq!(d["parked"][0]["waits_for"], json!([{ "on": name, "why": null }]), "{d}");
     assert_eq!(d["not_before"], json!([]), "a held issue is doctor's parked worker");
 
     w.advance(29);

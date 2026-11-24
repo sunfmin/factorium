@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
-use factorium_domain::issue::Blocker;
+use factorium_domain::issue::{Blocker, Wait};
 use factorium_domain::when;
 use factum::Uuid;
 
@@ -210,6 +210,7 @@ pub enum CheckoutCmd {
 #[derive(Subcommand)]
 pub enum IssueCmd {
     /// Makes an issue, numbered one past the checkout's last. Answers it.
+    #[command(group = clap::ArgGroup::new("waits").multiple(true).args(["waiting_for_human", "blocked_by"]))]
     Add {
         checkout: String,
         title: String,
@@ -222,13 +223,18 @@ pub enum IssueCmd {
         /// person readies it.
         #[arg(long)]
         waiting_for_human: bool,
-        /// Why it waits for a person, as `wait-for-human --why` gives one;
-        /// shown in doctor's `asks`.
-        #[arg(long, requires = "waiting_for_human")]
+        /// Why it waits: for a person, as `wait-for-human --why` gives one,
+        /// shown in doctor's `asks`; and for each `--blocked-by`, required
+        /// with it, kept with each block and shown in `issue show`'s
+        /// `waits` and doctor's `parked`.
+        #[arg(long, requires = "waits")]
         why: Option<String>,
         /// An issue it waits for, repeat for each: `N` of its checkout;
         /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
         /// until a cut of that checkout holds its landing (and installs it).
+        /// Refused without `--why`: the code it needs from that issue. Two
+        /// issues that only use the same device or host do not block each
+        /// other: that is a resource (`settings --resource`).
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         blocked_by: Vec<Blocker>,
         /// No worker takes it before this time: RFC 3339 with its offset
@@ -255,7 +261,10 @@ pub enum IssueCmd {
         #[arg(long)]
         closed: bool,
     },
-    /// Answers one issue, with its comments: what the owner, its workers,
+    /// Answers one issue, with `waits`, each thing it waits for (`on`), why
+    /// (a block made before whys were asked for: "(no reason given)"; its
+    /// time: null) and how it was met (`met`, null while it is not); with
+    /// its comments: what the owner, its workers,
     /// the watch and factorium said about it, each with who and when (ms);
     /// the role and account it names; and `spent`, what it took: each
     /// attempt's time from start to end (a live one's, to now) in ms, and the
@@ -340,8 +349,8 @@ pub enum IssueCmd {
     /// worker's through its watch episode), and the next worker's brief
     /// carries it.
     Comment { checkout: String, number: u64, text: String },
-    /// Makes an issue wait for another, of its checkout or of another, or
-    /// until a time (`--undo`: stop). Its worker is parked: once
+    /// Makes an issue wait for another, of its checkout or of another, for
+    /// `--why`, or until a time (`--undo`: stop). Its worker is parked: once
     /// idle (waiting, or in a wait it declared), back to work as soon as all
     /// it waits for is met.
     #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]))]
@@ -351,6 +360,10 @@ pub enum IssueCmd {
         /// `N` of its checkout, `<checkout>#N` or `<checkout>#N@cut`, as for `issue add`.
         #[arg(long, alias = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         by: Option<Blocker>,
+        /// Why it waits for `--by`, required with it unless `--undo`, as
+        /// for `issue add`: blocking it again with another why replaces it.
+        #[arg(long, requires = "by")]
+        why: Option<String>,
         /// No worker takes it before this time, as for `issue add
         /// --not-before`; it replaces the time it waited for. With
         /// `--undo`, give no time: it waits for none.
@@ -429,6 +442,10 @@ pub enum WorkerCmd {
         /// An issue it waits for, repeat for each, as for `issue add`.
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
         blocked_by: Vec<Blocker>,
+        /// Why it waits for its `--blocked-by`, required with them, as for
+        /// `issue add`. The wait for your own issue says why on its own.
+        #[arg(long, requires = "blocked_by")]
+        why: Option<String>,
         /// No worker takes it before this time, as for `issue add`.
         #[arg(long, value_name = "TIME", value_parser = when::parse)]
         not_before: Option<i64>,
@@ -601,7 +618,7 @@ impl Top {
                     let body = body_text(body, body_file)?.unwrap_or_default();
                     let on = factorium_domain::issue::On { role, account };
                     let waiting = waiting_for_human.then_some(why.as_deref());
-                    app.issue_add_on(&checkout, &title, &body, waiting, &blocked_by, on).await
+                    app.issue_add_on(&checkout, &title, &body, waiting, &waits(blocked_by, why.as_deref()), on).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
@@ -620,14 +637,14 @@ impl Top {
                 IssueCmd::Move { checkout, number, to } => app.issue_move(&checkout, number, &to).await,
                 IssueCmd::StartOver { checkout, number, why } => app.issue_start_over(&checkout, number, &why).await,
                 IssueCmd::Comment { checkout, number, text } => app.issue_comment(&checkout, number, &text).await,
-                IssueCmd::Block { checkout, number, by, until, undo } => {
+                IssueCmd::Block { checkout, number, by, why, until, undo } => {
                     let by = match (by, until) {
                         (Some(by), _) => by,
                         (None, Some(Some(at))) => Blocker::NotBefore(at),
                         (None, _) if undo => Blocker::NotBefore(0),
                         (None, _) => return Err(Refusal::new("no_time", "name the time it waits until")),
                     };
-                    app.issue_block(&checkout, number, by, undo).await
+                    app.issue_block(&checkout, number, by, why.as_deref(), undo).await
                 }
             },
             Top::Workers { all } => app.workers(all).await,
@@ -674,9 +691,10 @@ impl Top {
                     app.worker_comment(worker_id()?, &text).await
                 }
                 WorkerCmd::Waiting { why, until } => app.worker_waiting(worker_id()?, &why, until).await,
-                WorkerCmd::File { checkout, title, body_file, mut blocked_by, not_before, independent } => {
+                WorkerCmd::File { checkout, title, body_file, mut blocked_by, why, not_before, independent } => {
                     blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(None, Some(body_file))?.unwrap_or_default();
+                    let blocked_by = waits(blocked_by, why.as_deref());
                     app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by, independent).await
                 }
                 WorkerCmd::Exclusive { background, resources, command } => {
@@ -698,6 +716,11 @@ impl Top {
             Top::Run | Top::Guard { .. } => unreachable!("main.rs answers it"),
         }
     }
+}
+
+/// Each of `blocked_by`, waited for for the one `why` its command gives.
+fn waits(blocked_by: Vec<Blocker>, why: Option<&str>) -> Vec<Wait> {
+    blocked_by.into_iter().map(|by| Wait { by, why: why.map(String::from) }).collect()
 }
 
 /// The body given by `--body`, or read as UTF-8 text from `--body-file`
