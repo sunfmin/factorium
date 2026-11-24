@@ -127,7 +127,8 @@ pub enum Top {
     /// device every checkout's workers share): with `--slots`, declares it
     /// (how many hold it at once; 1 is a mutex) and `--note` (what it is);
     /// with `--remove`, takes it away. Answers every resource declared.
-    /// `host`, the machine's load by the room rule, is never declared.
+    /// A change of slots applies from the next ask for it. `host`, the
+    /// machine's load by the room rule, is never declared.
     Settings {
         name: Option<String>,
         value: Option<u64>,
