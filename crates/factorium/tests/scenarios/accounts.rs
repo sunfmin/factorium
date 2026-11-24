@@ -100,6 +100,8 @@ async fn stablehand_is_told_the_sessions_factorium_runs_on_each_account_and_a_fu
     let pick = format!("pick --engine claude-code --machine {} --running team=1", this_machine());
     assert!(asked(&w).contains(&pick), "{:?}", asked(&w));
     assert!(t.held.as_deref().unwrap().contains("stablehand picks no account (team: team: full)"), "{t:?}");
+    let envs = asked(&w).iter().filter(|a| a.starts_with("env ")).count();
+    assert_eq!(envs, 1, "the secret is read for the one start, not for each look at a waiting issue");
 }
 
 #[tokio::test]

@@ -272,7 +272,7 @@ impl App {
             // One that cannot start now (its account used up, or what its
             // checkout is pinned to at its limit) waits behind those that
             // can; with none, its start answers why it is held.
-            if self.pick(&checkout, issue.on.account.as_deref()).await.is_err() {
+            if self.choice(&checkout, issue.on.account.as_deref()).await.is_err() {
                 held.get_or_insert((checkout, number));
                 continue;
             }

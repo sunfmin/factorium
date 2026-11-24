@@ -210,9 +210,16 @@ impl App {
 
     /// What a session for `checkout` (the watch: `""`) starts on now, on
     /// `account` where its issue names one (unless stablehand's pick of its
-    /// engine passed it over); refused `no_harness` when nothing of the kit
-    /// can.
+    /// engine passed it over), with its account's environment; refused
+    /// `no_harness` when nothing of the kit can.
     pub(crate) async fn pick(&self, checkout: &str, account: Option<&str>) -> Answer<Pick> {
+        let choice = self.choice(checkout, account).await?;
+        self.pick_of(choice)
+    }
+
+    /// What [`App::pick`] would start a session for `checkout` on now, its
+    /// account's environment not read: whether one can start.
+    pub(crate) async fn choice(&self, checkout: &str, account: Option<&str>) -> Answer<Choice> {
         let engine = match account {
             Some(a) => {
                 let kept = self.kept_account(a).map_err(|r| Refusal::new("no_harness", r.message))?;
@@ -223,7 +230,7 @@ impl App {
             }
             None => None,
         };
-        self.pick_by(|kit, now, pick| match (account, &engine) {
+        self.choose_by(|kit, now, pick| match (account, &engine) {
             (Some(a), Some(e)) => kit.choose_on(checkout, a, e, &pick(e)?),
             _ => kit.choose(checkout, now, pick),
         })
@@ -231,17 +238,31 @@ impl App {
     }
 
     /// What a session starts on now, as `choose` chooses from the kit, the
-    /// time and stablehand's pick of an engine, told the sessions factorium
-    /// runs on each account; refused `no_harness` when it cannot. Its
-    /// account's environment is stablehand's (`stablehand env`).
+    /// time and stablehand's pick of an engine, with its account's
+    /// environment; refused `no_harness` when it cannot.
     pub(crate) async fn pick_by(
         &self,
         choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
     ) -> Answer<Pick> {
+        let choice = self.choose_by(choose).await?;
+        self.pick_of(choice)
+    }
+
+    /// What `choose` chooses from the kit, the time and stablehand's pick
+    /// of an engine (`stablehand pick`), told the sessions factorium runs on
+    /// each account; refused `no_harness` when it cannot.
+    async fn choose_by(
+        &self,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
+    ) -> Answer<Choice> {
         let kit = self.state::<Kits>(kit_id()).await?;
         let running = self.running().await?;
-        let choice =
-            choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))?;
+        choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))
+    }
+
+    /// A session on `choice`, its account's environment stablehand's
+    /// (`stablehand env`).
+    fn pick_of(&self, choice: Choice) -> Answer<Pick> {
         let harness = Harness::read(&choice.entry.harness)
             .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
         let (home, secrets) = match &choice.account {

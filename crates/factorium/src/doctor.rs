@@ -82,7 +82,7 @@ impl App {
             // As the daemon's next start does, any pick refused holds it.
             let kit = match waits {
                 true => None,
-                false => self.pick(&r.checkout, i.on.account.as_deref()).await.err().map(|e| e.message),
+                false => self.choice(&r.checkout, i.on.account.as_deref()).await.err().map(|e| e.message),
             };
             ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
         }
