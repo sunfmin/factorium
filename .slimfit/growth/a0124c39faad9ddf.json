@@ -1,0 +1,10 @@
+{
+  "tree": "6077cf9c0f8a169f5ed3df9f2da48566b719bacb+d1fba762150c532c",
+  "lines": 59,
+  "serves": "factorium#285",
+  "considered": "reusing App::blockers' tuple list for the why (it drops the why); a separate waits method beside it; json! mapping in issue_show",
+  "reviewer": "codex:01a20c5d-9895-7532-af0c-e46fa6e2f3f3:default",
+  "author": "claude-code:39d27213-4d3b-55f3-99dc-b08ee618842d:opus",
+  "cut": "In crates/factorium/src/issues.rs, have App::blockers return Vec<Waited> directly and update its callers to read on and met, eliminating the tuple conversion and the separate App::waits method. Derive Serialize for Waited and use the returned list directly in issue_show, deleting waits_shown. Repository access was unavailable, so this review is based on the supplied diff.",
+  "answer": "Done: blockers returns Vec<Waited>, its four callers (doctor, daemon x2, health) read on/met, App::waits and waits_shown deleted, Waited derives Serialize and issue_show answers it directly; 9 lines net cut. The rest is the why kept on the edge, its refusal, and its showing in issue show and doctor, which the issue asks for."
+}
