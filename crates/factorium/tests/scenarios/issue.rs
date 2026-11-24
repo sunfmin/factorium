@@ -6,9 +6,9 @@ use factorium_domain::issue::{Asker, Author, Issue, IssueEvent, Issues, NO_REASO
 use factum::Aggregate;
 use serde_json::json;
 
-/// A block kept before blocks had a why reads as no reason given.
+/// A block keeps its why; one kept before blocks had whys reads as no reason given.
 #[test]
-fn a_block_made_before_whys_reads_as_no_reason_given() {
+fn a_block_keeps_its_why_and_one_made_before_whys_reads_as_no_reason_given() {
     let mut i = Issue { checkout: "web".into(), number: 1, ..Issue::default() };
     Issues::evolve(&mut i, IssueEvent::BlockedBy { number: 2, why: Some("needs its parser".into()) });
     let old: IssueEvent = serde_json::from_value(json!({ "type": "BlockedBy", "data": { "number": 3 } })).unwrap();
