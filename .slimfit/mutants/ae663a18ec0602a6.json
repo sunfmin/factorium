@@ -1,0 +1,21 @@
+{
+  "tree": "30ffd1f7e701b6caf37fcef68883d5f1b50d8cdd+d1fba762150c532c",
+  "picker": "codex:01a20c6f-3cc3-72d3-b597-c80a43015b09:default",
+  "author": "claude-code:06af9d7b-ec9b-5f13-83a8-83338ec8cdb1:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/main.rs:41:8: delete ! in run",
+        "why": "The binary test checks the bootstrap error message but never checks that the daemon-down warning still appears after revival fails.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/main.rs:42:12: delete ! in run",
+        "why": "The new assertions do not check which CLI commands should emit the generic daemon-down warning.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
