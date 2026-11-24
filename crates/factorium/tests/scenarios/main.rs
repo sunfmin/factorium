@@ -43,6 +43,7 @@ mod needs;
 mod not_before;
 mod on;
 mod one_harness;
+mod order;
 mod outage;
 mod outbox;
 mod parked;

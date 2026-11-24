@@ -50,15 +50,3 @@ pub fn window(s: &str) -> Result<(u32, u32), String> {
         _ => Err(bad()),
     }
 }
-
-#[cfg(test)]
-mod window_tests {
-    #[test]
-    fn a_window_reads_two_times_of_day_that_differ() {
-        assert_eq!(super::window("22:00-07:00"), Ok((1320, 420)));
-        assert_eq!(super::window("9:30 - 10:05"), Ok((570, 605)));
-        for bad in ["22:00", "22:00-22:00", "24:00-01:00", "10:60-11:00", "a-b"] {
-            assert!(super::window(bad).is_err(), "{bad}");
-        }
-    }
-}
