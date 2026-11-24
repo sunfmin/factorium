@@ -51,8 +51,14 @@ fn a_five_minute_hold_asked_after_a_160_minute_one_goes_first() {
     assert_eq!(whys(&q, HOST, 3 * MIN), Vec::<Option<String>>::new(), "none of them asks for the host");
     // Hours and minutes, as the owner reads them.
     let longer = hold(4, 0, 200, "FMGG");
-    let q = Queue { entries: vec![long, longer], ..Queue::default() };
+    let q = Queue { entries: vec![long, longer.clone()], ..Queue::default() };
     assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `1`, a 2 h 40 min hold".into())]);
+    let (two_hours, half_a_minute) =
+        (hold(5, 0, 120, "FMGG"), Entry { hold_for: Some(30_000), ..hold(6, 0, 0, "FMGG") });
+    let q = Queue { entries: vec![two_hours, longer.clone()], ..Queue::default() };
+    assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `5`, a 2 h hold".into())]);
+    let q = Queue { entries: vec![half_a_minute, longer], ..Queue::default() };
+    assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `6`, a 30 s hold".into())]);
 }
 
 #[test]

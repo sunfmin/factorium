@@ -25,14 +25,10 @@ pub trait Queued {
     /// When what it does passes its bound, ms, if it has one.
     fn bound_at(&self) -> Option<i64>;
     /// How long it declared it holds what it waits for, ms; none: the default.
-    fn declared(&self) -> Option<i64> {
-        None
-    }
+    fn declared(&self) -> Option<i64>;
     /// Since when it waits in the line at `now`, ms: when it was queued,
     /// unless it joined the line later.
-    fn joined(&self, _now: i64) -> i64 {
-        self.queued_at()
-    }
+    fn joined(&self, now: i64) -> i64;
 }
 
 /// How the line is ordered: how long one waits before it goes ahead of all

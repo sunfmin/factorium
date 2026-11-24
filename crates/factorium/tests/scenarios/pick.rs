@@ -260,7 +260,9 @@ async fn a_kit_with_no_harness_that_can_be_asked_refuses_to_pick() {
     let w = World::new();
     let wk = w.working("pi=pi", "t").await;
     w.slimfit(GOAL, LISTING);
-    refused(w.app.worker_pick_mutants(id(&wk)).await, "no_harness");
+    let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
+    assert_eq!(none.code, "no_harness");
+    assert!(none.message.ends_with("the kit has no command of an engine that can be asked"), "{none}");
 }
 
 const PICKS: &str = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
@@ -362,6 +364,23 @@ async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_an
         let text = kept[0]["text"].as_str().unwrap();
         assert!(text.contains("; the codex picker failed first, so claude-code picked: "), "{text}");
     });
+}
+
+/// stablehand picks none of the other harnesses: the worker's own picks, a
+/// new session; none of either, and the pick is refused saying why of each.
+#[tokio::test]
+async fn a_picker_stablehand_picks_none_of_the_other_harnesses_for_runs_on_the_worker_s_own() {
+    let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", "", PICKS, PICKS).await;
+    w.host.stablehand.lock().unwrap().accounts.get_mut("codex").unwrap().off = true;
+    let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+    assert_eq!(answer["picker"], "claude-code:s-1:claude-opus-5-5", "{answer}");
+    assert!(answer["fell_back"].as_array().is_none_or(|f| f.is_empty()), "none failed: {answer}");
+
+    w.host.stablehand.lock().unwrap().accounts.get_mut("claude-code").unwrap().off = true;
+    let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
+    let why = none.message.as_str();
+    assert!(why.starts_with("no harness of the kit that can pick mutants: stablehand picks none"), "{why}");
+    assert_eq!(why.matches("stablehand picks none").count(), 2, "one for codex, one for claude-code: {why}");
 }
 
 const REVIEW_GOAL: &str = "You are given a change's diff, nothing else.";
