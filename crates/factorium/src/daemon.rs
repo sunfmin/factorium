@@ -266,7 +266,7 @@ impl App {
             if self.issue(&checkout, number).await?.claim.is_some() {
                 continue;
             }
-            if !self.blockers(&issue).await?.iter().all(|(_, met)| met.is_some()) {
+            if !self.blockers(&issue).await?.iter().all(|w| w.met.is_some()) {
                 continue;
             }
             // One that cannot start now (its account used up, or what its
@@ -317,7 +317,7 @@ impl App {
                 None => {
                     let met: Option<Vec<String>> = (self.blockers(&self.issue(&w.checkout, w.number).await?).await?)
                         .into_iter()
-                        .map(|(name, met)| Some(format!("{name} ({})", met?)))
+                        .map(|w| Some(format!("{} ({})", w.on, w.met?)))
                         .collect();
                     let Some(met) = met.filter(|m| !m.is_empty()) else { continue };
                     let p = self.checkout(&w.checkout).await?.proving;

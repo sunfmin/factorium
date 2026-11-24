@@ -25,7 +25,7 @@ impl App {
             let why = w.state.why.unwrap_or_default();
             let mut parked = Vec::new();
             if wk.parked {
-                let waits = self.waits(&on).await?.into_iter().filter(|w| w.met.is_none());
+                let waits = self.blockers(&on).await?.into_iter().filter(|w| w.met.is_none());
                 parked = waits.map(|w| doctor::Unmet { on: w.on, why: w.why }).collect();
             }
             let limited = wk.waits_on_limit().map(|l| l.until);
@@ -78,7 +78,7 @@ impl App {
                 continue;
             }
             let i = self.issue(&r.checkout, r.number).await?;
-            let waits = i.claim.is_some() || !self.blockers(&i).await?.iter().all(|(_, met)| met.is_some());
+            let waits = i.claim.is_some() || !self.blockers(&i).await?.iter().all(|w| w.met.is_some());
             // As the daemon's next start does, any pick refused holds it.
             let kit = match waits {
                 true => None,

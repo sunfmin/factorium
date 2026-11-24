@@ -28,6 +28,7 @@ pub(crate) struct Found {
 
 /// One thing an issue waits for: as the CLI names it, why (none for its
 /// time), and how it was met, or `None` while it is not.
+#[derive(serde::Serialize)]
 pub(crate) struct Waited {
     pub on: String,
     pub why: Option<String>,
@@ -123,7 +124,7 @@ impl App {
             "status": i.status,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),
-            "waits": self.waits_shown(&i).await?,
+            "waits": self.blockers(&i).await?,
             "not_before": i.not_before.map(|at| json!({ "ms": at, "utc": when::utc(at) })),
             "reason": i.reason,
             "worker": i.worker,
@@ -469,13 +470,9 @@ impl App {
     /// issue is closed (or gone), and, for its cut, its landing is in a cut.
     /// Its landing is recorded before it closes, so a closed issue the line
     /// does not hold either landed in a cut or never landed. Its time, last,
-    /// is met once the clock reaches it.
-    pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
-        Ok(self.waits(issue).await?.into_iter().map(|w| (w.on, w.met)).collect())
-    }
-
-    /// [`App::blockers`], each with why it is waited for: for its time, none.
-    pub(crate) async fn waits(&self, issue: &Issue) -> Answer<Vec<Waited>> {
+    /// is met once the clock reaches it. Each says why it is waited for: its
+    /// time, nothing.
+    pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<Waited>> {
         let mut all = Vec::new();
         for (on, a) in issue.waits_for() {
             let met = match self.issue(&a.checkout, a.number).await {
@@ -491,12 +488,6 @@ impl App {
             all.push(Waited { on: format!("not before {}", when::utc(at)), why: None, met });
         }
         Ok(all)
-    }
-
-    /// What `issue show` answers of what `i` waits for: each, why, and how it was met.
-    async fn waits_shown(&self, i: &Issue) -> Answer<serde_json::Value> {
-        let shown = self.waits(i).await?.into_iter().map(|w| json!({ "on": w.on, "why": w.why, "met": w.met }));
-        Ok(shown.collect())
     }
 }
 
