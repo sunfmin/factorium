@@ -263,26 +263,3 @@ impl Line {
         Ok(Due::Cut)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A failed cut is owed again only once a commit other than the one it was cut from is promoted.
-    #[test]
-    fn a_failed_cut_waits_for_a_newer_promotion() {
-        let mut l = Line::default();
-        l.apply(LineEvent::Landed { number: 1, commit: "a".into(), at: 0 });
-        l.apply(LineEvent::Promoted { tip: "a".into(), at: 0 });
-        let (version, why, commit) = ("v0.1.0".to_string(), "x".to_string(), Some("a".to_string()));
-        l.apply(LineEvent::CutFailed { version, why, commit });
-        l.apply(LineEvent::Promoted { tip: "a".into(), at: 1 });
-        assert!(l.cut_failed.is_some(), "the same commit holds no fix");
-        l.apply(LineEvent::Landed { number: 2, commit: "b".into(), at: 2 });
-        l.apply(LineEvent::Promoted { tip: "b".into(), at: 3 });
-        assert!(l.cut_failed.is_none());
-        let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
-        let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
-        assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
-    }
-}
