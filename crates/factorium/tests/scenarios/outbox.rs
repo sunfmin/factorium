@@ -5,6 +5,7 @@
 //! through the same cases: idle, busy, behind a dialog, before its harness
 //! is up, and missed.
 
+use factorium::host::Host;
 use serde_json::{Value, json};
 
 use crate::fixture::{CLAUDE, ESCAPE, SHELL, UP, World, findings, id, worker};
@@ -300,4 +301,99 @@ async fn a_round_the_watch_s_session_missed_is_passed_again_on_the_next_look() {
     w.tick().await;
     assert_eq!(w.app.outbox_of(None).await.unwrap()["messages"].as_array().unwrap().len(), 2, "arrived: not again");
     assert_eq!(w.terminal(&watch).sent.len(), 2);
+}
+
+/// factorium#289: rollmind#144's worker was told twice while its turn ran;
+/// both answered `queued`, its turn ended, and neither was ever typed. A
+/// message queued behind a running turn is typed again the first time its
+/// session is idle at its prompt, and only then.
+#[tokio::test]
+async fn a_message_queued_behind_a_running_turn_is_typed_once_the_turn_ends() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.set_busy(handle, true, false);
+        kind.say(&w, &wk, false).await.unwrap();
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued", "{kind:?}");
+        let typed = w.terminal(handle).sent.len();
+        // Its turn runs on: nothing is typed again.
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(handle).sent.len(), typed, "{kind:?}: not typed into a running turn twice");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued", "{kind:?}");
+        // Its turn ends and the session never read it: typed at its prompt, once.
+        w.set_busy(handle, false, false);
+        w.advance(1);
+        w.tick().await;
+        let sent = w.terminal(handle).sent;
+        assert_eq!(sent.len(), typed + 1, "{kind:?}: {sent:?}");
+        assert!(sent[typed].starts_with(kind.opens()), "{kind:?}: {sent:?}");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "submitted", "{kind:?}");
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(handle).sent.len(), typed + 1, "{kind:?}: submitted, not again");
+    }
+}
+
+/// factorium#289: a message that waits queued past its bound is not left to
+/// silence: it is missed, and its worker goes to the watch once.
+#[tokio::test]
+async fn a_message_still_queued_past_its_bound_is_missed_and_its_worker_goes_to_the_watch() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.set_busy(handle, true, false);
+    w.app.watch_tell(id(&wk), "use v2", false).await.unwrap();
+    w.advance(9);
+    w.tick().await;
+    assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued");
+    w.set_busy(handle, true, false);
+    w.advance(1);
+    w.tick().await;
+    let m = last(&w, &wk).await;
+    assert_eq!(m["outcome"]["outcome"], "missed", "{m}");
+    assert!(m["outcome"]["why"].as_str().unwrap().contains("queued"), "{m}");
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    assert!(waiting["why"].as_str().unwrap().starts_with("the watch's word did not reach it"), "{waiting}");
+    assert_eq!(w.terminal(handle).sent.len(), 1, "never typed again into its running turn");
+}
+
+/// factorium#289: a message queued behind a turn that the session read once
+/// the turn went on is submitted, not typed again; the same words taken
+/// before it was given are not it, and it is typed again.
+#[tokio::test]
+async fn a_queued_message_the_session_took_since_is_submitted_and_one_taken_before_it_is_typed_again() {
+    for taken in [true, false] {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+        w.set_busy(handle, true, false);
+        w.app.watch_tell(id(&wk), "use v2", false).await.unwrap();
+        let typed = w.terminal(handle).sent.len();
+        w.set_busy(handle, false, false);
+        let at = if taken { crate::watch::NEXT_CENTURY } else { "2000-01-01T00:00:00.000Z" };
+        let line = |kind: &str, body: Value| {
+            let mut l = json!({ "type": kind, "timestamp": at, "cwd": cwd, "isSidechain": false });
+            l.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+            l.to_string()
+        };
+        let lines = [
+            line("user", json!({ "message": { "role": "user", "content": "factorium (the watch): use v2" } })),
+            line("assistant", json!({ "message": { "role": "assistant", "stop_reason": "end_turn" } })),
+        ];
+        let projects = w.host.home().join(".claude/projects");
+        let dir = std::fs::read_dir(&projects).unwrap().next().expect("its session's directory").unwrap().path();
+        let file = dir.join("took.jsonl");
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "submitted", "taken: {taken}");
+        let again = if taken { 0 } else { 1 };
+        assert_eq!(w.terminal(handle).sent.len(), typed + again, "taken: {taken}");
+    }
 }
