@@ -122,7 +122,24 @@ pub enum Top {
     /// as this machine can use them, with what each has left.
     Accounts,
     /// Answers the settings; with a name, one; with a value, sets it.
-    Settings { name: Option<String>, value: Option<u64> },
+    ///
+    /// With `--resource <name>`, the host's named resources instead (a
+    /// device every checkout's workers share): with `--slots`, declares it
+    /// (how many hold it at once; 1 is a mutex) and `--note` (what it is);
+    /// with `--remove`, takes it away. Answers every resource declared.
+    /// `host`, the machine's load by the room rule, is never declared.
+    Settings {
+        name: Option<String>,
+        value: Option<u64>,
+        #[arg(long, value_name = "NAME", conflicts_with_all = ["name", "value"])]
+        resource: Option<String>,
+        #[arg(long, requires = "resource", conflicts_with = "remove")]
+        slots: Option<u64>,
+        #[arg(long, requires = "slots")]
+        note: Option<String>,
+        #[arg(long, requires = "resource")]
+        remove: bool,
+    },
     /// A worker's commands.
     #[command(subcommand)]
     Worker(WorkerCmd),
@@ -431,13 +448,50 @@ pub enum WorkerCmd {
     ReviewGrowth,
     /// Runs a heavy command once the machine has room, after those queued
     /// before it, at a gate's priority. Exits with its exit code.
+    ///
+    /// A resource is a named thing with a capacity rule, each with its own
+    /// queue: `host`, the machine's load (the room rule: what is above),
+    /// and those the owner declares in the host's settings (a device, a
+    /// build host: `slots`, how many hold it at once). With `--resource`
+    /// (repeat it), it holds those while it runs, granted all at once or
+    /// not at all, and not `host` unless named: it waits for them alone, and
+    /// commands asking for others run beside it. Only a command holding
+    /// `host` is ended by the hold bound. Use a resource for a device or a
+    /// host, never `issue block` on another issue only because both use
+    /// the same device: only your command waits, not your issue. `doctor`
+    /// and `workers` show who holds each resource and who waits for it.
     Exclusive {
         /// Runs it at background priority instead: for work whose time no
         /// gate compares (a mutation run), so gates get the CPU first.
         #[arg(long)]
         background: bool,
+        /// A resource it holds while it runs, repeat for each: `host`, or
+        /// one the host's settings declare (refused `unknown_resource`
+        /// otherwise). None: `host`.
+        #[arg(long = "resource", value_name = "NAME")]
+        resources: Vec<String>,
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
+    },
+    /// Holds named resources across several commands (a soak on a device),
+    /// all at once, once each has a free slot: waits for them, and answers
+    /// the hold. It stays yours after this answers, until `worker release`
+    /// or your worker ends (factorium gives it back). It is never cut short
+    /// before `--for`; past it, it is a finding for the watch. Your own
+    /// `worker exclusive --resource` of a resource you hold runs inside
+    /// your hold. Not `host`: the host is held by a command alone.
+    Hold {
+        /// The resources, as the host's settings declare them.
+        #[arg(required = true, value_name = "NAME")]
+        resources: Vec<String>,
+        /// How long you hold them: `90s`, `160m`, `2h`; a bare number is minutes.
+        #[arg(long = "for", value_name = "DURATION", value_parser = when::duration_ms)]
+        hold_for: i64,
+    },
+    /// Gives back your hold of a resource (`worker hold`).
+    Release {
+        #[arg(value_name = "NAME")]
+        resource: String,
     },
 }
 
@@ -446,11 +500,15 @@ pub enum HeavyCmd {
     /// Runs a heavy command once the machine has room, by the queue's
     /// rule, beside workers' and gates' (a line move past its bound goes
     /// ahead of it, as of a worker's), at a gate's priority. Exits with its
-    /// exit code.
+    /// exit code. With `--resource`, it holds those resources instead, all
+    /// at once, as `worker exclusive --resource` does.
     Run {
         /// Runs it at background priority instead: gates get the CPU first.
         #[arg(long)]
         background: bool,
+        /// A resource it holds while it runs, repeat for each (none: `host`).
+        #[arg(long = "resource", value_name = "NAME")]
+        resources: Vec<String>,
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
@@ -571,7 +629,10 @@ impl Top {
             Top::Idle { checkout } => app.idle_now(&checkout).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
             Top::Heavy(h) => match h {
-                HeavyCmd::Run { background, command } => app.heavy_run(&here()?, &line(&command), background).await,
+                HeavyCmd::Run { background, resources, command } => {
+                    let how = factorium::Exclusive { background, resources };
+                    app.heavy_run_as(&here()?, &line(&command), how).await
+                }
                 HeavyCmd::Depth => app.heavy_depth().await,
             },
             Top::Hold { checkout, why, release } => {
@@ -583,7 +644,11 @@ impl Top {
                 KitCmd::Pin { checkout, harness } => app.kit_pin(&checkout, harness.as_deref()).await,
             },
             Top::Accounts => app.accounts().await,
-            Top::Settings { name, value } => app.settings_set(name.as_deref(), value).await,
+            Top::Settings { resource: Some(resource), slots, note, remove, .. } => {
+                let declared = slots.map(|slots| factorium_domain::settings::Resource { slots, note });
+                app.resource_declare(&resource, declared, remove).await
+            }
+            Top::Settings { name, value, .. } => app.settings_set(name.as_deref(), value).await,
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
                 WorkerCmd::Done { no_landing } => app.worker_done(worker_id()?, no_landing.as_deref()).await,
@@ -603,14 +668,13 @@ impl Top {
                     let body = body_text(None, Some(body_file))?.unwrap_or_default();
                     app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by, independent).await
                 }
-                WorkerCmd::Exclusive { background, command } => {
+                WorkerCmd::Exclusive { background, resources, command } => {
                     let (dir, line) = (here()?, line(&command));
-                    if background {
-                        app.worker_exclusive_background(worker_id().ok(), &dir, &line).await
-                    } else {
-                        app.worker_exclusive(worker_id().ok(), &dir, &line).await
-                    }
+                    let how = factorium::Exclusive { background, resources };
+                    app.worker_exclusive_as(worker_id().ok(), &dir, &line, how).await
                 }
+                WorkerCmd::Hold { resources, hold_for } => app.worker_hold(worker_id()?, &resources, hold_for).await,
+                WorkerCmd::Release { resource } => app.worker_release(worker_id()?, &resource).await,
             },
             Top::Watch(w) => match w {
                 WatchCmd::Next => app.watch_next().await,

@@ -13,8 +13,19 @@
 //! program's entry that left the queue unstarted (its waiter refused, or
 //! gone) keeps its place for the keep bound: the same asker asking the same
 //! command again takes it (factorium#193).
+//! It is the queue of resources (factorium#284): each entry asks for one
+//! or more, granted all at once, each by its capacity rule — [`HOST`], the
+//! host's load, by room as above; a named one (a device), by its slots,
+//! as the host's settings declare them. One waiting for a resource whose
+//! slots are all held is passed over in every queue, so it holds none up
+//! and never holds one resource while it waits for another. A worker's
+//! hold across commands outlives its waiter, and covers the worker's own
+//! commands asking for it. Only a command holding the host is ended by the
+//! hold bound; a named resource is never cut short.
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
+
+use std::collections::BTreeMap;
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
@@ -81,12 +92,56 @@ pub struct Entry {
     /// the queue's, it is passed over.
     #[serde(default)]
     pub rules: String,
+    /// The resources it asks for, granted all at once: none named is
+    /// [`HOST`] alone, as every entry before resources asked.
+    #[serde(default)]
+    pub resources: Vec<String>,
+    /// A worker's hold across commands (`worker hold`): once granted it
+    /// outlives its waiter, until `worker release` or its worker ends.
+    #[serde(default)]
+    pub hold: bool,
+    /// How long a hold declared it holds, ms: never cut short before then;
+    /// past it, a finding.
+    #[serde(default)]
+    pub hold_for: Option<i64>,
+}
+
+impl Entry {
+    /// The resources it asks for: [`HOST`] when it names none.
+    pub fn asks(&self) -> Vec<&str> {
+        if self.resources.is_empty() { vec![HOST] } else { self.resources.iter().map(String::as_str).collect() }
+    }
+
+    /// Whether it asks for resource `name`.
+    pub fn asks_for(&self, name: &str) -> bool {
+        self.asks().contains(&name)
+    }
+
+    /// Until when it declared it holds, ms, once started.
+    pub fn until(&self) -> Option<i64> {
+        Some(self.started_at?.saturating_add(self.hold_for?))
+    }
+}
+
+/// The resource every heavy command asked for before resources were named:
+/// the host's load, by the `room` rule.
+pub const HOST: &str = "host";
+
+/// A resource's capacity rule: what varies from one kind of resource to
+/// another, and nothing else does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Rule {
+    /// As many as the host's readings allow, one start per settled reading.
+    Room,
+    /// At most this many holders.
+    Slots(u64),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Queue {
     pub entries: Vec<Entry>,
-    /// When the last one started: one start per reading.
+    /// When the last one asking for [`HOST`] started: one start per reading.
     pub last_start: i64,
     /// The rules of the daemon that runs: older ones may not start.
     #[serde(default)]
@@ -94,6 +149,57 @@ pub struct Queue {
     /// The places of entries that left unstarted, kept for their askers.
     #[serde(default)]
     pub left: Vec<Left>,
+    /// The slots of each named resource, as the host's settings declared it
+    /// when an entry last asked for it.
+    #[serde(default)]
+    pub slots: BTreeMap<String, u64>,
+    /// The named resources given back because their holder died or its worker ended.
+    #[serde(default)]
+    pub given_back: Vec<GivenBack>,
+}
+
+/// A named resource given back by factorium, not by its holder.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GivenBack {
+    pub resource: String,
+    pub entry: Uuid,
+    pub what: String,
+    pub worker: Option<Uuid>,
+    /// Why: its waiter died, or its worker ended.
+    pub why: String,
+    /// When, ms.
+    pub at: i64,
+}
+
+/// A resource as the queue holds it: its rule, its holders and those
+/// waiting for it, oldest first.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Resource {
+    pub name: String,
+    pub rule: Rule,
+    pub holders: Vec<Holding>,
+    pub waiting: Vec<Holding>,
+}
+
+/// An entry holding a resource, or waiting for it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Holding {
+    pub entry: Uuid,
+    pub what: String,
+    pub worker: Option<Uuid>,
+    /// A worker's hold across commands.
+    pub hold: bool,
+    /// Since when it holds (its start) or waits (its place), ms.
+    pub since: i64,
+    /// Until when it declared it holds, ms.
+    pub until: Option<i64>,
+}
+
+impl From<&Entry> for Holding {
+    fn from(e: &Entry) -> Holding {
+        let (entry, what, worker, hold, until) = (e.id, e.what.clone(), e.worker, e.hold, e.until());
+        Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until }
+    }
 }
 
 /// The place of a worker's or a program's entry that left the queue
@@ -157,9 +263,68 @@ impl Queue {
         queue::waiting(&self.entries)
     }
 
-    /// The waiting entry queued first.
+    /// The capacity rule of resource `name`: [`HOST`]'s is room, a named
+    /// one's its slots (one, if no ask declared them).
+    pub fn rule(&self, name: &str) -> Rule {
+        if name == HOST { Rule::Room } else { Rule::Slots(self.slots.get(name).copied().unwrap_or(1)) }
+    }
+
+    /// Whether `e` asks for `name` inside its worker's own hold of it: the
+    /// hold holds it, so the command takes no slot of its own.
+    fn covered(&self, e: &Entry, name: &str) -> bool {
+        !e.hold
+            && e.worker.is_some()
+            && self.running().any(|h| h.hold && h.worker == e.worker && h.id != e.id && h.asks_for(name))
+    }
+
+    /// The running entries holding `name`, but commands inside their worker's hold of it.
+    pub fn holders(&self, name: &str) -> impl Iterator<Item = &Entry> {
+        self.running().filter(move |e| e.asks_for(name) && !self.covered(e, name))
+    }
+
+    /// The resource the waiting `e` asks for whose slots are all held, if
+    /// one is: it waits for that one, and is passed over in every queue, so
+    /// it never holds one resource while it waits for another.
+    pub fn full_for<'e>(&self, e: &'e Entry) -> Option<&'e str> {
+        let full = |r: &&str| match self.rule(r) {
+            Rule::Slots(n) => !self.covered(e, r) && self.holders(r).count() as u64 >= n,
+            Rule::Room => false,
+        };
+        e.started_at.is_none().then(|| e.asks().into_iter().find(full)).flatten()
+    }
+
+    /// Resource `name`'s queue: the entries asking for it but those passed
+    /// over, waiting under replaced rules (factorium#241) or for a full
+    /// resource, and commands inside their worker's hold of it.
+    fn queue_of(&self, name: &str) -> Vec<Entry> {
+        let of =
+            |e: &&Entry| e.asks_for(name) && !self.covered(e, name) && !self.stale(e) && self.full_for(e).is_none();
+        self.entries.iter().filter(of).cloned().collect()
+    }
+
+    /// The waiting entry queued first in [`HOST`]'s queue: those waiting for
+    /// a full resource wait for it alone, and hold up nothing else.
     pub fn oldest(&self) -> Option<&Entry> {
-        queue::oldest(&self.entries)
+        let first = queue::oldest(&self.queue_of(HOST)).map(|e| e.id);
+        first.and_then(|id| self.entries.iter().find(|e| e.id == id))
+    }
+
+    /// Each resource declared to it (`slots`), [`HOST`], and each other an
+    /// entry asks for: its rule, its holders and those waiting for it.
+    pub fn resources(&self) -> Vec<Resource> {
+        let mut names: Vec<&str> = self.entries.iter().flat_map(Entry::asks).collect();
+        names.extend(self.slots.keys().map(String::as_str).chain([HOST]));
+        names.sort();
+        names.dedup();
+        let resource = |name: &str| {
+            let mut waiting: Vec<&Entry> =
+                self.waiting().filter(|e| e.asks_for(name) && !self.covered(e, name)).collect();
+            waiting.sort_by_key(|e| (e.queued_at, e.id));
+            let holders = self.holders(name).map(Holding::from).collect();
+            let waiting = waiting.into_iter().map(Holding::from).collect();
+            Resource { name: name.into(), rule: self.rule(name), holders, waiting }
+        };
+        names.into_iter().map(resource).collect()
     }
 
     /// When the newest of `checkout`'s line jobs that run now started, if one runs.
@@ -174,8 +339,10 @@ impl Queue {
         self.running().any(|e| e.what == what)
     }
 
-    /// Whether `id` may start at `now`, given whether the host has room, when
-    /// the reading was taken, and how long a start takes to show; else why not.
+    /// Whether `id` may start at `now`: next in each of its resources'
+    /// queues, all at once, by each one's rule — for [`HOST`], whether the
+    /// host has room, when the reading was taken, and how long a start takes
+    /// to show; for slots, one free. Else why not.
     pub fn may_start(
         &self,
         id: Uuid,
@@ -184,19 +351,31 @@ impl Queue {
         settle: i64,
         now: i64,
     ) -> Result<(), String> {
-        let starts = queue::Starts { last: self.last_start, settle };
-        queue::may_start(&self.live(), starts, id, room, read_at, now)
+        let Some(e) = self.waiting().find(|e| e.id == id) else { return Err("not waiting".into()) };
+        if let Some(name) = self.full_for(e) {
+            let by: Vec<String> = self.holders(name).map(|h| format!("`{}` (entry {})", h.what, h.id)).collect();
+            return Err(format!("waits for {name}, held by {}", by.join(", ")));
+        }
+        for name in e.asks().into_iter().filter(|r| !self.covered(e, r)) {
+            let q = self.queue_of(name);
+            match self.rule(name) {
+                Rule::Room => {
+                    let starts = queue::Starts { last: self.last_start, settle };
+                    queue::may_start(&q, starts, id, room.clone(), read_at, now)?
+                }
+                Rule::Slots(_) => match queue::next(&q, now) {
+                    Some(n) if n.id == id => {}
+                    Some(n) => return Err(format!("waits for {name} behind {}", n.what)),
+                    None => return Err("not waiting".into()),
+                },
+            }
+        }
+        Ok(())
     }
 
     /// Whether `e` waits under rules older than the queue's.
     pub fn stale(&self, e: &Entry) -> bool {
         e.started_at.is_none() && older(&e.rules, &self.rules)
-    }
-
-    /// Its entries but those waiting under replaced rules: passed over, they
-    /// hold none up, as if gone (factorium#241).
-    fn live(&self) -> Vec<Entry> {
-        self.entries.iter().filter(|e| !self.stale(e)).cloned().collect()
     }
 
     /// The place `what`, asked by `worker` (or a program), takes at `now`: that of its entry
@@ -212,20 +391,23 @@ impl Queue {
         self.entries.iter().any(|e| e.id == id)
     }
 
-    /// Whether the running `id` holds others up past `bound` and must end.
+    /// Whether the running `id` holds others in [`HOST`]'s queue up past
+    /// `bound` and must end. Only a command holding the host is: a named
+    /// resource is never cut short.
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
-        queue::overheld(&self.live(), id, now, bound)
+        self.entries.iter().any(|e| e.id == id && e.asks_for(HOST))
+            && queue::overheld(&self.queue_of(HOST), id, now, bound)
     }
 
     /// Why the running `id` must end at `now`, if it must: unqueued, held
-    /// past `bound`, or one that `yields` with anything else queued.
+    /// past `bound`, or one that `yields` with anything else asking for the host.
     pub fn ends(&self, id: Uuid, now: i64, bound: i64, yields: bool) -> Option<Ends> {
         if !self.holds(id) {
             Some(Ends::Unqueued)
         } else if self.overheld(id, now, bound) {
             Some(Ends::Held)
         } else {
-            (yields && self.entries.iter().any(|e| e.id != id)).then_some(Ends::GaveWay)
+            (yields && self.entries.iter().any(|e| e.id != id && e.asks_for(HOST))).then_some(Ends::GaveWay)
         }
     }
 }
@@ -271,6 +453,16 @@ pub enum HeavyEvent {
         /// binary that execed in its place), it keeps its place, and takes these.
         #[serde(default)]
         rules: String,
+        /// The resources it asks for; none: [`HOST`].
+        #[serde(default)]
+        resources: Vec<String>,
+        /// The slots of each named one, as the host's settings declare them now.
+        #[serde(default)]
+        slots: BTreeMap<String, u64>,
+        #[serde(default)]
+        hold: bool,
+        #[serde(default)]
+        hold_for: Option<i64>,
     },
     HeavyStarted {
         id: Uuid,
@@ -282,6 +474,10 @@ pub enum HeavyEvent {
         /// none: its place goes.
         #[serde(default)]
         kept_at: Option<i64>,
+        /// Given back by factorium, not by its holder: when, and why. The
+        /// named resources it held are kept on record.
+        #[serde(default)]
+        gone: Option<(i64, String)>,
     },
     /// A started entry's step runs in session `session`.
     HeavyRuns {
@@ -303,20 +499,54 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued { id, what, pid, worker, program, at, bound_at, place, rules } => {
+            HeavyEvent::HeavyQueued {
+                id,
+                what,
+                pid,
+                worker,
+                program,
+                at,
+                bound_at,
+                place,
+                rules,
+                resources,
+                slots,
+                hold,
+                hold_for,
+            } => {
+                s.slots.extend(slots);
                 if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
                     return e.rules = rules;
                 }
                 s.left.retain(|l| !l.of(&what, worker, program));
                 let (queued_at, session, started_at) = (place.unwrap_or(at), None, None);
-                let e = Entry { id, what, pid, worker, program, queued_at, started_at, bound_at, session, rules };
+                let e = Entry {
+                    id,
+                    what,
+                    pid,
+                    worker,
+                    program,
+                    queued_at,
+                    started_at,
+                    bound_at,
+                    session,
+                    rules,
+                    resources,
+                    hold,
+                    hold_for,
+                };
                 s.entries.push(e)
             }
             HeavyEvent::HeavyStarted { id, at } => {
-                s.entries.iter_mut().filter(|e| e.id == id).for_each(|e| e.started_at = Some(at));
-                s.last_start = at;
+                let mut host = false;
+                for e in s.entries.iter_mut().filter(|e| e.id == id) {
+                    (e.started_at, host) = (Some(at), e.asks_for(HOST));
+                }
+                if host {
+                    s.last_start = at;
+                }
             }
-            HeavyEvent::HeavyEnded { id, kept_at } => {
+            HeavyEvent::HeavyEnded { id, kept_at, gone } => {
                 if let Some(at) = kept_at {
                     s.left.retain(|l| at - l.left_at <= LEFT_KEPT_MAX);
                     let left = s.entries.iter().find(|e| e.id == id && e.started_at.is_none() && e.yields());
@@ -326,6 +556,21 @@ impl Aggregate for Heavy {
                         program: e.program,
                         queued_at: e.queued_at,
                         left_at: at,
+                    }));
+                }
+                if let Some((at, why)) = gone
+                    && let Some(e) = s.entries.iter().find(|e| e.id == id && e.started_at.is_some())
+                {
+                    s.given_back.retain(|g| at - g.at <= LEFT_KEPT_MAX);
+                    let named = e.asks().into_iter().filter(|r| *r != HOST).map(String::from);
+                    let (entry, what, worker) = (e.id, e.what.clone(), e.worker);
+                    s.given_back.extend(named.map(|resource| GivenBack {
+                        resource,
+                        entry,
+                        what: what.clone(),
+                        worker,
+                        why: why.clone(),
+                        at,
                     }));
                 }
                 s.entries.retain(|e| e.id != id)
@@ -357,6 +602,18 @@ pub struct Enqueue {
     /// The rules it asks under: [`RULES`] of the binary that asks.
     #[serde(default)]
     pub rules: String,
+    /// The resources it asks for, granted all at once; none: [`HOST`].
+    #[serde(default)]
+    pub resources: Vec<String>,
+    /// The slots of each named one, as the host's settings declare them.
+    #[serde(default)]
+    pub slots: BTreeMap<String, u64>,
+    /// A worker's hold across commands.
+    #[serde(default)]
+    pub hold: bool,
+    /// How long the hold declared it holds, ms.
+    #[serde(default)]
+    pub hold_for: Option<i64>,
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
@@ -374,6 +631,10 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         bound_at: p.bound_at,
         place: s.place(&p.what, p.worker, p.program, now.0, p.keep),
         rules: p.rules.clone(),
+        resources: p.resources.clone(),
+        slots: p.slots.clone(),
+        hold: p.hold,
+        hold_for: p.hold_for,
     }])
 });
 
@@ -410,11 +671,16 @@ pub struct End {
     /// unqueue, or one no longer due, does not keep it.
     #[serde(default)]
     pub keeps: bool,
+    /// Given back by factorium, not its holder, and why (its waiter died,
+    /// its worker ended): the named resources it held are kept on record.
+    #[serde(default)]
+    pub gone: Option<String>,
 }
 
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     // Whether its place is kept (unstarted, a worker's or a program's) is evolve's.
-    let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at: p.keeps.then_some(now.0) };
+    let (kept_at, gone) = (p.keeps.then_some(now.0), p.gone.clone().map(|why| (now.0, why)));
+    let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at, gone };
     crate::only(s.holds(p.id), ended)
 });
 
@@ -466,5 +732,45 @@ mod tests {
         // A cut, say, neither a worker's nor a program's: it keeps its place.
         let q = Queue { entries: vec![entry(1, 1), line.clone()], ..Queue::default() };
         assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(Uuid::from_u128(1)));
+    }
+
+    fn on(e: Entry, resources: &[&str]) -> Entry {
+        Entry { resources: resources.iter().map(|r| r.to_string()).collect(), ..e }
+    }
+
+    #[test]
+    fn one_waiting_for_a_full_resource_holds_up_none_but_those_asking_for_it() {
+        let holder = Entry { started_at: Some(1), ..on(entry(1, 0), &["FMGG"]) };
+        let (second, third) = (on(entry(2, 2), &["FMGG", HOST]), entry(3, 3));
+        let q = Queue { entries: vec![holder.clone(), second.clone(), third.clone()], ..Queue::default() };
+        let why = q.may_start(second.id, Ok(()), 10, 0, 10).unwrap_err();
+        assert!(why.starts_with("waits for FMGG, held by `1`"), "{why}");
+        assert_eq!(q.may_start(third.id, Ok(()), 10, 0, 10), Ok(()), "the third starts at once: no host entry runs");
+        assert_eq!(q.oldest().map(|e| e.id), Some(third.id), "admission's wait leaves the second out");
+        assert!(!q.overheld(holder.id, 1_000_000, 30), "a named resource is never cut short");
+    }
+
+    #[test]
+    fn a_workers_command_inside_its_hold_takes_no_slot_of_its_own() {
+        let w = Some(Uuid::from_u128(9));
+        let hold = Entry { started_at: Some(1), hold: true, worker: w, ..on(entry(1, 0), &["FMGG"]) };
+        let (mine, theirs) = (Entry { worker: w, ..on(entry(2, 2), &["FMGG"]) }, on(entry(3, 1), &["FMGG"]));
+        let q = Queue { entries: vec![hold, mine.clone(), theirs.clone()], ..Queue::default() };
+        assert_eq!(q.may_start(mine.id, Ok(()), 10, 0, 10), Ok(()));
+        assert!(q.may_start(theirs.id, Ok(()), 10, 0, 10).is_err());
+    }
+
+    #[test]
+    fn a_resource_of_two_slots_takes_two_holders() {
+        let slots = BTreeMap::from([("MAC".to_string(), 2)]);
+        let one = Entry { started_at: Some(1), ..on(entry(1, 0), &["MAC"]) };
+        let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
+        let q =
+            Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
+        assert_eq!(q.may_start(two.id, Ok(()), 10, 0, 10), Ok(()));
+        assert!(q.may_start(three.id, Ok(()), 10, 0, 10).is_err(), "the oldest first");
+        let two = Entry { started_at: Some(5), ..two };
+        let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
+        assert!(q.may_start(three.id, Ok(()), 10, 0, 10).unwrap_err().starts_with("waits for MAC, held by"));
     }
 }

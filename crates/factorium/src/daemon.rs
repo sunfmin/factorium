@@ -141,6 +141,8 @@ impl App {
         // The host and the heavy queue, read once, after the lines' gates
         // ran: the workers' shares, admission and idle work all ask it.
         let load = self.load().await?;
+        // A resource whose holder's waiter died is given back, on record.
+        self.give_back(|pid| load.alive(pid)).await?;
         steps.ended("reading the host", self.now());
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);

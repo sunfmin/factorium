@@ -53,6 +53,7 @@ mod priority;
 mod program;
 mod proof;
 mod queue;
+mod resource;
 mod stale;
 mod stall;
 mod terminals;

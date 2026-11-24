@@ -11,7 +11,7 @@ use factorium_domain::heavy;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::line_id;
-use factorium_domain::settings::{Set, SetSetting, Setting};
+use factorium_domain::settings::{Declare, DeclareResource, Resource, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, shown};
 use factorium_harness::Harness;
 use factum::{Uuid, Value};
@@ -90,9 +90,26 @@ impl App {
         Ok(shown(&self.rows(tracker::listed()).await?))
     }
 
-    /// The workers, live ones unless `all`.
+    /// The workers, live ones unless `all`: each with the resources it
+    /// holds (since, until it declared) and those it waits for.
     pub async fn workers(&self, all: bool) -> Answer {
-        Ok(shown(&self.rows(tracker::workers(None, all)).await?))
+        let mut v = shown(&self.rows(tracker::workers(None, all)).await?);
+        let resources = self.state::<heavy::Heavy>(heavy::queue_id()).await?.resources();
+        for row in v.as_array_mut().into_iter().flatten() {
+            let me = row["worker"].as_str().and_then(|w| w.parse::<Uuid>().ok());
+            let mine = |h: &heavy::Holding| me.is_some() && h.worker == me;
+            let of = |hs: &'_ [heavy::Holding]| hs.iter().filter(|h| mine(h)).cloned().collect::<Vec<_>>();
+            let holds = resources.iter().flat_map(|r| of(&r.holders).into_iter().map(move |h| (r, h)));
+            let holds: Vec<Value> = holds
+                .map(|(r, h)| json!({ "resource": r.name, "entry": h.entry, "hold": h.hold, "since": h.since, "until": h.until }))
+                .collect();
+            let waits = resources.iter().flat_map(|r| of(&r.waiting).into_iter().map(move |h| (r, h)));
+            let waits: Vec<Value> = waits
+                .map(|(r, h)| json!({ "resource": r.name, "entry": h.entry, "since": h.since, "held_by": r.holders }))
+                .collect();
+            (row["holds"], row["waits_for"]) = (json!(holds), json!(waits));
+        }
+        Ok(v)
     }
 
     // ---- the kit and the accounts ----
@@ -168,6 +185,15 @@ impl App {
         })
     }
 
+    /// Declares the host's named resource `name` (its slots and note), or with `remove` takes it
+    /// away; answers every resource declared. With neither, it changes nothing.
+    pub async fn resource_declare(&self, name: &str, declared: Option<Resource>, remove: bool) -> Answer {
+        if declared.is_some() || remove {
+            self.submit::<DeclareResource>(Declare { name: name.into(), resource: declared }).await?;
+        }
+        Ok(json!({ "resources": self.settings().await?.resources }))
+    }
+
     /// Holds a checkout's landings, or with `None` releases them.
     pub async fn hold(&self, checkout: &str, why: Option<&str>) -> Answer {
         self.checkout(checkout).await?;
@@ -184,7 +210,7 @@ impl App {
         let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {
             return Err(Refusal::new("no_entry", format!("the heavy queue holds no entry {id}")));
         };
-        self.submit::<heavy::EndHeavy>(heavy::End { id, keeps: false }).await?;
+        self.submit::<heavy::EndHeavy>(heavy::End { id, keeps: false, gone: None }).await?;
         if let Some(session) = entry.session {
             let end = tokio::task::spawn_blocking(move || factorium_host::end(session));
             end.await.map_err(|e| Refusal::new("internal", e.to_string()))?;

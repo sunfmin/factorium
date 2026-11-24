@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy, queue_id,
+    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Rules, Runs, StartHeavy,
+    queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -43,6 +44,21 @@ pub(crate) struct Job<'a> {
     /// `limit` is the whole run's, on the app's clock: idle work's.
     whole: bool,
     priority: Priority,
+    /// The resources it asks for, all at once (none: the host).
+    resources: Vec<String>,
+    /// A worker's hold across commands, `hold_for` ms by its declaration:
+    /// granted, it runs nothing and stays held after its waiter answers.
+    hold: bool,
+    hold_for: Option<i64>,
+}
+
+/// How a command run by hand runs: at background priority, and the
+/// resources it asks for, all at once (none: the host, as every heavy
+/// command before resources).
+#[derive(Clone, Debug, Default)]
+pub struct Exclusive {
+    pub background: bool,
+    pub resources: Vec<String>,
 }
 
 impl<'a> Job<'a> {
@@ -57,9 +73,16 @@ impl<'a> Job<'a> {
     }
     /// A command run by hand (`worker exclusive`), within four hold bounds of `hold_ms`, a minute
     /// at least: at a gate's priority, or `background` for work whose time no gate compares.
-    pub(crate) fn exclusive(what: String, dir: &'a Path, steps: &'a [String], hold_ms: i64, background: bool) -> Self {
+    pub(crate) fn exclusive(what: String, dir: &'a Path, steps: &'a [String], hold_ms: i64, how: Exclusive) -> Self {
         let limit = 4 * Duration::from_millis(hold_ms.max(60_000) as u64);
-        Job::new(what, dir, steps, limit, if background { Priority::Background } else { Priority::Normal })
+        let priority = if how.background { Priority::Background } else { Priority::Normal };
+        Job { resources: how.resources, ..Job::new(what, dir, steps, limit, priority) }
+    }
+    /// A worker's hold of `resources` across commands, for `hold_for` ms: it runs no step.
+    pub(crate) fn hold(resources: Vec<String>, hold_for: i64, dir: &'a Path) -> Self {
+        let what = format!("hold of {}", resources.join(" and "));
+        let job = Job::new(what, dir, &[], Duration::ZERO, Priority::Normal);
+        Job { resources, hold: true, hold_for: Some(hold_for), ..job }
     }
     /// Idle work's `steps` in its clone `dir`, all within `limit` s on the app's clock: in the background.
     pub(crate) fn idle(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
@@ -75,7 +98,9 @@ impl<'a> Job<'a> {
     }
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
         let env = Vec::new();
-        Job { what, worker: None, program: false, bound_at: None, dir, steps, env, limit, whole: false, priority }
+        let (worker, bound_at, resources, hold_for) = (None, None, Vec::new(), None);
+        let (program, whole, hold) = (false, false, false);
+        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold, hold_for }
     }
 }
 
@@ -133,28 +158,70 @@ impl App {
     /// Runs a program of the owner's command `cmd` in `dir` through the queue, as a worker's
     /// `worker exclusive` runs: at a gate's priority, or `background`'s.
     pub async fn heavy_run(&self, dir: &Path, cmd: &str, background: bool) -> Answer {
-        self.exclusive(Asker::Program, dir, cmd, background).await
+        self.heavy_run_as(dir, cmd, Exclusive { background, ..Exclusive::default() }).await
+    }
+
+    /// [`App::heavy_run`] as `how` says: holding the resources it names, all at once.
+    pub async fn heavy_run_as(&self, dir: &Path, cmd: &str, how: Exclusive) -> Answer {
+        self.exclusive(Asker::Program, dir, cmd, how).await
     }
 
     /// The queue's depth: how many entries run and how many wait, each entry, oldest first, and
     /// the places kept for entries that left unstarted.
     pub async fn heavy_depth(&self) -> Answer {
         let q = self.state::<Heavy>(queue_id()).await?;
-        let (running, waiting) = (q.running().count(), q.waiting().count());
-        Ok(serde_json::json!({ "running": running, "waiting": waiting, "entries": q.entries, "kept": q.left }))
+        let (running, waiting, resources) = (q.running().count(), q.waiting().count(), q.resources());
+        Ok(serde_json::json!({
+            "running": running, "waiting": waiting, "entries": q.entries, "kept": q.left, "resources": resources
+        }))
     }
 
-    /// Runs `cmd` in `dir` by hand for `asker`, waiting for its turn: within four hold bounds, at
-    /// a gate's priority or `background`'s. Answers how it ran.
-    pub(crate) async fn exclusive(&self, asker: Asker, dir: &Path, cmd: &str, background: bool) -> Answer {
-        let (hold_ms, steps) = (self.settings().await?.ms(Time::HoldBound), [cmd.to_string()]);
-        let job = Job::exclusive(cmd.into(), dir, &steps, hold_ms, background);
+    /// Runs `cmd` in `dir` by hand for `asker`, waiting for its turn, all its resources at once:
+    /// within four hold bounds, at a gate's priority or `background`'s. Answers how it ran. A
+    /// resource the host's settings do not declare is refused.
+    pub(crate) async fn exclusive(&self, asker: Asker, dir: &Path, cmd: &str, how: Exclusive) -> Answer {
+        let settings = self.settings().await?;
+        settings.slots(&how.resources).map_err(|m| Refusal::new("unknown_resource", m))?;
+        let (hold_ms, steps) = (settings.ms(Time::HoldBound), [cmd.to_string()]);
+        let job = Job::exclusive(cmd.into(), dir, &steps, hold_ms, how);
         let job = match asker {
             Asker::Worker(worker) => job.of(worker, None),
             Asker::Program => job.of_program(),
         };
         let ran = self.heavy(job, Turn::Wait).await?.and_then(|mut r| r.pop()).expect("a waited turn");
         Ok(serde_json::json!({ "ok": ran.ok, "code": ran.code, "took_ms": ran.took_ms, "tail": ran.tail }))
+    }
+
+    /// `worker hold`: waits until `worker` holds `resources`, all at once, for `hold_for` ms by
+    /// its declaration, and answers the hold. It stays held after this answers, until
+    /// `worker release` or its worker ends. Refused: a resource not declared, or `host`.
+    pub async fn worker_hold(&self, worker: Uuid, resources: &[String], hold_for: i64) -> Answer {
+        if resources.iter().any(|r| r == factorium_domain::heavy::HOST) {
+            let why = "`host` is held by a heavy command alone (`worker exclusive`): hold a named resource";
+            return Err(Refusal::new("host_hold", why));
+        }
+        self.settings().await?.slots(resources).map_err(|m| Refusal::new("unknown_resource", m))?;
+        let dir = std::env::temp_dir();
+        let job = Job::hold(resources.to_vec(), hold_for, &dir).of(Some(worker), None);
+        self.heavy(job, Turn::Wait).await?;
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let mine = q.running().find(|e| e.hold && e.worker == Some(worker) && e.resources == resources);
+        let held = mine.map(factorium_domain::heavy::Holding::from);
+        Ok(serde_json::json!({ "resources": resources, "held": held }))
+    }
+
+    /// `worker release`: gives back `worker`'s holds of `name`; refused if it holds none.
+    pub async fn worker_release(&self, worker: Uuid, name: &str) -> Answer {
+        let q = self.state::<Heavy>(queue_id()).await?;
+        let mine: Vec<_> = q.running().filter(|e| e.hold && e.worker == Some(worker) && e.asks_for(name)).collect();
+        if mine.is_empty() {
+            return Err(Refusal::new("not_held", format!("you hold no {name}")));
+        }
+        for e in &mine {
+            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: None }).await?;
+        }
+        let released: Vec<_> = mine.iter().map(|e| e.id).collect();
+        Ok(serde_json::json!({ "released": name, "entries": released }))
     }
 
     /// Runs `job` when its turn comes: how each step ran, up to the first that failed. `None`:
@@ -183,7 +250,7 @@ impl App {
                 Err(r) if r.code == "stale" => match &turn {
                     Turn::Wait => {
                         let r = self.as_installed(id, r);
-                        self.submit::<EndHeavy>(End { id, keeps: true }).await?;
+                        self.submit::<EndHeavy>(End { id, keeps: true, gone: None }).await?;
                         return Err(r);
                     }
                     // The daemon execs the installed binary after this tick.
@@ -199,7 +266,7 @@ impl App {
                     return Ok(None);
                 }
                 (false, Turn::Beside { key: None, .. }) => {
-                    return self.submit::<EndHeavy>(End { id, keeps: false }).await.map(|()| None);
+                    return self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await.map(|()| None);
                 }
             }
         }
@@ -214,9 +281,13 @@ impl App {
             self.memory.lock().unwrap().beside.push(Beside(run, of));
             return Ok(Some(Vec::new()));
         }
+        if job.hold {
+            // Granted: it is held until released, or its worker ends.
+            return Ok(Some(Vec::new()));
+        }
         let ran = self.run_held(id, &job).await;
         self.memory.lock().unwrap().queued.remove(&id);
-        self.submit::<EndHeavy>(End { id, keeps: false }).await?;
+        self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await?;
         ran.map(Some)
     }
 
@@ -234,7 +305,7 @@ impl App {
             gone
         };
         for id in gone {
-            self.submit::<EndHeavy>(End { id, keeps: false }).await?;
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await?;
         }
         Ok(done)
     }
@@ -289,7 +360,7 @@ impl App {
             let Beside(r, of) = b;
             let (id, why, rans) = (r.id, r.why, self.ran(r).await);
             // Failing, those not yet looked at are kept for the next tick.
-            let rans = match (self.submit::<EndHeavy>(End { id, keeps: false }).await, rans) {
+            let rans = match (self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await, rans) {
                 (Ok(()), Ok(rans)) => rans,
                 (Err(e), _) | (_, Err(e)) => {
                     self.memory.lock().unwrap().beside.extend(picked);
@@ -340,6 +411,33 @@ impl App {
         }
     }
 
+    /// Gives back each named resource whose holder is gone: a command's
+    /// whose waiter died, as `alive` says of its pid, or a hold's whose
+    /// worker ended. On record, a finding for doctor (factorium#284).
+    pub(crate) async fn give_back(&self, alive: impl Fn(u32) -> bool) -> Answer<()> {
+        let q = self.state::<Heavy>(queue_id()).await?;
+        for e in q.running().filter(|e| e.asks().iter().any(|r| *r != factorium_domain::heavy::HOST)) {
+            let why = match self.holder_gone(e, &alive).await? {
+                Some(why) => why,
+                None => continue,
+            };
+            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: Some(why.into()) }).await?;
+        }
+        Ok(())
+    }
+
+    /// Why the running `e`'s holder is gone, if it is: a command's waiter
+    /// died (a hold's waiter answered long since), or its worker ended.
+    pub(crate) async fn holder_gone(&self, e: &Entry, alive: &impl Fn(u32) -> bool) -> Answer<Option<&'static str>> {
+        if !e.hold && !alive(e.pid) {
+            return Ok(Some("its waiter died"));
+        }
+        let Some(w) = e.worker else { return Ok(None) };
+        let ended =
+            self.state::<factorium_domain::worker::Workers>(w).await?.status == factorium_domain::worker::Status::Ended;
+        Ok(ended.then_some("its worker ended"))
+    }
+
     /// Records that the rules this app asks under are the queue's: the daemon's, as it starts.
     pub(crate) async fn note_rules(&self) -> Answer<()> {
         self.submit::<NoteRules>(Rules { version: self.rules.clone() }).await
@@ -354,8 +452,12 @@ impl App {
     async fn take_turn(&self, id: Uuid, job: &Job<'_>, queued: bool) -> Answer<bool> {
         let q = self.state::<Heavy>(queue_id()).await?;
         let pid = std::process::id();
-        for e in q.entries.iter().filter(|e| e.id != id && e.pid != pid && !self.host.alive(e.pid)) {
-            self.submit::<EndHeavy>(End { id: e.id, keeps: true }).await?;
+        // A granted hold outlives its waiter: only its release or its worker's end gives it back.
+        let dead =
+            |e: &&Entry| e.id != id && e.pid != pid && !(e.hold && e.started_at.is_some()) && !self.host.alive(e.pid);
+        for e in q.entries.iter().filter(dead) {
+            let gone = e.started_at.is_some().then(|| "its waiter died".to_string());
+            self.submit::<EndHeavy>(End { id: e.id, keeps: true, gone }).await?;
         }
         if !q.holds(id) && queued {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
@@ -365,7 +467,10 @@ impl App {
         // queued): a binary that execed in its place keeps its entry.
         let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
-        self.submit::<EnqueueHeavy>(Enqueue { id, what, pid, worker, program, bound_at, keep, rules }).await?;
+        let (resources, hold, hold_for) = (job.resources.clone(), job.hold, job.hold_for);
+        let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
+        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold, hold_for };
+        self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
