@@ -244,11 +244,7 @@ command!(TryMessage, "outbox.tried", Outboxes, Try, |p| outbox_id(&p.terminal), 
     let Some(m) = s.messages.iter().find(|m| m.n == p.n) else {
         return crate::no("no_message", format!("no message {}", p.n));
     };
-    Ok(if m.outcome.as_ref() == Some(&p.outcome) {
-        Vec::new()
-    } else {
-        vec![OutboxEvent::Tried { n: p.n, outcome: p.outcome.clone() }]
-    })
+    crate::only(m.outcome.as_ref() != Some(&p.outcome), OutboxEvent::Tried { n: p.n, outcome: p.outcome.clone() })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -272,7 +268,5 @@ command!(HoldTakenMessages, "outbox.hold_taken", Outboxes, HoldTaken, |p| outbox
         Some(Outcome::Queued) => m.at >= p.queued,
         _ => false,
     };
-    Ok::<_, factum_core::Rejection>(
-        s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
-    )
+    Ok(s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect())
 });

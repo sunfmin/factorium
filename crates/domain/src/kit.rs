@@ -291,15 +291,6 @@ pub struct HarnessNote {
 
 // The host's own login of a harness reached its engine's limit: no
 // worker starts on it before then; a later reset is kept.
-command!(
-    LimitHarness,
-    "harness.limited",
-    Kits,
-    HarnessNote,
-    |_p| kit_id(),
-    |s, p, now| Ok::<_, factum_core::Rejection>(if s.limits.get(&p.harness).is_none_or(|u| *u < p.until) {
-        vec![KitEvent::HarnessLimited(p.clone())]
-    } else {
-        Vec::new()
-    })
-);
+command!(LimitHarness, "harness.limited", Kits, HarnessNote, |_p| kit_id(), |s, p, now| {
+    crate::only(s.limits.get(&p.harness).is_none_or(|u| *u < p.until), KitEvent::HarnessLimited(p.clone()))
+});

@@ -176,11 +176,7 @@ pub struct Start {
 }
 
 command!(StartDaemon, "daemon.start", Daemons, Start, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![DaemonEvent::DaemonStarted {
-        at: now.0,
-        path: p.path.clone(),
-        missing: p.missing.clone(),
-    }])
+    Ok(vec![DaemonEvent::DaemonStarted { at: now.0, path: p.path.clone(), missing: p.missing.clone() }])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -202,7 +198,7 @@ command!(NoteTick, "daemon.tick", Daemons, Ticked, |_p| daemon_id(), |s, p, now|
     if let Some((took_ms, longest)) = &p.slow {
         events.push(DaemonEvent::TickSlow(SlowTick { at: now.0, took_ms: *took_ms, longest: longest.clone() }));
     }
-    Ok::<_, factum_core::Rejection>(events)
+    Ok(events)
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -213,7 +209,7 @@ pub struct Rollback {
 }
 
 command!(NoteRollback, "daemon.rollback", Daemons, Rollback, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(match (&p.rolled_back, &s.rolled_back) {
+    Ok(match (&p.rolled_back, &s.rolled_back) {
         (Some(r), _) => vec![DaemonEvent::RolledBack { at: now.0, rolled_back: r.clone() }],
         (None, Some(_)) => vec![DaemonEvent::RollbackOver],
         (None, None) => Vec::new(),
@@ -228,9 +224,7 @@ pub struct Swap {
 }
 
 command!(NoteSwap, "daemon.swap", Daemons, Swap, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(
-        (p.refused != s.refused).then(|| DaemonEvent::SwapRefused(p.refused.clone())).into_iter().collect(),
-    )
+    crate::only(p.refused != s.refused, DaemonEvent::SwapRefused(p.refused.clone()))
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -240,7 +234,7 @@ pub struct Upgraded {
 }
 
 command!(NoteUpgrade, "daemon.upgrade", Daemons, Upgraded, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
+    Ok(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -253,7 +247,7 @@ pub struct RoleChecked {
 // A role directory's check before a start: kept only when it changes what is known of it.
 command!(NoteRole, "daemon.role", Daemons, RoleChecked, |_p| daemon_id(), |s, p, _now| {
     let changed = s.roles.get(&p.dir) != p.lacking.as_ref();
-    Ok::<_, factum_core::Rejection>(changed.then(|| DaemonEvent::RoleChecked(p.clone())).into_iter().collect())
+    crate::only(changed, DaemonEvent::RoleChecked(p.clone()))
 });
 
 /// What the daemon's own files say of it, as the process edge reads them:

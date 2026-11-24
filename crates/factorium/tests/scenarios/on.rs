@@ -135,6 +135,16 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#1")), "{t:?}");
     assert_eq!(w.worker_on("web", 1).await["account"], "night");
+
+    // An account of another engine than the checkout's pin waits, saying so.
+    w.app.kit_pin("web", Some("claude-code")).await.unwrap();
+    let on_night = On { role: None, account: Some("night".into()), model: None };
+    w.app.issue_add_on("web", "On night again", "", None, &[], on_night).await.unwrap();
+    let t = w.tick().await;
+    assert!(
+        t.held.as_deref().unwrap().contains("account night is of codex, and web is pinned to claude-code"),
+        "{t:?}"
+    );
 }
 
 /// A role directory under the world's home, with rules `rules` and skill `skill`.

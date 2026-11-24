@@ -150,11 +150,8 @@ pub struct Give {
 }
 
 command!(GiveNumbers, "decided.give", Numbers, Give, |_p| numbers_id(), |s, p, now| {
-    Ok(if p.count == 0 && !(p.sweep && !s.swept) {
-        Vec::new()
-    } else {
-        vec![NumbersEvent::NumbersGiven { from: s.last + 1, count: p.count, sweep: p.sweep }]
-    })
+    let given = NumbersEvent::NumbersGiven { from: s.last + 1, count: p.count, sweep: p.sweep };
+    crate::only(p.count > 0 || (p.sweep && !s.swept), given)
 });
 
 /// Numbers a sweep gave to records of issues that had closed.

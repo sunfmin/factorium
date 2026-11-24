@@ -84,11 +84,12 @@ async fn a_version_from_the_tap_that_fails_its_proof_leaves_the_old_one_running_
 async fn a_failed_upgrade_is_a_finding_until_one_works() {
     let w = World::new();
     w.running_as(&w.app, "factorium");
-    w.host.brew.lock().unwrap().refuses = Some("Error: Failure while executing; `curl` exited with 6".into());
+    // `brew update` takes, then the upgrade is refused (truefit's brew fault `upgrade-refused`).
+    w.host.brew.lock().unwrap().fault("upgrade-refused", true);
     assert_eq!(upgraded(&w).await["upgraded"], false);
     let found = w.finding("daemon:upgrade").await.expect("a finding");
     assert!(found["what"].as_str().unwrap().contains("curl"), "{found}");
-    w.host.brew.lock().unwrap().refuses = None;
+    w.host.brew.lock().unwrap().fault("upgrade-refused", false);
     w.advance(60);
     assert_eq!(upgraded(&w).await["upgraded"], true);
     assert_eq!(w.finding("daemon:upgrade").await, None);

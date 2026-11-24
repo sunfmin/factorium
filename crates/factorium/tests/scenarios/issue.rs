@@ -1,21 +1,8 @@
-//! An issue's rules read by the domain alone: an old block's why, the
-//! question it asks, and who asked last (factorium#304: once a never-built
-//! unit test of `issue.rs`; its block cases `tracker.rs` holds through `App`).
+//! An issue's rules read by the domain alone: the question it asks, and
+//! who asked last (factorium#304: once a never-built unit test of
+//! `issue.rs`; its block cases `tracker.rs` holds through `App`).
 
-use factorium_domain::issue::{Asker, Author, Issue, IssueEvent, Issues, NO_REASON, On, asked, question};
-use factum::Aggregate;
-use serde_json::json;
-
-/// A block keeps its why; one kept before blocks had whys reads as no reason given.
-#[test]
-fn a_block_keeps_its_why_and_one_made_before_whys_reads_as_no_reason_given() {
-    let mut i = Issue { checkout: "web".into(), number: 1, ..Issue::default() };
-    Issues::evolve(&mut i, IssueEvent::BlockedBy { number: 2, why: Some("needs its parser".into()) });
-    let old: IssueEvent = serde_json::from_value(json!({ "type": "BlockedBy", "data": { "number": 3 } })).unwrap();
-    Issues::evolve(&mut i, old);
-    let whys: Vec<_> = i.waits_for().into_iter().map(|(n, a)| (n, a.why().to_string())).collect();
-    assert_eq!(whys, [("#2".into(), "needs its parser".into()), ("#3".into(), NO_REASON.to_string())]);
-}
+use factorium_domain::issue::{Asker, Author, IssueEvent, On, asked, question};
 
 #[test]
 fn the_question_is_the_first_line_after_any_based_on_line() {

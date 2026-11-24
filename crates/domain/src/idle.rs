@@ -105,7 +105,7 @@ pub struct Ran {
 }
 
 command!(RecordIdle, "idle.ran", Idles, Ran, |p| idle_id(&p.checkout), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![IdleEvent::IdleRan { run: p.run.clone() }])
+    Ok(vec![IdleEvent::IdleRan { run: p.run.clone() }])
 });
 
 /// A task as it is told apart: its kind and the files it works on.

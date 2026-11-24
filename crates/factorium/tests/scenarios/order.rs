@@ -51,8 +51,14 @@ fn a_five_minute_hold_asked_after_a_160_minute_one_goes_first() {
     assert_eq!(whys(&q, HOST, 3 * MIN), Vec::<Option<String>>::new(), "none of them asks for the host");
     // Hours and minutes, as the owner reads them.
     let longer = hold(4, 0, 200, "FMGG");
-    let q = Queue { entries: vec![long, longer], ..Queue::default() };
+    let q = Queue { entries: vec![long, longer.clone()], ..Queue::default() };
     assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `1`, a 2 h 40 min hold".into())]);
+    let (two_hours, half_a_minute) =
+        (hold(5, 0, 120, "FMGG"), Entry { hold_for: Some(30_000), ..hold(6, 0, 0, "FMGG") });
+    let q = Queue { entries: vec![two_hours, longer.clone()], ..Queue::default() };
+    assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `5`, a 2 h hold".into())]);
+    let q = Queue { entries: vec![half_a_minute, longer], ..Queue::default() };
+    assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `6`, a 30 s hold".into())]);
 }
 
 #[test]
@@ -111,4 +117,17 @@ fn a_window_reads_two_times_of_day_that_differ() {
     for bad in ["22:00", "22:00-22:00", "24:00-01:00", "10:60-11:00", "a-b"] {
         assert!(window(bad).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn a_resource_of_two_slots_takes_two_holders_and_the_oldest_waiting_next() {
+    let slots = std::collections::BTreeMap::from([("MAC".to_string(), 2)]);
+    let one = Entry { started_at: Some(1), ..on(entry(1, 0), &["MAC"]) };
+    let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
+    let q = Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
+    assert_eq!(starts(&q, two.id, 10), Ok(()));
+    assert!(starts(&q, three.id, 10).is_err(), "the oldest first");
+    let two = Entry { started_at: Some(5), ..two };
+    let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
+    assert!(starts(&q, three.id, 10).unwrap_err().starts_with("waits for MAC, held by"));
 }

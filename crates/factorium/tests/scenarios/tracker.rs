@@ -335,6 +335,9 @@ async fn a_block_without_a_why_is_refused_and_issue_show_answers_each_why() {
     assert_eq!(w.app.issue_show("web", 3).await.unwrap()["waits"][0]["met"], "done");
     // Undone, it needs no why.
     assert_eq!(w.app.issue_block("web", 3, 2, None, true).await.unwrap()["blocked_by"], json!([1]));
+    // A block made before whys were asked for reads so.
+    w.blocks_as_code_before_285_wrote_them();
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["waits"][0]["why"], "(no reason given)");
 }
 
 /// A db written before the state was named for who resumes it (factorium#95)

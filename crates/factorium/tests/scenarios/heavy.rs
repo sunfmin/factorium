@@ -1,8 +1,6 @@
 //! The heavy queue's resources and the line's moves, by the domain's rule
 //! alone (factorium#304: once a never-built unit test of `heavy.rs`).
 
-use std::collections::BTreeMap;
-
 use factorium_domain::heavy::{Entry, HOST, Queue, Reading};
 use factorium_domain::neutral::queue;
 use factum::Uuid;
@@ -51,17 +49,4 @@ fn a_workers_command_inside_its_hold_takes_no_slot_of_its_own() {
     let q = Queue { entries: vec![hold, mine.clone(), theirs.clone()], ..Queue::default() };
     assert_eq!(q.may_start(mine.id, Ok(()), at(10), 10), Ok(()));
     assert!(q.may_start(theirs.id, Ok(()), at(10), 10).is_err());
-}
-
-#[test]
-fn a_resource_of_two_slots_takes_two_holders() {
-    let slots = BTreeMap::from([("MAC".to_string(), 2)]);
-    let one = Entry { started_at: Some(1), ..on(entry(1, 0), &["MAC"]) };
-    let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
-    let q = Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
-    assert_eq!(q.may_start(two.id, Ok(()), at(10), 10), Ok(()));
-    assert!(q.may_start(three.id, Ok(()), at(10), 10).is_err(), "the oldest first");
-    let two = Entry { started_at: Some(5), ..two };
-    let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
-    assert!(q.may_start(three.id, Ok(()), at(10), 10).unwrap_err().starts_with("waits for MAC, held by"));
 }

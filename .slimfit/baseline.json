@@ -2,11 +2,11 @@
   "suites": {
     "rust": {
       "prod_lines": 14943,
-      "test_lines": 15080,
-      "tests": 474,
+      "test_lines": 15095,
+      "tests": 475,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 8967,
+      "covered_lines": 8972,
       "uncovered_lines": 107
     }
   },
@@ -88,13 +88,32 @@
       "commits_90d": 24,
       "commits_total": 24,
       "reason": "Deep already: one aggregate (Issue, its events, evolve) behind small commands; the 17 other files that use it go through commands and queries (waits_for, blocked_by, records, asked) and never name the events of waiting or numbering (BlockedBy/Unblocked/…Across/DecidedNumbered appear only here). Size is ~20 one-rule commands plus wait() and Decided placement, each needing Issue's state; splitting waits or numbering out would move code and widen the interface (Issue internals pub) without concentrating anything. Tests go through the public functions only."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/domain/src/doctor.rs",
+      "prod_lines": 494,
+      "commits_90d": 39,
+      "commits_total": 39,
+      "reason": "Deep already: one input record (Seen) and three pure functions (findings, unstarted, no_daemon) hide every finding's rule, key, wording and fix; callers in the effect crate and tests (scenarios/stall.rs, admission.rs) only cross that interface. Its churn is each new finding added in its one home, which is the locality the module exists for; splitting it by finding would spread one concept over many shallow modules with the same interface."
+    }
+  ],
+  "kept_spans": [
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/moved.rs",
+      "start": 39,
+      "end": 39,
+      "function": "App::issue_move (closure)",
+      "hash": "69fc1f82dfca2844",
+      "reason": "Only wiring left: the closure hands a failed step's refusal to factorium_domain::moved::stopped, whose wording is tested in milliseconds (moved::a_move_that_stops_part_way_says_where_and_what_it_had_done). It runs only when a step fails after the other host was checked over ssh, which only a minutes-long scenario reaches, so a fast test could not reach it at all."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 186,
-      "test_seconds": 380.363
+      "uncovered_lines": 180,
+      "test_seconds": 360.88
     }
   }
 }

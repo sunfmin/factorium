@@ -3,8 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use factorium_domain::kit::{Ask, Choice, Kit, Kits, Picked, Unpicked};
-use factum::Aggregate;
+use factorium_domain::kit::{Ask, Choice, Kit, Picked, Unpicked};
 
 fn kit(engines: &[&str]) -> Kit {
     Kit { commands: engines.iter().map(|e| (e.to_string(), format!("{e}-cmd"))).collect(), ..Kit::default() }
@@ -96,14 +95,4 @@ fn a_picker_runs_on_another_engine_that_asks_else_on_the_worker_s() {
     assert_eq!((c, seen), (Ok("a".into()), vec![vec!["b".to_string(), "c".into()], vec!["a".into()]]));
     let (c, _) = asked("a", &[], none());
     assert!(c.unwrap_err().starts_with("no harness of the kit that can pick mutants"));
-}
-
-/// The kit set as factorium once kept it reads as its commands.
-#[test]
-fn an_old_kit_reads_as_its_commands() {
-    let mut k = Kit::default();
-    let old = r#"{"type": "KitSet", "data": {"entries": [{"harness": "codex", "command": "first", "model": "m"},
-        {"harness": "codex", "command": "second", "model": null}]}}"#;
-    Kits::evolve(&mut k, serde_json::from_str(old).unwrap());
-    assert_eq!(k.commands, BTreeMap::from([("codex".to_string(), "first".to_string())]));
 }

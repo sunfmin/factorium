@@ -141,6 +141,25 @@ impl Window {
 }
 
 impl Entry {
+    /// The entry `ask` makes, in the place `queued_at` (ms).
+    fn queued(ask: Ask, queued_at: i64) -> Entry {
+        let Ask { id, what, pid, worker, program, bound_at, rules, resources, hold_for, window, .. } = ask;
+        Entry {
+            id,
+            what,
+            pid,
+            worker,
+            program,
+            queued_at,
+            bound_at,
+            rules,
+            resources,
+            hold_for,
+            window,
+            ..Entry::default()
+        }
+    }
+
     /// Whether it is a worker's hold across commands.
     pub fn is_hold(&self) -> bool {
         self.hold_for.is_some()
@@ -558,33 +577,13 @@ impl std::fmt::Display for Ends {
 #[serde(tag = "type", content = "data")]
 pub enum HeavyEvent {
     HeavyQueued {
-        id: Uuid,
-        what: String,
-        pid: u32,
-        worker: Option<Uuid>,
-        #[serde(default)]
-        program: bool,
+        #[serde(flatten)]
+        ask: Ask,
         at: i64,
-        #[serde(default)]
-        bound_at: Option<i64>,
         /// The place it took, kept from its asker's entry that left
         /// unstarted: its `queued_at`, not `at`.
         #[serde(default)]
         place: Option<i64>,
-        /// The rules it was queued under. Queued again under other rules (a
-        /// binary that execed in its place), it keeps its place, and takes these.
-        #[serde(default)]
-        rules: String,
-        /// The resources it asks for; none: [`HOST`].
-        #[serde(default)]
-        resources: Vec<String>,
-        /// The slots of each named one, as the host's settings declare them now.
-        #[serde(default)]
-        slots: BTreeMap<String, u64>,
-        #[serde(default)]
-        hold_for: Option<i64>,
-        #[serde(default)]
-        window: Option<Window>,
     },
     HeavyStarted {
         id: Uuid,
@@ -621,43 +620,13 @@ impl Aggregate for Heavy {
 
     fn evolve(s: &mut Queue, event: HeavyEvent) {
         match event {
-            HeavyEvent::HeavyQueued {
-                id,
-                what,
-                pid,
-                worker,
-                program,
-                at,
-                bound_at,
-                place,
-                rules,
-                resources,
-                slots,
-                hold_for,
-                window,
-            } => {
-                s.slots.extend(slots);
-                if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
-                    return e.rules = rules;
+            HeavyEvent::HeavyQueued { mut ask, at, place } => {
+                s.slots.extend(std::mem::take(&mut ask.slots));
+                if let Some(e) = s.entries.iter_mut().find(|e| e.id == ask.id) {
+                    return e.rules = ask.rules;
                 }
-                s.left.retain(|l| !l.of(&what, worker, program));
-                let (queued_at, session, started_at) = (place.unwrap_or(at), None, None);
-                let e = Entry {
-                    id,
-                    what,
-                    pid,
-                    worker,
-                    program,
-                    queued_at,
-                    started_at,
-                    bound_at,
-                    session,
-                    rules,
-                    resources,
-                    hold_for,
-                    window,
-                };
-                s.entries.push(e)
+                s.left.retain(|l| !l.of(&ask.what, ask.worker, ask.program));
+                s.entries.push(Entry::queued(ask, place.unwrap_or(at)))
             }
             HeavyEvent::HeavyStarted { id, at } => {
                 let mut host = false;
@@ -705,59 +674,50 @@ impl Aggregate for Heavy {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Enqueue {
+/// What an entry asks of the queue: as its asker queues it, and as the
+/// queue records it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Ask {
     pub id: Uuid,
     pub what: String,
     pub pid: u32,
     pub worker: Option<Uuid>,
-    /// Queued by a program of the owner's that is not a worker.
     #[serde(default)]
     pub program: bool,
-    /// When the line move it is for passes its bound, ms.
     #[serde(default)]
     pub bound_at: Option<i64>,
-    /// How long the place of its asker's entry that left unstarted is kept
-    /// for it, ms: `heavy_keep`.
-    #[serde(default)]
-    pub keep: i64,
-    /// The rules it asks under: [`RULES`] of the binary that asks.
+    /// The rules it asks under: [`RULES`] of the binary that asks. Queued
+    /// again under other rules (a binary that execed in its place), it
+    /// keeps its place, and takes these.
     #[serde(default)]
     pub rules: String,
-    /// The resources it asks for, granted all at once; none: [`HOST`].
     #[serde(default)]
     pub resources: Vec<String>,
     /// The slots of each named one, as the host's settings declare them.
     #[serde(default)]
     pub slots: BTreeMap<String, u64>,
-    /// How long a worker's hold across commands declared it holds, ms: none, a command.
     #[serde(default)]
     pub hold_for: Option<i64>,
-    /// The daily window a hold starts in; none: any time.
     #[serde(default)]
     pub window: Option<Window>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Enqueue {
+    #[serde(flatten)]
+    pub ask: Ask,
+    /// How long the place of its asker's entry that left unstarted is kept
+    /// for it, ms: `heavy_keep`.
+    #[serde(default)]
+    pub keep: i64,
+}
+
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
+    let a = &p.ask;
     // Queued already under these rules: nothing to do.
-    if s.entries.iter().any(|e| e.id == p.id && e.rules == p.rules) {
-        return Ok(Vec::new());
-    }
-    Ok::<_, factum_core::Rejection>(vec![HeavyEvent::HeavyQueued {
-        id: p.id,
-        what: p.what.clone(),
-        pid: p.pid,
-        worker: p.worker,
-        program: p.program,
-        at: now.0,
-        bound_at: p.bound_at,
-        place: s.place(&p.what, p.worker, p.program, now.0, p.keep),
-        rules: p.rules.clone(),
-        resources: p.resources.clone(),
-        slots: p.slots.clone(),
-        hold_for: p.hold_for,
-        window: p.window,
-    }])
+    let queued = s.entries.iter().any(|e| e.id == a.id && e.rules == a.rules);
+    let place = s.place(&a.what, a.worker, a.program, now.0, p.keep);
+    crate::only(!queued, HeavyEvent::HeavyQueued { ask: a.clone(), at: now.0, place })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -818,11 +778,7 @@ pub struct Runs {
 
 command!(NoteRun, "heavy.runs", Heavy, Runs, |_p| queue_id(), |s, p, _now| {
     let started = s.entries.iter().any(|e| e.id == p.id && e.started_at.is_some());
-    Ok::<_, factum_core::Rejection>(if started {
-        vec![HeavyEvent::HeavyRuns { id: p.id, session: p.session }]
-    } else {
-        Vec::new()
-    })
+    crate::only(started, HeavyEvent::HeavyRuns { id: p.id, session: p.session })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -832,9 +788,5 @@ pub struct Rules {
 
 // The daemon's own, older ones too: a rollback's binary is refused none of its own gates.
 command!(NoteRules, "heavy.rules", Heavy, Rules, |_p| queue_id(), |s, p, _now| {
-    Ok::<_, factum_core::Rejection>(if s.rules != p.version {
-        vec![HeavyEvent::HeavyRules { version: p.version.clone() }]
-    } else {
-        Vec::new()
-    })
+    crate::only(s.rules != p.version, HeavyEvent::HeavyRules { version: p.version.clone() })
 });

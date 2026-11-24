@@ -23,7 +23,7 @@ case "${1:-}" in
     truefit model heavy-run --trace "$file" | jq '.trace | del(.output)'
     ;;
   broken)
-    broken models/HeavyQueue.tla models/HeavyStarts.cfg models/HeavyEnds.cfg models/HeavyRules.cfg
+    broken models/HeavyQueue.tla models/HeavyStarts.cfg models/HeavyEnds.cfg models/HeavyRules.cfg models/HeavyResources.cfg
     ;;
   *)
     sed -n '2,12p' "$0"; exit 2 ;;

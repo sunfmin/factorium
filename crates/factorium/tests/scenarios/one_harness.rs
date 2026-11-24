@@ -342,6 +342,16 @@ async fn the_kit_keeps_each_engine_s_command_and_no_order_or_model_and_only_an_e
     assert!(serde_json::from_str::<factorium_domain::kit::Kit>(old).unwrap().commands.is_empty());
     let code = <factorium_domain::kit::Kits as factum::Aggregate>::code();
     assert!(!["", "1"].contains(&code), "{code}");
+    // The kit as factorium once kept it, in order, reads as each engine's first command.
+    w.kit_as_code_before_291_set_it();
+    let commands = w.app.kit().await.unwrap()["commands"].clone();
+    assert_eq!(commands, serde_json::json!({ "codex": "first --dangerously-bypass-approvals-and-sandbox" }));
+    // An account named for an issue of a checkout pinned to another engine is refused.
+    use factorium_domain::kit::{Kit, Picked};
+    let pinned = Kit { pins: [("web".to_string(), "codex".to_string())].into(), ..Kit::default() };
+    let on = Picked::On { engine: "claude-code".into(), model: None, account: "y".into() };
+    let why = pinned.choose_on("web", "x", "claude-code", None, &on).unwrap_err();
+    assert_eq!(why, "account x is of claude-code, and web is pinned to codex");
 }
 
 #[tokio::test]
