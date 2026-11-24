@@ -88,6 +88,14 @@
       "commits_90d": 24,
       "commits_total": 24,
       "reason": "Deep already: one aggregate (Issue, its events, evolve) behind small commands; the 17 other files that use it go through commands and queries (waits_for, blocked_by, records, asked) and never name the events of waiting or numbering (BlockedBy/Unblocked/…Across/DecidedNumbered appear only here). Size is ~20 one-rule commands plus wait() and Decided placement, each needing Issue's state; splitting waits or numbering out would move code and widen the interface (Issue internals pub) without concentrating anything. Tests go through the public functions only."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/domain/src/doctor.rs",
+      "prod_lines": 494,
+      "commits_90d": 39,
+      "commits_total": 39,
+      "reason": "Deep already: one input record (Seen) and three pure functions (findings, unstarted, no_daemon) hide every finding's rule, key, wording and fix; callers in the effect crate and tests (scenarios/stall.rs, admission.rs) only cross that interface. Its churn is each new finding added in its one home, which is the locality the module exists for; splitting it by finding would spread one concept over many shallow modules with the same interface."
     }
   ],
   "kept_spans": [
