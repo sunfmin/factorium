@@ -586,9 +586,5 @@ pub struct TellRole {
 // It was told its role changed to hold this: told once per change.
 on_worker!(NoteRoleTold, "worker.role_told", TellRole, |s, p, now| {
     live(s)?;
-    Ok(if s.role_known().is_some_and(|k| k.hash == p.read.hash) {
-        Vec::new()
-    } else {
-        vec![WorkerEvent::RoleTold(p.read.clone())]
-    })
+    only(s.role_known().is_none_or(|k| k.hash != p.read.hash), WorkerEvent::RoleTold(p.read.clone()))
 });

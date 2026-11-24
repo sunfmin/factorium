@@ -399,11 +399,9 @@ pub struct Seen {
     pub round: u64,
 }
 
-command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| Ok(if p.round > s.seen {
-    vec![WatchEvent::HumanSeen { round: p.round }]
-} else {
-    Vec::new()
-}));
+command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| {
+    crate::only(p.round > s.seen, WatchEvent::HumanSeen { round: p.round })
+});
 
 /// The owner reads every Decided record made until now.
 #[derive(Clone, Debug, Serialize, Deserialize)]
