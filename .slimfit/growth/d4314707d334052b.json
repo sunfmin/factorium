@@ -1,0 +1,10 @@
+{
+  "tree": "dfe2452a42e2a561afdb4d2b352a4c91ba349443+d1fba762150c532c",
+  "lines": 431,
+  "serves": "factorium#284",
+  "considered": "The heavy queue's Entry, its start rule (neutral/queue.rs, reused unchanged per resource), its place-keeping and its waiter loop are reused; resources are fields on the entry and filters over the one queue, not a second queue or a second path; a factorium.toml [resources] table and a --for on exclusive were written first and deleted when the issue moved resources into host settings and holds into worker hold",
+  "reviewer": "codex:01a20b62-b6aa-7fe3-bbf7-3c009b3c1c16:default",
+  "author": "claude-code:0327310b-759b-5013-83c5-29c6192ac764:opus",
+  "cut": "In crates/domain/src/heavy.rs and crates/factorium/src/heavy.rs, use hold_for.is_some() as the hold marker throughout Job, Enqueue, HeavyQueued and Entry, deriving the existing hold flag in the JSON views, and drop the self-ID check in Queue::covered because the command and hold predicates already distinguish them. In crates/factorium/src/heavy.rs and crates/factorium/src/doctor.rs, share the scan that finds running named-resource entries with a gone holder. In crates/factorium/src/owner.rs, build holds and waits_for directly from borrowed, worker-filtered holdings, deleting the intermediate cloned vectors and tuple passes.",
+  "answer": "Made all three: Entry::is_hold() derives from hold_for (the hold field is gone from Job, Enqueue, HeavyQueued and Entry; Holding.hold is derived), covered drops the self-id check; App::gone_holders is the one scan doctor and the tick's give_back share; workers lists the resources whose holders or waiting include the worker, no cloned vectors"
+}
