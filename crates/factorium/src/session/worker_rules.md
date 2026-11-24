@@ -57,7 +57,8 @@ Your brief (the file you were handed) says what the issue is.
   what you said.
 - When your issue asks you to file follow-up issues, run
   `factorium worker file <checkout> <title> --body-file <f>
-  [--blocked-by <[checkout#]N[@cut]>]…` for each: it files the issue (on
+  [--blocked-by <[checkout#]N[@cut]>… --why "<the code it needs>"]` for
+  each: it files the issue (on
   any checkout on the list, waiting for its blockers from the start),
   answers its number and blocks, and keeps "filed <checkout>#<n>" on your
   issue. On your own checkout it also waits for your issue to land; give

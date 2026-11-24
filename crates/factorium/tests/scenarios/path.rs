@@ -2,6 +2,7 @@
 //! `done` lands it on the proving branch through the fast gate; the issue
 //! closes and the worker ends; the base is promoted and a version cut.
 
+use factorium_domain::issue::Wait;
 use serde_json::json;
 
 use crate::fixture::{CLAUDE, World, comments, findings, id, refused, worker, worktree};
@@ -274,7 +275,7 @@ async fn blocked_issues_and_ones_waiting_for_a_human_wait_and_the_oldest_ready_o
     w.app.issue_add("web", "first", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "second", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "for a human", "", true, &[]).await.unwrap();
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
 
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#2", "#1 waits for #2");
     assert!(w.tick().await.started.is_none(), "#1 waits, #3 waits for a human");
@@ -288,11 +289,18 @@ async fn an_issue_added_with_its_blockers_waits_for_them_from_the_start() {
     w.checkout("web").await;
     w.kit().await;
     w.app.issue_add("web", "blocker", "", true, &[]).await.unwrap();
-    let added = w.app.issue_add("web", "waits", "", false, &[1.into(), 1.into()]).await.unwrap();
+    let added = w
+        .app
+        .issue_add("web", "waits", "", false, &[Wait::new(1, "needs it"), Wait::new(1, "needs it")])
+        .await
+        .unwrap();
     assert_eq!((added["status"].clone(), added["blocked_by"].clone()), (json!("ready"), json!([1])));
     assert!(w.tick().await.started.is_none(), "#2 waits for #1, which waits for a human");
 
-    refused(w.app.issue_add("web", "orphan", "", false, &[1.into(), 9.into()]).await, "no_issue");
+    refused(
+        w.app.issue_add("web", "orphan", "", false, &[Wait::new(1, "needs it"), Wait::new(9, "needs it")]).await,
+        "no_issue",
+    );
     refused(w.app.issue_show("web", 3).await, "no_issue");
     assert!(w.tick().await.started.is_none(), "the refused add left no issue to start");
 

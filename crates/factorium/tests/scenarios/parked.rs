@@ -38,17 +38,18 @@ async fn a_worker_parked_behind_issues_of_its_checkout_goes_back_to_work_once_th
         w.tick().await;
     }
     w.app.worker_escalate(id(&wk), "the fast gate is red: proving is at its bound").await.unwrap();
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
-    w.app.issue_block("web", 1, 3, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs #2's parser"), false).await.unwrap();
+    w.app.issue_block("web", 1, 3, Some("needs #3's lexer"), false).await.unwrap();
     let (parked, found) = doctor(&w, &wk).await;
     assert!(!found, "the watch decided already: no round for it");
-    assert_eq!(parked[0]["waits_for"], json!(["#2", "#3"]), "{parked}");
+    let waits = json!([{ "on": "#2", "why": "needs #2's parser" }, { "on": "#3", "why": "needs #3's lexer" }]);
+    assert_eq!(parked[0]["waits_for"], waits, "{parked}");
     assert!(parked[0]["why"].as_str().unwrap().contains("at its bound"), "{parked}");
 
     let t = w.lands("web", 2, "web2").await.tick;
     assert!(t.resumed.is_empty(), "#3 is open: {t:?}");
     assert_eq!(status(&w, &wk).await, "waiting");
-    assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], json!(["#3"]));
+    assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], json!([{ "on": "#3", "why": "needs #3's lexer" }]));
 
     let t = w.lands("web", 3, "web3").await.tick;
     assert_eq!(t.resumed.len(), 1, "{t:?}");
@@ -84,9 +85,14 @@ async fn a_worker_parked_behind_another_checkouts_issue_and_cut_goes_back_once_b
     let wk = w.worker_on("factorium", 1).await;
     w.app.worker_escalate(id(&wk), "needs web").await.unwrap();
     for b in ["web#1", "web#2@cut"] {
-        w.app.issue_block("factorium", 1, b.parse::<Blocker>().unwrap(), false).await.unwrap();
+        w.app
+            .issue_block("factorium", 1, b.parse::<Blocker>().unwrap(), Some("needs its change"), false)
+            .await
+            .unwrap();
     }
-    assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], json!(["web#1", "web#2@cut"]));
+    let why = "needs its change";
+    let waits = json!([{ "on": "web#1", "why": why }, { "on": "web#2@cut", "why": why }]);
+    assert_eq!(doctor(&w, &wk).await.0[0]["waits_for"], waits);
 
     assert!(w.lands("web", 1, "web1").await.tick.resumed.is_empty(), "web#2 is open");
     // web#3 keeps web busy: web#2 lands, and is not cut.
@@ -95,7 +101,7 @@ async fn a_worker_parked_behind_another_checkouts_issue_and_cut_goes_back_once_b
     assert_eq!(
         doctor(&w, &wk).await,
         (
-            json!([{ "worker": wk["worker"], "issue": "factorium#1", "why": "escalated: needs web", "waits_for": ["web#2@cut"] }]),
+            json!([{ "worker": wk["worker"], "issue": "factorium#1", "why": "escalated: needs web", "waits_for": [{ "on": "web#2@cut", "why": why }] }]),
             false
         )
     );
@@ -123,9 +129,9 @@ async fn a_waiting_worker_with_nothing_unmet_to_wait_for_stays_the_watch_s() {
     assert_eq!(doctor(&w, &wk).await, (json!([]), true));
 
     // Parked, then no longer blocked: back to the watch, not to work.
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
     assert!(!doctor(&w, &wk).await.1, "parked");
-    w.app.issue_block("web", 1, 2, true).await.unwrap();
+    w.app.issue_block("web", 1, 2, None, true).await.unwrap();
     assert!(w.tick().await.resumed.is_empty());
     assert_eq!(status(&w, &wk).await, "waiting");
     assert_eq!(doctor(&w, &wk).await, (json!([]), true));
@@ -139,7 +145,7 @@ async fn a_worker_blocked_while_it_works_then_in_a_declared_wait_goes_back_once_
     w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
     w.tick().await;
     // Blocked while it works (factorium#256): nothing to park yet, it works on.
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
     assert_eq!(status(&w, &wk).await, "working");
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
@@ -170,7 +176,7 @@ async fn a_worker_blocked_while_it_works_goes_back_when_it_waits_with_the_blocke
     let wk = w.working(CLAUDE, "blocked").await;
     w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
     w.tick().await;
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
     // #2 lands while it works: it is not interrupted.
     assert!(w.lands("web", 2, "web2").await.tick.resumed.is_empty(), "it works: nothing to send it back to");
     assert_eq!(status(&w, &wk).await, "working");
@@ -197,7 +203,7 @@ async fn a_blocked_idle_worker_is_never_silent_and_is_counted_again_once_sent_ba
     w.watch_session(false);
     w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
     w.tick().await;
-    w.app.issue_block("web", 1, 2, false).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
     w.app.worker_waiting(id(&wk), "blocked on #2", 45 * 60_000).await.unwrap();
@@ -225,7 +231,7 @@ async fn a_worker_whose_issue_waits_for_a_time_is_not_silent_before_it() {
     let cwd = wk["worktree"].as_str().unwrap().to_string();
     w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
     let at = w.app_now() + 150 * 60_000;
-    w.app.issue_block("web", 1, Blocker::NotBefore(at), false).await.unwrap();
+    w.app.issue_block("web", 1, Blocker::NotBefore(at), None, false).await.unwrap();
     idle_for(&w, 140).await;
     assert_eq!(status(&w, &wk).await, "working");
     assert!(!doctor(&w, &wk).await.1, "no finding for it");
