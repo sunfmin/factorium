@@ -51,7 +51,7 @@ pub struct Ran {
 }
 
 command!(RecordGate, "gate.record", Gates, Ran, |p| record_id(&p.checkout, &p.tree, p.kind), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![GateEvent::GateRan {
+    Ok(vec![GateEvent::GateRan {
         checkout: p.checkout.clone(),
         tree: p.tree.clone(),
         kind: p.kind,

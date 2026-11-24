@@ -268,7 +268,5 @@ command!(HoldTakenMessages, "outbox.hold_taken", Outboxes, HoldTaken, |p| outbox
         Some(Outcome::Queued) => m.at >= p.queued,
         _ => false,
     };
-    Ok::<_, factum_core::Rejection>(
-        s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect(),
-    )
+    Ok(s.messages.iter().filter(taken).map(|m| OutboxEvent::Tried { n: m.n, outcome: held.clone() }).collect())
 });
