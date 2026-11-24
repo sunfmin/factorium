@@ -819,15 +819,13 @@ impl FakeStablehand {
                 None => steps.extend(models.iter().map(|m| (engine.clone(), Some(m.clone())))),
             }
         }
-        let mut tried: Vec<String> = steps.iter().map(|(e, _)| e.clone()).collect();
-        tried.dedup();
         let rest: Vec<String> = match engines.is_empty() {
             true => self.order.iter().map(|(e, _)| e.clone()).collect(),
             false => engines.iter().map(|e| e.to_string()).collect(),
         };
-        for engine in rest.into_iter().filter(|e| model.is_some() || !tried.contains(e)) {
-            if !steps.contains(&(engine.clone(), model.map(String::from))) {
-                steps.push((engine, model.map(String::from)));
+        for step in rest.into_iter().map(|e| (e, model.map(String::from))) {
+            if !steps.iter().any(|s| *s == step || (model.is_none() && s.0 == step.0)) {
+                steps.push(step);
             }
         }
         Some(steps)

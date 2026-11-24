@@ -199,13 +199,12 @@ impl Kit {
 }
 
 /// A kit entry as factorium once kept its order: read from the events
-/// written then, its command kept, its order and model left to stablehand.
+/// written then, its command kept, its order and model (not read) left to
+/// stablehand.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub harness: String,
     pub command: String,
-    #[serde(default)]
-    pub model: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -244,10 +243,7 @@ impl Aggregate for Kits {
     fn evolve(s: &mut Kit, event: KitEvent) {
         match event {
             KitEvent::KitSet { entries } => {
-                s.commands.clear();
-                for e in entries.into_iter().rev() {
-                    s.commands.insert(e.harness, e.command);
-                }
+                s.commands = entries.into_iter().rev().map(|e| (e.harness, e.command)).collect()
             }
             KitEvent::CommandsSet { commands } => s.commands = commands,
             KitEvent::CheckoutPinned { checkout, harness: Some(h) } => _ = s.pins.insert(checkout, h),
@@ -406,12 +402,23 @@ mod tests {
         assert!(c.unwrap_err().starts_with("no harness of the kit that can pick mutants"));
     }
 
+    /// A snapshot of the kit as code "1" folded it holds no commands, so
+    /// the fold names other code and such a snapshot is not read.
+    #[test]
+    fn a_snapshot_of_the_kit_s_old_shape_is_not_read() {
+        let old: Kit =
+            serde_json::from_str(r#"{"entries": [{"harness": "codex", "command": "x"}], "pins": {}}"#).unwrap();
+        assert!(old.commands.is_empty(), "read as this kit, it would have lost its commands");
+        assert!(!["", "1"].contains(&Kits::code()), "{}", Kits::code());
+    }
+
     /// The kit set as factorium once kept it reads as its commands.
     #[test]
     fn an_old_kit_reads_as_its_commands() {
         let mut k = Kit::default();
-        let entry = |h: &str, c: &str| Entry { harness: h.into(), command: c.into(), model: Some("m".into()) };
-        Kits::evolve(&mut k, KitEvent::KitSet { entries: vec![entry("codex", "first"), entry("codex", "second")] });
+        let old = r#"{"type": "KitSet", "data": {"entries": [{"harness": "codex", "command": "first", "model": "m"},
+            {"harness": "codex", "command": "second", "model": null}]}}"#;
+        Kits::evolve(&mut k, serde_json::from_str(old).unwrap());
         assert_eq!(k.commands, BTreeMap::from([("codex".to_string(), "first".to_string())]));
     }
 }
