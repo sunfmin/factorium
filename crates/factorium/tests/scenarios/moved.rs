@@ -86,7 +86,10 @@ async fn an_issue_no_worktree_holds_moves_with_no_branch() {
     let (w, there) = (World::new(), World::new());
     issue(&w, false).await;
     w.app.issue_add("web", "first", "", false, &[]).await.unwrap();
-    w.app.issue_block("web", 1, factorium_domain::issue::Blocker::Here(2), false).await.unwrap();
+    w.app
+        .issue_block("web", 1, factorium_domain::issue::Blocker::Here(2), Some("needs its change"), false)
+        .await
+        .unwrap();
     there.checkout_of(&w, "web").await;
     there.reached_by(&w, THERE);
 

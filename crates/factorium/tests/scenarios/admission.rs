@@ -511,7 +511,7 @@ async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason_but_an_empty_kit_is
     w.checkout("web").await;
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     let blocker = factorium_domain::issue::Blocker::Here(1);
-    w.app.issue_add("web", "b", "", false, &[blocker]).await.unwrap();
+    w.app.issue_add("web", "b", "", false, &[factorium_domain::issue::Wait::new(blocker, "needs a")]).await.unwrap();
     w.app.issue_wait_for_human("web", 1, "not yet").await.unwrap();
     assert!(w.doctor().await.get("unstarted").is_none(), "web#2 waits for web#1");
     assert!(w.finding("kit:empty").await.is_some());

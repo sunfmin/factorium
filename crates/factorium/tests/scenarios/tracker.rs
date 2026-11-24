@@ -296,14 +296,45 @@ async fn an_issue_waits_for_others_of_its_checkout() {
     for t in ["one", "two", "three"] {
         w.app.issue_add("web", t, "", false, &[]).await.unwrap();
     }
-    w.app.issue_block("web", 3, 1, false).await.unwrap();
-    w.app.issue_block("web", 3, 1, false).await.unwrap();
-    assert_eq!(w.app.issue_block("web", 3, 2, false).await.unwrap()["blocked_by"], json!([1, 2]));
-    refused(w.app.issue_block("web", 3, 3, false).await, "blocks_itself");
-    refused(w.app.issue_block("web", 3, 9, false).await, "no_issue");
-    refused(w.app.issue_block("web", 9, 1, false).await, "no_issue");
-    assert_eq!(w.app.issue_block("web", 3, 1, true).await.unwrap()["blocked_by"], json!([2]));
-    assert_eq!(w.app.issue_block("web", 3, 1, true).await.unwrap()["blocked_by"], json!([2]));
+    w.app.issue_block("web", 3, 1, Some("needs its change"), false).await.unwrap();
+    w.app.issue_block("web", 3, 1, Some("needs its change"), false).await.unwrap();
+    assert_eq!(
+        w.app.issue_block("web", 3, 2, Some("needs its change"), false).await.unwrap()["blocked_by"],
+        json!([1, 2])
+    );
+    refused(w.app.issue_block("web", 3, 3, Some("needs its change"), false).await, "blocks_itself");
+    refused(w.app.issue_block("web", 3, 9, Some("needs its change"), false).await, "no_issue");
+    refused(w.app.issue_block("web", 9, 1, Some("needs its change"), false).await, "no_issue");
+    assert_eq!(w.app.issue_block("web", 3, 1, None, true).await.unwrap()["blocked_by"], json!([2]));
+    assert_eq!(w.app.issue_block("web", 3, 1, None, true).await.unwrap()["blocked_by"], json!([2]));
+}
+
+/// Every block says why (factorium#285): one with none is refused, at add
+/// and at block; the why is kept with it and `issue show` answers it, with
+/// how each is met.
+#[tokio::test]
+async fn a_block_without_a_why_is_refused_and_issue_show_answers_each_why() {
+    let w = World::new();
+    w.checkout("web").await;
+    for t in ["parser", "lexer"] {
+        w.app.issue_add("web", t, "", false, &[]).await.unwrap();
+    }
+    let bare = factorium_domain::issue::Wait { by: 1.into(), why: None };
+    refused(w.app.issue_add("web", "waits", "", false, &[bare]).await, "no_why");
+    refused(w.app.issue_block("web", 2, 1, None, false).await, "no_why");
+    refused(w.app.issue_block("web", 2, 1, Some(" "), false).await, "no_why");
+    let why = factorium_domain::issue::Wait::new(1, "needs the parser's tokens");
+    let added = w.app.issue_add("web", "waits", "", false, &[why]).await.unwrap();
+    assert_eq!(added["waits"], json!([{ "on": "#1", "why": "needs the parser's tokens", "met": null }]), "{added}");
+    let shown = w.app.issue_block("web", 3, 2, Some("needs the lexer's spans"), false).await.unwrap();
+    assert_eq!(shown["waits"][1], json!({ "on": "#2", "why": "needs the lexer's spans", "met": null }), "{shown}");
+    // Blocked again for another why, it waits for that one.
+    let again = w.app.issue_block("web", 3, 2, Some("needs the lexer's errors"), false).await.unwrap();
+    assert_eq!(again["waits"][1]["why"], "needs the lexer's errors", "{again}");
+    w.app.issue_close("web", 1, "done").await.unwrap();
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["waits"][0]["met"], "done");
+    // Undone, it needs no why.
+    assert_eq!(w.app.issue_block("web", 3, 2, None, true).await.unwrap()["blocked_by"], json!([1]));
 }
 
 /// A db written before the state was named for who resumes it (factorium#95)

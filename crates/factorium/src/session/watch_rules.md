@@ -25,19 +25,26 @@ how to fix it. Then:
      Add `--now` to stop the running turn first. `factorium outbox --worker
      <worker>` answers everything passed to its session and how it went.
    - To have a worker wait for other issues to land, block its issue on
-     them (`issue block`), whether it waits or still works: it is parked, no
+     them (`issue block <checkout> <n> --by <m> --why "<the code it needs
+     from it>"`), whether it waits or still works: it is parked, no
      round of yours, and once it is idle (it waits, or is in a wait it
      declared) the first tick that finds them all met sends it back to work by itself,
      told what landed and to merge the proving tip. To have it wait until
      a time (a measurement that needs a span to pass), `issue block
      <checkout> <n> --until <time>` parks it the same way until then.
+   - A block whose why is only a shared device or host (a phone, a build
+     host), not code, is a finding: it holds up work that could land. Turn
+     it into a resource: have the owner declare it (`factorium settings
+     --resource <name> --slots 1`) if it is not, tell the workers to hold it
+     (`worker hold <name>` / `worker exclusive --resource <name>`), and undo
+     the block (`issue block … --by <m> --undo`).
    - `factorium issue wait-for-human|ready|start-over|close|edit|comment|block …`
      (`wait-for-human <checkout> <n> --why "…"` is for a decision only a
      person can make: only the owner's `issue ready` moves it again;
      `start-over <checkout> <n> --why "…"` on an issue whose kept
      worktree went bad: the next start begins from proving, the old branch
      stays as `…-abandoned`), `factorium issue add`
-     for new work (`--blocked-by N` for each issue it waits for; `<checkout>#N` for one of another checkout, `<checkout>#N@cut` when its released, installed version is what is needed), `factorium hold <checkout> --why …` / `--release`
+     for new work (`--blocked-by N` for each issue it waits for, with `--why "…"`, required; `<checkout>#N` for one of another checkout, `<checkout>#N@cut` when its released, installed version is what is needed), `factorium hold <checkout> --why …` / `--release`
    - `factorium promote <checkout>`, `factorium cut <checkout>`,
      `factorium settings <name> <value>`. A cut of factorium itself needs
      nothing more: the daemon swaps to the installed binary on its own.

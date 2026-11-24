@@ -5,12 +5,16 @@
 use serde_json::json;
 
 use factorium::Answer;
-use factorium_domain::issue::Blocker;
+use factorium_domain::issue::{Blocker, Wait};
 
 use crate::fixture::{World, refused};
 
 fn by(s: &str) -> Blocker {
     s.parse().unwrap()
+}
+
+fn wait(s: &str) -> Wait {
+    Wait::new(by(s), "needs its change")
 }
 
 /// The issue the tick started, if any.
@@ -31,7 +35,7 @@ async fn an_issue_blocked_by_another_checkouts_starts_once_that_one_lands() {
     let w = World::new();
     two_checkouts(&w).await;
     w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
-    let added = w.app.issue_add("factorium", "waits", "", false, &[by("web#1")]).await.unwrap();
+    let added = w.app.issue_add("factorium", "waits", "", false, &[wait("web#1")]).await.unwrap();
     assert_eq!((added["blocked_by"].clone(), added["blocked_across"].clone()), (json!([]), json!(["web#1"])));
 
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
@@ -48,7 +52,7 @@ async fn an_issue_blocked_by_a_cut_starts_only_once_a_cut_holds_the_landing() {
     w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "busy", "", false, &[]).await.unwrap();
     w.app.issue_add("factorium", "waits", "", false, &[]).await.unwrap();
-    let shown = w.app.issue_block("factorium", 1, by("web#1@cut"), false).await.unwrap();
+    let shown = w.app.issue_block("factorium", 1, by("web#1@cut"), Some("needs its change"), false).await.unwrap();
     assert_eq!(shown["blocked_across"], json!(["web#1@cut"]));
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#2"));
@@ -77,7 +81,7 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     w.app.issue_add("web", "one", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "two", "", false, &[]).await.unwrap();
     w.app.issue_add("factorium", "waits", "", false, &[]).await.unwrap();
-    let block = |n: u64, b: &str, undo: bool| w.app.issue_block("factorium", n, by(b), undo);
+    let block = |n: u64, b: &str, undo: bool| w.app.issue_block("factorium", n, by(b), Some("needs its change"), undo);
     let across = |a: Answer| a.unwrap()["blocked_across"].clone();
 
     refused(block(1, "web#9", false).await, "no_issue");
@@ -89,7 +93,7 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     assert_eq!(across(block(1, "web#2", false).await), json!(["web#1@cut", "web#2"]));
     assert_eq!(across(block(1, "web#1", true).await), json!(["web#2"]));
     // Of its own checkout, named in full, is one of its own.
-    let own = w.app.issue_add("web", "three", "", false, &[by("web#1")]).await.unwrap();
+    let own = w.app.issue_add("web", "three", "", false, &[wait("web#1")]).await.unwrap();
     assert_eq!((own["blocked_by"].clone(), own["blocked_across"].clone()), (json!([1]), json!([])));
     // An issue of its own checkout is one it waits for, for its cut or not.
     let waits = |a: Answer| a.map(|s| (s["blocked_by"].clone(), s["blocked_across"].clone())).unwrap();
@@ -108,12 +112,12 @@ async fn a_block_across_names_an_issue_that_is_there_and_a_cut_its_repo_declares
     // A repo with no cut has none to wait for.
     w.commit(&path, "factorium.toml", "[gate]\nfast = \"true\"\n");
     w.app.issue_add("factorium", "two", "", false, &[]).await.unwrap();
-    refused(w.app.issue_block("web", 1, by("factorium#2@cut"), false).await, "no_cut");
+    refused(w.app.issue_block("web", 1, by("factorium#2@cut"), Some("needs its change"), false).await, "no_cut");
     for bad in ["web#x", "web#1@tag", "#3"] {
         assert!(bad.parse::<Blocker>().is_err(), "{bad}");
     }
     // The same block given twice is kept once.
-    let twice = w.app.issue_add("factorium", "twice", "", false, &[by("web#1"), by("web#1")]).await.unwrap();
+    let twice = w.app.issue_add("factorium", "twice", "", false, &[wait("web#1"), wait("web#1")]).await.unwrap();
     assert_eq!(twice["blocked_across"], json!(["web#1"]));
 }
 
@@ -129,7 +133,8 @@ async fn a_worker_files_a_follow_up_on_another_checkout_that_waits_for_a_cut() {
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#1"));
     assert_eq!(started(&w.tick().await).as_deref(), Some("web#2"));
     let worker = crate::fixture::id(&w.worker_on("web", 1).await);
-    let filed = w.app.worker_file(worker, "factorium", "follow-up", "what web#1 left", &[by("web#1@cut")], false).await;
+    let filed =
+        w.app.worker_file(worker, "factorium", "follow-up", "what web#1 left", &[wait("web#1@cut")], false).await;
     let filed = filed.unwrap();
     assert_eq!((filed["checkout"].clone(), filed["number"].clone()), (json!("factorium"), json!(1)));
     assert_eq!(

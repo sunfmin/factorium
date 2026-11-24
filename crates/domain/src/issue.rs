@@ -106,8 +106,8 @@ pub struct Note {
     pub decided: Option<u64>,
 }
 
-/// An issue of another checkout an issue waits for. It is met once that
-/// issue is closed; with `cut`, once a cut of that checkout holds its
+/// An issue an issue waits for, of its checkout or another. It is met once
+/// that issue is closed; with `cut`, once a cut of that checkout holds its
 /// landing too, installed where the repo's cut names a formula (a tool used
 /// from another repo is needed as the installed release).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,11 +116,23 @@ pub struct Across {
     pub number: u64,
     #[serde(default)]
     pub cut: bool,
+    /// Why it waits for it, as the one who blocked it said (factorium#285);
+    /// none for a block made before a why was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
+
+/// How a block made before a why was asked for reads.
+pub const NO_REASON: &str = "(no reason given)";
 
 impl Across {
     fn same(&self, other: &Across) -> bool {
         (self.checkout.as_str(), self.number) == (other.checkout.as_str(), other.number)
+    }
+
+    /// Why it is waited for, or [`NO_REASON`].
+    pub fn why(&self) -> &str {
+        self.why.as_deref().unwrap_or(NO_REASON)
     }
 }
 
@@ -162,7 +174,23 @@ impl std::str::FromStr for Blocker {
         if checkout.is_empty() {
             return Err(bad());
         }
-        Ok(Blocker::Across(Across { checkout: checkout.into(), number, cut }))
+        Ok(Blocker::Across(Across { checkout: checkout.into(), number, cut, why: None }))
+    }
+}
+
+/// A blocker and why it blocks: a block of an issue is refused without a
+/// why (factorium#285), so whoever reads it can tell a code dependency from
+/// a shared device; a time needs none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wait {
+    pub by: Blocker,
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+impl Wait {
+    pub fn new(by: impl Into<Blocker>, why: &str) -> Wait {
+        Wait { by: by.into(), why: Some(why.into()) }
     }
 }
 
@@ -227,13 +255,15 @@ impl Issue {
         here.chain(across.into_iter().map(|a| (a.to_string(), a.clone()))).collect()
     }
 
-    /// The events that make it wait for `by`, or, with `undo`, stop: none
-    /// when it already does (or does not). Waiting for an issue otherwise
-    /// (for its cut, or no longer) replaces how it waited for it.
-    fn wait(&self, by: Blocker, undo: bool) -> Result<Vec<IssueEvent>, Rejection> {
+    /// The events that make it wait for `by`, for `why`, or, with `undo`,
+    /// stop: none when it already does (or does not). Waiting for an issue
+    /// otherwise (for its cut, for another why, or no longer) replaces how
+    /// it waited for it. An issue waited for with no why is refused.
+    fn wait(&self, by: Blocker, why: Option<&str>, undo: bool) -> Result<Vec<IssueEvent>, Rejection> {
+        let why = why.map(str::trim).filter(|w| !w.is_empty()).map(String::from);
         let by = match by.of(&self.checkout) {
-            Blocker::Here(number) => Across { checkout: self.checkout.clone(), number, cut: false },
-            Blocker::Across(a) => a,
+            Blocker::Here(number) => Across { checkout: self.checkout.clone(), number, cut: false, why },
+            Blocker::Across(a) => Across { why, ..a },
             Blocker::NotBefore(at) => {
                 let at = (!undo).then_some(at);
                 return Ok(if at == self.not_before { Vec::new() } else { vec![IssueEvent::NotBefore { at }] });
@@ -242,13 +272,20 @@ impl Issue {
         if !undo && by.checkout == self.checkout && by.number == self.number {
             return no("blocks_itself", "an issue cannot wait for itself");
         }
+        if !undo && by.why.is_none() {
+            let why = format!(
+                "say why it waits for {by} (--why <text>): the code it needs from it; a device or host both \
+                 use is a resource (worker hold / exclusive --resource), not a block"
+            );
+            return no("no_why", why);
+        }
         let held = self.waits.iter().find(|a| a.same(&by));
         let unblock = held.map(|a| match self.here(a) {
             true => IssueEvent::Unblocked { number: a.number },
             false => IssueEvent::UnblockedAcross { checkout: a.checkout.clone(), number: a.number },
         });
         let block = || match self.here(&by) {
-            true => IssueEvent::BlockedBy { number: by.number },
+            true => IssueEvent::BlockedBy { number: by.number, why: by.why.clone() },
             false => IssueEvent::BlockedAcross(by.clone()),
         };
         Ok(match (held, undo) {
@@ -296,6 +333,9 @@ pub enum IssueEvent {
     },
     BlockedBy {
         number: u64,
+        /// Why, if it was given one (factorium#285).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<String>,
     },
     Unblocked {
         number: u64,
@@ -392,8 +432,8 @@ impl Aggregate for Issues {
             IssueEvent::RoleNamed { role } => s.on.role = role,
             // An own-checkout issue waited for until it closes is written as
             // `BlockedBy` and `Unblocked`; any other as `…Across`.
-            IssueEvent::BlockedBy { number } => {
-                s.waits.push(Across { checkout: s.checkout.clone(), number, cut: false })
+            IssueEvent::BlockedBy { number, why } => {
+                s.waits.push(Across { checkout: s.checkout.clone(), number, cut: false, why })
             }
             IssueEvent::Unblocked { number } => {
                 let own = s.checkout.clone();
@@ -458,10 +498,10 @@ pub struct Open {
     /// Why it waits for a person from the start; read only with `waiting_for_human`.
     #[serde(default)]
     pub why: Option<String>,
-    /// What it waits for from the start: issues, of its checkout or
-    /// others, and a time.
+    /// What it waits for from the start, each with why: issues, of its
+    /// checkout or others, and a time.
     #[serde(default)]
-    pub blocked_by: Vec<Blocker>,
+    pub blocked_by: Vec<Wait>,
     /// The task it is filed for, by idle work.
     #[serde(default)]
     pub task: Option<Task>,
@@ -499,8 +539,8 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
     }];
     let mut opened = Issue::default();
     Issues::evolve(&mut opened, events[0].clone());
-    for by in &p.blocked_by {
-        for e in opened.wait(by.clone(), false)? {
+    for w in &p.blocked_by {
+        for e in opened.wait(w.by.clone(), w.why.as_deref(), false)? {
             Issues::evolve(&mut opened, e.clone());
             events.push(e);
         }
@@ -569,17 +609,20 @@ on_issue!(NameIssueRole, "issue.name_role", NameRole, |s, p, now| {
     only(s.on.role != p.role, IssueEvent::RoleNamed { role: p.role.clone() })
 });
 
-/// Issue `number` of `checkout` waits for `by`, or, with `undo`, stops.
+/// Issue `number` of `checkout` waits for `by`, for `why`, or, with
+/// `undo`, stops.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     pub checkout: String,
     pub number: u64,
     pub by: Blocker,
     #[serde(default)]
+    pub why: Option<String>,
+    #[serde(default)]
     pub undo: bool,
 }
 
-on_issue!(BlockIssue, "issue.block", Block, |s, p, now| s.wait(p.by.clone(), p.undo));
+on_issue!(BlockIssue, "issue.block", Block, |s, p, now| s.wait(p.by.clone(), p.why.as_deref(), p.undo));
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Because {
@@ -795,6 +838,28 @@ pub fn question(body: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_block_keeps_its_why_and_one_made_before_whys_reads_as_no_reason_given() {
+        let mut i = Issue { checkout: "web".into(), number: 1, ..Issue::default() };
+        let refused = i.wait(Blocker::Here(2), Some("  "), false).err().map(|r| r.code);
+        assert_eq!(refused.as_deref(), Some("no_why"));
+        assert!(i.wait(Blocker::Here(2), None, true).unwrap().is_empty(), "undone, it needs none");
+        assert!(i.wait(Blocker::NotBefore(5), None, false).is_ok(), "a time needs none");
+        for e in i.wait("web#2".parse().unwrap(), Some("needs its parser"), false).unwrap() {
+            Issues::evolve(&mut i, e);
+        }
+        let old: IssueEvent = serde_json::from_value(json!({ "type": "BlockedBy", "data": { "number": 3 } })).unwrap();
+        Issues::evolve(&mut i, old);
+        let whys: Vec<_> = i.waits_for().into_iter().map(|(n, a)| (n, a.why().to_string())).collect();
+        assert_eq!(whys, [("#2".into(), "needs its parser".into()), ("#3".into(), NO_REASON.to_string())]);
+        // Another why replaces it.
+        let again = i.wait(Blocker::Here(2), Some("needs its lexer"), false).unwrap();
+        assert!(matches!(
+            again.as_slice(),
+            [IssueEvent::Unblocked { number: 2 }, IssueEvent::BlockedBy { number: 2, .. }]
+        ));
+    }
 
     #[test]
     fn the_question_is_the_first_line_after_any_based_on_line() {

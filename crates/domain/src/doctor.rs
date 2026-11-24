@@ -123,10 +123,18 @@ pub struct WaitingSeen {
     /// Parked behind what its issue waits for: what of that is not met.
     /// While any is not, it is no finding: the watch decided already.
     #[serde(default)]
-    pub parked: Vec<String>,
+    pub parked: Vec<Unmet>,
     /// Parked until its engine's limit resets, then (ms): no finding.
     #[serde(default)]
     pub limited: Option<i64>,
+}
+
+/// What a parked worker's issue waits for, not met: as the CLI names it,
+/// and why it is waited for (none for its time).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Unmet {
+    pub on: String,
+    pub why: Option<String>,
 }
 
 /// A worker asking to land.

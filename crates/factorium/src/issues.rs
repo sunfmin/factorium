@@ -26,17 +26,25 @@ pub(crate) struct Found {
     pub record: decided::Record,
 }
 
+/// One thing an issue waits for: as the CLI names it, why (none for its
+/// time), and how it was met, or `None` while it is not.
+pub(crate) struct Waited {
+    pub on: String,
+    pub why: Option<String>,
+    pub met: Option<String>,
+}
+
 impl App {
     /// Makes an issue numbered one past the checkout's last, waiting from
     /// the start for the issues in `blocked_by`, of its checkout or of
-    /// others, so no tick sees it ready without them.
+    /// others, each for its why, so no tick sees it ready without them.
     pub async fn issue_add(
         &self,
         checkout: &str,
         title: &str,
         body: &str,
         waiting_for_human: bool,
-        blocked_by: &[Blocker],
+        blocked_by: &[Wait],
     ) -> Answer {
         let waiting = waiting_for_human.then_some(None);
         self.issue_add_on(checkout, title, body, waiting, blocked_by, On::default()).await
@@ -53,13 +61,13 @@ impl App {
         title: &str,
         body: &str,
         waiting: Option<Option<&str>>,
-        blocked_by: &[Blocker],
+        blocked_by: &[Wait],
         on: On,
     ) -> Answer {
         self.checkout(checkout).await?;
         self.on_here(&on)?;
-        for by in blocked_by {
-            self.blocker(checkout, by.clone()).await?;
+        for w in blocked_by {
+            self.blocker(checkout, w.by.clone()).await?;
         }
         let (title, body) = (title.into(), body.into());
         let open = Open {
@@ -115,6 +123,7 @@ impl App {
             "status": i.status,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),
+            "waits": self.waits_shown(&i).await?,
             "not_before": i.not_before.map(|at| json!({ "ms": at, "utc": when::utc(at) })),
             "reason": i.reason,
             "worker": i.worker,
@@ -412,14 +421,22 @@ impl App {
     }
 
     /// Makes issue `number` wait for `by`, an issue of its checkout or of
-    /// another, or a time (which replaces the one it waited for), or, with
-    /// `undo`, stop waiting for it.
-    pub async fn issue_block(&self, checkout: &str, number: u64, by: impl Into<Blocker>, undo: bool) -> Answer {
+    /// another, for `why` (refused without one), or a time (which replaces
+    /// the one it waited for), or, with `undo`, stop waiting for it.
+    pub async fn issue_block(
+        &self,
+        checkout: &str,
+        number: u64,
+        by: impl Into<Blocker>,
+        why: Option<&str>,
+        undo: bool,
+    ) -> Answer {
         let by = by.into();
         if !undo {
             self.blocker(checkout, by.clone()).await?;
         }
-        self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, undo }).await?;
+        let why = why.map(String::from);
+        self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, why, undo }).await?;
         // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
             self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
@@ -454,21 +471,32 @@ impl App {
     /// does not hold either landed in a cut or never landed. Its time, last,
     /// is met once the clock reaches it.
     pub(crate) async fn blockers(&self, issue: &Issue) -> Answer<Vec<(String, Option<String>)>> {
+        Ok(self.waits(issue).await?.into_iter().map(|w| (w.on, w.met)).collect())
+    }
+
+    /// [`App::blockers`], each with why it is waited for: for its time, none.
+    pub(crate) async fn waits(&self, issue: &Issue) -> Answer<Vec<Waited>> {
         let mut all = Vec::new();
-        for (name, a) in issue.waits_for() {
+        for (on, a) in issue.waits_for() {
             let met = match self.issue(&a.checkout, a.number).await {
                 Ok(i) if i.status != Status::Closed => None,
                 _ if a.cut && self.state::<Lines>(line_id(&a.checkout)).await?.awaits_cut(a.number) => None,
                 Ok(i) => Some(i.reason.unwrap_or_else(|| "closed".into()) + if a.cut { ", in a cut" } else { "" }),
                 Err(_) => Some("gone".into()),
             };
-            all.push((name, met));
+            all.push(Waited { on, why: Some(a.why().into()), met });
         }
         if let Some(at) = issue.not_before {
             let met = (self.now() >= at).then(|| "its time came".to_string());
-            all.push((format!("not before {}", when::utc(at)), met));
+            all.push(Waited { on: format!("not before {}", when::utc(at)), why: None, met });
         }
         Ok(all)
+    }
+
+    /// What `issue show` answers of what `i` waits for: each, why, and how it was met.
+    async fn waits_shown(&self, i: &Issue) -> Answer<serde_json::Value> {
+        let shown = self.waits(i).await?.into_iter().map(|w| json!({ "on": w.on, "why": w.why, "met": w.met }));
+        Ok(shown.collect())
     }
 }
 
