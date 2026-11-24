@@ -173,7 +173,7 @@ fn the_service_runs_homebrews_link_not_the_versioned_keg() {
 #[tokio::test]
 async fn a_program_two_kit_entries_need_is_missing_once() {
     let w = World::new();
-    w.app.kit_set(&["claude-code=claude".into(), "codex=claude --x".into()]).await.unwrap();
+    w.kit_of(&["claude-code=claude", "codex=claude --x"]).await;
     *w.host.missing.lock().unwrap() = vec!["claude".into()];
     assert_eq!(w.app.daemon_start().await.unwrap()["missing"], json!(["claude"]));
 }

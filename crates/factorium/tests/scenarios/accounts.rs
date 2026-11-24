@@ -57,7 +57,7 @@ async fn a_worker_starts_on_stablehand_s_pick_its_secret_off_the_command_line_an
     w.tick().await;
     let wk = worker(&w.app).await;
     assert_eq!(wk["account"], "team");
-    let pick = format!("pick --engine claude-code --machine {}", this_machine());
+    let pick = format!("pick --machine {}", this_machine());
     assert!(asked(&w).contains(&pick), "on this machine, none running yet: {:?}", asked(&w));
     assert!(asked(&w).contains(&"credential team --json".to_string()), "{:?}", asked(&w));
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
@@ -98,9 +98,9 @@ async fn stablehand_is_told_the_sessions_factorium_runs_on_each_account_and_a_fu
     assert_eq!(worker(&w.app).await["account"], "team");
     let t = w.tick().await;
     assert!(t.started.is_none(), "{t:?}");
-    let pick = format!("pick --engine claude-code --machine {} --running team=1", this_machine());
+    let pick = format!("pick --machine {} --running team=1", this_machine());
     assert!(asked(&w).contains(&pick), "{:?}", asked(&w));
-    assert!(t.held.as_deref().unwrap().contains("stablehand picks no account (team: team: full)"), "{t:?}");
+    assert!(t.held.as_deref().unwrap().contains("stablehand picks none (team: full)"), "{t:?}");
     let envs = asked(&w).iter().filter(|a| a.starts_with("credential ")).count();
     assert_eq!(envs, 1, "the secret is read for the one start, not for each look at a waiting issue");
 }
@@ -157,7 +157,7 @@ async fn a_used_up_account_is_told_to_stablehand_and_no_worker_starts_on_it_unti
     assert_eq!(t.seen[0]["ended"], "quota");
     assert!(crate::fixture::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its terminal is closed");
     assert!(asked(&w).contains(&"limit night".to_string()), "no reset on its screen: {:?}", asked(&w));
-    assert!(t.started.is_none() && t.held.as_deref().unwrap().contains("night: night: limit"), "{t:?}");
+    assert!(t.started.is_none() && t.held.as_deref().unwrap().contains("(night: limit)"), "{t:?}");
     // No rest of factorium's own: the limit holds until stablehand lifts it.
     w.advance(120);
     assert!(w.tick().await.started.is_none(), "still at its limit");
@@ -215,7 +215,7 @@ async fn an_account_stablehand_does_not_keep_or_no_session_may_start_on_here_is_
         books.accounts.get_mut("out").unwrap().logged_in = false;
         books.portable("ok", "claude-code", "sk-2");
     }
-    let on = |account: &str| On { role: None, account: Some(account.into()) };
+    let on = |account: &str| On { role: None, account: Some(account.into()), model: None };
     let why = |r: factorium::Answer| r.unwrap_err().message;
     let add = |a: &'static str| w.app.issue_add_on("web", "t", "", None, &[], on(a));
     refused(add("ghost").await, "no_account");
@@ -237,7 +237,7 @@ async fn without_stablehand_a_worker_starts_on_claude_code_alone_on_the_host_s_o
         }
         w.checkout("web").await;
         // codex first: without stablehand no account of it, nor its windows, is known.
-        w.app.kit_set(&["codex=codex".into(), CLAUDE.into()]).await.unwrap();
+        w.kit_of(&["codex=codex", CLAUDE]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         let found = w.finding("stablehand").await.unwrap_or_else(|| panic!("{broken}: a finding"));
         let (what, fix) = (found["what"].as_str().unwrap(), found["fix"].as_str().unwrap());
@@ -259,9 +259,9 @@ async fn without_stablehand_a_worker_starts_on_claude_code_alone_on_the_host_s_o
         assert!(w.finding("stablehand").await.is_none(), "{broken}");
         w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
         assert!(w.tick().await.started.is_some());
-        // The kit's order again: codex first, of which this host has no account.
+        // stablehand's order again: codex first.
         assert_eq!(w.worker_on("web", 2).await["harness"], "codex", "{broken}");
-        assert!(w.host.ran.lock().unwrap().iter().any(|r| r.starts_with("stablehand pick --engine codex")));
+        assert!(w.host.ran.lock().unwrap().iter().any(|r| r.starts_with("stablehand pick --machine")));
     }
 }
 

@@ -1,0 +1,30 @@
+{
+  "tree": "6fe02053ee242217124b44ebc79f5f03aca066f5+d1fba762150c532c",
+  "picker": "codex:01a20e31-94b8-7812-b5f0-b6ffd19ec615:default",
+  "author": "claude-code:4eeac05d-fcd2-557c-b3e5-e9e97b972de0:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/kit.rs:258:9: replace <impl Aggregate for Kits>::code -> &'static str with \"\"",
+        "why": "The legacy replay test calls evolve directly, leaving the aggregate version used to invalidate old snapshots unchecked.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/harness/src/harness.rs:255:9: replace Harness::all -> &'static[Harness] with Vec::leak(Vec::new())",
+        "why": "The replacement kit test checks the refusal code only, and loops over Harness::all() can pass vacuously when it returns an empty list.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/domain/src/kit.rs:279: a_picker_runs_on_the_kit_s_other_harness_that_asks_else_on_the_worker_s",
+      "crates/domain/src/kit.rs:301: a_worker_starts_on_the_first_harness_stablehand_picks_an_account_of",
+      "crates/factorium/tests/scenarios/limit.rs:231: agy_s_quota_with_no_reset_ends_its_worker_and_rests_agy_an_hour",
+      "crates/factorium/tests/scenarios/one_harness.rs:329: a_kit_entry_names_a_model_after_its_last_at_and_only_a_harness_factorium_knows",
+      "crates/factorium/tests/scenarios/one_harness.rs:566: a_pi_session_s_home_links_the_host_user_s_pi_login_it_finds_and_no_other"
+    ]
+  }
+}

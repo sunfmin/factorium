@@ -1,0 +1,10 @@
+{
+  "tree": "6fe02053ee242217124b44ebc79f5f03aca066f5+d1fba762150c532c",
+  "lines": 48,
+  "serves": "factorium#291",
+  "considered": "the kit order loop (Kit::choose over entries, Picked per engine, none_here, choose_picker re-sorting entries), all deleted; the Entry struct kept only to read old KitSet events; the doctor kit:empty finding reused for the empty kit; stablehand_seen extended rather than a second probe",
+  "reviewer": "codex:01a20e32-2a68-7730-8df4-a09dd55efe47:default",
+  "author": "claude-code:4eeac05d-fcd2-557c-b3e5-e9e97b972de0:opus",
+  "cut": "In `crates/domain/src/kit.rs`, deserialize legacy `KitSet` entries with only `harness` and `command`, let Serde ignore the old `model`, and collect the reversed entries directly so the first command still wins. In `crates/factorium/tests/scenarios/fixture/world.rs`, have `kit_of` take plain commands and infer engine ranks, then use the existing `stablehand_keeps` to set explicit models in `harnesses.rs`, `one_harness.rs`, and `pick.rs`, removing the old `command@model` parser from the fixture. In `crates/factorium/tests/scenarios/pick.rs`, share the worker start, fake secret cleanup, and mutation commit between `changed` and `beside`. In `crates/factorium/tests/scenarios/fixture/fakes.rs`, use the steps already collected to decide whether an engine needs a fallback step and delete the separate `tried` vector and deduplication.",
+  "answer": "Made: the legacy Entry now has only harness and command (serde ignores the old model) and KitSet collects the reversed entries directly; the fake pick no longer keeps a separate tried vector. Not made: kit_of keeps reading engine=command@model, so the ~40 test call sites stay one line each instead of a second stablehand_keeps call beside each (test fixture, not source); sharing the worker start between changed and beside in pick.rs is a refactor of duplication that predates this issue, out of its scope."
+}

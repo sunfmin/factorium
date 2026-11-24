@@ -21,7 +21,7 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
     let w = World::new();
     w.checkout("web").await;
     // pi first: a worker of an issue naming no account would start on it.
-    w.app.kit_set(&["pi=pi".into(), CLAUDE.into()]).await.unwrap();
+    w.kit_of(&["pi=pi", CLAUDE]).await;
     account(&w, "a");
     account(&w, "guild");
     // Pinned to the account's harness, the checkout starts it.
@@ -33,7 +33,7 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
     let role_text = role.to_string_lossy().into_owned();
 
     // A role not named by an absolute directory, or an account not here, is refused.
-    let on = |role: &str, account: &str| On { role: Some(role.into()), account: Some(account.into()) };
+    let on = |role: &str, account: &str| On { role: Some(role.into()), account: Some(account.into()), model: None };
     refused(w.app.issue_add_on("web", "t", "", None, &[], on("lore/roles/reviewer", "guild")).await, "no_role");
     refused(w.app.issue_add_on("web", "t", "", None, &[], on(&role_text, "nobody")).await, "no_account");
 
@@ -82,7 +82,7 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
     w.app.issue_add("web", "Plain", "", false, &[]).await.unwrap();
     w.tick().await;
     let plain = w.worker_on("web", 2).await;
-    assert_eq!((plain["harness"].clone(), plain["account"].clone()), (json!("pi"), json!(null)), "{plain}");
+    assert_eq!((plain["harness"].clone(), plain["account"].clone()), (json!("pi"), json!("pi")), "{plain}");
     let line = w.terminal(plain["terminal"].as_str().unwrap()).line;
     assert!(!line.contains("role/issues"), "{line}");
 }
@@ -91,12 +91,15 @@ async fn an_issue_s_worker_starts_as_its_role_on_its_account_and_its_time_and_to
 async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into(), CLAUDE.into()]).await.unwrap();
+    w.kit_of(&["codex=codex", CLAUDE]).await;
     let night = w.host.home().join("logins/night");
     std::fs::create_dir_all(&night).unwrap();
+    // night is the one codex account: a pick of codex that answers another
+    // does not say whether night can take a session.
+    w.host.stablehand.lock().unwrap().accounts.remove("codex");
     w.host.stablehand.lock().unwrap().bound("night", "codex", &crate::accounts::this_machine(), &night);
     account(&w, "guild");
-    let on_night = On { role: None, account: Some("night".into()) };
+    let on_night = On { role: None, account: Some("night".into()), model: None };
     w.app.issue_add_on("web", "On the night account", "", None, &[], on_night).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
@@ -118,12 +121,12 @@ async fn an_issue_whose_account_is_used_up_waits_behind_those_that_can_start() {
     // A role with no skills, and no account: it starts, ahead of the waiting one.
     let role = w.host.home().join("roles/plain");
     std::fs::create_dir_all(&role).unwrap();
-    let on_role = On { role: Some(role.to_string_lossy().into_owned()), account: None };
+    let on_role = On { role: Some(role.to_string_lossy().into_owned()), account: None, model: None };
     let shown = w.app.issue_add_on("web", "A role alone", "", None, &[], on_role).await.unwrap();
     assert_eq!((shown["role"].clone(), shown["account"].clone()), (json!(role.to_string_lossy()), json!(null)));
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some(json!("web#2")), "{t:?}");
-    assert_eq!(w.worker_on("web", 2).await["account"], "guild", "the kit's choice: night is used up");
+    assert_eq!(w.worker_on("web", 2).await["account"], "claude-code", "stablehand's pick: night is used up");
     let skills = w.data().root().join("role/issues/web-2-1").join(SKILLS);
     assert!(skills.is_dir() && std::fs::read_dir(&skills).unwrap().count() == 0, "no skills of its own");
 
@@ -147,7 +150,7 @@ fn role_at(w: &World, name: &str, rules: &str, skill: &str) -> String {
 async fn an_issue_filed_with_no_role_is_edited_to_name_one_and_its_next_worker_starts_as_it() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
     let role = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
 
@@ -170,9 +173,9 @@ async fn an_issue_filed_with_no_role_is_edited_to_name_one_and_its_next_worker_s
 async fn a_live_worker_keeps_the_role_it_started_with_and_the_next_attempt_takes_the_edited_one() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let first = role_at(&w, "first", "You are the first.\n", "one");
-    let on = On { role: Some(first.clone()), account: None };
+    let on = On { role: Some(first.clone()), account: None, model: None };
     w.app.issue_add_on("web", "t", "", None, &[], on).await.unwrap();
     w.tick().await;
     let wk = w.worker_on("web", 1).await;
@@ -199,9 +202,12 @@ async fn a_live_worker_keeps_the_role_it_started_with_and_the_next_attempt_takes
 async fn no_role_takes_the_role_away_and_a_missing_or_relative_dir_is_refused_as_at_add() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let role = role_at(&w, "r", "You are r.\n", "s");
-    w.app.issue_add_on("web", "t", "", None, &[], On { role: Some(role.clone()), account: None }).await.unwrap();
+    w.app
+        .issue_add_on("web", "t", "", None, &[], On { role: Some(role.clone()), account: None, model: None })
+        .await
+        .unwrap();
 
     refused(w.app.issue_name_role("web", 1, Some("roles/r")).await, "no_role");
     let missing = w.host.home().join("roles/none").to_string_lossy().into_owned();
@@ -230,7 +236,7 @@ async fn checkout_as(w: &World, name: &str, role: &str) {
 #[tokio::test]
 async fn a_checkout_s_default_role_is_the_role_of_a_worker_whose_issue_names_none() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
     assert_eq!(w.app.checkout_list().await.unwrap()[0]["role"], json!(ios), "checkout list answers it");
@@ -247,12 +253,12 @@ async fn a_checkout_s_default_role_is_the_role_of_a_worker_whose_issue_names_non
 #[tokio::test]
 async fn an_issue_s_own_role_wins_over_its_checkout_s_default() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     let docs = role_at(&w, "docs", "You are the writer.\n", "prose");
     checkout_as(&w, "web", &ios).await;
     w.app
-        .issue_add_on("web", "Write it up", "", None, &[], On { role: Some(docs.clone()), account: None })
+        .issue_add_on("web", "Write it up", "", None, &[], On { role: Some(docs.clone()), account: None, model: None })
         .await
         .unwrap();
     let shown = w.app.issue_show("web", 1).await.unwrap();
@@ -269,7 +275,7 @@ async fn an_issue_s_own_role_wins_over_its_checkout_s_default() {
 async fn checkout_edit_names_or_clears_the_default_and_a_worker_then_starts_with_factorium_s_rules_alone() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     refused(w.app.checkout_name_role("web", Some("roles/ios")).await, "no_role");
     refused(w.app.checkout_name_role("nowhere", Some(&ios)).await, "not_listed");
@@ -288,7 +294,7 @@ async fn checkout_edit_names_or_clears_the_default_and_a_worker_then_starts_with
 #[tokio::test]
 async fn each_attempt_answers_the_role_it_started_with_and_a_hash_of_what_that_role_gave_it() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     // Under a home of its own the role's path differs between runs: its hash does not.
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
@@ -315,7 +321,7 @@ async fn each_attempt_answers_the_role_it_started_with_and_a_hash_of_what_that_r
 async fn an_attempt_with_no_role_answers_null_for_its_role_and_hash() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     w.app.issue_add("web", "Plain", "", false, &[]).await.unwrap();
     w.tick().await;
     let spent = w.app.issue_show("web", 1).await.unwrap()["spent"].clone();
@@ -337,7 +343,7 @@ async fn role_words(w: &World) -> Vec<String> {
 #[tokio::test]
 async fn a_worker_whose_role_changes_under_it_is_told_once_which_files_changed() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
     w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
@@ -396,7 +402,7 @@ const IN_THE_BACKGROUND: [[&str; 3]; 2] = [
 async fn word_that_its_role_changed_an_idle_worker_takes_as_a_paste_is_submitted_and_it_works_on() {
     for footer in IN_THE_BACKGROUND {
         let w = World::new();
-        w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+        w.kit_of(&[CLAUDE]).await;
         let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
         checkout_as(&w, "web", &ios).await;
         w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
@@ -441,7 +447,7 @@ async fn role_outcomes(w: &World) -> Vec<serde_json::Value> {
 #[tokio::test]
 async fn word_that_its_role_changed_an_unknown_dialog_takes_is_typed_again_on_the_next_look_and_its_worker_works_on() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
     w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
@@ -482,7 +488,7 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
     // Real Orca waits its whole window on each busy agent (factorium#279): one after
     // another, five of them held a tick for five windows.
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
@@ -524,7 +530,7 @@ async fn a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_
 #[tokio::test]
 async fn a_role_change_two_of_five_workers_miss_holds_the_tick_one_window_and_so_does_its_retry() {
     let w = World::new();
-    w.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+    w.kit_of(&[CLAUDE]).await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;

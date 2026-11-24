@@ -1,7 +1,7 @@
 //! A session for a role: who runs a command, what each may run, and how a
 //! session of a role is opened. A worker's session starts in its worktree
 //! with its brief; the watch's in its home, its rules for its brief. Both
-//! get the kit's first eligible harness on the account stablehand picks,
+//! get the engine, model and account stablehand picks, started by the kit's command for that engine,
 //! the account's login (`stablehand credential`: a token by a file, or its login files linked), this factorium on PATH and its database,
 //! the guard, and their rules; a worker whose role changes under it is
 //! told once. The environment names that tell a session's
@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use factorium_domain::kit::{Choice, Kit, Kits, Picked, kit_id};
+use factorium_domain::issue::On;
+use factorium_domain::kit::{Ask, Choice, Kit, Kits, Picked, kit_id};
 use factorium_domain::outbox::Sender;
 use factorium_domain::worker::{NoteRoleTold, RoleRead, TellRole, Workers};
 use factorium_harness::{Call, Harness, Kept, RULES, Start};
@@ -212,63 +213,69 @@ impl App {
         rules_hash_of(&self.watch_rules())
     }
 
-    /// What a session for `checkout` (the watch: `""`) starts on now, on
-    /// `account` where its issue names one (unless stablehand's pick of its
-    /// engine passed it over), with its account's environment; refused
-    /// `no_harness` when nothing of the kit can.
-    pub(crate) async fn pick(&self, checkout: &str, account: Option<&str>) -> Answer<Pick> {
-        let choice = self.choice(checkout, account).await?;
+    /// What a session for `checkout` (the watch: `""`) starts on now, as
+    /// `on` names (its issue's account and model, if any), with its
+    /// account's environment; refused `no_harness` when it cannot.
+    pub(crate) async fn pick(&self, checkout: &str, on: &On) -> Answer<Pick> {
+        let choice = self.choice(checkout, on).await?;
         self.pick_of(choice)
     }
 
     /// What [`App::pick`] would start a session for `checkout` on now, its
-    /// account's environment not read: whether one can start.
-    pub(crate) async fn choice(&self, checkout: &str, account: Option<&str>) -> Answer<Choice> {
-        let engine = match account {
-            Some(a) => {
-                let kept = self.kept_account(a).map_err(|r| Refusal::new("no_harness", r.message))?;
-                if let Some(why) = kept.unusable {
-                    return Err(Refusal::new("no_harness", format!("account {a} cannot be used here: {why}")));
-                }
-                Some(kept.engine)
-            }
-            None => None,
+    /// account's environment not read: whether one can start. One
+    /// `stablehand pick`, narrowed by the checkout's pin and the issue's
+    /// model; an issue naming an account narrows it to that account's
+    /// engine.
+    pub(crate) async fn choice(&self, checkout: &str, on: &On) -> Answer<Choice> {
+        let model = on.model.as_deref();
+        let Some(account) = on.account.as_deref() else {
+            return self
+                .choose_by(|kit, now, pick| kit.choose(checkout, model, now, pick(&kit.ask(checkout, model))))
+                .await;
         };
-        self.choose_by(|kit, now, pick| match (account, &engine) {
-            (Some(a), Some(e)) => kit.choose_on(checkout, a, e, &pick(e)?),
-            _ => kit.choose(checkout, now, pick),
+        let kept = self.kept_account(account).map_err(|r| Refusal::new("no_harness", r.message))?;
+        if let Some(why) = kept.unusable {
+            return Err(Refusal::new("no_harness", format!("account {account} cannot be used here: {why}")));
+        }
+        let engine = kept.engine;
+        self.choose_by(|kit, _, pick| {
+            let ask = Ask { engines: vec![engine.clone()], model: model.map(Into::into) };
+            kit.choose_on(checkout, account, &engine, model, &pick(&ask)?)
         })
         .await
     }
 
     /// What a session starts on now, as `choose` chooses from the kit, the
-    /// time and stablehand's pick of an engine, with its account's
-    /// environment; refused `no_harness` when it cannot.
+    /// time and stablehand's pick, with its account's environment; refused
+    /// `no_harness` when it cannot.
     pub(crate) async fn pick_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&Ask) -> Result<Picked, String>) -> Result<Choice, String>,
     ) -> Answer<Pick> {
         let choice = self.choose_by(choose).await?;
         self.pick_of(choice)
     }
 
     /// What `choose` chooses from the kit, the time and stablehand's pick
-    /// of an engine (`stablehand pick`), told the sessions factorium runs on
-    /// each account; refused `no_harness` when it cannot.
+    /// (`stablehand pick`), told the sessions factorium runs on each
+    /// account; refused `no_harness` when it cannot.
     async fn choose_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&str) -> Result<Picked, String>) -> Result<Choice, String>,
+        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&Ask) -> Result<Picked, String>) -> Result<Choice, String>,
     ) -> Answer<Choice> {
         let kit = self.state::<Kits>(kit_id()).await?;
+        if kit.commands.is_empty() {
+            return Err(Refusal::new("no_harness", "the kit is empty"));
+        }
         let running = self.running().await?;
-        choose(&kit, self.now(), &mut |engine| self.picked(engine, &running)).map_err(fail("no_harness"))
+        choose(&kit, self.now(), &mut |ask| self.picked(ask, &running)).map_err(fail("no_harness"))
     }
 
     /// A session on `choice`, handed its account's login as stablehand
     /// gives it (`stablehand credential`).
     fn pick_of(&self, choice: Choice) -> Answer<Pick> {
-        let harness = Harness::read(&choice.entry.harness)
-            .ok_or_else(|| Refusal::new("no_harness", choice.entry.harness.clone()))?;
+        let harness =
+            Harness::read(&choice.harness).ok_or_else(|| Refusal::new("no_harness", choice.harness.clone()))?;
         let (home, credential) = match &choice.account {
             Some(a) => {
                 let credential = self.credential(a).map_err(|r| Refusal::new("no_harness", r.message))?;
@@ -277,7 +284,7 @@ impl App {
             }
             None => (None, Credential { env: Vec::new(), files: Vec::new() }),
         };
-        let (model, command) = (choice.entry.model, choice.entry.command);
+        let (model, command) = (choice.model, choice.command);
         let (secrets, logins) = (credential.env, credential.files);
         Ok(Pick { harness, account: choice.account, home, model, command, secrets, logins })
     }

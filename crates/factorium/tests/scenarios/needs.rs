@@ -39,7 +39,7 @@ async fn a_role_with_all_it_needs_or_no_record_starts_and_one_lacking_a_program_
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
-    let on = |r: &str| On { role: Some(r.into()), account: None };
+    let on = |r: &str| On { role: Some(r.into()), account: None, model: None };
 
     // No rolesmith.toml: nothing is checked, and it starts.
     let plain = role(&w, "plain", false);
@@ -83,7 +83,7 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     w.app.issue_add("web", "One", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "Two", "", false, &[]).await.unwrap();
     let plain = role(&w, "plain", false);
-    let on = On { role: Some(plain), account: None };
+    let on = On { role: Some(plain), account: None, model: None };
     w.app.issue_add_on("web", "Three", "", None, &[], on).await.unwrap();
 
     // Its two issues wait, the role checked once in the tick; the issue behind them starts.

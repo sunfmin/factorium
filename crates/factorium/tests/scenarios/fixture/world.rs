@@ -150,14 +150,50 @@ impl World {
 
     /// A kit of one Claude Code entry.
     pub async fn kit(&self) {
-        self.app.kit_set(&[CLAUDE.into()]).await.unwrap();
+        self.kit_of(&[CLAUDE]).await;
+    }
+
+    /// The kit's commands `entries` (`engine=command[@model]`), on a host
+    /// whose stablehand walks those engines in that order, each on its
+    /// `@model` if named (a word after the command's last `@`), and keeps an
+    /// account of each (one named after its engine, bound here, where the
+    /// test keeps none of it): the kit answered.
+    pub async fn kit_of(&self, entries: &[impl AsRef<str>]) -> Value {
+        let (mut commands, mut ranks) = (Vec::new(), Vec::new());
+        for e in entries {
+            let (engine, rest) = e.as_ref().split_once('=').unwrap();
+            let (command, rank) = match rest.rsplit_once('@') {
+                Some((c, m)) if !m.contains(' ') => (c, format!("{engine}@{m}")),
+                _ => (rest, engine.to_string()),
+            };
+            commands.push(format!("{engine}={command}"));
+            ranks.push(rank);
+        }
+        let kit = self.app.kit_set(&commands).await.unwrap();
+        let ranks: Vec<&str> = ranks.iter().map(String::as_str).collect();
+        self.stablehand_keeps(&ranks);
+        kit
+    }
+
+    /// stablehand walking `ranks` (`engine[@model,…]`) in this order,
+    /// keeping an account of each engine it keeps none of yet: one named
+    /// after its engine, bound here.
+    pub fn stablehand_keeps(&self, ranks: &[&str]) {
+        let mut sh = self.host.stablehand.lock().unwrap();
+        sh.order(ranks);
+        for engine in ranks.iter().map(|r| r.split('@').next().unwrap()) {
+            if !sh.accounts.values().any(|a| a.engine == *engine) {
+                let home = factorium::host::Host::home(&*self.host).join("logins").join(engine);
+                sh.own(engine, &home);
+            }
+        }
     }
 
     /// A checkout `web`, a kit of the one entry `kit`, and a worker at work
     /// on issue 1, titled `title`; answers the worker as the CLI lists it.
     pub async fn working(&self, kit: &str, title: &str) -> Value {
         self.checkout("web").await;
-        self.app.kit_set(&[kit.into()]).await.unwrap();
+        self.kit_of(&[kit]).await;
         self.app.issue_add("web", title, "", false, &[]).await.unwrap();
         self.tick().await;
         worker(&self.app).await

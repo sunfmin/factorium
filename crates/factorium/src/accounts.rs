@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use factorium_domain::kit::{Picked, Unpicked};
+use factorium_domain::kit::{Ask, Picked, Unpicked};
 use factorium_domain::watch::{Watches, watch_id};
 use factorium_domain::worker::Workers;
 use factorium_harness::Harness;
@@ -69,26 +69,30 @@ impl App {
         Ok(on.into_iter().filter_map(|(a, n)| Some((a?, n))).collect())
     }
 
-    /// Which account of the engine `engine` one more session may start on
-    /// here, `running` sessions running on each (`stablehand pick`).
-    pub(crate) fn picked(&self, engine: &str, running: &BTreeMap<String, u32>) -> Result<Picked, String> {
+    /// What one more session may start on here, `running` sessions running
+    /// on each account (`stablehand pick`), its walk narrowed by `ask`.
+    pub(crate) fn picked(&self, ask: &Ask, running: &BTreeMap<String, u32>) -> Result<Picked, String> {
         let machine = factorium_harness::account::this_machine()?;
-        let mut args = vec!["pick", "--engine", engine, "--machine", &machine];
+        let mut args = vec!["pick", "--machine", &machine];
+        for engine in &ask.engines {
+            args.extend(["--engine", engine]);
+        }
+        if let Some(model) = &ask.model {
+            args.extend(["--model", model]);
+        }
         let counts: Vec<String> = running.iter().map(|(a, n)| format!("{a}={n}")).collect();
         let counts = counts.join(",");
         if !counts.is_empty() {
             args.extend(["--running", &counts]);
         }
         let answer = self.stablehand(&args).map_err(|r| r.message)?;
-        if let Some(account) = answer["account"].as_str() {
-            return Ok(Picked::On(account.to_string()));
+        let text = |v: &Value, k: &str| v[k].as_str().map(str::to_string);
+        if let (Some(engine), Some(account)) = (text(&answer, "engine"), text(&answer, "account")) {
+            return Ok(Picked::On { engine, model: text(&answer, "model"), account });
         }
-        let text = |u: &Value, k: &str| u[k].as_str().unwrap_or_default().to_string();
         let why = answer["why"].as_array().into_iter().flatten();
-        Ok(Picked::None(
-            why.map(|u| Unpicked { account: text(u, "account"), reason: text(u, "reason"), why: text(u, "why") })
-                .collect(),
-        ))
+        let why = why.map(|u| Unpicked { account: text(u, "account"), why: text(u, "why").unwrap_or_default() });
+        Ok(Picked::None { until: text(&answer, "until"), why: why.collect() })
     }
 
     /// The account `name` as stablehand keeps it (`stablehand account
@@ -157,22 +161,26 @@ impl App {
 }
 
 impl App {
-    /// Why stablehand cannot say which account a session of `kit` starts
-    /// on, if it cannot: not on the PATH, or its pick of an engine of the
-    /// kit refused or failed, as a start would ask it.
+    /// Why stablehand cannot say what a session starts on, if it cannot:
+    /// not on the PATH, or its pick refused or failed, as a start would ask
+    /// it; and the engine it picks that `kit` has no command for, if it
+    /// does. Neither while the kit has no command.
     pub(crate) async fn stablehand_seen(
         &self,
         kit: &factorium_domain::kit::Kit,
-    ) -> Answer<Option<factorium_domain::doctor::StablehandSeen>> {
+    ) -> Answer<(Option<factorium_domain::doctor::StablehandSeen>, Option<String>)> {
         use factorium_domain::doctor::StablehandSeen;
-        if kit.entries.is_empty() {
-            return Ok(None);
+        if kit.commands.is_empty() {
+            return Ok((None, None));
         }
         if !self.host.programs().found("stablehand") {
-            return Ok(Some(StablehandSeen { found: false, why: "`stablehand` is not on the PATH".into() }));
+            return Ok((Some(StablehandSeen { found: false, why: "`stablehand` is not on the PATH".into() }), None));
         }
         let running = self.running().await?;
-        let failed = kit.entries.iter().find_map(|e| self.picked(&e.harness, &running).err());
-        Ok(failed.map(|why| StablehandSeen { found: true, why }))
+        Ok(match self.picked(&Ask::default(), &running) {
+            Err(why) => (Some(StablehandSeen { found: true, why }), None),
+            Ok(Picked::On { engine, .. }) if !kit.commands.contains_key(&engine) => (None, Some(engine)),
+            Ok(_) => (None, None),
+        })
     }
 }

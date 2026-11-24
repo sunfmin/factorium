@@ -272,7 +272,7 @@ impl App {
             // One that cannot start now (its account used up, or what its
             // checkout is pinned to at its limit) waits behind those that
             // can; with none, its start answers why it is held.
-            if self.choice(&checkout, issue.on.account.as_deref()).await.is_err() {
+            if self.choice(&checkout, &issue.on).await.is_err() {
                 held.get_or_insert((checkout, number));
                 continue;
             }
@@ -352,8 +352,8 @@ impl App {
     pub async fn daemon_start(&self) -> Answer {
         let kit = self.state::<Kits>(kit_id()).await?;
         let mut needed = vec!["git".to_string(), "orca".to_string()];
-        for e in &kit.entries {
-            let program = e.command.split_whitespace().next().unwrap_or_default().to_string();
+        for command in kit.commands.values() {
+            let program = command.split_whitespace().next().unwrap_or_default().to_string();
             if !program.is_empty() && !needed.contains(&program) {
                 needed.push(program);
             }

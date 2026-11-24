@@ -52,9 +52,9 @@ pub struct Issue {
     pub on: On,
 }
 
-/// The role an issue's worker plays and the account it starts on, each
+/// The role an issue's worker plays and the account and model it starts on, each
 /// named by the one who filed it (Guild, for one): unnamed, the worker's
-/// role is factorium's alone and its account the kit's choice.
+/// role is factorium's alone and its account and model stablehand's pick.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct On {
     /// A directory holding the role's rules (`CLAUDE.md`) and skills
@@ -65,11 +65,15 @@ pub struct On {
     /// The engine account its worker starts on, by its name in stablehand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// The model its worker starts on, by the id its engine starts it with
+    /// (`stablehand pick --model`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl On {
     fn is_none(&self) -> bool {
-        self.role.is_none() && self.account.is_none()
+        self.role.is_none() && self.account.is_none() && self.model.is_none()
     }
 }
 

@@ -36,7 +36,7 @@ fn sent(w: &World, wk: &Value) -> Vec<String> {
 async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back_with_what_was_held() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["agy=agy".into()]).await.unwrap();
+    w.kit_of(&["agy=agy"]).await;
     w.app.kit_pin("web", Some("agy")).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
@@ -67,7 +67,7 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     w.advance(170);
     let t = w.tick().await;
     assert!(t.started.is_none(), "{t:?}");
-    assert!(t.held.as_deref().unwrap().contains("agy: at its limit until it resets at"), "{t:?}");
+    assert!(t.held.as_deref().unwrap().contains("stablehand picks none until"), "{t:?}");
     let d = w.app.doctor().await.unwrap();
     let key = format!("worker:{}", wk["worker"].as_str().unwrap());
     assert!(!finding_keys(&d).contains(&key), "{d}");
@@ -112,7 +112,7 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
 async fn a_checkout_not_pinned_starts_its_next_worker_on_another_harness_while_agy_is_spent() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["agy=agy".into(), CLAUDE.into()]).await.unwrap();
+    w.kit_of(&["agy=agy", CLAUDE]).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = crate::fixture::worker(&w.app).await;
@@ -228,7 +228,7 @@ async fn a_worker_waiting_for_the_watch_at_agy_s_quota_is_parked_until_the_reset
 /// worker ends, its issue to start again, and agy on the host's own login
 /// starts no worker for an hour; no finding meanwhile.
 #[tokio::test]
-async fn agy_s_quota_with_no_reset_ends_its_worker_and_rests_agy_an_hour() {
+async fn agy_s_quota_with_no_reset_ends_its_worker_and_rests_its_account_until_stablehand_reads_it() {
     let w = World::new();
     let wk = w.working("agy=agy", "t").await;
     w.set_screen(wk["terminal"].as_str().unwrap(), &wrapped_quota(false));
@@ -237,8 +237,8 @@ async fn agy_s_quota_with_no_reset_ends_its_worker_and_rests_agy_an_hour() {
     assert!(t.started.is_none(), "agy rests: {t:?}");
     let key = format!("worker:{}", wk["worker"].as_str().unwrap());
     assert!(!finding_keys(&w.app.doctor().await.unwrap()).contains(&key));
-    w.advance(59);
-    assert!(w.tick().await.started.is_none(), "within the hour");
-    w.advance(1);
+    w.advance(60);
+    assert!(w.tick().await.started.is_none(), "until stablehand reads it again");
+    w.host.stablehand.lock().unwrap().read("agy");
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1");
 }
