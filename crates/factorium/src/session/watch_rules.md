@@ -19,8 +19,9 @@ how to fix it. Then:
      issue, as is what a worker escalates: `issue show` has the whole
      record, who said what and when.
    - Both answer `delivery`: `submitted` (the worker read it), `queued`
-     (it waits until the worker's running call returns, which a hung call
-     never does), or `missed` (typed, it started no turn and none runs:
+     (it waits until the worker's running call returns, and is typed again
+     at its prompt if the turn ends unread; still unread 10 min on, it is
+     missed and the worker waits for you), or `missed` (typed, it started no turn and none runs:
      something else on its screen took it; the worker then waits for you).
      Add `--now` to stop the running turn first. `factorium outbox --worker
      <worker>` answers everything passed to its session and how it went.

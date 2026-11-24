@@ -7,7 +7,7 @@
 //! the watch at once.
 
 use factorium_domain::outbox::{
-    Give, GiveMessage, Message, Outbox, Outboxes, Outcome, Sender, Try, TryMessage, outbox_id,
+    Give, GiveMessage, Message, Outbox, Outboxes, Outcome, QUEUED_MS, Sender, Try, TryMessage, outbox_id,
 };
 use factorium_domain::watch::{Watches, watch_id};
 use factorium_domain::worker as w;
@@ -102,9 +102,10 @@ impl App {
                 self.submit::<TryMessage>(Try { terminal: f.s.terminal.clone(), n: m.n, outcome: outcome.clone() })
                     .await?;
                 let m = Message { outcome: Some(outcome.clone()), ..m };
-                // A notice missed waits for the next look; what follows it
-                // here is typed as if it were not there.
-                if m.pending() && !matches!(outcome, Outcome::Missed { .. }) {
+                // A notice missed waits for the next look, one queued for its
+                // session's turn to end; what follows either here is typed as
+                // if it were not there.
+                if m.pending() && !matches!(outcome, Outcome::Missed { .. } | Outcome::Queued) {
                     f.blocked = Some((m.from.clone(), outcome.clone()));
                 }
                 if let (Some(worker), Some(why)) = (f.s.worker, m.lost()) {
@@ -156,23 +157,35 @@ impl App {
 
     /// Types one message at its session. A brief is typed and no more; any
     /// other is watched for the turn it starts, and checked against the
-    /// session's turn: it waits behind a running turn, or it missed.
+    /// session's turn: it waits behind a running turn, or it missed. One
+    /// queued before is typed again only once that turn is over and the
+    /// session did not read it (factorium#289).
     fn deliver(&self, s: &Session, m: &Message, now: bool) -> Outcome {
+        let home = self.session_home(s.harness, s.account.as_deref());
+        // A notice missed, or a message queued, before may have been taken
+        // since: it is not typed twice.
+        let given = (m.at / 1000).saturating_sub(1) as u64;
+        if matches!(m.outcome, Some(Outcome::Missed { .. } | Outcome::Queued))
+            && s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, given) == Some(true)
+        {
+            return Outcome::Submitted;
+        }
+        if m.outcome == Some(Outcome::Queued) && matches!(self.turn(s), Some(Turn::Open { .. })) {
+            if self.now() - m.at < QUEUED_MS {
+                return Outcome::Queued;
+            }
+            let why = format!(
+                "it waited queued behind its running turn {} min and the session did not read it",
+                QUEUED_MS / 60_000
+            );
+            return Outcome::Missed { why };
+        }
         if let Err(r) = self.up(s) {
             return not_typed(r.code, r.message);
         }
         let orca = self.host.orca();
         if m.from == Sender::Brief {
             return orca.send(&s.terminal, &m.text).map_or_else(|e| not_typed("orca", e), |()| Outcome::Typed);
-        }
-        let home = self.session_home(s.harness, s.account.as_deref());
-        // A notice missed before may have been taken after that look: it is
-        // not typed twice.
-        let given = (m.at / 1000).saturating_sub(1) as u64;
-        if matches!(m.outcome, Some(Outcome::Missed { .. }))
-            && s.harness.prompted(&home, &s.cwd, &s.brief, &m.text, given) == Some(true)
-        {
-            return Outcome::Submitted;
         }
         let since = (self.now() / 1000).saturating_sub(1) as u64;
         let key = now.then(|| s.harness.interrupt());

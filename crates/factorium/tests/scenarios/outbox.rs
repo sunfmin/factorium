@@ -301,3 +301,61 @@ async fn a_round_the_watch_s_session_missed_is_passed_again_on_the_next_look() {
     assert_eq!(w.app.outbox_of(None).await.unwrap()["messages"].as_array().unwrap().len(), 2, "arrived: not again");
     assert_eq!(w.terminal(&watch).sent.len(), 2);
 }
+
+/// factorium#289: rollmind#144's worker was told twice while its turn ran;
+/// both answered `queued`, its turn ended, and neither was ever typed. A
+/// message queued behind a running turn is typed again the first time its
+/// session is idle at its prompt, and only then.
+#[tokio::test]
+async fn a_message_queued_behind_a_running_turn_is_typed_once_the_turn_ends() {
+    for kind in KINDS {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let handle = wk["terminal"].as_str().unwrap();
+        kind.prepare(&w, &wk).await;
+        w.set_busy(handle, true, false);
+        kind.say(&w, &wk, false).await.unwrap();
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued", "{kind:?}");
+        let typed = w.terminal(handle).sent.len();
+        // Its turn runs on: nothing is typed again.
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(handle).sent.len(), typed, "{kind:?}: not typed into a running turn twice");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued", "{kind:?}");
+        // Its turn ends and the session never read it: typed at its prompt, once.
+        w.set_busy(handle, false, false);
+        w.advance(1);
+        w.tick().await;
+        let sent = w.terminal(handle).sent;
+        assert_eq!(sent.len(), typed + 1, "{kind:?}: {sent:?}");
+        assert!(sent[typed].starts_with(kind.opens()), "{kind:?}: {sent:?}");
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "submitted", "{kind:?}");
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(w.terminal(handle).sent.len(), typed + 1, "{kind:?}: submitted, not again");
+    }
+}
+
+/// factorium#289: a message that waits queued past its bound is not left to
+/// silence: it is missed, and its worker goes to the watch once.
+#[tokio::test]
+async fn a_message_still_queued_past_its_bound_is_missed_and_its_worker_goes_to_the_watch() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.set_busy(handle, true, false);
+    w.app.watch_tell(id(&wk), "use v2", false).await.unwrap();
+    w.advance(9);
+    w.tick().await;
+    assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued");
+    w.set_busy(handle, true, false);
+    w.advance(2);
+    w.tick().await;
+    let m = last(&w, &wk).await;
+    assert_eq!(m["outcome"]["outcome"], "missed", "{m}");
+    assert!(m["outcome"]["why"].as_str().unwrap().contains("queued"), "{m}");
+    let waiting = worker(&w.app).await;
+    assert_eq!(waiting["status"], "waiting");
+    assert!(waiting["why"].as_str().unwrap().starts_with("the watch's word did not reach it"), "{waiting}");
+    assert_eq!(w.terminal(handle).sent.len(), 1, "never typed again into its running turn");
+}

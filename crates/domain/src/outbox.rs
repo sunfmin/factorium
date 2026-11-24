@@ -133,6 +133,11 @@ impl Outcome {
     }
 }
 
+/// How long a message may wait queued behind its session's running turn,
+/// unread, before it is missed and its worker goes to the watch, ms
+/// (factorium#289).
+pub const QUEUED_MS: i64 = 10 * 60 * 1000;
+
 /// One message, as given and as its delivery went.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Message {
@@ -147,10 +152,11 @@ pub struct Message {
 }
 
 impl Message {
-    /// Still to be tried: never tried, held, or a notice missed.
+    /// Still to be tried: never tried, held, queued behind a turn, or a
+    /// notice missed.
     pub fn pending(&self) -> bool {
         match &self.outcome {
-            None => true,
+            None | Some(Outcome::Queued) => true,
             Some(Outcome::Missed { .. }) => self.from.notice(),
             Some(Outcome::NotTyped { .. }) => self.from.holds(),
             Some(Outcome::Held { .. }) => true,

@@ -296,7 +296,10 @@ Every message to a session — a brief, a landing's red, a round, `watch
 tell` and `watch restart`, a comment, word that its role changed — goes through that session's outbox,
 one record of who it was from, the line typed, and how it went: `typed` (a
 brief), `submitted` (it started a turn), `queued` (it waits behind the
-running turn), `brief` (written into a brief still to be typed),
+running turn: on each next look, found taken in its session file since, it
+was submitted; the turn over and not taken, it is typed again at the
+prompt; still unread 10 min after it was given, it is missed,
+factorium#289), `brief` (written into a brief still to be typed),
 `not_typed` (the harness was not up, the terminal gone, Orca refused), or
 `missed` (typed, it started no turn and none runs: a dialog took it).
 Nothing is typed before the harness is up, nor ahead of the brief. A brief
