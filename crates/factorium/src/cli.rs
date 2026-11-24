@@ -476,7 +476,11 @@ pub enum WorkerCmd {
     },
     /// Holds named resources across several commands (a soak on a device),
     /// all at once, once each has a free slot: waits for them, and answers
-    /// the hold. It stays yours after this answers, until `worker release`
+    /// the hold. Each resource's queue starts the shortest declared hold
+    /// first (a command, which declares none, is read as `hold_default`),
+    /// so declare what you will take, not more; one waiting past
+    /// `starve_bound` goes ahead of all others. Use this order, never
+    /// `issue block` between issues that share a device. It stays yours after this answers, until `worker release`
     /// or your worker ends (factorium gives it back). It is never cut short
     /// before `--for`; past it, it is a finding for the watch. Your own
     /// `worker exclusive --resource` of a resource you hold runs inside
@@ -488,6 +492,12 @@ pub enum WorkerCmd {
         /// How long you hold them: `90s`, `160m`, `2h`; a bare number is minutes.
         #[arg(long = "for", value_name = "DURATION", value_parser = when::duration_ms)]
         hold_for: i64,
+        /// When it may start, the host's local time: `22:00-07:00` (an
+        /// overnight run on the charger). It joins the line only inside
+        /// this window, every day; outside it, doctor shows it waiting for
+        /// its window. Once started, it holds until released.
+        #[arg(long, value_name = "HH:MM-HH:MM", value_parser = when::window)]
+        between: Option<(u32, u32)>,
     },
     /// Gives back your hold of a resource (`worker hold`).
     Release {
@@ -674,7 +684,9 @@ impl Top {
                     let how = factorium::Exclusive { background, resources };
                     app.worker_exclusive_as(worker_id().ok(), &dir, &line, how).await
                 }
-                WorkerCmd::Hold { resources, hold_for } => app.worker_hold(worker_id()?, &resources, hold_for).await,
+                WorkerCmd::Hold { resources, hold_for, between } => {
+                    app.worker_hold(worker_id()?, &resources, hold_for, between).await
+                }
                 WorkerCmd::Release { resource } => app.worker_release(worker_id()?, &resource).await,
             },
             Top::Watch(w) => match w {

@@ -55,7 +55,7 @@ pub fn holds(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Vec<String> 
         why.push(format!("workers: {}% of the CPU, over their {}%", r.workers_cpu, s.get(Setting::WorkersCpuShare)));
     }
     let bound = s.ms(Time::QueueWaitBound);
-    if let Some(e) = queue.oldest().filter(|e| now - e.queued_at > bound) {
+    if let Some(e) = queue.oldest(now).filter(|e| now - e.queued_at > bound) {
         // A command line can run long (a ratchet's `--considered`): its head names it.
         let what: String = e.what.chars().take(60).collect();
         let waited = (now - e.queued_at) / 1000;

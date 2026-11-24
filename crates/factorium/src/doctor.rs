@@ -225,8 +225,9 @@ impl App {
             "accounts_skipped": skipped,
             "heavy": seen.queue.entries,
             // Each resource a heavy entry holds or waits for: its holder (since, until it
-            // declared) and those waiting for it, oldest first.
-            "resources": seen.queue.resources(),
+            // declared) and those waiting for it, in the order they start: each one's declared hold, its
+            // window, and why it is not next.
+            "resources": seen.queue.resources(self.now(), settings.order()),
             // Each checkout's last idle run that ended green or red.
             "idle": idle,
             "findings": findings,

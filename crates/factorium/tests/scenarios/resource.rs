@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use factorium::Exclusive;
+use factorium::host::Clock;
 use factorium_domain::settings::Resource;
 use factum::Uuid;
 use serde_json::Value;
@@ -145,7 +146,7 @@ async fn a_declared_long_hold_is_not_cut_short_at_the_hold_bound_and_past_its_un
     let w = World::new();
     declare(&w, &["FMGG"]).await;
     let (me, other) = (Uuid::now_v7(), Uuid::now_v7());
-    let held = w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000).await.unwrap();
+    let held = w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000, None).await.unwrap();
     let entry = held["held"]["entry"].as_str().unwrap().to_string();
     assert_eq!(held["held"]["until"].as_i64().unwrap() - held["held"]["since"].as_i64().unwrap(), 160 * 60_000);
     // The holder's own command runs inside its hold; another's waits for it.
@@ -223,8 +224,8 @@ async fn a_hold_whose_worker_ended_is_given_back_and_workers_show_holds() {
     w.working(CLAUDE, "a").await;
     declare(&w, &["FMGG", "MAC"]).await;
     let me = id(&worker(&w.app).await);
-    w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000).await.unwrap();
-    w.app.worker_hold(me, &["MAC".into()], 160 * 60_000).await.unwrap();
+    w.app.worker_hold(me, &["FMGG".into()], 160 * 60_000, None).await.unwrap();
+    w.app.worker_hold(me, &["MAC".into()], 160 * 60_000, None).await.unwrap();
     let shown = worker(&w.app).await;
     assert_eq!(shown["holds"][0]["name"], "FMGG", "{shown}");
     assert_eq!(shown["holds"][0]["holders"][0]["hold"], true, "{shown}");
@@ -244,8 +245,8 @@ async fn a_hold_answers_itself_and_release_gives_back_only_ones_own() {
     let w = World::new();
     declare(&w, &["FMGG", "MAC"]).await;
     let me = Uuid::now_v7();
-    w.app.worker_hold(me, &["MAC".into()], 60_000).await.unwrap();
-    let held = w.app.worker_hold(me, &["FMGG".into()], 60_000).await.unwrap();
+    w.app.worker_hold(me, &["MAC".into()], 60_000, None).await.unwrap();
+    let held = w.app.worker_hold(me, &["FMGG".into()], 60_000, None).await.unwrap();
     assert_eq!(held["held"]["what"], "hold of FMGG", "the hold it took, not an older one: {held}");
 }
 
@@ -254,8 +255,8 @@ async fn releasing_what_another_holds_is_refused_and_leaves_it_held() {
     let w = World::new();
     declare(&w, &["FMGG", "MAC"]).await;
     let (me, other) = (Uuid::now_v7(), Uuid::now_v7());
-    w.app.worker_hold(me, &["MAC".into()], 60_000).await.unwrap();
-    w.app.worker_hold(other, &["FMGG".into()], 60_000).await.unwrap();
+    w.app.worker_hold(me, &["MAC".into()], 60_000, None).await.unwrap();
+    w.app.worker_hold(other, &["FMGG".into()], 60_000, None).await.unwrap();
     let refused = w.app.worker_release(me, "FMGG").await.expect_err("it holds no FMGG");
     assert_eq!(refused.code, "not_held");
     assert_eq!(whats(&resource(&w, "FMGG").await["holders"]), ["hold of FMGG"]);
@@ -265,7 +266,7 @@ async fn releasing_what_another_holds_is_refused_and_leaves_it_held() {
 async fn a_hold_at_its_until_is_no_finding_yet() {
     let w = World::new();
     declare(&w, &["FMGG"]).await;
-    let held = w.app.worker_hold(Uuid::now_v7(), &["FMGG".into()], 60 * 60_000).await.unwrap();
+    let held = w.app.worker_hold(Uuid::now_v7(), &["FMGG".into()], 60 * 60_000, None).await.unwrap();
     let key = format!("resource:{}", held["held"]["entry"].as_str().unwrap());
     w.advance(60);
     assert!(!finding_keys(&w.doctor().await).contains(&key), "at its until");
@@ -283,7 +284,7 @@ async fn a_resource_the_host_does_not_declare_is_refused_and_host_is_not_held() 
         refused.message.contains("[\"FMGG\"]") && refused.message.contains("--resource FMGX --slots 1"),
         "{refused}"
     );
-    let host = w.app.worker_hold(Uuid::now_v7(), &["host".into()], 60_000).await.expect_err("host is not held");
+    let host = w.app.worker_hold(Uuid::now_v7(), &["host".into()], 60_000, None).await.expect_err("host is not held");
     assert_eq!(host.code, "host_hold");
     let declared = w.app.resource_declare("host", Some(Resource { slots: 1, note: None }), false).await;
     assert_eq!(declared.expect_err("host is not declared").code, "host_resource");
@@ -291,4 +292,86 @@ async fn a_resource_the_host_does_not_declare_is_refused_and_host_is_not_held() 
     let cli = w.run();
     let ran = tokio::time::timeout(STUCK, cli.worker_exclusive_as(None, &w.dir, "echo both", on(&["host", "FMGG"])));
     assert_eq!(ran.await.expect("host and FMGG at once").unwrap()["ok"], true);
+}
+
+/// Doctor's waiters of resource `name`, in the order they start.
+async fn waiting(w: &World, name: &str) -> Vec<Value> {
+    resource(w, name).await["waiting"].as_array().unwrap().clone()
+}
+
+/// Until `worker` holds resource `name`, moving the clock a poll on each look.
+async fn until_held_by(w: &World, name: &str, worker: Uuid) {
+    let me = serde_json::json!(worker);
+    while !resource(w, name).await["holders"].as_array().unwrap().iter().any(|h| h["worker"] == me) {
+        w.clock.advance(POLL);
+        tokio::time::sleep(LOOK).await;
+    }
+}
+
+// Seen 2026-11-24: rollmind's phone checks of a few minutes each waited
+// behind a 2.5 h soak and an overnight run (factorium#286).
+#[tokio::test]
+async fn a_five_minute_hold_asked_after_a_160_minute_one_takes_the_device_first() {
+    let w = World::new();
+    declare(&w, &["FMGG"]).await;
+    let fmgg = ["FMGG".to_string()];
+    let (holder, long, short) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    w.app.worker_hold(holder, &fmgg, 60_000, None).await.unwrap();
+    let (a, b) = (w.run(), w.run());
+    let long_waits = a.worker_hold(long, &fmgg, 160 * 60_000, None);
+    let rest = async {
+        w.until(async || w.queued().await.len() == 2).await;
+        let short_waits = b.worker_hold(short, &fmgg, 5 * 60_000, None);
+        let looks = async {
+            w.until(async || w.queued().await.len() == 3 && w.clock.asleep() == 2).await;
+            let line = waiting(&w, "FMGG").await;
+            let workers: Vec<&Value> = line.iter().map(|h| &h["worker"]).collect();
+            assert_eq!(workers, [&serde_json::json!(short), &serde_json::json!(long)], "{line:?}");
+            assert_eq!(line[1]["why"], "behind `hold of FMGG`, a 5 min hold", "{line:?}");
+            assert_eq!(line[1]["declared"], 160 * 60_000, "{line:?}");
+            w.app.worker_release(holder, "FMGG").await.unwrap();
+            until_held_by(&w, "FMGG", short).await;
+        };
+        tokio::join!(short_waits, looks).0
+    };
+    let (long_held, short_held) = tokio::time::timeout(STUCK, async {
+        let rest = async {
+            let held = rest.await;
+            assert_eq!(waiting(&w, "FMGG").await.len(), 1, "the long one waits on");
+            w.app.worker_release(short, "FMGG").await.unwrap();
+            until_held_by(&w, "FMGG", long).await;
+            held
+        };
+        tokio::join!(long_waits, rest)
+    })
+    .await
+    .expect("both are held in turn");
+    assert_eq!(short_held.unwrap()["held"]["worker"], serde_json::json!(short));
+    assert_eq!(long_held.unwrap()["held"]["worker"], serde_json::json!(long));
+}
+
+#[tokio::test]
+async fn a_hold_with_a_window_waits_for_it_and_starts_inside_it() {
+    let w = World::new();
+    declare(&w, &["FMGG"]).await;
+    // The scenario's host keeps UTC: a window opening an hour from now, for two.
+    let minute = |ms: i64| (ms / 60_000).rem_euclid(24 * 60) as u32;
+    let opens = minute(w.clock.now() + 3_600_000 + 59_999);
+    let window = (opens, (opens + 120) % (24 * 60));
+    let (cli, fmgg) = (w.run(), ["FMGG".to_string()]);
+    let night = cli.worker_hold(Uuid::now_v7(), &fmgg, 600 * 60_000, Some(window));
+    let looks = async {
+        w.until(async || w.queued().await.len() == 1 && w.clock.asleep() == 1).await;
+        let line = waiting(&w, "FMGG").await;
+        let from = format!("{:02}:{:02}", opens / 60, opens % 60);
+        assert_eq!(line[0]["why"], format!("waits for its window from {from}"), "{line:?}");
+        assert!(line[0]["window"].as_str().unwrap().starts_with(&from), "{line:?}");
+        w.advance(30);
+        w.poll(1).await;
+        w.until(async || w.clock.asleep() == 1).await;
+        assert!(resource(&w, "FMGG").await["holders"].as_array().unwrap().is_empty(), "outside its window still");
+        w.advance(31);
+    };
+    let (held, ()) = tokio::time::timeout(STUCK, async { tokio::join!(night, looks) }).await.expect("it starts inside");
+    assert_eq!(held.unwrap()["held"]["window"].as_str().map(|s| s.len()), Some(11));
 }

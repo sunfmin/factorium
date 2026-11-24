@@ -94,7 +94,8 @@ impl App {
     /// holds (since, until it declared) and those it waits for.
     pub async fn workers(&self, all: bool) -> Answer {
         let mut v = shown(&self.rows(tracker::workers(None, all)).await?);
-        let resources = self.state::<heavy::Heavy>(heavy::queue_id()).await?.resources();
+        let (q, order) = (self.state::<heavy::Heavy>(heavy::queue_id()).await?, self.settings().await?.order());
+        let resources = q.resources(self.now(), order);
         for row in v.as_array_mut().into_iter().flatten() {
             let me = row["worker"].as_str().and_then(|w| w.parse::<Uuid>().ok());
             let mine = |hs: &[heavy::Holding]| hs.iter().any(|h| me.is_some() && h.worker == me);

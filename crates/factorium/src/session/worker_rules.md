@@ -15,8 +15,12 @@ Your brief (the file you were handed) says what the issue is.
   a resource the owner declares: name it, `worker exclusive --resource
   <name> -- <command>`, and only that command waits for it; for a hold
   across several commands (a soak), `worker hold <name> --for 160m`, then
-  `worker release <name>`. Never `issue block` on another issue only
-  because both use the same device. `doctor` shows who holds it.
+  `worker release <name>`. Each resource's queue starts the shortest
+  declared hold first (a command is read as `hold_default`; one waiting
+  past `starve_bound` goes first), so declare what you will take; an
+  overnight run names its window, `--between 22:00-07:00`. Never `issue
+  block` on another issue only because both use the same device. `doctor`
+  shows who holds it, and why each waiter is not next.
 - A change's mutants are picked by a second agent, never you (`slimfit help
   picker`): `factorium worker pick-mutants` starts it and answers the picks
   and the commands that run and record them.
