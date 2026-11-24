@@ -1,0 +1,39 @@
+{
+  "tree": "ce89ebed2a61b342434d5b46c4866b0cda7e4735+49e74b9194e70341",
+  "picker": "codex:01a20ef0-dffd-7883-82f7-67c383eb1197:default",
+  "author": "claude-code:d5bf442c-9f77-5143-9481-f73a5e2b54f0:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/kept.rs:86:9: replace Abandoned::shown -> serde_json::Value with Default::default()",
+        "why": "The deleted test used the returned branch name to retrieve the commit, so a null response could escape checks that only verify the issue closed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/kept.rs:50:5: replace abandoned -> String with String::new()",
+        "why": "The deleted test checked that a commit found only in the worker’s worktree stayed reachable on an abandoned branch after closure.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/kept.rs:66:9: replace Why<'_>::said -> (&'static str, String) with (\"\", String::new())",
+        "why": "The close scenario supplies a reason but only checks cleanup and commit preservation, so losing the reason could go unnoticed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:469:9: replace Queue::place -> Option<i64> with None",
+        "why": "The updated queue assertion counts two entries at the cut boundary, so a missing queue position could pass that check.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/line.rs:505: a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound_less_the_hold_bound",
+      "crates/factorium/tests/scenarios/line.rs:550: a_closed_issue_s_worktree_goes_and_its_commits_nowhere_else_stay_on_its_branch"
+    ]
+  }
+}

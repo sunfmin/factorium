@@ -527,19 +527,6 @@ async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
 }
 
 #[tokio::test]
-async fn a_busy_checkout_cuts_once_the_oldest_promotion_waited_the_cut_bound_less_the_hold_bound() {
-    let w = World::new();
-    w.two_at_work().await;
-    w.lands("web", 1, "a").await;
-    assert!(w.app.promote("web").await.unwrap()["promoted"].is_string());
-    w.advance(24 * 60 - 30 - 1);
-    assert!(!w.tick().await.lines.iter().any(|l| l["cut"] == "web"), "busy, under a day less the hold bound");
-    w.advance(1);
-    let t = w.tick().await;
-    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
-}
-
-#[tokio::test]
 async fn a_checkout_is_idle_whatever_another_checkout_s_workers_do() {
     let w = World::new();
     w.checkout("api").await;
@@ -569,19 +556,6 @@ async fn holding_one_checkout_s_landings_holds_no_other_s() {
     w.done(&wk, "a", "x").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "api#1");
     assert_eq!(w.app.hold("api", None).await.unwrap()["held"], json!(null));
-}
-
-#[tokio::test]
-async fn a_closed_issue_s_worktree_goes_and_its_commits_nowhere_else_stay_on_its_branch() {
-    let w = World::new();
-    let wk = w.working(CLAUDE, "a").await;
-    let tree = worktree(&wk);
-    w.commit(&tree, "a", "x");
-    let closed = w.app.issue_close("web", 1, "not needed").await.unwrap();
-    assert!(!tree.exists());
-    let repo = w.dir.join("repos").join("web");
-    let kept = format!("{}:a", closed["abandoned"].as_str().unwrap());
-    assert_eq!(w.git(&repo, &["show", &kept]).unwrap(), "x", "its commit is kept");
 }
 
 /// The app reads a worker before it asks to land it or end it; the worker
