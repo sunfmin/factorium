@@ -31,7 +31,7 @@
 //!   `{sha}`, and removes its worktrees on `branch` and the branch.
 //!
 //! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
-//! (`fakes::ORCA_FAULTS`); `real` never reads it.
+//! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`); `real` never reads it.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -196,8 +196,10 @@ fn main() {
             // Its clock reads the time a real program reads, so a time past for one is past for both.
             let now = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis() as i64;
             let host = FakeHost::at(&dir, Arc::new(ManualClock::new(now)), reading);
-            if let Ok(fault) = std::env::var("TRUEFIT_FAULT") {
-                host.orca.fault(&fault, true);
+            match std::env::var("TRUEFIT_FAULT") {
+                Ok(f) if fakes::BREW_FAULTS.contains(&f.as_str()) => host.brew.lock().unwrap().fault(&f, true),
+                Ok(f) => host.orca.fault(&f, true),
+                Err(_) => {}
             }
             host
         }),

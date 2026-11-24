@@ -360,7 +360,23 @@ pub struct FakeBrew {
     pub relink_fails: bool,
 }
 
+/// The failures the stand-in Homebrew answers when asked (truefit.toml's
+/// brew `faults`, named by `TRUEFIT_FAULT` to `standin fake`):
+/// `upgrade-refused`, every install and upgrade refused, though `brew
+/// update` took effect, as brew refuses one whose download fails.
+pub const BREW_FAULTS: [&str; 1] = ["upgrade-refused"];
+
 impl FakeBrew {
+    /// Sets, or clears, the failure `name` (one of [`BREW_FAULTS`]).
+    pub fn fault(&mut self, name: &str, on: bool) {
+        match name {
+            "upgrade-refused" => {
+                self.refuses = on.then(|| "Error: Failure while executing; `curl` exited with 6".to_string())
+            }
+            _ => panic!("no Homebrew fault {name}: {BREW_FAULTS:?}"),
+        }
+    }
+
     fn answer(&mut self, root: &Path, args: &[&str]) -> Said {
         let text =
             |ok: bool, out: String| Said { ok, out, err: if ok { String::new() } else { "Error: No such keg".into() } };

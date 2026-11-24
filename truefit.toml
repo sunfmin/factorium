@@ -245,6 +245,14 @@ normalise = [
   { pattern = '"out":"[^"]*/opt/', replace = '"out":"<prefix>/opt/' },
   { pattern = 'factorium [0-9][^\\"]*', replace = "factorium <version>" },
 ]
+# What factorium handles after a step took effect (fakes::BREW_FAULTS): an
+# install or upgrade brew refuses once `brew update` took effect, and, in a
+# cut, once its tag was pushed (the cut is recorded failed with brew's
+# words, the tag stays, and a later install is read back; the daemon's own
+# upgrade is a finding until one works). A failed `brew update`,
+# `--prefix`, `--cellar` or `list` is read as nothing installed or
+# linked, after no step of factorium's: no fault stands for those.
+faults = ["upgrade-refused"]
 
 [[standin.case]]
 name = "no-such-formula"
@@ -265,6 +273,19 @@ stdin = """
 {"run": ["brew", "list", "--formula", "factorium"]}
 {"run": ["brew", "list", "--versions", "factorium"], "read": "out"}
 {"run": ["brew", "--prefix", "factorium"], "read": "out"}
+"""
+
+# An install and an upgrade brew refuses, though its tap has the formula:
+# the real one of a formula no tap has, as brew refuses either.
+[[standin.case]]
+name = "upgrade-refused"
+fault = "upgrade-refused"
+env = { HOMEBREW_NO_AUTO_UPDATE = "1", HOMEBREW_NO_ENV_HINTS = "1" }
+stdin = """
+{"world": {"tap": {"factorium-truefit-none": "0.1.0"}}}
+{"run": ["brew", "install", "factorium-truefit-none"]}
+{"world": {"installed": {"factorium-truefit-none": "0.0.9"}}}
+{"run": ["brew", "upgrade", "factorium-truefit-none"], "read": "out"}
 """
 
 [[standin]]
