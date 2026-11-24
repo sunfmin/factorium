@@ -436,6 +436,7 @@ fn the_service_definition_is_a_launchd_agent_that_runs_the_daemon_with_its_path(
     assert!(out.status.success(), "the command still answers");
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(said.contains("loading it failed") && said.contains("bootstrap"), "{said}");
+    assert!(said.contains("no daemon runs"), "not loaded, so still none runs: {said}");
     let (ok, removed) = run(&dir, &["service", "remove"]);
     assert!(ok && removed["removed"] == true, "{removed}");
     assert!(!agent.exists());
