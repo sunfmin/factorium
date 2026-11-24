@@ -4,6 +4,7 @@ use serde_json::json;
 
 use factorium::LineClone;
 use factorium::host::Host;
+use factorium_domain::neutral::landing::{Bounds, Due, Line, LineEvent, Look, Move};
 
 use crate::fixture::{CLAUDE, NEEDS_NEWER, World, findings, id, proved, worker, worktree};
 
@@ -638,4 +639,22 @@ async fn a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now() 
     w.lands("web", 2, "b").await;
     assert_eq!(at(&promotion, "origin/HEAD"), Some(base), "the reused clone's base is the checkout's new one");
     assert_eq!(at(&promotion, "refs/remotes/origin/gone"), None, "a branch the checkout lost is pruned");
+}
+
+/// A failed cut is owed again only once a commit other than the one it was cut from is promoted.
+#[test]
+fn a_failed_cut_waits_for_a_newer_promotion() {
+    let mut l = Line::default();
+    l.apply(LineEvent::Landed { number: 1, commit: "a".into(), at: 0 });
+    l.apply(LineEvent::Promoted { tip: "a".into(), at: 0 });
+    let (version, why, commit) = ("v0.1.0".to_string(), "x".to_string(), Some("a".to_string()));
+    l.apply(LineEvent::CutFailed { version, why, commit });
+    l.apply(LineEvent::Promoted { tip: "a".into(), at: 1 });
+    assert!(l.cut_failed.is_some(), "the same commit holds no fix");
+    l.apply(LineEvent::Landed { number: 2, commit: "b".into(), at: 2 });
+    l.apply(LineEvent::Promoted { tip: "b".into(), at: 3 });
+    assert!(l.cut_failed.is_none());
+    let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
+    let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
+    assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
 }
