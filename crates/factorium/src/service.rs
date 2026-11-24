@@ -47,16 +47,50 @@ impl App {
         self.host.programs().run("launchctl", &["print", &target]).ok.then_some(target)
     }
 
+    /// Unloads the agent, and keeps that it was stopped on purpose, so that
+    /// no command loads it back ([`Self::service_revive`]) before an install.
     pub(crate) fn service_stop(&self, target: &str) -> Answer {
+        self.service_bootout(target)?;
+        let _ = std::fs::write(self.data().stopped(), "");
+        Ok(json!({ "stopped": true, "service": LABEL, "again": "factorium service install" }))
+    }
+
+    fn service_bootout(&self, target: &str) -> Result<(), Refusal> {
         let said = self.host.programs().run("launchctl", &["bootout", target]);
         said.result("launchctl", &["bootout", target]).map_err(crate::fail("launchctl"))?;
-        Ok(json!({ "stopped": true, "service": LABEL, "again": "factorium service install" }))
+        Ok(())
+    }
+
+    fn service_bootstrap(&self, file: &Path) -> Result<(), Refusal> {
+        let domain = self.service_domain("user");
+        let args = ["bootstrap", &domain, &file.to_string_lossy()];
+        self.host.programs().run("launchctl", &args).result("launchctl", &args).map_err(crate::fail("launchctl"))?;
+        Ok(())
+    }
+
+    /// Loads the installed agent again when launchd lost it: a boot loads no
+    /// Background agent from ~/Library/LaunchAgents into `user/<uid>`, at
+    /// boot or at a login, and only root's jobs run before one
+    /// (factorium#287). Answers its target when it loaded it; nothing when
+    /// none is installed, launchd holds it, a daemon runs, or `stop` stopped it.
+    pub fn service_revive(&self) -> Result<Option<String>, Refusal> {
+        let file = self.service_file();
+        // In this order: the launchctl call last, as the dearest.
+        if !file.exists()
+            || self.data().stopped().exists()
+            || self.daemon_pid().is_some()
+            || self.service_loaded().is_some()
+        {
+            return Ok(None);
+        }
+        self.service_bootstrap(&file)?;
+        Ok(Some(self.service_target()))
     }
 
     /// Boots `target` out and waits, within a bound, until launchd no longer
     /// finds it, so the bootstrap that follows does not meet it (factorium#215).
     fn service_unload(&self, target: &str) -> Result<(), Refusal> {
-        self.service_stop(target)?;
+        self.service_bootout(target)?;
         for waited in 0..=DROP_TENTHS {
             if !self.host.programs().run("launchctl", &["print", target]).ok {
                 return Ok(());
@@ -113,9 +147,8 @@ impl App {
         if self.host.programs().run("launchctl", &["print", &gui]).ok {
             self.service_unload(&gui)?;
         }
-        let domain = self.service_domain("user");
-        let args = ["bootstrap", &domain, &file.to_string_lossy()];
-        self.host.programs().run("launchctl", &args).result("launchctl", &args).map_err(crate::fail("launchctl"))?;
+        self.service_bootstrap(&file)?;
+        let _ = std::fs::remove_file(self.data().stopped());
         Ok(json!({ "installed": file, "service": LABEL }))
     }
 
@@ -126,6 +159,7 @@ impl App {
         }
         let file = self.service_file();
         let removed = std::fs::remove_file(&file).is_ok();
+        let _ = std::fs::remove_file(self.data().stopped());
         Ok(json!({ "removed": removed, "file": file }))
     }
 }

@@ -34,7 +34,8 @@ pub enum Top {
     /// installs the formula it runs from, it runs the new binary in its place
     /// between ticks, as the same pid. As a service, launchd runs it.
     Run,
-    /// Stops the daemon; run as the service, unloads the service.
+    /// Stops the daemon; run as the service, unloads the service, and no
+    /// command loads it back until `service install`.
     Stop,
     /// The daemon as a launchd agent, kept running and restarted when it exits.
     #[command(subcommand)]
@@ -158,6 +159,8 @@ pub enum ServiceCmd {
     /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
     /// and this database, and loads it (in place of one loaded before).
     /// Run it from a shell that finds git, orca and the kit's harnesses.
+    /// A boot loads no Background agent, so after one the first other
+    /// command (doctor among them) loads it again, unless `stop` stopped it.
     Install,
     /// Unloads the agent and deletes its file.
     Remove,
