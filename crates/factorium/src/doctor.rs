@@ -47,7 +47,9 @@ impl App {
             seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off });
         }
         seen.ready = self.ready_seen().await?;
-        seen.kit_empty = self.state::<Kits>(kit_id()).await?.entries.is_empty();
+        let kit = self.state::<Kits>(kit_id()).await?;
+        seen.kit_empty = kit.entries.is_empty();
+        seen.stablehand = self.stablehand_seen(&kit).await?;
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         // Admission's reading: what the heavy queue granted left out, as the tick reads it.
         let load = self.load().await?;

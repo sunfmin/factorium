@@ -226,15 +226,43 @@ async fn an_account_stablehand_does_not_keep_or_no_session_may_start_on_here_is_
 }
 
 #[tokio::test]
-async fn without_stablehand_no_worker_starts_and_the_tick_says_why() {
-    let w = World::new();
-    w.host.missing.lock().unwrap().push("stablehand".into());
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let t = w.tick().await;
-    assert!(t.started.is_none(), "{t:?}");
-    assert!(t.held.as_deref().unwrap().starts_with("kit: stablehand pick"), "{t:?}");
+async fn without_stablehand_a_worker_starts_on_claude_code_alone_on_the_host_s_own_login_and_doctor_says_why() {
+    // Not found, and found but answering a fault: the same fallback.
+    for broken in ["missing", "fault"] {
+        let w = World::new();
+        w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-1");
+        match broken {
+            "missing" => w.host.missing.lock().unwrap().push("stablehand".into()),
+            _ => w.host.stablehand.lock().unwrap().fault = Some("its books are of a schema it cannot read".into()),
+        }
+        w.checkout("web").await;
+        // codex first: without stablehand no account of it, nor its windows, is known.
+        w.app.kit_set(&["codex=codex".into(), CLAUDE.into()]).await.unwrap();
+        w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+        let found = w.finding("stablehand").await.unwrap_or_else(|| panic!("{broken}: a finding"));
+        let (what, fix) = (found["what"].as_str().unwrap(), found["fix"].as_str().unwrap());
+        assert!(what.contains("stablehand cannot say which account"), "{broken}: {what}");
+        match broken {
+            "missing" => assert!(fix.contains("brew install sunfmin/tap/stablehand"), "{fix}"),
+            _ => assert!(fix.contains("its books are of a schema it cannot read"), "the fault's own words: {fix}"),
+        }
+        let t = w.tick().await;
+        assert!(t.started.is_some(), "{broken}: {t:?}");
+        let wk = worker(&w.app).await;
+        assert_eq!((wk["harness"].clone(), wk["account"].clone()), (json!("claude-code"), json!(null)), "{broken}");
+        let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+        assert!(!line.starts_with(". "), "{broken}: no account's secret: {line}");
+
+        // stablehand answers again: starts go through it, and the finding is gone.
+        w.host.missing.lock().unwrap().clear();
+        w.host.stablehand.lock().unwrap().fault = None;
+        assert!(w.finding("stablehand").await.is_none(), "{broken}");
+        w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+        assert!(w.tick().await.started.is_some());
+        // The kit's order again: codex first, of which this host has no account.
+        assert_eq!(w.worker_on("web", 2).await["harness"], "codex", "{broken}");
+        assert!(w.host.ran.lock().unwrap().iter().any(|r| r.starts_with("stablehand pick --engine codex")));
+    }
 }
 
 #[tokio::test]

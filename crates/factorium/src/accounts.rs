@@ -155,3 +155,24 @@ impl App {
         Ok(status["accounts"].take())
     }
 }
+
+impl App {
+    /// Why stablehand cannot say which account a session of `kit` starts
+    /// on, if it cannot: not on the PATH, or its pick of an engine of the
+    /// kit refused or failed, as a start would ask it.
+    pub(crate) async fn stablehand_seen(
+        &self,
+        kit: &factorium_domain::kit::Kit,
+    ) -> Answer<Option<factorium_domain::doctor::StablehandSeen>> {
+        use factorium_domain::doctor::StablehandSeen;
+        if kit.entries.is_empty() {
+            return Ok(None);
+        }
+        if !self.host.programs().found("stablehand") {
+            return Ok(Some(StablehandSeen { found: false, why: "`stablehand` is not on the PATH".into() }));
+        }
+        let running = self.running().await?;
+        let failed = kit.entries.iter().find_map(|e| self.picked(&e.harness, &running).err());
+        Ok(failed.map(|why| StablehandSeen { found: true, why }))
+    }
+}

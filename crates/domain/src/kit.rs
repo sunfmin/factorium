@@ -35,6 +35,11 @@ pub struct Kit {
     pub limits: BTreeMap<String, i64>,
 }
 
+/// The harness a worker starts on when stablehand cannot be asked: on the
+/// host user's own login, and no other, since without stablehand no other
+/// engine's accounts or windows are known.
+pub const FALLBACK: &str = "claude-code";
+
 /// What a worker starts on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Choice {
@@ -83,7 +88,10 @@ impl Kit {
     /// pinned harness, or the first in order with an account `pick` (of its
     /// harness, by key) picks; a harness this host holds no account of
     /// runs on the host user's own login unless that is at its limit.
-    /// `Err`: why none can, or why a pick failed.
+    /// A pick that fails (stablehand not found, or a fault) leaves the
+    /// [`FALLBACK`] harness alone, on the host user's own login: without
+    /// stablehand no other engine's accounts or windows are known. `Err`:
+    /// why none can.
     pub fn choose(
         &self,
         checkout: &str,
@@ -92,11 +100,15 @@ impl Kit {
     ) -> Result<Choice, String> {
         let pinned = self.pins.get(checkout);
         let entries = self.entries.iter().filter(|e| pinned.is_none_or(|p| *p == e.harness));
+        let limited = |h: &str| self.limits.get(h).copied().filter(|t| *t > now);
         let mut why = Vec::new();
-        for entry in entries {
-            let picked = pick(&entry.harness)?;
+        for entry in entries.clone() {
+            let picked = match pick(&entry.harness) {
+                Ok(picked) => picked,
+                Err(fault) => return self.fallback(entries, fault, limited),
+            };
             if picked.none_here() {
-                match self.limits.get(&entry.harness).filter(|t| **t > now) {
+                match limited(&entry.harness) {
                     None => return Ok(Choice { entry: entry.clone(), account: None }),
                     Some(t) => {
                         why.push(format!("{}: at its limit until it resets at {t} (ms)", entry.harness));
@@ -119,6 +131,24 @@ impl Kit {
             });
         }
         Err(why.join("; "))
+    }
+
+    /// What a worker starts on when stablehand could not be asked
+    /// (`fault`): the [`FALLBACK`] entry among `entries`, on the host
+    /// user's own login, unless `limited` says that login is at its limit.
+    fn fallback<'a>(
+        &self,
+        mut entries: impl Iterator<Item = &'a Entry>,
+        fault: String,
+        limited: impl Fn(&str) -> Option<i64>,
+    ) -> Result<Choice, String> {
+        let Some(entry) = entries.find(|e| e.harness == FALLBACK) else {
+            return Err(format!("{fault}; without stablehand only {FALLBACK} starts, and it is not to be had here"));
+        };
+        match limited(FALLBACK) {
+            None => Ok(Choice { entry: entry.clone(), account: None }),
+            Some(t) => Err(format!("{fault}; {FALLBACK} on the host's own login is at its limit until {t} (ms)")),
+        }
     }
 
     /// What a worker of `checkout` whose issue names `account`, of the
@@ -286,7 +316,15 @@ mod tests {
         let limited = Kit { limits: BTreeMap::from([("a".to_string(), 10)]), ..kit.clone() };
         assert_eq!(chosen(&limited, away, on("y")), Ok(("b".into(), Some("y".into()))));
         let failed = kit.choose("web", 0, |_| Err("stablehand: not found".to_string()));
-        assert_eq!(failed.unwrap_err(), "stablehand: not found");
+        assert!(failed.unwrap_err().starts_with("stablehand: not found; without stablehand only claude-code starts"));
+        let with_claude = Kit { entries: vec![entry("a"), entry("claude-code")], ..Kit::default() };
+        let fell = with_claude.choose("web", 0, |_| Err("stablehand: not found".to_string())).unwrap();
+        assert_eq!((fell.entry.harness.as_str(), fell.account), ("claude-code", None), "its own login, alone");
+        let spent = Kit { limits: BTreeMap::from([("claude-code".to_string(), 10)]), ..with_claude.clone() };
+        assert!(spent.choose("web", 0, |_| Err("down".into())).unwrap_err().contains("at its limit"));
+        let pins = BTreeMap::from([("web".to_string(), "a".to_string())]);
+        let pinned = Kit { pins, ..with_claude };
+        assert!(pinned.choose("web", 0, |_| Err("down".into())).is_err(), "a pin to another harness starts none");
     }
 
     /// A named account starts on its harness's entry unless its pick passed it over.

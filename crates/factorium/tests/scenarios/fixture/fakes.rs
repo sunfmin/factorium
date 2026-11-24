@@ -550,6 +550,9 @@ pub struct FakeStablehand {
     /// Each account a session met the limit of → until when (ms); `None`:
     /// until its next reading.
     pub limits: BTreeMap<String, Option<i64>>,
+    /// A fault every command answers, as stablehand does one it cannot read
+    /// its books through (`fault`, exit 1).
+    pub fault: Option<String>,
 }
 
 /// An account as stablehand keeps it.
@@ -650,6 +653,9 @@ impl FakeStablehand {
     }
 
     fn answer(&mut self, args: &[&str], now: i64) -> Said {
+        if let Some(fault) = &self.fault {
+            return Said { ok: false, out: json!({ "error": fault, "code": "fault" }).to_string(), err: String::new() };
+        }
         let ok = |out: Value| Said { ok: true, out: out.to_string(), err: String::new() };
         let refused = |code: &str, error: String| Said {
             ok: false,
