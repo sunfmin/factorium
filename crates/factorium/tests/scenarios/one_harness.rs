@@ -336,6 +336,12 @@ async fn the_kit_keeps_each_engine_s_command_and_no_order_or_model_and_only_an_e
     assert_eq!(twice.code, "bad_entry");
     let no = w.app.kit_set(&["nope=nope".into()]).await.unwrap_err();
     assert_eq!(no.code, "no_harness");
+    // A snapshot of the kit as it was kept in order holds no commands read
+    // as this kit: its fold names other code, so no such snapshot is read.
+    let old = r#"{"entries": [{"harness": "codex", "command": "x"}], "pins": {}}"#;
+    assert!(serde_json::from_str::<factorium_domain::kit::Kit>(old).unwrap().commands.is_empty());
+    let code = <factorium_domain::kit::Kits as factum::Aggregate>::code();
+    assert!(!["", "1"].contains(&code), "{code}");
 }
 
 #[tokio::test]
