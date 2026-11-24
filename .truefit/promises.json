@@ -300,6 +300,12 @@
     "sentence": "One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start (so the load a start brings is read before the next), and ends one that holds others up past the hold bound.",
     "source": "SPEC.md:39"
   },
+  "af5afe10a864": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is truefit's own configuration, not code that keeps a promise: the fixes (factorium#186-189) only registered the line and worktrees models, named their covers, and moved each model's pinned commit. The promises those fixes keep are already registered with model checks (model line, line-live, worktrees) whose covers name the code they stand for."
+  },
   "afd8a2f2373a": {
     "mark": "not",
     "sentence": "The owner, 2026-11-22: 「把所有的工具都变成 universal。」「把公开的工具全部在 GitHub CI 上签。」「这个密钥的环境变量可以统一配置到账号上面吗？」 A personal account has no account-wide secrets; slimfit#100 put the one copy of them in sunfmin/homebrew-tap, whose `release` workflow signs every tool (its contract: the tap's `.github/workflows/README.md`).",
