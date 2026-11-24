@@ -48,8 +48,8 @@ impl App {
         }
         seen.ready = self.ready_seen().await?;
         let kit = self.state::<Kits>(kit_id()).await?;
-        seen.kit_empty = kit.entries.is_empty();
-        seen.stablehand = self.stablehand_seen(&kit).await?;
+        seen.kit_empty = kit.commands.is_empty();
+        (seen.stablehand, seen.no_command) = self.stablehand_seen(&kit).await?;
         seen.queue = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
         // Admission's reading: what the heavy queue granted left out, as the tick reads it.
         let load = self.load().await?;
@@ -84,7 +84,7 @@ impl App {
             // As the daemon's next start does, any pick refused holds it.
             let kit = match waits {
                 true => None,
-                false => self.choice(&r.checkout, i.on.account.as_deref()).await.err().map(|e| e.message),
+                false => self.choice(&r.checkout, &i.on).await.err().map(|e| e.message),
             };
             ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
         }

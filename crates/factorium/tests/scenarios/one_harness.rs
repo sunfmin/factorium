@@ -21,7 +21,7 @@ async fn a_codex_worker_is_told_the_repos_rules_and_runs_on_the_host_s_model_set
         let config = "model = \"gpt-host\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"mine\"\n\
              [tui]\nscreen_reader_detection_done = true\n[projects.\"/elsewhere\"]\ntrust_level = \"trusted\"\n";
         std::fs::write(user.join("config.toml"), config).unwrap();
-        w.app.kit_set(&[kit.into()]).await.unwrap();
+        w.kit_of(&[kit]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = worker(&w.app).await;
@@ -88,7 +88,7 @@ async fn a_pi_worker_s_line_has_the_real_guard_refuse_its_push_as_pi_describes_i
     let w = World::new();
     let wk = w.working("pi=pi", "t").await;
     let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
-    let home = w.data().kept("pi");
+    let home = w.kept_home("pi");
     let extension = home.join("factorium.js").to_string_lossy().into_owned();
     assert!(line.contains(&format!("--extension '{extension}'")), "{line}");
     assert!(std::fs::read_to_string(&extension).unwrap().contains("FACTORIUM_GUARD"));
@@ -110,7 +110,7 @@ async fn a_grok_worker_s_kept_config_has_the_real_guard_refuse_its_push_as_grok_
     let w = World::new();
     let wk = w.working("grok=grok", "t").await;
     let config: toml::Table =
-        std::fs::read_to_string(w.data().kept("grok").join("config.toml")).unwrap().parse().unwrap();
+        std::fs::read_to_string(w.kept_home("grok").join("config.toml")).unwrap().parse().unwrap();
     let before = config["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
     let guard = before.iter().map(|hook| hook["command"].as_str().unwrap()).find(|c| c.contains(" guard grok"));
     let guard = guard.expect("a guard before each call");
@@ -136,11 +136,11 @@ async fn kimi_kept(user: &str) -> String {
     let dir = w.host.home().join(".kimi-code");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("config.toml"), user).unwrap();
-    w.app.kit_set(&["kimi=kimi".into()]).await.unwrap();
+    w.kit_of(&["kimi=kimi"]).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     assert_eq!(worker(&w.app).await["harness"], "kimi");
-    let kept = w.data().kept("kimi").join("config.toml");
+    let kept = w.kept_home("kimi").join("config.toml");
     std::fs::read_to_string(kept).unwrap()
 }
 
@@ -171,7 +171,7 @@ async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_prog
     for (name, text) in [("dsh-tui", tui.as_str()), ("dsh", "#!/bin/sh\n")] {
         crate::fixture::program(&tools.join(name), text);
     }
-    w.app.kit_set(&[format!("dsh={}", tools.join("dsh-tui").display())]).await.unwrap();
+    w.kit_of(&[format!("dsh={}", tools.join("dsh-tui").display())]).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
@@ -179,7 +179,7 @@ async fn a_dsh_worker_starts_on_its_kept_files_with_its_brief_first_and_its_prog
     assert!(term.sent.is_empty(), "nothing is typed at it: {:?}", term.sent);
 
     // Its kept files are written, every placeholder filled with its kept file.
-    let home = w.data().kept("dsh");
+    let home = w.kept_home("dsh");
     for file in
         ["start.sh", "factorium.patch.yml", "factorium.mjs", "sandbox.patch.yml", "profiles/dsh-tui/package.json"]
     {
@@ -230,10 +230,10 @@ async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_argumen
     ] {
         let w = World::new();
         w.checkout("web").await;
-        let kit = w.app.kit_set(&[format!("{key}={program}")]).await.unwrap();
+        let kit = w.kit_of(&[format!("{key}={program}")]).await;
         let runs = format!("{program} {stock}");
-        assert_eq!(kit["entries"][0]["command"], runs.as_str(), "{key}: kit set answers what will run");
-        assert_eq!(w.app.kit().await.unwrap()["entries"][0]["command"], runs.as_str(), "{key}: so does kit show");
+        assert_eq!(kit["commands"][key], runs.as_str(), "{key}: kit set answers what will run");
+        assert_eq!(w.app.kit().await.unwrap()["commands"][key], runs.as_str(), "{key}: so does kit show");
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
@@ -242,7 +242,7 @@ async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_argumen
         // A command with arguments of its own is taken as given.
         let given = format!("{program} --model-picker");
         let kit = w.app.kit_set(&[format!("{key}={given}")]).await.unwrap();
-        assert_eq!(kit["entries"][0]["command"], given.as_str(), "{key}");
+        assert_eq!(kit["commands"][key], given.as_str(), "{key}");
     }
 }
 
@@ -326,16 +326,14 @@ async fn a_harness_s_question_before_its_screen_is_up_is_not_typed_at() {
 }
 
 #[tokio::test]
-async fn a_kit_entry_names_a_model_after_its_last_at_and_only_a_harness_factorium_knows() {
+async fn the_kit_keeps_each_engine_s_command_and_no_order_or_model_and_only_an_engine_factorium_knows() {
     let w = World::new();
-    let kit = w.app.kit_set(&["claude-code=claude@opus".into(), "codex=codex --x a@b c".into()]).await.unwrap();
-    let e = &kit["entries"];
-    assert_eq!(
-        (&e[0]["command"], &e[0]["model"]),
-        (&serde_json::json!("claude --dangerously-skip-permissions"), &serde_json::json!("opus"))
-    );
-    assert_eq!(e[1]["command"], "codex --x a@b c", "an @ inside an argument is no model");
-    assert_eq!(e[1]["model"], serde_json::Value::Null);
+    let kit = w.app.kit_set(&["codex=codex --x a@b c".into(), "claude-code=claude".into()]).await.unwrap();
+    let commands =
+        serde_json::json!({ "claude-code": "claude --dangerously-skip-permissions", "codex": "codex --x a@b c" });
+    assert_eq!(kit, serde_json::json!({ "commands": commands, "pins": {} }), "commands and pins only");
+    let twice = w.app.kit_set(&["codex=a".into(), "codex=b".into()]).await.unwrap_err();
+    assert_eq!(twice.code, "bad_entry");
     let no = w.app.kit_set(&["nope=nope".into()]).await.unwrap_err();
     assert_eq!(no.code, "no_harness");
 }
@@ -344,7 +342,7 @@ async fn a_kit_entry_names_a_model_after_its_last_at_and_only_a_harness_factoriu
 async fn a_pinned_checkout_starts_only_on_its_harness() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["claude-code=claude".into(), "codex=codex".into()]).await.unwrap();
+    w.kit_of(&["claude-code=claude", "codex=codex"]).await;
     w.app.kit_pin("web", Some("codex")).await.unwrap();
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
@@ -490,7 +488,7 @@ async fn a_session_started_in_the_role_s_directory_is_known_by_its_brief_pointer
         let working = async |brief: &str| {
             let w = World::new();
             w.checkout("web").await;
-            w.app.kit_set(&[format!("{}=run-{}", h.key(), h.key())]).await.unwrap();
+            w.kit_of(&[format!("{}=run-{}", h.key(), h.key())]).await;
             w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
             w.tick().await;
             let role = w.data().worker_role();
@@ -518,7 +516,7 @@ async fn a_dialog_is_dismissed_only_where_its_own_harness_opened_it() {
     for (kit, screen) in [("claude-code=claude", &quoted[..]), ("codex=codex", &dialog[..])] {
         let w = World::new();
         w.checkout("web").await;
-        w.app.kit_set(&[kit.into()]).await.unwrap();
+        w.kit_of(&[kit]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = worker(&w.app).await;
@@ -563,17 +561,18 @@ async fn a_pi_worker_s_z_ai_usage_limit_is_seen_wrapped_at_a_word_s_end_or_withi
 }
 
 #[tokio::test]
-async fn a_pi_session_s_home_links_the_host_user_s_pi_login_it_finds_and_no_other() {
+async fn a_pi_session_s_home_links_its_account_s_pi_login_not_the_host_user_s_and_no_other() {
     let w = World::new();
     let agent = w.host.home().join(".pi/agent");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::write(agent.join("auth.json"), "{}").unwrap();
-    w.app.kit_set(&["pi=pi".into()]).await.unwrap();
+    w.kit_of(&["pi=pi"]).await;
     // The watch's home a repository already: its session opens with no git run.
     std::fs::create_dir_all(w.data().watch().join(".git")).unwrap();
     w.tick().await;
-    let kept = w.data().kept("pi");
-    assert_eq!(std::fs::read_link(kept.join("auth.json")).unwrap(), agent.join("auth.json"));
+    let kept = w.kept_home("pi");
+    let login = w.host.home().join("logins/pi/auth.json");
+    assert_eq!(std::fs::read_link(kept.join("auth.json")).unwrap(), login, "its account's, not the host user's");
     assert!(kept.join("models.json").symlink_metadata().is_err(), "the host user has none to link");
 }
 
@@ -606,7 +605,7 @@ fn agy_hook(command: &str, home: &std::path::Path, env: &[(&str, String)], paylo
 async fn an_agy_worker_s_kept_hooks_have_the_real_guard_deny_its_push_as_agy_reads_a_denial() {
     let w = World::new();
     let wk = w.working("agy=agy", "t").await;
-    let home = w.data().kept("agy");
+    let home = w.kept_home("agy");
     let hooks: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(home.join(".gemini/config/hooks.json")).unwrap()).unwrap();
     let before = hooks["factorium"]["PreToolUse"][0]["hooks"].as_array().unwrap();
@@ -666,7 +665,7 @@ async fn an_agy_worker_s_kept_hooks_report_to_orca_with_the_host_user_s_home() {
         "#!/bin/sh\ncat >/dev/null\nprintf '%s %s\\n' \"$ORCA_ANTIGRAVITY_EVENT\" \"$HOME\"\n",
     );
     w.working("agy=agy", "t").await;
-    let home = w.data().kept("agy");
+    let home = w.kept_home("agy");
     let hooks: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(home.join(".gemini/config/hooks.json")).unwrap()).unwrap();
     let report = |event: &str| {

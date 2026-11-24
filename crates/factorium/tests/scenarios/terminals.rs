@@ -50,7 +50,7 @@ async fn a_worker_s_terminal_is_never_an_orphan_while_it_closes() {
 async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     let w = World::new();
     w.checkout("web").await;
-    w.app.kit_set(&["codex=codex".into()]).await.unwrap();
+    w.kit_of(&["codex=codex"]).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.host.orca.fault("send-refused", true);
     assert!(w.app.tick().await.is_err());
@@ -78,7 +78,7 @@ async fn a_start_that_fails_after_its_session_opened_closes_it_and_frees_its_iss
     for (kit, kind) in [("claude-code=claude", "WorkerStarted"), ("codex=codex", "Given")] {
         let w = World::new();
         w.checkout("web").await;
-        w.app.kit_set(&[kit.into()]).await.unwrap();
+        w.kit_of(&[kit]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.disk_refuses(kind, true);
         assert!(w.app.tick().await.is_err(), "{kind}");

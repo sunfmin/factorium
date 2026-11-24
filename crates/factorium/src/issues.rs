@@ -133,6 +133,7 @@ impl App {
             "role": role.map(|(r, _)| r),
             "role_from": role.map(|(_, from)| from),
             "account": i.on.account,
+            "model": i.on.model,
             "spent": self.issue_spent(&i).await?,
             "decided": i.decided.iter().map(|m| decided::name(m.id)).collect::<Vec<_>>(),
             "comments": i.comments.iter().map(|c| {
@@ -173,7 +174,7 @@ impl App {
     /// so the next worker's brief carries why its role differs.
     pub async fn issue_name_role(&self, checkout: &str, number: u64, role: Option<&str>) -> Answer {
         let role = role.map(String::from);
-        self.on_here(&On { role: role.clone(), account: None })?;
+        self.on_here(&On { role: role.clone(), ..On::default() })?;
         let was = self.issue(checkout, number).await?.on.role;
         if was != role {
             self.submit::<NameIssueRole>(NameRole { checkout: checkout.into(), number, role: role.clone() }).await?;

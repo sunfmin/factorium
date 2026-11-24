@@ -43,7 +43,7 @@ impl App {
     pub(crate) async fn start_worker(&self, checkout: &str, number: u64) -> Answer {
         let c = self.checkout(checkout).await?;
         let issue = self.issue(checkout, number).await?;
-        let pick = self.pick(checkout, issue.on.account.as_deref()).await?;
+        let pick = self.pick(checkout, &issue.on).await?;
         let attempt = issue.attempts + 1;
         let worker = worker_id(checkout, number, attempt);
         // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.

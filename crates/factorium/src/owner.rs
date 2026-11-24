@@ -111,30 +111,27 @@ impl App {
     pub async fn kit(&self) -> Answer {
         let mut kit = self.state::<Kits>(kit_id()).await?;
         // The command that will run, as a launch makes it.
-        for e in &mut kit.entries {
-            if let Some(h) = factorium_harness::Harness::read(&e.harness) {
-                e.command = h.command(&e.command);
+        for (engine, command) in &mut kit.commands {
+            if let Some(h) = factorium_harness::Harness::read(engine) {
+                *command = h.command(command);
             }
         }
-        Ok(json!({ "entries": kit.entries, "pins": kit.pins }))
+        Ok(json!({ "commands": kit.commands, "pins": kit.pins }))
     }
 
-    /// Sets the kit: `harness=command[@model]` entries, in priority order.
+    /// Sets the kit's commands, `engine=command` each, replacing those it had.
     pub async fn kit_set(&self, entries: &[String]) -> Answer {
-        let parse = |e: &String| -> Answer<Entry> {
-            let (h, rest) =
-                e.split_once('=').ok_or_else(|| Refusal::new("bad_entry", format!("{e}: harness=command[@model]")))?;
-            let (command, model) = match rest.rsplit_once('@') {
-                Some((c, m)) if !m.contains(' ') => (c, Some(m.to_string())),
-                _ => (rest, None),
-            };
-            Ok(Entry { harness: h.trim().into(), command: command.trim().into(), model })
-        };
-        let entries = entries.iter().map(parse).collect::<Answer<Vec<_>>>()?;
-        for e in &entries {
-            known(&e.harness)?;
+        let mut commands = std::collections::BTreeMap::new();
+        for e in entries {
+            let (engine, command) =
+                e.split_once('=').ok_or_else(|| Refusal::new("bad_entry", format!("{e}: engine=command")))?;
+            let engine = engine.trim();
+            known(engine)?;
+            if commands.insert(engine.to_string(), command.trim().to_string()).is_some() {
+                return Err(Refusal::new("bad_entry", format!("{engine} is given twice")));
+            }
         }
-        self.submit::<SetTheKit>(SetKit { entries }).await?;
+        self.submit::<SetTheKit>(SetKit { commands }).await?;
         self.kit().await
     }
 

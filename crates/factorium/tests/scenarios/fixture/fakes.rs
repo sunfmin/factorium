@@ -540,7 +540,7 @@ impl FakeRolesmith {
 /// stablehand as a scenario has it: its register of engine accounts and the
 /// limits sessions reported, answering as stablehand does what factorium
 /// asks (`pick`, `env`, `limit`, `status`, `account show`), and what a case
-/// sets up with (`account add`, `account login`). It reads no engine: an
+/// sets up with (`account add`, `account login`, `order set`). It reads no engine: an
 /// account has no windows, so a pick is by name of those that can take one
 /// more session.
 #[derive(Default)]
@@ -553,6 +553,9 @@ pub struct FakeStablehand {
     /// A fault every command answers, as stablehand does one it cannot read
     /// its books through (`fault`, exit 1).
     pub fault: Option<String>,
+    /// The order `pick` walks (`order set`): each engine, and its models
+    /// (none: the engine's own), highest first.
+    pub order: Vec<(String, Vec<String>)>,
 }
 
 /// An account as stablehand keeps it.
@@ -645,6 +648,30 @@ impl FakeStablehand {
         self.accounts.insert(name.into(), account);
     }
 
+    /// The order `pick` walks, as `order set` takes it: each
+    /// `<engine>[@<model>[,<model>…]]`, highest first.
+    pub fn order(&mut self, ranks: &[&str]) {
+        self.order = ranks
+            .iter()
+            .map(|r| match r.split_once('@') {
+                Some((e, models)) => (e.to_string(), models.split(',').map(String::from).collect()),
+                None => (r.to_string(), Vec::new()),
+            })
+            .collect();
+    }
+
+    /// An account named `engine`, of that engine, logged in, taking any
+    /// number of sessions: bound to this machine, its home `home`.
+    /// Claude Code's is portable, its token `sk-own`: its sessions keep
+    /// the host user's home.
+    pub fn own(&mut self, engine: &str, home: &Path) {
+        match engine {
+            "claude-code" => self.portable(engine, engine, "sk-own"),
+            _ => self.bound(engine, engine, &stablehand_machine(), home),
+        }
+        self.accounts.get_mut(engine).unwrap().sessions = None;
+    }
+
     /// A reading of `name`: a limit that waited for one lifts.
     pub fn read(&mut self, name: &str) {
         if self.limits.get(name) == Some(&None) {
@@ -731,7 +758,15 @@ impl FakeStablehand {
                     json!({ "limit": { "account": name, "at": at, "window": window, "resets_at": resets.map(factorium_domain::when::utc) } }),
                 )
             }
-            ["pick", ..] => self.pick(flag("--engine"), flag("--machine"), flag("--running"), now),
+            ["order", "set", ranks @ ..] => {
+                self.order(ranks);
+                ok(self.order_shown())
+            }
+            ["order", "show"] => ok(self.order_shown()),
+            ["pick", ..] => {
+                let engines: Vec<&str> = args.windows(2).filter(|w| w[0] == "--engine").map(|w| w[1]).collect();
+                self.pick(&engines, flag("--model"), flag("--machine"), flag("--running"), now)
+            }
             ["status"] | ["status", _] => {
                 let only = args.get(1);
                 let accounts: Vec<Value> = (self.accounts.iter())
@@ -761,51 +796,109 @@ impl FakeStablehand {
         json!({ "account": self.shown(name), "logged_in": self.accounts[name].logged_in_here() })
     }
 
-    /// `pick --engine <engine> --machine <machine> --running <running>`.
-    fn pick(&self, engine: Option<&str>, machine: Option<&str>, running: Option<&str>, now: i64) -> Said {
-        let Some(engine) = engine.filter(|e| engine_vars(e).is_some()) else {
-            return Said {
-                ok: false,
-                out: json!({ "error": "no engine", "code": "usage" }).to_string(),
-                err: String::new(),
-            };
+    /// What `order show` answers.
+    fn order_shown(&self) -> Value {
+        let order: Vec<Value> = self.order.iter().map(|(e, m)| json!({ "engine": e, "models": m })).collect();
+        json!({ "order": order })
+    }
+
+    /// The (engine, model) steps a pick walks: the order's, narrowed to
+    /// `engines` and `model` where named, those named and not in the order
+    /// after the rest; `None`: nothing to walk.
+    fn steps(&self, engines: &[&str], model: Option<&str>) -> Option<Vec<(String, Option<String>)>> {
+        if engines.is_empty() && self.order.is_empty() {
+            return None;
+        }
+        let mut steps = Vec::new();
+        let named = |e: &str| engines.is_empty() || engines.contains(&e);
+        for (engine, models) in self.order.iter().filter(|(e, _)| named(e)) {
+            match model {
+                Some(m) if models.iter().any(|x| x == m) => steps.push((engine.clone(), Some(m.to_string()))),
+                Some(_) => {}
+                None if models.is_empty() => steps.push((engine.clone(), None)),
+                None => steps.extend(models.iter().map(|m| (engine.clone(), Some(m.clone())))),
+            }
+        }
+        let mut tried: Vec<String> = steps.iter().map(|(e, _)| e.clone()).collect();
+        tried.dedup();
+        let rest: Vec<String> = match engines.is_empty() {
+            true => self.order.iter().map(|(e, _)| e.clone()).collect(),
+            false => engines.iter().map(|e| e.to_string()).collect(),
+        };
+        for engine in rest.into_iter().filter(|e| model.is_some() || !tried.contains(e)) {
+            if !steps.contains(&(engine.clone(), model.map(String::from))) {
+                steps.push((engine, model.map(String::from)));
+            }
+        }
+        Some(steps)
+    }
+
+    /// `pick [--engine <engine>…] [--model <model>] --machine <machine> --running <running>`.
+    fn pick(
+        &self,
+        engines: &[&str],
+        model: Option<&str>,
+        machine: Option<&str>,
+        running: Option<&str>,
+        now: i64,
+    ) -> Said {
+        let refused = |code: &str, error: String| Said {
+            ok: false,
+            out: json!({ "error": error, "code": code }).to_string(),
+            err: String::new(),
+        };
+        if let Some(e) = engines.iter().find(|e| engine_vars(e).is_none()) {
+            return refused("usage", format!("no engine `{e}`"));
+        }
+        let Some(steps) = self.steps(engines, model) else {
+            return refused("no_order", "nothing to walk: no order is kept and no --engine named".into());
         };
         let machine = machine.map_or_else(stablehand_machine, String::from);
         let mut counts = BTreeMap::new();
         for pair in running.into_iter().flat_map(|r| r.split(',')).filter(|p| !p.is_empty()) {
             let (name, n) = pair.split_once('=').unwrap_or((pair, "0"));
             if !self.accounts.contains_key(name) {
-                let error = format!("no account `{name}`: `stablehand account list` names those kept");
-                return Said {
-                    ok: false,
-                    out: json!({ "error": error, "code": "no_account" }).to_string(),
-                    err: String::new(),
-                };
+                return refused(
+                    "no_account",
+                    format!("no account `{name}`: `stablehand account list` names those kept"),
+                );
             }
             counts.insert(name, n.parse::<u32>().unwrap_or(0));
         }
         let mut why = Vec::new();
-        for (name, a) in self.accounts.iter().filter(|(_, a)| a.engine == engine) {
-            let limit = self.limits.get(name).copied().filter(|l| l.is_none_or(|t| t > now));
-            let (reason, until) = if a.off {
-                ("off", None)
-            } else if a.machine.as_ref().is_some_and(|m| *m != machine) {
-                ("elsewhere", None)
-            } else if !a.logged_in_here() {
-                ("not_logged_in", None)
-            } else if let Some(until) = limit {
-                ("limit", until)
-            } else if a.sessions.is_some_and(|s| counts.get(name.as_str()).copied().unwrap_or(0) >= s) {
-                ("full", None)
-            } else {
-                let out = json!({ "account": name }).to_string();
-                return Said { ok: true, out, err: String::new() };
-            };
-            let until = until.map(factorium_domain::when::utc);
-            why.push(json!({ "account": name, "reason": reason, "why": format!("{name}: {reason}"), "until": until }));
+        for (engine, model) in steps {
+            let of: Vec<_> = self.accounts.iter().filter(|(_, a)| a.engine == engine).collect();
+            if of.is_empty() {
+                let said = format!(
+                    "no {engine} account is kept: skipped; add one with `stablehand account add <name> --engine {engine}`, \
+                     or `stablehand account scan --add`"
+                );
+                why.push(json!({ "engine": engine, "model": model, "account": null, "reason": "no_account", "why": said, "until": null }));
+                continue;
+            }
+            for (name, a) in of {
+                let limit = self.limits.get(name).copied().filter(|l| l.is_none_or(|t| t > now));
+                let (reason, until) = if a.off {
+                    ("off", None)
+                } else if a.machine.as_ref().is_some_and(|m| *m != machine) {
+                    ("elsewhere", None)
+                } else if !a.logged_in_here() {
+                    ("not_logged_in", None)
+                } else if let Some(until) = limit {
+                    ("limit", until)
+                } else if a.sessions.is_some_and(|s| counts.get(name.as_str()).copied().unwrap_or(0) >= s) {
+                    ("full", None)
+                } else {
+                    let out = json!({ "engine": engine, "model": model, "account": name, "why": why, "model_in_no_group": [] });
+                    return Said { ok: true, out: out.to_string(), err: String::new() };
+                };
+                let until = until.map(factorium_domain::when::utc);
+                why.push(json!({ "engine": engine, "model": model, "account": name, "reason": reason, "why": format!("{name}: {reason}"), "until": until }));
+            }
         }
         let until = why.iter().filter_map(|u| u["until"].as_str().map(String::from)).min();
-        Said { ok: true, out: json!({ "none": true, "until": until, "why": why }).to_string(), err: String::new() }
+        let out = json!({ "none": true, "until": until, "why": why, "model_in_no_group": [] });
+        Said { ok: true, out: out.to_string(), err: String::new() }
     }
 }
 

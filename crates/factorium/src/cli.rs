@@ -116,7 +116,10 @@ pub enum Top {
         #[arg(long)]
         release: bool,
     },
-    /// The kit: the harnesses this host starts, in priority order.
+    /// The kit: the command this host starts each engine with, and the
+    /// checkouts pinned to one. The engine, model and account a session
+    /// starts on are stablehand's pick (`stablehand pick`), walking its
+    /// order (`stablehand order show`).
     #[command(subcommand)]
     Kit(KitCmd),
     /// Answers the engine accounts as stablehand's books say now: the
@@ -254,12 +257,18 @@ pub enum IssueCmd {
         #[arg(long, value_name = "DIR")]
         role: Option<String>,
         /// The engine account its worker starts on, by its name in
-        /// stablehand, on the kit's entry of that account's engine. Refused
+        /// stablehand, by the kit's command for that account's engine. Refused
         /// unless `stablehand account show NAME` knows it and a session may
         /// start on it here. While stablehand's pick passes it over (at its
         /// limit, or full) its issue waits.
         #[arg(long, value_name = "NAME")]
         account: Option<String>,
+        /// The model its worker starts on, by the id its engine starts it
+        /// with (`agy models`: `claude-opus-5-5-high`): stablehand's pick
+        /// is asked for it (`stablehand pick --model`), tried after the
+        /// order's own where the order does not list it.
+        #[arg(long, value_name = "MODEL")]
+        model: Option<String>,
     },
     /// Answers the open issues, of one checkout or of all.
     List {
@@ -384,12 +393,17 @@ pub enum IssueCmd {
 pub enum KitCmd {
     /// Answers the kit.
     Show,
-    /// Sets the kit: `harness=command[@model]`, highest priority first.
-    /// An unknown harness is refused, naming those there are.
-    /// A command that is only a program (a path or a name) gets that
-    /// harness's stock arguments; one with arguments is taken as given.
+    /// Sets the kit's commands, each `engine=command`, replacing those it
+    /// had. An unknown engine is refused, naming those there are. A
+    /// command that is only a program (a path or a name) gets that
+    /// engine's stock arguments; one with arguments is taken as given.
+    /// Which engine and model a session starts on is not the kit's: it is
+    /// stablehand's pick, walking `stablehand order` (`stablehand order
+    /// set`); an engine it picks that the kit has no command for starts
+    /// nothing, and doctor finds it (`kit:no_command:<engine>`).
     Set { entries: Vec<String> },
-    /// Pins a checkout to one harness (`--harness`), or unpins it.
+    /// Pins a checkout to one engine (`--harness`), or unpins it: its
+    /// starts ask stablehand's pick of that engine alone (`--engine`).
     Pin {
         checkout: String,
         #[arg(long)]
@@ -619,10 +633,11 @@ impl Top {
                     not_before,
                     role,
                     account,
+                    model,
                 } => {
                     blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(body, body_file)?.unwrap_or_default();
-                    let on = factorium_domain::issue::On { role, account };
+                    let on = factorium_domain::issue::On { role, account, model };
                     let waiting = waiting_for_human.then_some(why.as_deref());
                     app.issue_add_on(&checkout, &title, &body, waiting, &waits(blocked_by, why.as_deref()), on).await
                 }

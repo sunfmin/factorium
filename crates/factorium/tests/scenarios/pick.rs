@@ -30,9 +30,11 @@ async fn changed(first: Option<&str>, then: &str, text: &str) -> (World, Value, 
     let picker = w.picker(Harness::ClaudeCode, then, &answered(text));
     let claude = format!("claude-code={}", picker.program.display());
     let kit: Vec<String> = first.map(String::from).into_iter().chain([claude]).collect();
-    w.app.kit_set(&kit).await.unwrap();
+    w.kit_of(&kit).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
+    // The worker's own secrets file, which its terminal's shell reads and removes.
+    let _ = std::fs::remove_dir_all(w.data().secrets());
     let wk = crate::fixture::worker(&w.app).await;
     w.commit(&worktree(&wk), "a.rs", "fn a(x: u8) -> bool { x == 1 }\n");
     (w, wk, picker)
@@ -57,10 +59,12 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         let (w, wk, picker) = changed(*first, "", picks).await;
         let on = if first.is_some() { "pi" } else { "claude-code" };
         assert_eq!(wk["harness"], on);
-        // The worker's own harness runs on an account: so does its picker, its secret by a file.
-        let account = if first.is_some() { "the host's own login" } else { "team" };
+        // Its picker runs on the account stablehand picks, its secret by a file.
+        let (account, token) = if first.is_some() { ("claude-code", "sk-own") } else { ("team", "sk-it's") };
         if first.is_none() {
-            w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-it's");
+            let mut books = w.host.stablehand.lock().unwrap();
+            books.accounts.get_mut("claude-code").unwrap().off = true;
+            books.portable("team", "claude-code", "sk-it's");
         }
         let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
 
@@ -82,7 +86,7 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
         assert!(args.lines().any(|a| a == "-p"), "{args}");
         let names: Vec<&str> = env.lines().filter_map(|l| l.split_once('=')).map(|(n, _)| n).collect();
         let theirs = ["HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD", "CLAUDE_CODE_OAUTH_TOKEN"];
-        assert_eq!(env.contains("CLAUDE_CODE_OAUTH_TOKEN=sk-it's\n"), first.is_none(), "{env}");
+        assert!(env.contains(&format!("CLAUDE_CODE_OAUTH_TOKEN={token}\n")), "{env}");
         assert!(!args.contains("sk-"), "{args}");
         assert!(names.iter().all(|n| theirs.contains(n)), "only its home and PATH: {names:?}");
         assert!(no_secrets_left(&w), "no secrets file outlives the ask");
@@ -116,7 +120,7 @@ async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_no
         w.checkout("web").await;
         w.slimfit(GOAL, listing);
         let picker = w.picker(Harness::ClaudeCode, "", &answered(PICKS));
-        w.app.kit_set(&[format!("claude-code={}", picker.program.display())]).await.unwrap();
+        w.kit_of(&[format!("claude-code={}", picker.program.display())]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = crate::fixture::worker(&w.app).await;
@@ -291,9 +295,11 @@ async fn beside(
         format!("claude-code={}@claude-opus-5-5", claude.program.display()),
         format!("{}={}@{model}", other.key(), picker.program.display()),
     ];
-    w.app.kit_set(&kit).await.unwrap();
+    w.kit_of(&kit).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
+    // The worker's own secrets file, which its terminal's shell reads and removes.
+    let _ = std::fs::remove_dir_all(w.data().secrets());
     let wk = crate::fixture::worker(&w.app).await;
     w.commit(&worktree(&wk), "a.rs", "fn a(x: u8) -> bool { x == 1 }\n");
     (w, wk, picker)

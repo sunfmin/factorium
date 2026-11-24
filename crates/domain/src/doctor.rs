@@ -49,13 +49,17 @@ pub struct Seen {
     /// Admission's reading, as the tick reads it.
     #[serde(default)]
     pub reading: Reading,
-    /// Whether the kit has no entry: nothing starts until it has one.
+    /// Whether the kit has no command: nothing starts until it has one.
     #[serde(default)]
     pub kit_empty: bool,
     /// Why stablehand, the accounts' one home, cannot be asked which account
     /// a session of the kit starts on, if it cannot: no worker starts then.
     #[serde(default)]
     pub stablehand: Option<StablehandSeen>,
+    /// The engine stablehand's pick answers that the kit has no command
+    /// for, if it does: no session starts on it.
+    #[serde(default)]
+    pub no_command: Option<String>,
     /// The running entries holding a named resource whose holder is gone,
     /// and why: a command's waiter died, or its worker ended.
     #[serde(default)]
@@ -296,9 +300,9 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             "kit:empty".into(),
             format!("the kit is empty, so no worker can start: {} ready ({})", issues.len(), issues.join(", ")),
-            "set the harnesses this host starts, highest priority first: `factorium kit set \
-             \"<harness>=<command>[@<model>]\"…`, e.g. `factorium kit set \"claude-code=claude \
-             --dangerously-skip-permissions@opus\"`",
+            "set the command this host starts each engine with: `factorium kit set \
+             \"<engine>=<command>\"…`, e.g. `factorium kit set \"claude-code=claude \
+             --dangerously-skip-permissions\"`; which engine and model is stablehand's (`stablehand order set`)",
         );
     }
     if let Some(StablehandSeen { found, why }) = &seen.stablehand {
@@ -310,6 +314,16 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "stablehand".into(),
             format!("stablehand cannot say which account a session starts on, so no worker of the kit starts: {why}"),
             &fix,
+        );
+    }
+    if let Some(engine) = &seen.no_command {
+        add(
+            format!("kit:no_command:{engine}"),
+            format!("stablehand's pick answers {engine}, which the kit has no command for, so no session starts on it"),
+            &format!(
+                "add its command to the kit: `factorium kit set {engine}=<command>` with the kit's other commands \
+                 (`factorium kit show`), or take {engine} out of `stablehand order set`"
+            ),
         );
     }
     for program in &seen.daemon.missing {

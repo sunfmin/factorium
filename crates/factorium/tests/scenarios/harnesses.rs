@@ -19,7 +19,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let (key, command) = (h.key(), format!("run-{}", h.key()));
         let w = World::new();
         w.checkout("web").await;
-        w.app.kit_set(&[format!("{key}={command}")]).await.unwrap();
+        w.kit_of(&[format!("{key}={command}")]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let wk = worker(&w.app).await;
@@ -45,7 +45,7 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
         let h = Harness::read(key).unwrap();
         let cwd = wk["worktree"].as_str().unwrap();
         // A home its line points it nowhere at is the host user's own: the host keeps none for it.
-        let kept = w.data().kept(key);
+        let kept = w.kept_home(key);
         assert!(term.line.contains(&*kept.to_string_lossy()) || !kept.exists(), "{key}: {}", term.line);
         let now = (w.app_now() / 1000) as u64;
         write_session(&w, h, None, cwd, true, now);
@@ -78,9 +78,9 @@ async fn the_kit_takes_only_harnesses_factorium_starts_and_names_them_all() {
         assert!(refused.message.contains(h.key()), "{}: {}", h.key(), refused.message);
     }
     assert_eq!(w.app.kit_pin("web", Some("vim")).await.unwrap_err().code, "no_harness");
-    assert_eq!(w.app.kit().await.unwrap()["entries"], serde_json::json!([]), "nothing set");
+    assert_eq!(w.app.kit().await.unwrap()["commands"], serde_json::json!({}), "nothing set");
     for h in Harness::all() {
-        w.app.kit_set(&[format!("{}=x", h.key())]).await.unwrap();
+        w.kit_of(&[format!("{}=x", h.key())]).await;
         w.app.kit_pin("web", Some(h.key())).await.unwrap();
     }
 }
@@ -96,7 +96,7 @@ async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, 
         args.display()
     );
     crate::fixture::program(&program, &script);
-    w.app.kit_set(&[format!("{}={}", h.key(), program.display())]).await.unwrap();
+    w.kit_of(&[format!("{}={}", h.key(), program.display())]).await;
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.tick().await;
     let wk = worker(&w.app).await;
@@ -120,8 +120,9 @@ async fn each_harness_s_home_holds_its_guard_and_where_its_rules_are_before_its_
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving", None).await.unwrap();
         let (wk, line, dir, env, args) = started(&w, h).await;
-        let kept = w.data().kept(key);
-        let home = h.home(&w.host.home(), None, &kept);
+        let kept = w.kept_home(key);
+        let account = (key != "claude-code").then_some(kept.as_path());
+        let home = h.home(&w.host.home(), account, &w.data().kept(key));
         let at = |path: &str| std::fs::canonicalize(path).unwrap();
         let (worktree, role) = (wk["worktree"].as_str().unwrap(), w.data().worker_role());
         let role = role.to_string_lossy();
@@ -261,7 +262,7 @@ async fn each_harness_starts_as_it_is_written() {
         w.commit(&repo, RULES, "Always run the \"linter\" \\ first.\n");
         w.git(&repo, &["push", "--quiet", "origin", "main"]).unwrap();
         w.app.checkout_add("web", &repo, "main", "proving", None).await.unwrap();
-        w.app.kit_set(&[format!("{key}=given@model-1")]).await.unwrap();
+        w.kit_of(&[format!("{key}=given@model-1")]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
@@ -273,7 +274,7 @@ async fn each_harness_starts_as_it_is_written() {
             written += &format!("hook: {hook}\n");
         }
         let mut kept = Vec::new();
-        let mut files = vec![w.data().kept(key)];
+        let mut files = vec![w.kept_home(key)];
         while let Some(path) = files.pop() {
             let kind = std::fs::symlink_metadata(&path).map(|m| m.file_type());
             if kind.as_ref().is_ok_and(|k| k.is_dir()) {
@@ -294,6 +295,13 @@ async fn each_harness_starts_as_it_is_written() {
             let from = at + written[at..].find('/').unwrap();
             let to = from + written[from..].find(":<path>").unwrap();
             written.replace_range(at..to, "PATH=<bin>");
+        }
+        // A secrets file is named afresh at each start.
+        let mut from = 0;
+        while let Some(at) = written[from..].find("/secrets/").map(|i| from + i + "/secrets/".len()) {
+            let to = at + written[at..].find(".sh").unwrap();
+            written.replace_range(at..to, "<id>");
+            from = at;
         }
         written
     });

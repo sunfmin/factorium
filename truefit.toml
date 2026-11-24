@@ -304,6 +304,23 @@ stdin = """
 {"run": ["stablehand", "pick", "--engine", "kimi", "--machine", "{machine}"], "read": ["/account", "/none", "/until", "/why"]}
 """
 
+# What a start reads of a pick that walks the order (factorium#291): none
+# to walk without an order or an engine; the order set; the engine, model
+# and account it answers whole; a walk narrowed to an engine with no
+# account kept, skipped; and one narrowed to a model.
+[[standin.case]]
+name = "order"
+stdin = """
+{"run": ["mkdir", "-p", "home/a"], "read": "ok"}
+{"run": ["stablehand", "account", "add", "a", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/a"], "read": ["/account/name"]}
+{"run": ["touch", "home/a/auth.json"], "read": "ok"}
+{"run": ["stablehand", "pick", "--machine", "{machine}"], "read": ["/code"]}
+{"run": ["stablehand", "order", "set", "claude-code@opus", "codex"], "read": ["/order/*/engine", "/order/*/models"]}
+{"run": ["stablehand", "pick", "--machine", "{machine}"], "read": ["/engine", "/model", "/account", "/none", "/why/*/engine", "/why/*/model", "/why/*/account", "/why/*/reason"]}
+{"run": ["stablehand", "pick", "--machine", "{machine}", "--engine", "claude-code"], "read": ["/account", "/none", "/until", "/why/*/engine", "/why/*/model", "/why/*/reason", "/why/*/why"]}
+{"run": ["stablehand", "pick", "--machine", "{machine}", "--engine", "codex", "--model", "o9"], "read": ["/engine", "/model", "/account"]}
+"""
+
 # What it refuses factorium: an account it does not keep, by every
 # command factorium names one to, and a limit that lifted already.
 [[standin.case]]

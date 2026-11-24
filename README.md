@@ -44,7 +44,7 @@ cannot find at start, and ticks failing in a row (`tick_failures_max`), are
 
 ```sh
 factorium checkout add web ~/src/web --base main --proving proving
-factorium kit set claude-code=claude@opus codex=codex
+factorium kit set claude-code=claude codex=codex   # how each engine starts; which one, and on what model, is `stablehand order set`'s
 factorium issue add web "Fix the login" --body-file body.md   # or --body "..."; - reads stdin
 factorium run          # the daemon in the foreground (the service runs it for you)
 factorium doctor       # what needs you
