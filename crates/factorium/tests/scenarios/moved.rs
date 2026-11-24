@@ -4,6 +4,7 @@
 //! branch of its own on origin; it is filed there, and closed here.
 
 use factorium::host::Host;
+use factorium_domain::moved;
 use serde_json::json;
 
 use crate::fixture::{World, comments, worker, worktree};
@@ -199,4 +200,19 @@ async fn an_issue_that_waits_for_a_person_here_waits_for_one_there_and_a_ready_o
     let filed = there.app.issue_show("web", 3).await.unwrap();
     assert_eq!(filed["status"], json!("waiting_for_human"), "{filed:#}");
     assert_eq!(filed["reason"], json!(format!("it waited for a person at `{here} web#3`")), "{filed:#}");
+}
+
+#[test]
+fn a_move_that_stops_part_way_says_where_and_what_it_had_done() {
+    let said = moved::stopped("`issue add` on felix@there failed: locked", "web#1", &[]);
+    assert_eq!(
+        said,
+        "`issue add` on felix@there failed: locked. The move stopped there, web#1 open here; done: nothing"
+    );
+    let done = ["its worker ended".to_string(), "its work pushed".to_string()];
+    let said = moved::stopped("`git push` failed", "web#2", &done);
+    assert_eq!(
+        said,
+        "`git push` failed. The move stopped there, web#2 open here; done: its worker ended; its work pushed"
+    );
 }

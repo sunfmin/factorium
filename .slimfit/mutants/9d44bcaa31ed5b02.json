@@ -1,0 +1,6 @@
+{
+  "tree": "3a0362a8ceb5725c8f659e55ba77ec0fac179f75+d1fba762150c532c",
+  "picker": "codex:01a20eee-c070-7581-ab65-0c8c6ed858bc:default",
+  "author": "claude-code:106e0432-3068-563f-a226-105349ff0f65:opus",
+  "none": "The new exact-output assertions kill both wording mutants, and the remaining mutant replaces the entire move with a default Answer, which would either fail to build or fail the move scenarios."
+}
