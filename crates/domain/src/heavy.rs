@@ -22,6 +22,11 @@
 //! hold across commands outlives its waiter, and covers the worker's own
 //! commands asking for it. Only a command holding the host is ended by the
 //! hold bound; a named resource is never cut short.
+//! Each resource's queue puts the shortest declared hold first (a command
+//! declares none, and is read as `hold_default`), never starves one past
+//! `starve_bound`, and passes over a hold outside the daily window it
+//! named, so it joins the line only inside it (factorium#286). [`HOST`]'s
+//! entries declare none, so its queue is oldest first as it was.
 //! That start rule is neutral: [`crate::neutral::queue`]; here are the
 //! queue's stream, the worker an entry is for, and the line jobs' names.
 
@@ -102,6 +107,37 @@ pub struct Entry {
     /// cut short before then; past it, a finding.
     #[serde(default)]
     pub hold_for: Option<i64>,
+    /// The daily window a hold may start in: outside it, it is passed over.
+    #[serde(default)]
+    pub window: Option<Window>,
+}
+
+/// A daily window, in the host's local time as it was asked: the minutes
+/// of the day it opens and closes at (it may pass midnight), and the host's
+/// offset from UTC then, minutes east.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Window {
+    pub from: u32,
+    pub to: u32,
+    pub offset: i32,
+}
+
+const DAY_MIN: i64 = 24 * 60;
+
+impl Window {
+    /// How long it has been open at `now`, ms; none: it is closed.
+    pub fn open_for(&self, now: i64) -> Option<i64> {
+        let day = DAY_MIN * 60_000;
+        let since = (now + i64::from(self.offset - self.from as i32) * 60_000).rem_euclid(day);
+        let len = (i64::from(self.to) - i64::from(self.from)).rem_euclid(DAY_MIN) * 60_000;
+        (since < len).then_some(since)
+    }
+
+    /// As the owner names it: `22:00-07:00`.
+    pub fn shown(&self) -> String {
+        let hm = |m: u32| format!("{:02}:{:02}", m / 60, m % 60);
+        format!("{}-{}", hm(self.from), hm(self.to))
+    }
 }
 
 impl Entry {
@@ -118,6 +154,11 @@ impl Entry {
     /// Whether it asks for resource `name`.
     pub fn asks_for(&self, name: &str) -> bool {
         self.asks().contains(&name)
+    }
+
+    /// Whether it waits outside the window it named at `now`.
+    pub fn outside(&self, now: i64) -> bool {
+        self.started_at.is_none() && self.window.is_some_and(|w| w.open_for(now).is_none())
     }
 
     /// Until when it declared it holds, ms, once started.
@@ -196,12 +237,22 @@ pub struct Holding {
     pub since: i64,
     /// Until when it declared it holds, ms.
     pub until: Option<i64>,
+    /// How long it declared it holds, ms: none, a command, read as `hold_default`.
+    #[serde(default)]
+    pub declared: Option<i64>,
+    /// The daily window it starts in, `22:00-07:00`.
+    #[serde(default)]
+    pub window: Option<String>,
+    /// Waiting, why it is not next: none, it is.
+    #[serde(default)]
+    pub why: Option<String>,
 }
 
 impl From<&Entry> for Holding {
     fn from(e: &Entry) -> Holding {
         let (entry, what, worker, hold, until) = (e.id, e.what.clone(), e.worker, e.is_hold(), e.until());
-        Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until }
+        let (declared, window, why) = (e.hold_for, e.window.map(|w| w.shown()), None);
+        Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until, declared, window, why }
     }
 }
 
@@ -255,6 +306,16 @@ impl Queued for Entry {
     fn bound_at(&self) -> Option<i64> {
         self.bound_at
     }
+
+    fn declared(&self) -> Option<i64> {
+        self.hold_for
+    }
+
+    // One with a window joins the line as its window opens.
+    fn joined(&self, now: i64) -> i64 {
+        let opened = self.window.and_then(|w| w.open_for(now)).map(|open| now - open);
+        opened.map_or(self.queued_at, |o| o.max(self.queued_at))
+    }
 }
 
 impl Queue {
@@ -296,35 +357,63 @@ impl Queue {
         e.started_at.is_none().then(|| e.asks().into_iter().find(full)).flatten()
     }
 
-    /// Resource `name`'s queue: the entries asking for it but those passed
-    /// over, waiting under replaced rules (factorium#241) or for a full
-    /// resource, and commands inside their worker's hold of it.
-    fn queue_of(&self, name: &str) -> Vec<Entry> {
-        let of =
-            |e: &&Entry| e.asks_for(name) && !self.covered(e, name) && !self.stale(e) && self.full_for(e).is_none();
+    /// Why the waiting `e` is passed over in every queue at `now`, if it
+    /// is: it waits under replaced rules (factorium#241), for a full
+    /// resource, or for its window.
+    fn passed_over(&self, e: &Entry, now: i64) -> Option<String> {
+        if self.stale(e) {
+            return Some(format!("it asks under the rules of {}, which {} replaced", e.rules, self.rules));
+        }
+        if let Some(name) = self.full_for(e) {
+            let by: Vec<String> = self.holders(name).map(|h| format!("`{}` (entry {})", h.what, h.id)).collect();
+            return Some(format!("waits for {name}, held by {}", by.join(", ")));
+        }
+        let window = e.window.filter(|_| e.outside(now));
+        window.map(|w| format!("waits for its window from {}", &w.shown()[..5]))
+    }
+
+    /// Resource `name`'s queue at `now`: the entries asking for it but
+    /// those passed over, and commands inside their worker's hold of it.
+    fn queue_of(&self, name: &str, now: i64) -> Vec<Entry> {
+        let of = |e: &&Entry| {
+            e.asks_for(name) && !self.covered(e, name) && (e.started_at.is_some() || self.passed_over(e, now).is_none())
+        };
         self.entries.iter().filter(of).cloned().collect()
     }
 
-    /// The waiting entry queued first in [`HOST`]'s queue: those waiting for
-    /// a full resource wait for it alone, and hold up nothing else.
-    pub fn oldest(&self) -> Option<&Entry> {
-        let first = queue::oldest(&self.queue_of(HOST)).map(|e| e.id);
+    /// The waiting entry queued first in [`HOST`]'s queue at `now`: those
+    /// waiting for a full resource wait for it alone, and hold up nothing else.
+    pub fn oldest(&self, now: i64) -> Option<&Entry> {
+        let first = queue::oldest(&self.queue_of(HOST, now)).map(|e| e.id);
         first.and_then(|id| self.entries.iter().find(|e| e.id == id))
     }
 
     /// Each resource declared to it (`slots`), [`HOST`], and each other an
-    /// entry asks for: its rule, its holders and those waiting for it.
-    pub fn resources(&self) -> Vec<Resource> {
+    /// entry asks for: its rule, its holders and those waiting for it at
+    /// `now`, in the order they start by `order`, each with why it is not
+    /// next; then those passed over, oldest first, and why.
+    pub fn resources(&self, now: i64, order: queue::Order) -> Vec<Resource> {
         let mut names: Vec<&str> = self.entries.iter().flat_map(Entry::asks).collect();
         names.extend(self.slots.keys().map(String::as_str).chain([HOST]));
         names.sort();
         names.dedup();
         let resource = |name: &str| {
-            let mut waiting: Vec<&Entry> =
-                self.waiting().filter(|e| e.asks_for(name) && !self.covered(e, name)).collect();
-            waiting.sort_by_key(|e| (e.queued_at, e.id));
+            // The line as it stands once a slot is free: waiting for this one's holders is waiting in it.
+            let waits = |e: &Entry| self.full_for(e).is_some_and(|r| r == name) || self.passed_over(e, now).is_none();
+            let (inline, mut over): (Vec<Entry>, Vec<Entry>) =
+                self.waiting().filter(|e| e.asks_for(name) && !self.covered(e, name)).cloned().partition(waits);
+            let line = queue::line(&inline, now, order);
+            let mut waiting: Vec<Holding> = Vec::new();
+            for (i, e) in line.iter().enumerate() {
+                let why = match i {
+                    0 => self.full_for(e).map(|_| self.passed_over(e, now).unwrap_or_default()),
+                    _ => Some(behind(line[0], e, now, order)),
+                };
+                waiting.push(Holding { why, ..Holding::from(*e) });
+            }
+            over.sort_by_key(|e| (e.queued_at, e.id));
+            waiting.extend(over.iter().map(|e| Holding { why: self.passed_over(e, now), ..Holding::from(e) }));
             let holders = self.holders(name).map(Holding::from).collect();
-            let waiting = waiting.into_iter().map(Holding::from).collect();
             Resource { name: name.into(), rule: self.rule(name), holders, waiting }
         };
         names.into_iter().map(resource).collect()
@@ -343,32 +432,24 @@ impl Queue {
     }
 
     /// Whether `id` may start at `now`: next in each of its resources'
-    /// queues, all at once, by each one's rule — for [`HOST`], whether the
-    /// host has room, when the reading was taken, and how long a start takes
-    /// to show; for slots, one free. Else why not.
-    pub fn may_start(
-        &self,
-        id: Uuid,
-        room: Result<(), String>,
-        read_at: i64,
-        settle: i64,
-        now: i64,
-    ) -> Result<(), String> {
+    /// queues by `order`, all at once, by each one's rule — for [`HOST`],
+    /// whether the host has room, when the reading was taken, and how long a
+    /// start takes to show; for slots, one free. Else why not.
+    pub fn may_start(&self, id: Uuid, room: Result<(), String>, at: Reading, now: i64) -> Result<(), String> {
         let Some(e) = self.waiting().find(|e| e.id == id) else { return Err("not waiting".into()) };
-        if let Some(name) = self.full_for(e) {
-            let by: Vec<String> = self.holders(name).map(|h| format!("`{}` (entry {})", h.what, h.id)).collect();
-            return Err(format!("waits for {name}, held by {}", by.join(", ")));
+        if let Some(why) = self.passed_over(e, now) {
+            return Err(why);
         }
         for name in e.asks().into_iter().filter(|r| !self.covered(e, r)) {
-            let q = self.queue_of(name);
+            let q = self.queue_of(name, now);
             match self.rule(name) {
                 Rule::Room => {
-                    let starts = queue::Starts { last: self.last_start, settle };
-                    queue::may_start(&q, starts, id, room.clone(), read_at, now)?
+                    let starts = queue::Starts { last: self.last_start, settle: at.settle };
+                    queue::may_start(&q, starts, id, room.clone(), at.read_at, now, at.order)?
                 }
-                Rule::Slots(_) => match queue::next(&q, now) {
+                Rule::Slots(_) => match queue::next(&q, now, at.order) {
                     Some(n) if n.id == id => {}
-                    Some(n) => return Err(format!("waits for {name} behind {}", n.what)),
+                    Some(n) => return Err(format!("waits for {name} {}", behind(n, e, now, at.order))),
                     None => return Err("not waiting".into()),
                 },
             }
@@ -399,7 +480,7 @@ impl Queue {
     /// resource is never cut short.
     pub fn overheld(&self, id: Uuid, now: i64, bound: i64) -> bool {
         self.entries.iter().any(|e| e.id == id && e.asks_for(HOST))
-            && queue::overheld(&self.queue_of(HOST), id, now, bound)
+            && queue::overheld(&self.queue_of(HOST, now), id, now, bound)
     }
 
     /// Why the running `id` must end at `now`, if it must: unqueued, held
@@ -412,6 +493,44 @@ impl Queue {
         } else {
             (yields && self.entries.iter().any(|e| e.id != id && e.asks_for(HOST))).then_some(Ends::GaveWay)
         }
+    }
+}
+
+/// When a start's reading was taken and how the line is ordered: what
+/// [`Queue::may_start`] reads besides the queue.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Reading {
+    /// When the host's reading was taken, ms: before the host was read.
+    pub read_at: i64,
+    /// How long after the last start a reading shows its load, ms.
+    pub settle: i64,
+    pub order: queue::Order,
+}
+
+/// Why `e` waits behind `next`, the first of its line at `now`: `behind
+/// `5 min check`, a 5 min hold`.
+fn behind(next: &Entry, e: &Entry, now: i64, order: queue::Order) -> String {
+    let why = if next.bound_at.is_some_and(|b| now > b) {
+        "a line move past its bound".to_string()
+    } else if order.starved(next, now) {
+        "waiting past the starve bound".to_string()
+    } else if next.hold_for.is_none() && e.hold_for.is_none() {
+        "queued before it".to_string()
+    } else {
+        let default = if next.hold_for.is_none() { " (the default)" } else { "" };
+        format!("a {} hold{default}", span(order.holds(next)))
+    };
+    format!("behind `{}`, {why}", next.what)
+}
+
+/// `ms` as the owner reads a hold: `5 min`, `90 s`, `2 h 40 min`.
+fn span(ms: i64) -> String {
+    let min = ms / 60_000;
+    match (min, min / 60, min % 60) {
+        (0, _, _) => format!("{} s", ms / 1000),
+        (m, 0, _) => format!("{m} min"),
+        (_, h, 0) => format!("{h} h"),
+        (_, h, m) => format!("{h} h {m} min"),
     }
 }
 
@@ -464,6 +583,8 @@ pub enum HeavyEvent {
         slots: BTreeMap<String, u64>,
         #[serde(default)]
         hold_for: Option<i64>,
+        #[serde(default)]
+        window: Option<Window>,
     },
     HeavyStarted {
         id: Uuid,
@@ -513,6 +634,7 @@ impl Aggregate for Heavy {
                 resources,
                 slots,
                 hold_for,
+                window,
             } => {
                 s.slots.extend(slots);
                 if let Some(e) = s.entries.iter_mut().find(|e| e.id == id) {
@@ -533,6 +655,7 @@ impl Aggregate for Heavy {
                     rules,
                     resources,
                     hold_for,
+                    window,
                 };
                 s.entries.push(e)
             }
@@ -610,6 +733,9 @@ pub struct Enqueue {
     /// How long a worker's hold across commands declared it holds, ms: none, a command.
     #[serde(default)]
     pub hold_for: Option<i64>,
+    /// The daily window a hold starts in; none: any time.
+    #[serde(default)]
+    pub window: Option<Window>,
 }
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
@@ -630,6 +756,7 @@ command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, no
         resources: p.resources.clone(),
         slots: p.slots.clone(),
         hold_for: p.hold_for,
+        window: p.window,
     }])
 });
 
@@ -645,6 +772,9 @@ pub struct Begin {
     /// The rules it asks under: [`RULES`] of the binary that asks.
     #[serde(default)]
     pub rules: String,
+    /// How the line is ordered: none, the oldest first.
+    #[serde(default)]
+    pub order: queue::Order,
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
@@ -652,7 +782,8 @@ command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
         let why = format!("asks under the rules of {}, which {} replaced", p.rules, s.rules);
         return no("stale", why);
     }
-    match s.may_start(p.id, p.room.clone(), p.read_at, p.settle, now.0) {
+    let at = Reading { read_at: p.read_at, settle: p.settle, order: p.order };
+    match s.may_start(p.id, p.room.clone(), at, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),
     }
@@ -712,6 +843,10 @@ command!(NoteRules, "heavy.rules", Heavy, Rules, |_p| queue_id(), |s, p, _now| {
 mod tests {
     use super::*;
 
+    fn at(read_at: i64) -> Reading {
+        Reading { read_at, ..Reading::default() }
+    }
+
     fn entry(n: u128, queued_at: i64) -> Entry {
         Entry { id: Uuid::from_u128(n), what: n.to_string(), queued_at, ..Entry::default() }
     }
@@ -722,11 +857,11 @@ mod tests {
         for asker in [Entry { program: true, ..entry(1, 1) }, Entry { worker: Some(Uuid::from_u128(9)), ..entry(1, 1) }]
         {
             let q = Queue { entries: vec![asker, line.clone()], ..Queue::default() };
-            assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(line.id));
+            assert_eq!(queue::next(&q.entries, 6, queue::Order::default()).map(|e| e.id), Some(line.id));
         }
         // A cut, say, neither a worker's nor a program's: it keeps its place.
         let q = Queue { entries: vec![entry(1, 1), line.clone()], ..Queue::default() };
-        assert_eq!(queue::next(&q.entries, 6).map(|e| e.id), Some(Uuid::from_u128(1)));
+        assert_eq!(queue::next(&q.entries, 6, queue::Order::default()).map(|e| e.id), Some(Uuid::from_u128(1)));
     }
 
     fn on(e: Entry, resources: &[&str]) -> Entry {
@@ -738,10 +873,10 @@ mod tests {
         let holder = Entry { started_at: Some(1), ..on(entry(1, 0), &["FMGG"]) };
         let (second, third) = (on(entry(2, 2), &["FMGG", HOST]), entry(3, 3));
         let q = Queue { entries: vec![holder.clone(), second.clone(), third.clone()], ..Queue::default() };
-        let why = q.may_start(second.id, Ok(()), 10, 0, 10).unwrap_err();
+        let why = q.may_start(second.id, Ok(()), at(10), 10).unwrap_err();
         assert!(why.starts_with("waits for FMGG, held by `1`"), "{why}");
-        assert_eq!(q.may_start(third.id, Ok(()), 10, 0, 10), Ok(()), "the third starts at once: no host entry runs");
-        assert_eq!(q.oldest().map(|e| e.id), Some(third.id), "admission's wait leaves the second out");
+        assert_eq!(q.may_start(third.id, Ok(()), at(10), 10), Ok(()), "the third starts at once: no host entry runs");
+        assert_eq!(q.oldest(10).map(|e| e.id), Some(third.id), "admission's wait leaves the second out");
         assert!(!q.overheld(holder.id, 1_000_000, 30), "a named resource is never cut short");
     }
 
@@ -751,8 +886,8 @@ mod tests {
         let hold = Entry { started_at: Some(1), hold_for: Some(60), worker: w, ..on(entry(1, 0), &["FMGG"]) };
         let (mine, theirs) = (Entry { worker: w, ..on(entry(2, 2), &["FMGG"]) }, on(entry(3, 1), &["FMGG"]));
         let q = Queue { entries: vec![hold, mine.clone(), theirs.clone()], ..Queue::default() };
-        assert_eq!(q.may_start(mine.id, Ok(()), 10, 0, 10), Ok(()));
-        assert!(q.may_start(theirs.id, Ok(()), 10, 0, 10).is_err());
+        assert_eq!(q.may_start(mine.id, Ok(()), at(10), 10), Ok(()));
+        assert!(q.may_start(theirs.id, Ok(()), at(10), 10).is_err());
     }
 
     #[test]
@@ -762,10 +897,10 @@ mod tests {
         let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
         let q =
             Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
-        assert_eq!(q.may_start(two.id, Ok(()), 10, 0, 10), Ok(()));
-        assert!(q.may_start(three.id, Ok(()), 10, 0, 10).is_err(), "the oldest first");
+        assert_eq!(q.may_start(two.id, Ok(()), at(10), 10), Ok(()));
+        assert!(q.may_start(three.id, Ok(()), at(10), 10).is_err(), "the oldest first");
         let two = Entry { started_at: Some(5), ..two };
         let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
-        assert!(q.may_start(three.id, Ok(()), 10, 0, 10).unwrap_err().starts_with("waits for MAC, held by"));
+        assert!(q.may_start(three.id, Ok(()), at(10), 10).unwrap_err().starts_with("waits for MAC, held by"));
     }
 }

@@ -37,6 +37,8 @@ pub enum Time {
     QueueWaitBound,
     PickBound,
     UpgradeEvery,
+    StarveBound,
+    HoldDefault,
 }
 
 /// Every setting there is.
@@ -79,7 +81,7 @@ use Setting as S;
 use Time as T;
 
 /// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 27] = [
+const ALL: [Setting; 29] = [
     S::CpuBusyMax,
     S::MemoryFreeMin,
     S::DiskFloorGib,
@@ -107,6 +109,8 @@ const ALL: [Setting; 27] = [
     S::Time(T::QueueWaitBound),
     S::Time(T::PickBound),
     S::Time(T::UpgradeEvery),
+    S::Time(T::StarveBound),
+    S::Time(T::HoldDefault),
 ];
 
 impl Setting {
@@ -152,6 +156,8 @@ impl Setting {
             S::Time(T::QueueWaitBound) => ("queue_wait_bound", 300, Seconds, "admission starts no worker while a heavy command has waited its turn this long"),
             S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this"),
             S::Time(T::UpgradeEvery) => ("upgrade_every", 3600, Seconds, "a daemon whose host cuts no version of its own formula upgrades it from the tap this often, while no line move runs"),
+            S::Time(T::StarveBound) => ("starve_bound", 14400, Seconds, "one waiting this long for a resource goes ahead of all others, oldest first, however long it declared it holds"),
+            S::Time(T::HoldDefault) => ("hold_default", 1800, Seconds, "a command that declares no hold of its resource is read as holding it this long, in the shortest-first order of its queue"),
         }
     }
 
@@ -198,6 +204,11 @@ impl Settings {
     /// A time setting, in ms.
     pub fn ms(&self, time: Time) -> i64 {
         self.get(S::Time(time)) as i64 * 1000
+    }
+
+    /// How each resource's queue is ordered: `starve_bound` and `hold_default`.
+    pub fn order(&self) -> crate::neutral::queue::Order {
+        crate::neutral::queue::Order { starve: self.ms(T::StarveBound), default: self.ms(T::HoldDefault) }
     }
 
     /// The slots of each named resource `names` asks for that is declared;

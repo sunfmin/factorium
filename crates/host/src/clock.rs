@@ -17,6 +17,11 @@ pub trait Clock: Send + Sync + std::fmt::Debug {
     fn now(&self) -> i64;
     /// Ends once this clock reads `ms` later than it does now.
     fn sleep(&self, ms: u64) -> Sleep<'_>;
+    /// The host's offset from UTC at `at` (ms since the epoch), minutes
+    /// east: what its local time of day is read by. UTC unless it says.
+    fn offset_min(&self, _at: i64) -> i32 {
+        0
+    }
 }
 
 /// The system's clock.
@@ -32,6 +37,21 @@ impl Clock for SystemClock {
     fn sleep(&self, ms: u64) -> Sleep<'_> {
         Box::pin(tokio::time::sleep(std::time::Duration::from_millis(ms)))
     }
+
+    fn offset_min(&self, at: i64) -> i32 {
+        local_offset_min(at)
+    }
+}
+
+/// The system's offset from UTC at `at`, minutes east, as its time zone
+/// says; 0 if it cannot say.
+#[allow(unsafe_code)]
+fn local_offset_min(at: i64) -> i32 {
+    let secs = at.div_euclid(1000) as libc::time_t;
+    // SAFETY: a zeroed tm is a valid one, and localtime_r writes only the tm it is given.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let local = unsafe { libc::localtime_r(&secs, &mut tm) };
+    if local.is_null() { 0 } else { (tm.tm_gmtoff / 60) as i32 }
 }
 
 /// A clock only the program moves: a scenario advances it, and the waits it

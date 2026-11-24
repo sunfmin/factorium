@@ -13,7 +13,7 @@ use std::time::Duration;
 use factorium_domain::admission;
 use factorium_domain::heavy::{
     Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Queue, Rules, Runs,
-    StartHeavy, queue_id,
+    StartHeavy, Window, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -49,6 +49,8 @@ pub(crate) struct Job<'a> {
     /// A worker's hold across commands, `hold_for` ms by its declaration:
     /// granted, it runs nothing and stays held after its waiter answers.
     hold_for: Option<i64>,
+    /// The daily window a hold starts in.
+    window: Option<Window>,
 }
 
 /// How a command run by hand runs: at background priority, and the
@@ -78,10 +80,10 @@ impl<'a> Job<'a> {
         Job { resources: how.resources, ..Job::new(what, dir, steps, limit, priority) }
     }
     /// A worker's hold of `resources` across commands, for `hold_for` ms: it runs no step.
-    pub(crate) fn hold(resources: Vec<String>, hold_for: i64, dir: &'a Path) -> Self {
+    pub(crate) fn hold(resources: Vec<String>, hold_for: i64, window: Option<Window>, dir: &'a Path) -> Self {
         let what = format!("hold of {}", resources.join(" and "));
         let job = Job::new(what, dir, &[], Duration::ZERO, Priority::Normal);
-        Job { resources, hold_for: Some(hold_for), ..job }
+        Job { resources, hold_for: Some(hold_for), window, ..job }
     }
     /// Idle work's `steps` in its clone `dir`, all within `limit` s on the app's clock: in the background.
     pub(crate) fn idle(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
@@ -97,9 +99,9 @@ impl<'a> Job<'a> {
     }
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
         let env = Vec::new();
-        let (worker, bound_at, resources, hold_for) = (None, None, Vec::new(), None);
+        let (worker, bound_at, resources, hold_for, window) = (None, None, Vec::new(), None, None);
         let (program, whole) = (false, false);
-        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold_for }
+        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold_for, window }
     }
 }
 
@@ -168,8 +170,8 @@ impl App {
     /// The queue's depth: how many entries run and how many wait, each entry, oldest first, and
     /// the places kept for entries that left unstarted.
     pub async fn heavy_depth(&self) -> Answer {
-        let q = self.state::<Heavy>(queue_id()).await?;
-        let (running, waiting, resources) = (q.running().count(), q.waiting().count(), q.resources());
+        let (q, order) = (self.state::<Heavy>(queue_id()).await?, self.settings().await?.order());
+        let (running, waiting, resources) = (q.running().count(), q.waiting().count(), q.resources(self.now(), order));
         Ok(serde_json::json!({
             "running": running, "waiting": waiting, "entries": q.entries, "kept": q.left, "resources": resources
         }))
@@ -192,16 +194,26 @@ impl App {
     }
 
     /// `worker hold`: waits until `worker` holds `resources`, all at once, for `hold_for` ms by
-    /// its declaration, and answers the hold. It stays held after this answers, until
-    /// `worker release` or its worker ends. Refused: a resource not declared, or `host`.
-    pub async fn worker_hold(&self, worker: Uuid, resources: &[String], hold_for: i64) -> Answer {
+    /// its declaration, starting only inside the daily window `between` names (the minutes of
+    /// the host's local day it opens and closes at), and answers the hold. It stays held after
+    /// this answers, until `worker release` or its worker ends. Refused: a resource not
+    /// declared, or `host`.
+    pub async fn worker_hold(
+        &self,
+        worker: Uuid,
+        resources: &[String],
+        hold_for: i64,
+        between: Option<(u32, u32)>,
+    ) -> Answer {
         if resources.iter().any(|r| r == factorium_domain::heavy::HOST) {
             let why = "`host` is held by a heavy command alone (`worker exclusive`): hold a named resource";
             return Err(Refusal::new("host_hold", why));
         }
         self.settings().await?.slots(resources).map_err(|m| Refusal::new("unknown_resource", m))?;
         let dir = std::env::temp_dir();
-        let job = Job::hold(resources.to_vec(), hold_for, &dir).of(Some(worker), None);
+        let offset = self.clock.offset_min(self.now());
+        let window = between.map(|(from, to)| Window { from, to, offset });
+        let job = Job::hold(resources.to_vec(), hold_for, window, &dir).of(Some(worker), None);
         self.heavy(job, Turn::Wait).await?;
         let q = self.state::<Heavy>(queue_id()).await?;
         let mine = q.running().find(|e| e.is_hold() && e.worker == Some(worker) && e.resources == resources);
@@ -474,15 +486,15 @@ impl App {
         // queued): a binary that execed in its place keeps its entry.
         let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
-        let (resources, hold_for) = (job.resources.clone(), job.hold_for);
+        let (resources, hold_for, window) = (job.resources.clone(), job.hold_for, job.window);
         let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
-        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold_for };
+        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold_for, window };
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
-        let settle = settings.ms(Time::HeavySettle);
-        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules: self.rules.clone() }).await {
+        let (settle, rules, order) = (settings.ms(Time::HeavySettle), self.rules.clone(), settings.order());
+        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules, order }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
             Err(r) => Err(r),

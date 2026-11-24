@@ -33,3 +33,20 @@ pub fn utc(ms: i64) -> String {
     let secs = ms.div_euclid(1000).clamp(Timestamp::MIN.as_second(), Timestamp::MAX.as_second());
     Timestamp::from_second(secs).expect("clamped to the range").to_string()
 }
+
+/// A daily window given as `22:00-07:00` (it may pass midnight), as the
+/// minutes of the day it opens and closes at; one that closes as it opens
+/// is refused.
+pub fn window(s: &str) -> Result<(u32, u32), String> {
+    let bad = || format!("`{s}` is no window such as `22:00-07:00`: two times of day, HH:MM, that differ");
+    let minute = |t: &str| {
+        let (h, m) = t.trim().split_once(':')?;
+        let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    };
+    let (from, to) = s.split_once('-').ok_or_else(bad)?;
+    match (minute(from), minute(to)) {
+        (Some(from), Some(to)) if from != to => Ok((from, to)),
+        _ => Err(bad()),
+    }
+}
