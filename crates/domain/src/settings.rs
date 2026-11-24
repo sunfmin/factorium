@@ -17,44 +17,66 @@ pub fn settings_id() -> factum_core::Uuid {
     id("settings")
 }
 
-/// A time a setting bounds. Kept in seconds; read in ms.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Time {
-    HotFor,
-    SilentBound,
-    HoldBound,
-    StallBound,
-    PromotionBound,
-    CutBound,
-    TasksBound,
-    LookEvery,
-    RoundBound,
-    RoundAgain,
-    HeldFor,
-    TickEvery,
-    HeavySettle,
-    HeavyKeep,
-    QueueWaitBound,
-    PickBound,
-    UpgradeEvery,
-    StarveBound,
-    HoldDefault,
+/// Each setting's one home: its variant, name, default, unit and what it
+/// bounds, in the order the CLI lists them; a time's unit is seconds. The
+/// enums, the listing and [`Setting::row`] are made from it.
+macro_rules! settings {
+    ($($s:ident $name:literal $default:literal $unit:ident $what:literal;)*
+     ; time: $($t:ident $tname:literal $tdefault:literal $twhat:literal;)*) => {
+        /// A time a setting bounds. Kept in seconds; read in ms.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Time { $($t),* }
+
+        /// Every setting there is.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Setting { $($s,)* Time(Time) }
+
+        /// Every setting, in the order the CLI lists them.
+        const ALL: &[Setting] = &[$(Setting::$s,)* $(Setting::Time(Time::$t)),*];
+
+        impl Setting {
+            fn row(self) -> (&'static str, u64, Unit, &'static str) {
+                match self {
+                    $(Setting::$s => ($name, $default, Unit::$unit, $what),)*
+                    $(Setting::Time(Time::$t) => ($tname, $tdefault, Unit::Seconds, $twhat),)*
+                }
+            }
+        }
+    };
 }
 
-/// Every setting there is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Setting {
-    CpuBusyMax,
-    MemoryFreeMin,
-    DiskFloorGib,
-    WorkersCpuShare,
-    WorkerCpuShare,
-    WorkerMemoryGib,
-    WorkerProcsMax,
-    TickFailuresMax,
-    MovedRedsMax,
-    RoundsMax,
-    Time(Time),
+#[rustfmt::skip]
+settings! {
+    CpuBusyMax "cpu_busy_max" 75 Percent "admission and the queue start nothing while the CPU is busier than this";
+    MemoryFreeMin "memory_free_min" 15 Percent "nor while less memory than this is free";
+    DiskFloorGib "disk_floor_gib" 20 Gib "nor while less disk than this is free; worktrees' target/ are reclaimed";
+    WorkersCpuShare "workers_cpu_share" 80 Percent "workers together may hold this much of the CPU";
+    WorkerCpuShare "worker_cpu_share" 50 Percent "one worker past this share of the CPU is hot";
+    WorkerMemoryGib "worker_memory_gib" 16 Gib "one worker past this resident memory is hot";
+    WorkerProcsMax "worker_procs_max" 400 Count "one worker past this many processes is hot";
+    TickFailuresMax "tick_failures_max" 3 Count "this many ticks failing in a row go to the watch";
+    MovedRedsMax "moved_reds_max" 4 Count "a landing that does not merge because proving moved again counts as a first red at most this many times in a row";
+    RoundsMax "rounds_max" 3 Count "a watch episode starts at most this many rounds; past them it is unresolved, the owner's";
+    ; time:
+    HotFor "hot_for" 120 "a share held this long makes a worker hot";
+    SilentBound "silent_bound" 1800 "a worker idle this long without done, or hung with its turn open, goes to the watch";
+    HoldBound "hold_bound" 1800 "a heavy command holding others up this long is ended";
+    StallBound "stall_bound" 600 "a heavy queue that starts nothing, or a landing no gate runs for on a line that has not moved, this long goes to the watch";
+    PromotionBound "promotion_bound" 3600 "the oldest unpromoted landing waits at most this long";
+    CutBound "cut_bound" 86400 "the oldest uncut promotion waits at most this long";
+    TasksBound "tasks_bound" 86400 "idle work's tasks run this long past `every` without an idle host run anyway, at background priority";
+    LookEvery "look_every" 300 "the watch's look runs this often";
+    RoundBound "round_bound" 3600 "a watch round lasts at most this long";
+    RoundAgain "round_again" 1800 "a watch episode still standing this long after its round ended starts another";
+    HeldFor "held_for" 1800 "admission held for one reason this long goes to the watch";
+    TickEvery "tick_every" 10 "the daemon ticks this often";
+    HeavySettle "heavy_settle" 30 "a heavy command starts beside another only on a reading taken this long after the last start";
+    HeavyKeep "heavy_keep" 600 "a worker's or a program's heavy command that left the queue unstarted (refused, or its waiter gone) keeps its place this long: asked again, it takes it";
+    QueueWaitBound "queue_wait_bound" 300 "admission starts no worker while a heavy command has waited its turn this long";
+    PickBound "pick_bound" 600 "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this";
+    UpgradeEvery "upgrade_every" 3600 "a daemon whose host cuts no version of its own formula upgrades it from the tap this often, while no line move runs";
+    StarveBound "starve_bound" 14400 "one waiting this long for a resource goes ahead of all others, oldest first, however long it declared it holds";
+    HoldDefault "hold_default" 1800 "a command that declares no hold of its resource is read as holding it this long, in the shortest-first order of its queue";
 }
 
 /// What a setting's value counts.
@@ -80,85 +102,15 @@ impl Unit {
 use Setting as S;
 use Time as T;
 
-/// Every setting, in the order the CLI lists them.
-const ALL: [Setting; 29] = [
-    S::CpuBusyMax,
-    S::MemoryFreeMin,
-    S::DiskFloorGib,
-    S::WorkersCpuShare,
-    S::WorkerCpuShare,
-    S::WorkerMemoryGib,
-    S::WorkerProcsMax,
-    S::TickFailuresMax,
-    S::MovedRedsMax,
-    S::RoundsMax,
-    S::Time(T::HotFor),
-    S::Time(T::SilentBound),
-    S::Time(T::HoldBound),
-    S::Time(T::StallBound),
-    S::Time(T::PromotionBound),
-    S::Time(T::CutBound),
-    S::Time(T::TasksBound),
-    S::Time(T::LookEvery),
-    S::Time(T::RoundBound),
-    S::Time(T::RoundAgain),
-    S::Time(T::HeldFor),
-    S::Time(T::TickEvery),
-    S::Time(T::HeavySettle),
-    S::Time(T::HeavyKeep),
-    S::Time(T::QueueWaitBound),
-    S::Time(T::PickBound),
-    S::Time(T::UpgradeEvery),
-    S::Time(T::StarveBound),
-    S::Time(T::HoldDefault),
-];
-
 impl Setting {
     /// Every setting, in listing order.
     pub fn all() -> impl Iterator<Item = Setting> {
-        ALL.into_iter()
+        ALL.iter().copied()
     }
 
     /// The setting the CLI calls `name`, if there is one.
     pub fn named(name: &str) -> Option<Setting> {
         Self::all().find(|s| s.name() == name)
-    }
-
-    /// Each setting's one home: its name, default, unit and what it bounds.
-    #[rustfmt::skip]
-    fn row(self) -> (&'static str, u64, Unit, &'static str) {
-        use Unit::*;
-        match self {
-            S::CpuBusyMax => ("cpu_busy_max", 75, Percent, "admission and the queue start nothing while the CPU is busier than this"),
-            S::MemoryFreeMin => ("memory_free_min", 15, Percent, "nor while less memory than this is free"),
-            S::DiskFloorGib => ("disk_floor_gib", 20, Gib, "nor while less disk than this is free; worktrees' target/ are reclaimed"),
-            S::WorkersCpuShare => ("workers_cpu_share", 80, Percent, "workers together may hold this much of the CPU"),
-            S::WorkerCpuShare => ("worker_cpu_share", 50, Percent, "one worker past this share of the CPU is hot"),
-            S::WorkerMemoryGib => ("worker_memory_gib", 16, Gib, "one worker past this resident memory is hot"),
-            S::WorkerProcsMax => ("worker_procs_max", 400, Count, "one worker past this many processes is hot"),
-            S::TickFailuresMax => ("tick_failures_max", 3, Count, "this many ticks failing in a row go to the watch"),
-            S::MovedRedsMax => ("moved_reds_max", 4, Count, "a landing that does not merge because proving moved again counts as a first red at most this many times in a row"),
-            S::RoundsMax => ("rounds_max", 3, Count, "a watch episode starts at most this many rounds; past them it is unresolved, the owner's"),
-            S::Time(T::HotFor) => ("hot_for", 120, Seconds, "a share held this long makes a worker hot"),
-            S::Time(T::SilentBound) => ("silent_bound", 1800, Seconds, "a worker idle this long without done, or hung with its turn open, goes to the watch"),
-            S::Time(T::HoldBound) => ("hold_bound", 1800, Seconds, "a heavy command holding others up this long is ended"),
-            S::Time(T::StallBound) => ("stall_bound", 600, Seconds, "a heavy queue that starts nothing, or a landing no gate runs for on a line that has not moved, this long goes to the watch"),
-            S::Time(T::PromotionBound) => ("promotion_bound", 3600, Seconds, "the oldest unpromoted landing waits at most this long"),
-            S::Time(T::CutBound) => ("cut_bound", 86400, Seconds, "the oldest uncut promotion waits at most this long"),
-            S::Time(T::TasksBound) => ("tasks_bound", 86400, Seconds, "idle work's tasks run this long past `every` without an idle host run anyway, at background priority"),
-            S::Time(T::LookEvery) => ("look_every", 300, Seconds, "the watch's look runs this often"),
-            S::Time(T::RoundBound) => ("round_bound", 3600, Seconds, "a watch round lasts at most this long"),
-            S::Time(T::RoundAgain) => ("round_again", 1800, Seconds, "a watch episode still standing this long after its round ended starts another"),
-            S::Time(T::HeldFor) => ("held_for", 1800, Seconds, "admission held for one reason this long goes to the watch"),
-            S::Time(T::TickEvery) => ("tick_every", 10, Seconds, "the daemon ticks this often"),
-            S::Time(T::HeavySettle) => ("heavy_settle", 30, Seconds, "a heavy command starts beside another only on a reading taken this long after the last start"),
-            S::Time(T::HeavyKeep) => ("heavy_keep", 600, Seconds, "a worker's or a program's heavy command that left the queue unstarted (refused, or its waiter gone) keeps its place this long: asked again, it takes it"),
-            S::Time(T::QueueWaitBound) => ("queue_wait_bound", 300, Seconds, "admission starts no worker while a heavy command has waited its turn this long"),
-            S::Time(T::PickBound) => ("pick_bound", 600, Seconds, "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this"),
-            S::Time(T::UpgradeEvery) => ("upgrade_every", 3600, Seconds, "a daemon whose host cuts no version of its own formula upgrades it from the tap this often, while no line move runs"),
-            S::Time(T::StarveBound) => ("starve_bound", 14400, Seconds, "one waiting this long for a resource goes ahead of all others, oldest first, however long it declared it holds"),
-            S::Time(T::HoldDefault) => ("hold_default", 1800, Seconds, "a command that declares no hold of its resource is read as holding it this long, in the shortest-first order of its queue"),
-        }
     }
 
     pub fn name(self) -> &'static str {
@@ -269,11 +221,7 @@ command!(SetSetting, "settings.set", HostSettings, Set, |_p| settings_id(), |s, 
     let Some(setting) = Setting::named(&p.name) else {
         return no("no_setting", format!("there is no setting {}", p.name));
     };
-    Ok(if s.get(setting) == p.value {
-        Vec::new()
-    } else {
-        vec![SettingsEvent::SettingSet { name: p.name.clone(), value: p.value }]
-    })
+    crate::only(s.get(setting) != p.value, SettingsEvent::SettingSet { name: p.name.clone(), value: p.value })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

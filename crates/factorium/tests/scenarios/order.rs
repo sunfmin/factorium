@@ -118,3 +118,16 @@ fn a_window_reads_two_times_of_day_that_differ() {
         assert!(window(bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn a_resource_of_two_slots_takes_two_holders_and_the_oldest_waiting_next() {
+    let slots = std::collections::BTreeMap::from([("MAC".to_string(), 2)]);
+    let one = Entry { started_at: Some(1), ..on(entry(1, 0), &["MAC"]) };
+    let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
+    let q = Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
+    assert_eq!(starts(&q, two.id, 10), Ok(()));
+    assert!(starts(&q, three.id, 10).is_err(), "the oldest first");
+    let two = Entry { started_at: Some(5), ..two };
+    let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
+    assert!(starts(&q, three.id, 10).unwrap_err().starts_with("waits for MAC, held by"));
+}

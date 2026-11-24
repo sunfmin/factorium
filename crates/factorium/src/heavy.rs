@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Queue, Rules, Runs,
+    Ask, Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Queue, Rules, Runs,
     StartHeavy, Window, queue_id,
 };
 use factorium_domain::settings::Time;
@@ -488,7 +488,8 @@ impl App {
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
         let (resources, hold_for, window) = (job.resources.clone(), job.hold_for, job.window);
         let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
-        let ask = Enqueue { id, what, pid, worker, program, bound_at, keep, rules, resources, slots, hold_for, window };
+        let ask = Ask { id, what, pid, worker, program, bound_at, rules, resources, slots, hold_for, window };
+        let ask = Enqueue { ask, keep };
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();

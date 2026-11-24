@@ -176,11 +176,7 @@ pub struct Start {
 }
 
 command!(StartDaemon, "daemon.start", Daemons, Start, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![DaemonEvent::DaemonStarted {
-        at: now.0,
-        path: p.path.clone(),
-        missing: p.missing.clone(),
-    }])
+    Ok(vec![DaemonEvent::DaemonStarted { at: now.0, path: p.path.clone(), missing: p.missing.clone() }])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -202,7 +198,7 @@ command!(NoteTick, "daemon.tick", Daemons, Ticked, |_p| daemon_id(), |s, p, now|
     if let Some((took_ms, longest)) = &p.slow {
         events.push(DaemonEvent::TickSlow(SlowTick { at: now.0, took_ms: *took_ms, longest: longest.clone() }));
     }
-    Ok::<_, factum_core::Rejection>(events)
+    Ok(events)
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -213,7 +209,7 @@ pub struct Rollback {
 }
 
 command!(NoteRollback, "daemon.rollback", Daemons, Rollback, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(match (&p.rolled_back, &s.rolled_back) {
+    Ok(match (&p.rolled_back, &s.rolled_back) {
         (Some(r), _) => vec![DaemonEvent::RolledBack { at: now.0, rolled_back: r.clone() }],
         (None, Some(_)) => vec![DaemonEvent::RollbackOver],
         (None, None) => Vec::new(),
@@ -228,9 +224,7 @@ pub struct Swap {
 }
 
 command!(NoteSwap, "daemon.swap", Daemons, Swap, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(
-        (p.refused != s.refused).then(|| DaemonEvent::SwapRefused(p.refused.clone())).into_iter().collect(),
-    )
+    crate::only(p.refused != s.refused, DaemonEvent::SwapRefused(p.refused.clone()))
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -240,7 +234,7 @@ pub struct Upgraded {
 }
 
 command!(NoteUpgrade, "daemon.upgrade", Daemons, Upgraded, |_p| daemon_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
+    Ok(vec![DaemonEvent::UpgradeTried(Upgrade { at: now.0, failed: p.failed.clone() })])
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -253,7 +247,7 @@ pub struct RoleChecked {
 // A role directory's check before a start: kept only when it changes what is known of it.
 command!(NoteRole, "daemon.role", Daemons, RoleChecked, |_p| daemon_id(), |s, p, _now| {
     let changed = s.roles.get(&p.dir) != p.lacking.as_ref();
-    Ok::<_, factum_core::Rejection>(changed.then(|| DaemonEvent::RoleChecked(p.clone())).into_iter().collect())
+    crate::only(changed, DaemonEvent::RoleChecked(p.clone()))
 });
 
 /// What the daemon's own files say of it, as the process edge reads them:
@@ -290,57 +284,4 @@ pub fn down(p: &Probe, tick_every: i64, now: i64) -> Option<String> {
     let silent = now - p.ticked?;
     (silent > hang_bound(tick_every))
         .then(|| format!("pid {pid} holds its lock and has not ticked for {} s: it hangs", silent / 1000))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_daemon_is_down_without_a_live_pid_its_lock_or_a_tick_within_the_bound() {
-        let running = Probe { pid: Some(7), locked: true, ticked: Some(0) };
-        assert_eq!(down(&running, 10_000, 120_000), None, "the two-minute floor");
-        assert!(down(&running, 10_000, 120_001).unwrap().contains("not ticked for 120 s: it hangs"));
-        let later = Probe { ticked: Some(5_000), ..running.clone() };
-        assert_eq!(down(&later, 10_000, 125_000), None, "silence counts from its last tick");
-        assert!(down(&later, 10_000, 125_001).is_some());
-        assert_eq!(down(&running, 60_000, 300_000), None, "five ticks, past the floor");
-        assert!(down(&Probe::default(), 10_000, 0).unwrap().contains("names no live process"));
-        assert!(down(&Probe { locked: false, ..running.clone() }, 10_000, 0).unwrap().contains("its lock"));
-        assert_eq!(down(&Probe { ticked: None, ..running }, 10_000, i64::MAX / 2), None, "an older binary runs");
-    }
-
-    #[test]
-    fn a_refused_swap_stands_until_a_link_names_another() {
-        let mut s = Daemon::default();
-        let r = Refused { version: "0.1.1".into(), why: "doctor failed".into() };
-        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(Some(r.clone())));
-        Daemons::evolve(&mut s, DaemonEvent::TickDone);
-        assert_eq!(s.refused, Some(r));
-        Daemons::evolve(&mut s, DaemonEvent::SwapRefused(None));
-        assert_eq!(s.refused, None);
-    }
-
-    #[test]
-    fn a_ticks_longest_step_is_the_first_that_took_longest() {
-        let mut s = Steps::at(100);
-        s.ended("a", 100);
-        assert_eq!(s.longest, Step { step: "a".into(), ms: 0 }, "a first step, however short");
-        s.ended("b", 130);
-        s.ended("c", 160);
-        s.ended("d", 170);
-        assert_eq!(s.longest, Step { step: "b".into(), ms: 30 }, "the first of two as long");
-    }
-
-    #[test]
-    fn a_tick_past_half_the_hang_bound_is_slow_and_kept_until_a_slower_one() {
-        assert!(!slow(60_000, 10_000) && slow(60_001, 10_000), "half the two-minute floor");
-        assert!(!slow(150_000, 60_000) && slow(150_001, 60_000), "half of five ticks");
-        let mut s = Daemon::default();
-        let step = Step { step: "lines".into(), ms: 90_000 };
-        let slow = SlowTick { at: 5, took_ms: 95_000, longest: step.clone() };
-        Daemons::evolve(&mut s, DaemonEvent::TickSlow(slow.clone()));
-        Daemons::evolve(&mut s, DaemonEvent::TickDone);
-        assert_eq!(s.slow, Some(slow), "a later tick does not clear it");
-    }
 }

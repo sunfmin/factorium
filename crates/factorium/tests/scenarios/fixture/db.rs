@@ -113,6 +113,24 @@ impl World {
         );
     }
 
+    /// Blocks as the code before factorium#285 wrote them: no why.
+    pub fn blocks_as_code_before_285_wrote_them(&self) {
+        self.migrate(
+            "UPDATE events SET data = json_remove(data, '$.why') WHERE kind = 'BlockedBy'; DELETE FROM snapshots;",
+        );
+    }
+
+    /// The kit as the code before factorium#291 set it: in order, with
+    /// models, the same engine twice (`first`, then `second`).
+    pub fn kit_as_code_before_291_set_it(&self) {
+        self.migrate(
+            "UPDATE events SET kind = 'KitSet', data = json_object('entries', json_array(\
+                 json_object('harness', 'codex', 'command', 'first', 'model', 'm'), \
+                 json_object('harness', 'codex', 'command', 'second', 'model', NULL))) \
+             WHERE kind = 'CommandsSet'; DELETE FROM snapshots;",
+        );
+    }
+
     /// Issues waiting for a human as the code before factorium#95 wrote
     /// them: `parked`, in their events, rows and snapshots, the tracker's
     /// rows kept at the version that code gave them.

@@ -1,0 +1,72 @@
+{
+  "tree": "fa4c8327dc3bf8e83c68cb5f6aa91230ad93ca13+d1fba762150c532c",
+  "picker": "codex:01a20ef5-34b5-7fd1-9fd9-b5af00e5d785:default",
+  "author": "claude-code:9492f1fa-f9e6-5a9e-ae1f-0a33a23dd1c8:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/heavy.rs:628:35: delete ! in <impl Aggregate for Heavy>::evolve",
+        "why": "A retry can still inherit its old place while clearing another asker's retained place, which takes a second retry to expose.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:154:13: delete field bound_at from struct Entry expression in Entry::queued",
+        "why": "The removed ordering test supplied the bound directly on an Entry, leaving deadline propagation through enqueue easy to miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:152:13: delete field program from struct Entry expression in Entry::queued",
+        "why": "The removed priority test constructed a program entry directly, so it never checked that enqueue preserves the program flag.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:155:13: delete field rules from struct Entry expression in Entry::queued",
+        "why": "The first enqueue can succeed with empty rules, while a repeat under the same rules can wrongly emit another event.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:158:13: delete field window from struct Entry expression in Entry::queued",
+        "why": "Window parsing can pass even if enqueue drops the window and lets a hold start outside its allowed hours.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/domain/src/daemon.rs:300: a_daemon_is_down_without_a_live_pid_its_lock_or_a_tick_within_the_bound",
+      "crates/domain/src/daemon.rs:314: a_refused_swap_stands_until_a_link_names_another",
+      "crates/domain/src/daemon.rs:325: a_ticks_longest_step_is_the_first_that_took_longest",
+      "crates/domain/src/daemon.rs:336: a_tick_past_half_the_hang_bound_is_slow_and_kept_until_a_slower_one",
+      "crates/domain/src/decided.rs:233: a_comment_is_a_record_only_when_its_first_line_is_one",
+      "crates/domain/src/decided.rs:243: a_body_holds_each_record_on_its_own_lines",
+      "crates/domain/src/decided.rs:256: a_record_in_a_fenced_block_quotes_the_shape_and_is_none",
+      "crates/domain/src/decided.rs:268: a_body_record_keeps_its_number_while_its_head_stays",
+      "crates/domain/src/decided.rs:280: the_sequence_gives_on_from_its_last_and_stays_swept",
+      "crates/domain/src/decided.rs:295: the_sequence_s_stream_stays_the_same",
+      "crates/domain/src/decided.rs:300: a_name_is_d_and_its_number",
+      "crates/domain/src/decided.rs:307: a_line_starting_with_a_short_run_of_backticks_or_tildes_is_no_fence",
+      "crates/domain/src/heavy.rs:855: a_line_move_past_its_bound_goes_ahead_of_a_programs_entry_as_of_a_workers",
+      "crates/domain/src/heavy.rs:872: one_waiting_for_a_full_resource_holds_up_none_but_those_asking_for_it",
+      "crates/domain/src/heavy.rs:884: a_workers_command_inside_its_hold_takes_no_slot_of_its_own",
+      "crates/domain/src/heavy.rs:894: a_resource_of_two_slots_takes_two_holders",
+      "crates/domain/src/issue.rs:847: a_block_keeps_its_why_and_one_made_before_whys_reads_as_no_reason_given",
+      "crates/domain/src/issue.rs:869: the_question_is_the_first_line_after_any_based_on_line",
+      "crates/domain/src/issue.rs:876: the_last_wait_for_a_person_names_when_and_who",
+      "crates/domain/src/kit.rs:326: a_start_is_the_pick_s_engine_model_and_account_on_the_kit_s_command",
+      "crates/domain/src/kit.rs:355: without_stablehand_claude_code_alone_starts_on_the_host_s_login",
+      "crates/domain/src/kit.rs:368: a_named_account_starts_unless_stablehand_passed_it_over",
+      "crates/domain/src/kit.rs:384: a_picker_runs_on_another_engine_that_asks_else_on_the_worker_s",
+      "crates/domain/src/kit.rs:407: an_old_kit_reads_as_its_commands",
+      "crates/domain/src/needs.rs:102: a_doctor_that_passes_lacks_nothing_and_one_that_refuses_lacks_what_it_names",
+      "crates/domain/src/needs.rs:115: a_refusal_naming_nothing_lacks_rolesmiths_own_message",
+      "crates/domain/src/needs.rs:126: only_a_program_is_installed_and_never_twice_for_the_same_lack",
+      "crates/domain/src/neutral/landing.rs:273: a_failed_cut_waits_for_a_newer_promotion",
+      "crates/domain/src/review.rs:84: a_reviewer_s_answer_is_taken_only_as_one_verdict_of_one_line"
+    ]
+  }
+}

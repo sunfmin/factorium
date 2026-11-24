@@ -262,7 +262,7 @@ pub struct Started {
 }
 
 command!(StartWatch, "watch.start", Watches, Started, |_p| watch_id(), |s, p, now| {
-    Ok::<_, factum_core::Rejection>(vec![WatchEvent::WatchStarted {
+    Ok(vec![WatchEvent::WatchStarted {
         terminal: p.terminal.clone(),
         harness: p.harness.clone(),
         account: p.account.clone(),
@@ -279,7 +279,7 @@ pub struct Ended {
 
 // The watch's session was closed: the next look starts a fresh one.
 command!(EndWatch, "watch.end", Watches, Ended, |_p| watch_id(), |s, p, _now| {
-    let Some(terminal) = &s.terminal else { return Ok::<_, factum_core::Rejection>(Vec::new()) };
+    let Some(terminal) = &s.terminal else { return Ok(Vec::new()) };
     let mut events = vec![WatchEvent::WatchEnded];
     if let Some(why) = &p.failed {
         events.push(WatchEvent::WatchCloseFailed { terminal: terminal.clone(), why: why.clone() });
@@ -354,7 +354,7 @@ command!(LookNow, "watch.look", Watches, Look, |_p| watch_id(), |s, p, now| {
             ev.push(WatchEvent::RoundStarted { n: s.rounds + 1, episode, at: now.0 });
         }
     }
-    Ok::<_, factum_core::Rejection>(ev)
+    Ok(ev)
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -399,11 +399,9 @@ pub struct Seen {
     pub round: u64,
 }
 
-command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| Ok(if p.round > s.seen {
-    vec![WatchEvent::HumanSeen { round: p.round }]
-} else {
-    Vec::new()
-}));
+command!(SeeHuman, "watch.seen", Watches, Seen, |_p| watch_id(), |s, p, now| {
+    crate::only(p.round > s.seen, WatchEvent::HumanSeen { round: p.round })
+});
 
 /// The owner reads every Decided record made until now.
 #[derive(Clone, Debug, Serialize, Deserialize)]
