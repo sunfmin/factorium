@@ -1,10 +1,36 @@
 {
-  "commit": "247ee54fb56262d3624d4eb13f6ee67a8e5cf8e2",
+  "commit": "ce89ebed2a61b342434d5b46c4866b0cda7e4735",
   "date": "2026-11-24",
-  "inputs": "ba390859f8bd3515b0e727a9132244c848ea7d5bd54c2b7a6562df8413cec414",
+  "inputs": "4821ae37eeb43320aa2135af477040c75a19a69f589217cf3bd530debdf500ee",
   "result": "passes",
   "traces": {
-    "accept": [],
-    "reject": []
+    "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-rules/accept/gave-up-asks-again.jsonl",
+        "result": "allowed",
+        "step": null
+      },
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-rules/accept/stale-passed-over.jsonl",
+        "result": "allowed",
+        "step": null
+      }
+    ],
+    "reject": [
+      {
+        "breaks": "KeptPlace",
+        "file": ".truefit/traces/heavy-rules/reject/asks-again-at-the-back.jsonl",
+        "result": "disallowed",
+        "step": 5
+      },
+      {
+        "breaks": "StaleHoldsNone",
+        "file": ".truefit/traces/heavy-rules/reject/stale-holds-the-head.jsonl",
+        "result": "disallowed",
+        "step": 6
+      }
+    ]
   }
 }

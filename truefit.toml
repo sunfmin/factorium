@@ -504,6 +504,17 @@ covers = [
   { action = "KeptPlace", file = "crates/domain/src/heavy.rs", function = "Queue::place" },
 ]
 
+# The same shape as heavy-ends' runs (.truefit/traces/heavy-rules/): a
+# waiter's rules, its place kept, and the step that reached each state are
+# the waiters' own, never the queue's records.
+[model.trace]
+q = '[i \in Ids |-> r.state.q[i]]'
+last_start = 'r.state.last_start'
+rules = 'r.state.rules'
+now = 'r.now'
+waiter = '[i \in Ids |-> r.state.waiter[i]]'
+last = 'r.last'
+
 # A scenario's run, as the queue records it (crates/factorium/tests/
 # scenarios/fixture/trace.rs): its constants are the scenario's, and its
 # own check is one step deep; the properties are the three above's.
