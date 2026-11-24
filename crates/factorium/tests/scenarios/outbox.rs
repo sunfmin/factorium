@@ -5,6 +5,7 @@
 //! through the same cases: idle, busy, behind a dialog, before its harness
 //! is up, and missed.
 
+use factorium::host::Host;
 use serde_json::{Value, json};
 
 use crate::fixture::{CLAUDE, ESCAPE, SHELL, UP, World, findings, id, worker};
@@ -349,7 +350,7 @@ async fn a_message_still_queued_past_its_bound_is_missed_and_its_worker_goes_to_
     w.tick().await;
     assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "queued");
     w.set_busy(handle, true, false);
-    w.advance(2);
+    w.advance(1);
     w.tick().await;
     let m = last(&w, &wk).await;
     assert_eq!(m["outcome"]["outcome"], "missed", "{m}");
@@ -358,4 +359,41 @@ async fn a_message_still_queued_past_its_bound_is_missed_and_its_worker_goes_to_
     assert_eq!(waiting["status"], "waiting");
     assert!(waiting["why"].as_str().unwrap().starts_with("the watch's word did not reach it"), "{waiting}");
     assert_eq!(w.terminal(handle).sent.len(), 1, "never typed again into its running turn");
+}
+
+/// factorium#289: a message queued behind a turn that the session read once
+/// the turn went on is submitted, not typed again; the same words taken
+/// before it was given are not it, and it is typed again.
+#[tokio::test]
+async fn a_queued_message_the_session_took_since_is_submitted_and_one_taken_before_it_is_typed_again() {
+    for taken in [true, false] {
+        let w = World::new();
+        let wk = w.working(CLAUDE, "t").await;
+        let (handle, cwd) = (wk["terminal"].as_str().unwrap(), wk["worktree"].as_str().unwrap());
+        w.set_busy(handle, true, false);
+        w.app.watch_tell(id(&wk), "use v2", false).await.unwrap();
+        let typed = w.terminal(handle).sent.len();
+        w.set_busy(handle, false, false);
+        let at = if taken { crate::watch::NEXT_CENTURY } else { "2000-01-01T00:00:00.000Z" };
+        let line = |kind: &str, body: Value| {
+            let mut l = json!({ "type": kind, "timestamp": at, "cwd": cwd, "isSidechain": false });
+            l.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+            l.to_string()
+        };
+        let lines = [
+            line("user", json!({ "message": { "role": "user", "content": "factorium (the watch): use v2" } })),
+            line("assistant", json!({ "message": { "role": "assistant", "stop_reason": "end_turn" } })),
+        ];
+        let projects = w.host.home().join(".claude/projects");
+        let dir = std::fs::read_dir(&projects).unwrap().next().expect("its session's directory").unwrap().path();
+        let file = dir.join("took.jsonl");
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
+        w.advance(1);
+        w.tick().await;
+        assert_eq!(last(&w, &wk).await["outcome"]["outcome"], "submitted", "taken: {taken}");
+        let again = if taken { 0 } else { 1 };
+        assert_eq!(w.terminal(handle).sent.len(), typed + again, "taken: {taken}");
+    }
 }
