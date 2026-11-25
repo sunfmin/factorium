@@ -1,0 +1,10 @@
+{
+  "tree": "82ca21c2d39afd2905c89107eb0945c3f1e1c6f0+d1fba762150c532c",
+  "lines": 62,
+  "serves": "factorium#311",
+  "considered": "flush and its per-session threads (reused whole, on a second App over the same store); the heavy queue's Beside/Running machinery (it queues and holds host resources, which typing must not); retry_workers in the tick (kept, skipping sessions typed beside)",
+  "reviewer": "codex:01a2132e-3714-78b0-b6bd-6aa78028be50:default",
+  "author": "claude-code:6593c0dd-ff0c-5da8-8c83-d6f8ecd416db:opus",
+  "cut": "In session/outbox.rs, use Vec::extract_if to reap finished tasks in order without rebuilding the running list. In session/launch.rs and session/outbox.rs, pass borrowed sessions directly to flush_beside and clone only those it schedules. In tests/scenarios/on.rs, let role_outcomes take a worker ID and reuse it in both multi-worker scenarios to check recorded outcomes.",
+  "answer": "Made all three: typed_beside reaps with extract_if; flush_beside takes borrowed sessions and clones only those it starts typing; role_outcomes takes the worker's number and both multi-worker scenarios use it."
+}

@@ -221,12 +221,16 @@ impl World {
     }
 
     /// A tick, and while a line move it started runs beside the ticks, once
-    /// that ended, the tick that finishes it: what they did, as one.
+    /// that ended, the tick that finishes it: what they did, as one. Each
+    /// tick's typing beside the ticks is waited out: how each message went
+    /// is then in its outbox.
     pub async fn tick(&self) -> Tick {
         let mut t = self.tick_alone().await;
+        self.app.typing_ended().await;
         while self.app.moves_run() {
             self.app.moves_ended().await;
             let n = self.tick_alone().await;
+            self.app.typing_ended().await;
             t.seen.extend(n.seen);
             t.landed.extend(n.landed);
             t.closed.extend(n.closed);

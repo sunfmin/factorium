@@ -63,6 +63,7 @@ mod proof;
 mod queue;
 mod resource;
 mod review;
+mod spent;
 mod stale;
 mod stall;
 mod steps;

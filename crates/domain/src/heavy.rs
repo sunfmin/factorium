@@ -68,6 +68,12 @@ impl LineJob {
             LineJob::Cut => format!("cut of {checkout}"),
         }
     }
+
+    /// Whether `what` names a gate, a line's or a worker's (`fast gate of web#1`, its
+    /// `of` the issue).
+    pub fn is_gate(what: &str) -> bool {
+        [Kind::Fast, Kind::Slow].iter().any(|k| what.starts_with(&LineJob::Gate(*k).of("")))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

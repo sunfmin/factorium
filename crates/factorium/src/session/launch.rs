@@ -366,9 +366,12 @@ impl App {
     /// written again with the role's new ones, and what it was told is
     /// recorded. One waiting for the watch, unless parked on its engine's
     /// limit, is told once it works again. What each is owed is recorded
-    /// first, then all of them are typed at at once (factorium#279).
-    /// Answers each one told.
+    /// in its outbox, then all of them are typed at at once (factorium#279),
+    /// beside the ticks: no tick waits on Orca's window (factorium#311).
+    /// Answers each one told, its delivery as it stands now: `queued` while
+    /// it is typed.
     pub(crate) async fn tell_role_changes(&self) -> Answer<Vec<Value>> {
+        self.typed_beside().await?;
         let mut owed = Vec::new();
         for row in self.live_workers().await? {
             let wk = self.state::<Workers>(row.worker).await?;
@@ -402,12 +405,14 @@ impl App {
             self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
             owed.push((row.worker, changed, live.session, n));
         }
-        let given: Vec<_> = owed.iter().map(|(_, _, s, n)| (s, Some((*n, false)))).collect();
-        let deliveries = self.flush(&given).await?;
-        let told = owed.iter().zip(deliveries).map(|((worker, changed, _, _), delivery)| {
-            json!({ "worker": worker, "changed": changed, "delivery": delivery.expect("the message given is tried").word() })
-        });
-        Ok(told.collect())
+        self.flush_beside(owed.iter().map(|(_, _, s, _)| s))?;
+        let mut told = Vec::new();
+        for (worker, changed, s, n) in owed {
+            let given = self.outbox(&s).await?.messages.into_iter().find(|m| m.n == n);
+            let delivery = given.and_then(|m| m.outcome).map_or("queued", |o| o.word());
+            told.push(json!({ "worker": worker, "changed": changed, "delivery": delivery }));
+        }
+        Ok(told)
     }
 
     /// Opens the terminal of the session `start` says: its terminal, and

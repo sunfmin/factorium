@@ -21,7 +21,7 @@ use factum::Uuid;
 
 pub use launch::{Caller, DB_ENV};
 pub(crate) use launch::{Opened, Pick, Role, SessionEnv};
-pub(crate) use outbox::heard;
+pub(crate) use outbox::{Typing, heard};
 
 use crate::{Answer, App, Refusal};
 
@@ -30,6 +30,7 @@ use crate::{Answer, App, Refusal};
 const DISMISS_TRIES: u32 = 3;
 
 /// One harness session, as it was started.
+#[derive(Clone)]
 pub(crate) struct Session {
     terminal: String,
     /// The worker it is, if it is a worker's.

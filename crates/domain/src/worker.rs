@@ -189,6 +189,16 @@ pub struct Tokens {
     pub output: u64,
 }
 
+impl Tokens {
+    /// `a` and `b` summed, of those that say (none: neither says).
+    pub fn summed(a: Option<Tokens>, b: Option<Tokens>) -> Option<Tokens> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(Tokens { input: a.input + b.input, output: a.output + b.output }),
+            (a, b) => a.or(b),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WorkerEvent {
