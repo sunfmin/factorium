@@ -1,0 +1,39 @@
+{
+  "tree": "59d595f797b3731b390bc31c6efe88d0a8d32821+d1fba762150c532c",
+  "picker": "codex:01a212eb-dab4-7422-a7c1-da1cf1b0be9e:default",
+  "author": "claude-code:cc50dbaa-b08d-53ec-bfe2-8b2cdc66cf02:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/steps.rs:196:42: replace && with || in told",
+        "why": "The red scenario checks that its message arrived, leaving failed deliveries and preservation of the first arrival time untested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/steps.rs:162:61: replace && with || in steps",
+        "why": "The scenarios use one landing per attempt, so they would miss a gate attributed to the wrong landing after a retry.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:294:30: replace match guard ran.timed_out with false in App::land_gated",
+        "why": "The steps scenarios check a merge conflict and a green gate, leaving the past_limit classification untested.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/steps.rs:144:13: delete match arm WorkerEvent::WorkerLimited(l) in steps",
+        "why": "The blocker park scenario would still pass if the report omitted parks caused by engine limits and their reset times.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/steps.rs:141:13: delete match arm WorkerEvent::WaitEnded in steps",
+        "why": "The wait scenario ends the wait with done, leaving explicit WaitEnded events untested in the report.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
