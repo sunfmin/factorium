@@ -112,6 +112,16 @@ impl App {
     }
 
     pub async fn issue_show(&self, checkout: &str, number: u64) -> Answer {
+        self.shown_issue(checkout, number, false).await
+    }
+
+    /// `issue show --steps`: each attempt in `spent` answers too its
+    /// `steps`, where its time went (factorium#308).
+    pub async fn issue_show_steps(&self, checkout: &str, number: u64) -> Answer {
+        self.shown_issue(checkout, number, true).await
+    }
+
+    async fn shown_issue(&self, checkout: &str, number: u64, steps: bool) -> Answer {
         let i =
             self.issue(checkout, number).await?.numbered(&self.state::<decided::Numbers>(decided::numbers_id()).await?);
         let c = self.state::<Checkouts>(checkout_id(checkout)).await?;
@@ -134,7 +144,7 @@ impl App {
             "role_from": role.map(|(_, from)| from),
             "account": i.on.account,
             "model": i.on.model,
-            "spent": self.issue_spent(&i).await?,
+            "spent": self.issue_spent(&i, steps).await?,
             "decided": i.decided.iter().map(|m| decided::name(m.id)).collect::<Vec<_>>(),
             "comments": i.comments.iter().map(|c| {
                 let mut shown = json!({ "text": c.text, "by": c.by.to_string(), "at": c.at });
@@ -144,6 +154,29 @@ impl App {
                 shown
             }).collect::<Vec<_>>(),
         }))
+    }
+
+    /// Where `worker`'s time went, from its events, its heavy runs' rows and
+    /// its session's outbox, `st` its start.
+    async fn attempt_steps(
+        &self,
+        worker: factum::Uuid,
+        st: &factorium_domain::worker::Started,
+    ) -> Answer<factorium_domain::steps::Steps> {
+        use factorium_domain::outbox::{OutboxEvent, Outboxes, outbox_id};
+        use factorium_domain::worker::{WorkerEvent, Workers};
+        let events: Vec<(i64, WorkerEvent)> = self.timed(factum::StreamId::new(Workers::NAME, worker)).await?;
+        let outbox: Vec<(i64, OutboxEvent)> =
+            self.timed(factum::StreamId::new(Outboxes::NAME, outbox_id(&st.terminal))).await?;
+        let runs = self.rows(tracker::runs_of(worker)).await?;
+        Ok(factorium_domain::steps::steps(&events, &runs, &outbox, self.now()))
+    }
+
+    /// The events of `stream`, each as its aggregate's own type, with the time the log took it.
+    async fn timed<E: serde::de::DeserializeOwned>(&self, stream: factum::StreamId) -> Answer<Vec<(i64, E)>> {
+        let history = self.engine.history(&stream).await?;
+        let decoded = history.iter().map(|e| tracker::decode(e).map(|d| (e.meta.now.0, d)));
+        decoded.collect::<Result<_, _>>().map_err(|m| Refusal::new("bad_event", m))
     }
 
     pub async fn issue_edit(&self, checkout: &str, number: u64, title: Option<&str>, body: Option<&str>) -> Answer {
@@ -438,10 +471,17 @@ impl App {
             self.blocker(checkout, by.clone()).await?;
         }
         let why = why.map(String::from);
-        self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, why, undo }).await?;
+        let block = Block { checkout: checkout.into(), number, by: by.clone(), why: why.clone(), undo };
+        self.submit::<BlockIssue>(block).await?;
         // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
-            self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
+            let on = match by.of(checkout) {
+                Blocker::Here(n) => format!("#{n}"),
+                Blocker::Across(a) => a.to_string(),
+                Blocker::NotBefore(at) => format!("not before {}", when::utc(at)),
+            };
+            let why = format!("waits for {on}: {}", why.as_deref().unwrap_or("(no reason given)"));
+            self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Because { worker, why }).await?;
         }
         self.issue_show(checkout, number).await
     }
@@ -526,8 +566,9 @@ impl App {
     /// recorded when it ended (a live one's, as its session files say now;
     /// `null`: its harness's files do not say); and their sums, `tokens`
     /// summing the attempts that say. Each attempt answers too the role it
-    /// started with and the hash of what that role gave it (`null`: none).
-    async fn issue_spent(&self, i: &Issue) -> Answer<serde_json::Value> {
+    /// started with and the hash of what that role gave it (`null`: none);
+    /// with `steps`, where its time went.
+    async fn issue_spent(&self, i: &Issue, steps: bool) -> Answer<serde_json::Value> {
         use factorium_domain::worker::{Status as W, Tokens, Workers};
         let (mut ms, mut tokens, mut attempts) = (0, None::<Tokens>, Vec::new());
         for attempt in 1..=i.attempts {
@@ -542,10 +583,14 @@ impl App {
                 let sum = tokens.get_or_insert_default();
                 (sum.input, sum.output) = (sum.input + s.input, sum.output + s.output);
             }
-            attempts.push(json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
+            let mut shown = json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
                 "account": st.account, "ended": ended, "ms": took, "tokens": spent,
                 "role": st.role.as_ref().map(|r| json!({ "dir": r.dir, "from": r.from })),
-                "role_hash": st.role.as_ref().map(|r| &r.read.hash) }));
+                "role_hash": st.role.as_ref().map(|r| &r.read.hash) });
+            if steps {
+                shown["steps"] = json!(self.attempt_steps(worker, st).await?);
+            }
+            attempts.push(shown);
         }
         Ok(json!({ "ms": ms, "tokens": tokens, "attempts": attempts }))
     }

@@ -599,6 +599,10 @@ pub enum HeavyEvent {
         /// named resources it held are kept on record.
         #[serde(default)]
         gone: Option<(i64, String)>,
+        /// How its steps ran, if they ran: none for one that left
+        /// unstarted, a hold, or one ended before factorium#308.
+        #[serde(default)]
+        outcome: Option<Outcome>,
     },
     /// A started entry's step runs in session `session`.
     HeavyRuns {
@@ -637,7 +641,7 @@ impl Aggregate for Heavy {
                     s.last_start = at;
                 }
             }
-            HeavyEvent::HeavyEnded { id, kept_at, gone } => {
+            HeavyEvent::HeavyEnded { id, kept_at, gone, .. } => {
                 if let Some(at) = kept_at {
                     s.left.retain(|l| at - l.left_at <= LEFT_KEPT_MAX);
                     let left = s.entries.iter().find(|e| e.id == id && e.started_at.is_none() && e.yields());
@@ -700,6 +704,11 @@ pub struct Ask {
     pub hold_for: Option<i64>,
     #[serde(default)]
     pub window: Option<Window>,
+    /// The worker whose landing this gate is: a line's fast gate, which is
+    /// no worker's entry (it holds no worker's silence clock), names the
+    /// worker it lands so its record finds it (factorium#308).
+    #[serde(default)]
+    pub lands: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -761,12 +770,26 @@ pub struct End {
     /// its worker ended): the named resources it held are kept on record.
     #[serde(default)]
     pub gone: Option<String>,
+    /// How its steps ran, if they ran.
+    #[serde(default)]
+    pub outcome: Option<Outcome>,
+}
+
+/// How a heavy command's steps ran: every one exited 0 (`green`), one did
+/// not (`red`, a hold bound's end among them), or one ran past its limit
+/// (`timed_out`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Green,
+    Red,
+    TimedOut,
 }
 
 command!(EndHeavy, "heavy.end", Heavy, End, |_p| queue_id(), |s, p, now| {
     // Whether its place is kept (unstarted, a worker's or a program's) is evolve's.
     let (kept_at, gone) = (p.keeps.then_some(now.0), p.gone.clone().map(|why| (now.0, why)));
-    let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at, gone };
+    let ended = HeavyEvent::HeavyEnded { id: p.id, kept_at, gone, outcome: p.outcome };
     crate::only(s.holds(p.id), ended)
 });
 

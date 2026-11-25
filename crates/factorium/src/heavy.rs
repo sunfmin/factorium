@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Ask, Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Queue, Rules, Runs,
-    StartHeavy, Window, queue_id,
+    Ask, Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Outcome, Queue, Rules,
+    Runs, StartHeavy, Window, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -51,6 +51,8 @@ pub(crate) struct Job<'a> {
     hold_for: Option<i64>,
     /// The daily window a hold starts in.
     window: Option<Window>,
+    /// The worker whose landing this gate is.
+    lands: Option<Uuid>,
 }
 
 /// How a command run by hand runs: at background priority, and the
@@ -93,15 +95,34 @@ impl<'a> Job<'a> {
     pub(crate) fn of_program(self) -> Self {
         Job { program: true, ..self }
     }
+    /// The fast gate of `worker`'s landing: no entry of the worker's own.
+    pub(crate) fn landing(self, worker: Option<Uuid>) -> Self {
+        Job { lands: worker, ..self }
+    }
     /// The job for `worker`, or for a line move due by `bound_at`.
     pub(crate) fn of(self, worker: Option<Uuid>, bound_at: Option<i64>) -> Self {
         Job { worker, bound_at, ..self }
     }
     fn new(what: String, dir: &'a Path, steps: &'a [String], limit: Duration, priority: Priority) -> Self {
         let env = Vec::new();
-        let (worker, bound_at, resources, hold_for, window) = (None, None, Vec::new(), None, None);
+        let (worker, bound_at, resources, hold_for, window, lands) = (None, None, Vec::new(), None, None, None);
         let (program, whole) = (false, false);
-        Job { what, worker, program, bound_at, dir, steps, env, limit, whole, priority, resources, hold_for, window }
+        Job {
+            what,
+            worker,
+            program,
+            bound_at,
+            dir,
+            steps,
+            env,
+            limit,
+            whole,
+            priority,
+            resources,
+            hold_for,
+            window,
+            lands,
+        }
     }
 }
 
@@ -153,6 +174,19 @@ pub(crate) struct Running {
     run: tokio::task::JoinHandle<Vec<Ran>>,
     /// Closed once its steps ended: [`App::beside_ended`] waits on it.
     ended: tokio::sync::watch::Receiver<()>,
+}
+
+/// How `rans`, a run's steps up to the first that failed, ran; none: no step
+/// ran (a hold).
+fn outcome(rans: &[Ran]) -> Option<Outcome> {
+    let last = rans.last()?;
+    Some(if last.timed_out {
+        Outcome::TimedOut
+    } else if rans.iter().all(|r| r.ok) {
+        Outcome::Green
+    } else {
+        Outcome::Red
+    })
 }
 
 impl App {
@@ -230,7 +264,7 @@ impl App {
             return Err(Refusal::new("not_held", format!("you hold no {name}")));
         }
         for e in &mine {
-            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: None }).await?;
+            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: None, outcome: None }).await?;
         }
         let released: Vec<_> = mine.iter().map(|e| e.id).collect();
         Ok(serde_json::json!({ "released": name, "entries": released }))
@@ -262,7 +296,7 @@ impl App {
                 Err(r) if r.code == "stale" => match &turn {
                     Turn::Wait => {
                         let r = self.as_installed(id, r);
-                        self.submit::<EndHeavy>(End { id, keeps: true, gone: None }).await?;
+                        self.submit::<EndHeavy>(End { id, keeps: true, gone: None, outcome: None }).await?;
                         return Err(r);
                     }
                     // The daemon execs the installed binary after this tick.
@@ -278,7 +312,10 @@ impl App {
                     return Ok(None);
                 }
                 (false, Turn::Beside { key: None, .. }) => {
-                    return self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await.map(|()| None);
+                    return self
+                        .submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome: None })
+                        .await
+                        .map(|()| None);
                 }
             }
         }
@@ -299,7 +336,8 @@ impl App {
         }
         let ran = self.run_held(id, &job).await;
         self.memory.lock().unwrap().queued.remove(&id);
-        self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await?;
+        let outcome = ran.as_deref().ok().and_then(outcome);
+        self.submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome }).await?;
         ran.map(Some)
     }
 
@@ -317,7 +355,7 @@ impl App {
             gone
         };
         for id in gone {
-            self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await?;
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome: None }).await?;
         }
         Ok(done)
     }
@@ -371,8 +409,9 @@ impl App {
             }
             let Beside(r, of) = b;
             let (id, why, rans) = (r.id, r.why, self.ran(r).await);
+            let outcome = rans.as_deref().ok().and_then(outcome);
             // Failing, those not yet looked at are kept for the next tick.
-            let rans = match (self.submit::<EndHeavy>(End { id, keeps: false, gone: None }).await, rans) {
+            let rans = match (self.submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome }).await, rans) {
                 (Ok(()), Ok(rans)) => rans,
                 (Err(e), _) | (_, Err(e)) => {
                     self.memory.lock().unwrap().beside.extend(picked);
@@ -428,7 +467,7 @@ impl App {
     /// worker ended. On record, a finding for doctor (factorium#284).
     pub(crate) async fn give_back(&self, q: &Queue, alive: impl Fn(u32) -> bool) -> Answer<()> {
         for (id, why) in self.gone_holders(q, alive).await? {
-            self.submit::<EndHeavy>(End { id, keeps: false, gone: Some(why.into()) }).await?;
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: Some(why.into()), outcome: None }).await?;
         }
         Ok(())
     }
@@ -476,7 +515,7 @@ impl App {
         };
         for e in q.entries.iter().filter(dead) {
             let gone = e.started_at.is_some().then(|| "its waiter died".to_string());
-            self.submit::<EndHeavy>(End { id: e.id, keeps: true, gone }).await?;
+            self.submit::<EndHeavy>(End { id: e.id, keeps: true, gone, outcome: None }).await?;
         }
         if !q.holds(id) && queued {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));
@@ -486,9 +525,9 @@ impl App {
         // queued): a binary that execed in its place keeps its entry.
         let (what, worker, program, bound_at) = (job.what.clone(), job.worker, job.program, job.bound_at);
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
-        let (resources, hold_for, window) = (job.resources.clone(), job.hold_for, job.window);
+        let (resources, hold_for, window, lands) = (job.resources.clone(), job.hold_for, job.window, job.lands);
         let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
-        let ask = Ask { id, what, pid, worker, program, bound_at, rules, resources, slots, hold_for, window };
+        let ask = Ask { id, what, pid, worker, program, bound_at, rules, resources, slots, hold_for, window, lands };
         let ask = Enqueue { ask, keep };
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.

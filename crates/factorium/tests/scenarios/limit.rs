@@ -60,6 +60,11 @@ async fn an_agy_worker_at_its_quota_is_parked_until_the_reset_and_then_sent_back
     let row = crate::fixture::worker(&w.app).await;
     assert_eq!(row["status"], "waiting");
     crate::fixture::refused(w.app.worker_waiting(id(&wk), "a build", 60_000).await, "waiting");
+    // Its record: parked on its limit until the reset; the red held, never reached.
+    let steps = w.app.issue_show_steps("web", 1).await.unwrap()["spent"]["attempts"][0]["steps"].clone();
+    assert_eq!(steps["parks"][0]["until"], json!(until), "{steps}");
+    let told = &steps["landings"][0]["red"]["told"];
+    assert_eq!((told["delivery"].clone(), told["reached_at"].clone()), (json!("held"), json!(null)), "{steps}");
 
     // Parked: no finding, no round, its reset in doctor; the pinned
     // checkout starts no new worker on the spent harness.

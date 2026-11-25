@@ -1,0 +1,10 @@
+{
+  "tree": "242ef257aa3ecacdbc61cb80ccc07a66b0eee3b5+d1fba762150c532c",
+  "lines": 353,
+  "serves": "factorium#308",
+  "considered": "the worker, heavy queue and outbox events already kept, read on show with the times factum's log took them, rather than new rows copying them; the gate records (keyed by tree, no worker); the tracker projection, extended with one table rather than a projection of its own",
+  "reviewer": "codex:01a212e1-e634-7e41-8d9e-7a8f1a850a0a:default",
+  "author": "claude-code:cc50dbaa-b08d-53ec-bfe2-8b2cdc66cf02:opus",
+  "cut": "In crates/factorium/src/issues.rs and cli.rs, build steps in issue_show’s existing attempt pass so --steps avoids a second issue lookup and attempt loop. In crates/domain/src/tracker.rs and steps.rs, share the heavy-run fields through a flattened record, keeping the tracker-only fields in RunRow and the computed durations in the output. In steps.rs, use one interval type with required or optional until for waits and parks, and look up red notifications directly in Steps.messages to drop the full message clone. In crates/domain/src/worker.rs and steps.rs, use the event timestamp for MergeChecked and drop its duplicate at field. Repository access was unavailable, so these cuts are based on the supplied diff.",
+  "answer": "All five made: steps are built in issue_spent's own attempt loop (issue show --steps answers them in spent.attempts[].steps); Run flattens RunRow and adds only queued_ms and ran_ms; waits and parks are one Span with an optional until; a red's message is found in Steps.messages, no clone of the list; MergeChecked keeps only its tip, its time the log's."
+}

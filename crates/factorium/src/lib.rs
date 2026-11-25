@@ -136,6 +136,7 @@ fn model() -> Model {
         .command::<worker::Wait>()
         .command::<worker::Resume>()
         .command::<worker::Park>()
+        .command::<worker::NoteMergeChecked>()
         .command::<worker::Unpark>()
         .command::<worker::EndWorker>()
         .command::<worker::NoteClosed>()

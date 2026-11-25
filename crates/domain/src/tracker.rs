@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::checkout::{Add, Checkout, CheckoutEvent};
+use crate::heavy::{HeavyEvent, Outcome};
 use crate::issue::{IssueEvent, Standing, Status as IssueStatus};
 use crate::worker::{self, Status as WorkerStatus, WorkerEvent};
 
@@ -21,6 +22,7 @@ pub const TRACKER: &str = "tracker";
 const CHECKOUTS: &str = "checkouts";
 const ISSUES: &str = "issues";
 const WORKERS: &str = "workers";
+const RUNS: &str = "heavy_runs";
 
 /// A checkout's row is the checkout.
 pub type CheckoutRow = Checkout;
@@ -72,6 +74,37 @@ pub struct WorkerRow {
     /// Why closing its terminal failed, the last time it was tried.
     #[serde(default)]
     pub close_failed: Option<String>,
+}
+
+/// A heavy command's row, by its entry: when it was asked (the place it
+/// took: one kept from its asker's entry that left unstarted is that one's
+/// ask), granted and ended, ms, and how its steps ran (factorium#308).
+/// Asked again under a newer binary's rules, its ask is that one's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RunRow {
+    pub entry: Uuid,
+    pub what: String,
+    /// The worker it is of: its own command's, or the one whose landing it
+    /// gates; the column it is queried by.
+    pub of: Option<Uuid>,
+    /// It gates `of`'s landing.
+    #[serde(default)]
+    pub lands: bool,
+    /// A hold across commands (`worker hold`), not a command.
+    #[serde(default)]
+    pub hold: bool,
+    pub asked_at: i64,
+    #[serde(default)]
+    pub started_at: Option<i64>,
+    #[serde(default)]
+    pub ended_at: Option<i64>,
+    #[serde(default)]
+    pub outcome: Option<Outcome>,
+}
+
+/// Every heavy command of `worker`'s, and each gate of its landings, as asked.
+pub fn runs_of(worker: Uuid) -> Rows<RunRow> {
+    Rows::of(Query::table(RUNS).filter("of", Op::Eq, worker.to_string()).order_by("asked_at", false))
 }
 
 /// What the CLI prints of a row: its columns kept only for queries left out.
@@ -171,8 +204,9 @@ impl Projection for Tracker {
 
     /// "6": rows rebuilt from the log, so a row kept with a status of an
     /// older name (`parked`, before factorium#95) holds the current one.
+    /// "7": the heavy runs' rows (factorium#308), built from the log.
     fn version(&self) -> u32 {
-        6
+        7
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -180,6 +214,7 @@ impl Projection for Tracker {
             Table::new(CHECKOUTS, &["name", "listed"]).index(&["name"]),
             Table::new(ISSUES, &["checkout", "number", "status", "taken"]).index(&["checkout", "status", "number"]),
             Table::new(WORKERS, &["checkout", "number", "status", "since", "started_at"]).index(&["status"]),
+            Table::new(RUNS, &["of", "asked_at"]).index(&["of"]),
         ]
     }
 
@@ -239,6 +274,27 @@ impl Projection for Tracker {
                         merge(WORKERS, json!({ "closed": failed.is_none(), "close_failed": failed }))
                     }
                     (None, _) => Vec::new(),
+                }
+            }
+            "heavy" => {
+                let at = e.meta.now.0;
+                let merge_run = |entry: Uuid, fields: Value| {
+                    vec![RowOp::Merge { table: RUNS.into(), key: entry.to_string(), fields }]
+                };
+                match decode(e)? {
+                    HeavyEvent::HeavyQueued { ask, at, place } => {
+                        let of = ask.worker.or(ask.lands);
+                        merge_run(
+                            ask.id,
+                            json!({ "entry": ask.id, "what": ask.what, "of": of, "lands": ask.lands.is_some(),
+                                "hold": ask.hold_for.is_some(), "asked_at": place.unwrap_or(at) }),
+                        )
+                    }
+                    HeavyEvent::HeavyStarted { id, at } => merge_run(id, json!({ "started_at": at })),
+                    HeavyEvent::HeavyEnded { id, outcome, .. } => {
+                        merge_run(id, json!({ "ended_at": at, "outcome": outcome }))
+                    }
+                    HeavyEvent::HeavyRuns { .. } | HeavyEvent::HeavyRules { .. } => Vec::new(),
                 }
             }
             _ => Vec::new(),
