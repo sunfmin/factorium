@@ -74,9 +74,9 @@ impl App {
                 (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), Turn::Wait)
             }
             At::Beside { bound_at, moving, .. } => {
-                let key = Some(record_key(checkout, &tree, kind));
+                let (key, lands) = (Some(record_key(checkout, &tree, kind)), moving.lands());
                 let turn = Turn::Beside { key, yields: false, of: For::Line(moving) };
-                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), turn)
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at).landing(lands), turn)
             }
             At::Worktree { worker, number } => {
                 (job(format!("{} gate of {checkout}#{number}", named(kind))).of(Some(worker), None), Turn::Wait)

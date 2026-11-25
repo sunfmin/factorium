@@ -163,7 +163,7 @@ impl App {
         let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {
             return Err(Refusal::new("no_entry", format!("the heavy queue holds no entry {id}")));
         };
-        self.submit::<heavy::EndHeavy>(heavy::End { id, keeps: false, gone: None }).await?;
+        self.submit::<heavy::EndHeavy>(heavy::End { id, keeps: false, gone: None, outcome: None }).await?;
         if let Some(session) = entry.session {
             let end = tokio::task::spawn_blocking(move || factorium_host::end(session));
             end.await.map_err(|e| Refusal::new("internal", e.to_string()))?;

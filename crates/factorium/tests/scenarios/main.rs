@@ -64,6 +64,7 @@ mod resource;
 mod review;
 mod stale;
 mod stall;
+mod steps;
 mod terminals;
 mod tracker;
 mod unqueue;

@@ -211,6 +211,19 @@ pub enum WorkerEvent {
         /// It does not count: proving moved since the last red.
         #[serde(default)]
         moved: bool,
+        /// What kind of red; `None`: one before factorium#308.
+        #[serde(default)]
+        kind: Option<RedKind>,
+        /// The files it names: those that conflict, or the regenerated
+        /// records its merge took proving's copy of.
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    /// Waiting its turn, its branch was found to merge onto the proving
+    /// tip (factorium#307's check); one that does not is red instead.
+    MergeChecked {
+        tip: String,
+        at: i64,
     },
     /// Written before the outbox (#47), which now records what reached
     /// its session; read and ignored.
@@ -273,8 +286,13 @@ pub enum WorkerEvent {
         text: String,
         at: i64,
     },
-    /// Its issue was blocked, while it waited or worked.
+    /// Its issue was blocked, while it waited or worked: before factorium#308,
+    /// which records why ([`WorkerEvent::ParkedBehind`]).
     WorkerParked,
+    /// Its issue was blocked, while it waited or worked, for this.
+    ParkedBehind {
+        why: String,
+    },
     /// No longer parked: what its issue waited for was met, or it was
     /// sent back to work.
     WorkerUnparked,
@@ -354,7 +372,7 @@ impl Aggregate for Workers {
             WorkerEvent::WorkerResumed { .. } => {
                 (s.reds, s.red_tip, s.moved_reds, s.quiet, s.parked) = (0, None, 0, None, false)
             }
-            WorkerEvent::WorkerParked => s.parked = true,
+            WorkerEvent::WorkerParked | WorkerEvent::ParkedBehind { .. } => s.parked = true,
             WorkerEvent::WorkerUnparked => s.parked = false,
             WorkerEvent::WentQuiet { screen, at } => s.quiet = Some((screen, at)),
             WorkerEvent::Stirred => s.quiet = None,
@@ -440,10 +458,28 @@ pub struct Because {
     pub why: String,
 }
 
+/// What kind of red a landing was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RedKind {
+    /// Its branch does not merge onto the proving tip.
+    NoMerge,
+    /// The fast gate is red on the merge.
+    GateRed,
+    /// The fast gate ran past its limit on the merge.
+    PastLimit,
+    /// The fast gate is red on a merge whose only conflicts were records
+    /// the gate regenerates, taken from proving's copy.
+    Regenerated,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Red {
     pub worker: Uuid,
     pub why: String,
+    pub kind: RedKind,
+    /// The files it names: those that conflict, or the regenerated records taken.
+    pub files: Vec<String>,
     /// The proving tip its branch did not merge onto; `None`: the gate was red.
     pub tip: Option<String>,
     /// Proving moved since the last red's tip, which its branch holds.
@@ -472,7 +508,9 @@ fn landing(s: &Worker) -> Result<(), Rejection> {
 on_worker!(RedLanding, "worker.red", Red, |s, p, now| {
     landing(s)?;
     let moved = p.moved(s);
-    let mut events = vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0, tip: p.tip.clone(), moved }];
+    let (kind, files) = (Some(p.kind), p.files.clone());
+    let mut events =
+        vec![WorkerEvent::LandingRed { why: p.why.clone(), at: now.0, tip: p.tip.clone(), moved, kind, files }];
     if !moved && s.reds + 1 >= 2 {
         events.push(WorkerEvent::WorkerWaits { why: format!("red twice in a row: {}", p.why), at: now.0 });
     }
@@ -510,8 +548,22 @@ on_worker!(Resume, "worker.resume", Of, |s, p, now| {
 // Its issue was blocked: its worker is parked behind what its issue waits
 // for, waiting now or working, to go back once it is idle (it waits, or is
 // in a wait it declared) and all of that is met.
-on_worker!(Park, "worker.park", Of, |s, p, now| {
-    only(s.started.is_some() && s.status != Status::Ended && !s.parked, WorkerEvent::WorkerParked)
+on_worker!(Park, "worker.park", Because, |s, p, now| {
+    let why = p.why.clone();
+    only(s.started.is_some() && s.status != Status::Ended && !s.parked, WorkerEvent::ParkedBehind { why })
+});
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Checked {
+    pub worker: Uuid,
+    /// The proving tip its branch merges onto.
+    pub tip: String,
+}
+
+// Waiting its turn, its branch merges onto the proving tip.
+on_worker!(NoteMergeChecked, "worker.merge_checked", Checked, |s, p, now| {
+    landing(s)?;
+    Ok(vec![WorkerEvent::MergeChecked { tip: p.tip.clone(), at: now.0 }])
 });
 
 // What a parked worker's issue waited for is met, or its engine's limit

@@ -146,6 +146,42 @@ impl App {
         }))
     }
 
+    /// `issue show --steps`: the issue as [`App::issue_show`] answers it, and
+    /// `steps`, where each attempt's time went (factorium#308).
+    pub async fn issue_show_steps(&self, checkout: &str, number: u64) -> Answer {
+        let mut shown = self.issue_show(checkout, number).await?;
+        let i = self.issue(checkout, number).await?;
+        let mut attempts = Vec::new();
+        for attempt in 1..=i.attempts {
+            let worker = factorium_domain::worker_id(&i.checkout, i.number, attempt);
+            if let Some(steps) = self.attempt_steps(worker).await? {
+                attempts.push(json!({ "attempt": attempt, "worker": worker, "steps": steps }));
+            }
+        }
+        shown["steps"] = json!(attempts);
+        Ok(shown)
+    }
+
+    /// Where `worker`'s time went, from its events, its heavy runs' rows and
+    /// its session's outbox; `None`: it never started.
+    async fn attempt_steps(&self, worker: factum::Uuid) -> Answer<Option<factorium_domain::steps::Steps>> {
+        use factorium_domain::outbox::{OutboxEvent, Outboxes, outbox_id};
+        use factorium_domain::worker::{WorkerEvent, Workers};
+        let Some(st) = self.state::<Workers>(worker).await?.started else { return Ok(None) };
+        let events: Vec<(i64, WorkerEvent)> = self.timed(factum::StreamId::new(Workers::NAME, worker)).await?;
+        let outbox: Vec<(i64, OutboxEvent)> =
+            self.timed(factum::StreamId::new(Outboxes::NAME, outbox_id(&st.terminal))).await?;
+        let runs = self.rows(tracker::runs_of(worker)).await?;
+        Ok(Some(factorium_domain::steps::steps(&events, &runs, &outbox, self.now())))
+    }
+
+    /// The events of `stream`, each as its aggregate's own type, with the time the log took it.
+    async fn timed<E: serde::de::DeserializeOwned>(&self, stream: factum::StreamId) -> Answer<Vec<(i64, E)>> {
+        let history = self.engine.history(&stream).await?;
+        let decoded = history.iter().map(|e| tracker::decode(e).map(|d| (e.meta.now.0, d)));
+        decoded.collect::<Result<_, _>>().map_err(|m| Refusal::new("bad_event", m))
+    }
+
     pub async fn issue_edit(&self, checkout: &str, number: u64, title: Option<&str>, body: Option<&str>) -> Answer {
         // A record the edit adds takes the next number; one it keeps keeps its
         // own. Another edit that came first refuses it (`no_numbers`): edit again.
@@ -438,10 +474,17 @@ impl App {
             self.blocker(checkout, by.clone()).await?;
         }
         let why = why.map(String::from);
-        self.submit::<BlockIssue>(Block { checkout: checkout.into(), number, by, why, undo }).await?;
+        let block = Block { checkout: checkout.into(), number, by: by.clone(), why: why.clone(), undo };
+        self.submit::<BlockIssue>(block).await?;
         // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
-            self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Of { worker }).await?;
+            let on = match by.of(checkout) {
+                Blocker::Here(n) => format!("#{n}"),
+                Blocker::Across(a) => a.to_string(),
+                Blocker::NotBefore(at) => format!("not before {}", when::utc(at)),
+            };
+            let why = format!("waits for {on}: {}", why.as_deref().unwrap_or("(no reason given)"));
+            self.submit::<factorium_domain::worker::Park>(factorium_domain::worker::Because { worker, why }).await?;
         }
         self.issue_show(checkout, number).await
     }

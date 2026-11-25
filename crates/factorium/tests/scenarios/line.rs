@@ -583,7 +583,8 @@ fn landing_or_ending_a_worker_that_is_gone_is_refused_by_the_command_itself() {
     // A live worker that has not asked to land takes no landing, green or red.
     let working = Worker { started: Some(Default::default()), ..Default::default() };
     assert_eq!(refused(GreenLanding::decide(&working, &Land { worker, commit: "c".into() }, &by, now)), "not_landing");
-    let red = Red { worker, why: "x".into(), tip: None, moved: false, moved_max: 0 };
+    let (kind, files) = (factorium_domain::worker::RedKind::GateRed, Vec::new());
+    let red = Red { worker, why: "x".into(), kind, files, tip: None, moved: false, moved_max: 0 };
     assert_eq!(refused(RedLanding::decide(&working, &red, &by, now)), "not_landing");
 }
 

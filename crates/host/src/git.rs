@@ -26,6 +26,31 @@ fn binary() -> &'static Path {
     })
 }
 
+/// Why a branch does not merge: git's own words, where git refused or
+/// failed, and every conflicting file. Said as one line by its `Display`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoMerge {
+    pub git: Option<String>,
+    pub files: Vec<String>,
+}
+
+impl NoMerge {
+    fn git(e: String) -> NoMerge {
+        NoMerge { git: Some(e), files: Vec::new() }
+    }
+}
+
+impl std::fmt::Display for NoMerge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let files = (!self.files.is_empty()).then(|| format!("conflicts in: {}", self.files.join(", ")));
+        match (&self.git, files) {
+            (Some(e), Some(files)) => write!(f, "{e}; {files}"),
+            (Some(e), None) => f.write_str(e),
+            (None, files) => f.write_str(&files.unwrap_or_default()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Git {
     pub dir: PathBuf,
@@ -193,12 +218,12 @@ impl Git {
         branch: &str,
         message: &str,
         regenerated: &[String],
-    ) -> Result<(String, Vec<String>), String> {
+    ) -> Result<(String, Vec<String>), NoMerge> {
         let refspec = format!("+refs/heads/{branch}:refs/heads/{branch}");
         let merged = self
             .run(&["fetch", "--quiet", &from.to_string_lossy(), &refspec])
             .and_then(|_| self.run(&["merge", "--no-ff", "--no-edit", "-m", message, branch]));
-        let Err(e) = merged else { return Ok((self.sha("HEAD")?, Vec::new())) };
+        let Err(e) = merged else { return Ok((self.sha("HEAD").map_err(NoMerge::git)?, Vec::new())) };
         let unmerged = |specs: &[String]| -> Vec<String> {
             let mut args = vec!["diff", "--name-only", "--diff-filter=U", "--"];
             args.extend(specs.iter().map(String::as_str));
@@ -214,21 +239,21 @@ impl Git {
             let taken =
                 self.run(&take).and_then(|_| self.run(&add)).and_then(|_| self.run(&["commit", "-q", "-m", message]));
             if taken.is_ok() {
-                return Ok((self.sha("HEAD")?, files));
+                return Ok((self.sha("HEAD").map_err(NoMerge::git)?, files));
             }
         }
         let _ = self.run(&["merge", "--abort"]);
-        Err(if files.is_empty() { e } else { format!("{e}; conflicts in: {}", files.join(", ")) })
+        Err(NoMerge { git: Some(e), files })
     }
 
     /// Whether `branch` merges onto `tip` here, without a work tree or a
     /// commit (`git merge-tree`), as [`Git::merge_from`] would merge it: one
     /// whose every conflicting path matches a glob pathspec of `regenerated`
     /// merges. Answers why not, naming every conflicting file.
-    pub fn merges(&self, tip: &str, branch: &str, regenerated: &[String]) -> Result<(), String> {
+    pub fn merges(&self, tip: &str, branch: &str, regenerated: &[String]) -> Result<(), NoMerge> {
         let args = ["merge-tree", "--write-tree", "--name-only", "--no-messages", tip, branch];
         // 0: it merges; 1: it conflicts, its tree then each conflicting path.
-        let (code, said) = self.run_coded(&args, &[], Some(1))?;
+        let (code, said) = self.run_coded(&args, &[], Some(1)).map_err(NoMerge::git)?;
         if code == 0 {
             return Ok(());
         }
@@ -240,15 +265,15 @@ impl Git {
             let globs: Vec<String> = regenerated.iter().map(|g| format!(":(glob){g}")).collect();
             // The merged tree's paths that match, as a diff from the empty tree lists them:
             // `ls-tree` takes no glob pathspec.
-            let empty = self.run(&["hash-object", "-t", "tree", "--stdin"])?;
+            let empty = self.run(&["hash-object", "-t", "tree", "--stdin"]).map_err(NoMerge::git)?;
             let mut list = vec!["diff", "--name-only", empty.as_str(), tree.as_str(), "--"];
             list.extend(globs.iter().map(String::as_str));
-            let records = self.run(&list)?;
+            let records = self.run(&list).map_err(NoMerge::git)?;
             if files.iter().all(|f| records.lines().any(|r| r == f)) {
                 return Ok(());
             }
         }
-        Err(format!("conflicts in: {}", files.join(", ")))
+        Err(NoMerge { git: None, files })
     }
 
     /// Amends `HEAD` with `paths` as they stand in the work tree, and

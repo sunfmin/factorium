@@ -289,8 +289,30 @@ pub enum IssueCmd {
     /// the role and account it names; and `spent`, what it took: each
     /// attempt's time from start to end (a live one's, to now) in ms, and the
     /// tokens its session spent (`null`: its harness's files do not say),
-    /// with their sums.
-    Show { checkout: String, number: u64 },
+    /// with their sums. With `--steps`, it answers too `steps`: where each
+    /// attempt's time went, each step with its start and end in ms (null:
+    /// still open). `heavy`: each heavy command it ran, `asked_at`,
+    /// `started_at` (the queue granted it), `ended_at`, `queued_ms` and
+    /// `ran_ms` apart, and `outcome` (`green`, `red`, `timed_out`; null: a
+    /// hold, or one that has not ended). `landings`: each `done`, its
+    /// `asked_at`, each check that its branch merges while it waited its turn
+    /// (`checked`), each fast gate on its merge (`gates`, as `heavy`: asked at
+    /// its turn in the line), `ended_at`, `outcome` (`landed`, `red`, or the
+    /// status it left landing for), and on a red its `kind` (`no_merge`,
+    /// `gate_red`, `past_limit`, `regenerated`: red on a merge that took
+    /// proving's copy of regenerated records), the `files` it names (those
+    /// that conflict, or the records taken) and `told`, the message that told
+    /// it, with when it reached the session (`reached_at`). `waits`: each wait
+    /// it declared (`worker waiting`); `parks`: each park, behind what its
+    /// issue waits for or on its engine's limit, with why. `messages`: each
+    /// message passed to its session, by its number in `outbox --worker
+    /// <id>`, which holds its text.
+    Show {
+        checkout: String,
+        number: u64,
+        #[arg(long)]
+        steps: bool,
+    },
     /// Changes an issue's title, body or role. A live worker on it gets the
     /// edit at once: its brief is rewritten to the title and body as they
     /// are now, and a body changed is typed at its session as a comment is,
@@ -639,7 +661,8 @@ impl Top {
                     app.issue_add_on(&checkout, &title, &body, waiting, &waits(blocked_by, why.as_deref()), on).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
-                IssueCmd::Show { checkout, number } => app.issue_show(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
                 IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {
