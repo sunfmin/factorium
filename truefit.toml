@@ -487,6 +487,17 @@ covers = [
   { action = "Settled", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
 ]
 
+# heavy-ends' shape, three entries (.truefit/traces/heavy-starts/): each
+# ask's reading and the last start before it are the step's own (`last`),
+# never the queue's records.
+[model.trace]
+q = '[i \in Ids |-> r.state.q[i]]'
+last_start = 'r.state.last_start'
+rules = 'r.state.rules'
+now = 'r.now'
+waiter = '[i \in Ids |-> r.state.waiter[i]]'
+last = 'r.last'
+
 # The queue of resources (SPEC §1.9, factorium#284, #286): the same model
 # with a named resource beside "host", a worker's hold and its window, and
 # the line ordered by declared hold and the starve bound.

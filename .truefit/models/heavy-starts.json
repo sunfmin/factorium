@@ -1,10 +1,42 @@
 {
-  "commit": "fe51aaca5fc3f1ca5a0a480b6f6cd07b290a052e",
+  "commit": "9e4a167dd674ded2aaf260080eb0a227f1a8b836",
   "date": "2026-11-25",
-  "inputs": "3463a9bd7c804710903d31acaa76b9dbd87b87608cfd888016d559e167e537dd",
+  "inputs": "6d274be1f2f264ea8c0e6f35ac82f8447126c26da7ba46de534336c3b679264b",
   "result": "passes",
   "traces": {
-    "accept": [],
-    "reject": []
+    "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-starts/accept/line-move-ahead.jsonl",
+        "result": "allowed",
+        "step": null
+      },
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-starts/accept/settled-beside.jsonl",
+        "result": "allowed",
+        "step": null
+      }
+    ],
+    "reject": [
+      {
+        "breaks": "AtOnce",
+        "file": ".truefit/traces/heavy-starts/reject/oldest-waits.jsonl",
+        "result": "disallowed",
+        "step": 2
+      },
+      {
+        "breaks": "Settled",
+        "file": ".truefit/traces/heavy-starts/reject/unsettled-beside.jsonl",
+        "result": "disallowed",
+        "step": 4
+      },
+      {
+        "breaks": "LineAhead",
+        "file": ".truefit/traces/heavy-starts/reject/worker-before-line-move.jsonl",
+        "result": "disallowed",
+        "step": 4
+      }
+    ]
   }
 }
