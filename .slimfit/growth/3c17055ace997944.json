@@ -1,0 +1,10 @@
+{
+  "tree": "0fde6e9d011bfc45b8a0373a403709ca11930e30+d1fba762150c532c",
+  "lines": 61,
+  "serves": "factorium#310: move the CLI help onto agent-help as stablehand did",
+  "considered": "separate #[command(verbatim_doc_comment)] lines (clap derive has no crate-wide verbatim switch, so each documented item needs it); four group constants; the manual test in its own scenario file",
+  "reviewer": "codex:01a2133c-60dd-7222-8193-1d9d8b4e5def:default",
+  "author": "claude-code:db6efaf2-9e66-579b-aca3-9455560a287a:opus",
+  "cut": "In crates/factorium/src/cli.rs, inline the single-use WORKER, WATCH, and HOOK headings, merge CheckoutCmd::Edit’s two command attributes, and put the manual test beside manual() as a #[cfg(test)] test that reuses one Help value and keeps all three checks. Delete crates/factorium/tests/scenarios/manual.rs and its module declaration in crates/factorium/tests/scenarios/main.rs.",
+  "answer": "Inlined WORKER, WATCH and HOOK and merged checkout edit attributes (0fde6e9); the test now reuses one Help value. Kept the test in tests/scenarios: the factorium crate builds its bin and lib with test = false (tested only from the outermost layer), so a #[cfg(test)] test in cli.rs would never run."
+}
