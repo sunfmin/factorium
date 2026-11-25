@@ -1,0 +1,10 @@
+{
+  "tree": "a5162ffd9474c6f42481bd05df3af76d1bd6e69e+d1fba762150c532c",
+  "lines": 54,
+  "serves": "factorium#307",
+  "considered": "merge_from in the landing clone (needs a work tree and the clone's reset, so not usable per waiting branch each tick); the moved-red logic of land(), now one not_merging both paths share; run_with, now one runner with an extra accepted exit code",
+  "reviewer": "codex:01a2124e-1280-76e0-bb78-1a64f37cf707:default",
+  "author": "claude-code:8715e394-ab0c-5f80-9252-0e5c8d81d652:opus",
+  "cut": "In crates/factorium/src/line.rs, iterate the filtered landing requests directly and inspect the first before fetching, dropping the intermediate worker-ID vector. In crates/host/src/git.rs, have the shared Git runner accept an optional additional exit code and return the status with stdout, so merges can accept exit 1 and reuse run_with’s error formatting. In SPEC.md, replace the repeated timing rules in step 5 with a reference to the Landing definition.",
+  "answer": "Made all three: the waiting landings are a peekable filter and the tip is fetched only when one waits; run_with is run_coded(args, env, None) and merges accepts exit 1 through it; step 5 refers to §1.12. Also inlined Moving::lands and dropped the memo's pruning."
+}

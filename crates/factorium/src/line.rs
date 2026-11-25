@@ -7,7 +7,10 @@
 //! landing's fast gate, a promotion's slow gate, a cut's steps — beside its
 //! ticks ([`Moving`]), so no tick waits for one (factorium#231): the next
 //! tick finds how they ended and finishes the move. A checkout's moves go one at a time: none
-//! of its moves is carried while one of them runs beside the ticks.
+//! of its moves is carried while one of them runs beside the ticks. A landing waiting its turn
+//! is checked for its merge onto the proving tip on the tick after `done`, and again each time
+//! its branch or the tip moves: one that does not merge is red then, not at its turn
+//! (factorium#307).
 
 mod cut;
 
@@ -113,6 +116,8 @@ impl App {
             into.extend(self.moved(*moving, ended).await?.ok());
         }
         lines.extend(self.cuts_proven().await?);
+        // After a landing pushed, before the next lands: one that no longer merges leaves the line.
+        landed.extend(self.check_waiting(checkouts).await?);
         let free = |c: &&Checkout| !self.beside_runs(|f| f.moves(&c.name)) && !self.cut_proving(&c.name);
         for c in checkouts.iter().filter(free).filter(|c| !landing_ended.contains(&c.name)) {
             landed.extend(self.carry(c, Move::Land, false).await?.ok());
@@ -178,6 +183,60 @@ impl App {
         }
     }
 
+    /// Checks each landing that waits its turn (asked, its merge not running beside the ticks)
+    /// for its merge onto its checkout's proving tip, unless its branch and the tip are as when
+    /// it last merged: red now, each that does not merge (factorium#307).
+    async fn check_waiting(&self, checkouts: &[Checkout]) -> Answer<Vec<Value>> {
+        let live = self.live_workers().await?;
+        let asks: Vec<_> = live.iter().filter(|w| w.state.status == w::Status::Landing).collect();
+        let lands = |f: &For, w: Uuid| matches!(f, For::Line(m) if matches!(&m.then, Then::Land { landing, .. } if landing.worker == w));
+        let running = |w: Uuid| self.beside_runs(|f| lands(f, w));
+        let mut reds = Vec::new();
+        for c in checkouts {
+            let mut waiting = asks.iter().filter(|a| a.checkout == c.name && !running(a.worker)).peekable();
+            if waiting.peek().is_none() {
+                continue;
+            }
+            let git = self.host.git(&c.path);
+            let tip = git.fetch(&c.proving).map_err(fail("git"))?;
+            let records = self.declared(&git, &tip)?.gate.regenerated;
+            for worker in waiting.map(|a| a.worker) {
+                let wk = self.state::<Workers>(worker).await?;
+                let Some(st) = wk.started.as_ref() else { continue };
+                let head = git.sha(&st.branch).map_err(fail("git"))?;
+                let at = (tip.clone(), head);
+                if self.memory.lock().unwrap().merges.get(&worker) == Some(&at) {
+                    continue;
+                }
+                match git.merges(&tip, &st.branch, &records) {
+                    Ok(()) => {
+                        self.memory.lock().unwrap().merges.insert(worker, at);
+                    }
+                    Err(e) => reds.push(self.not_merging(&git, worker, &wk, &tip, e).await?),
+                }
+            }
+        }
+        Ok(reds)
+    }
+
+    /// The red of `worker`, `wk`, whose branch does not merge onto the proving `tip` of the
+    /// checkout `git`, and `e` says why: told as for a first red when proving moved since the
+    /// last red's tip, which the branch now holds (factorium#171).
+    async fn not_merging(&self, git: &Git, worker: Uuid, wk: &w::Worker, tip: &str, e: String) -> Answer<Value> {
+        let branch = wk.started.as_ref().map(|st| st.branch.as_str()).unwrap_or_default();
+        let moved =
+            wk.red_tip.as_deref().filter(|p1| *p1 != tip && git.is_ancestor(p1, tip) && git.is_ancestor(p1, branch));
+        let since = match moved.map(|p1| (p1, git.landings(p1, tip))) {
+            Some((p1, Ok(landed))) => format!(" Proving moved since {p1}: {}.", landed.join("; ")),
+            _ => String::new(),
+        };
+        let why = format!(
+            "your branch does not merge onto the proving tip {tip}: {e}.{since} Merge or rebase onto it and resolve."
+        );
+        let moved_max = self.settings().await?.get(Setting::MovedRedsMax) as u32;
+        self.red(w::Red { worker, why, tip: Some(tip.to_string()), moved: moved.is_some(), moved_max }).await
+    }
+
     /// Lands `worker` onto the proving tip of `c`.
     async fn land(&self, c: &Checkout, worker: Uuid) -> Answer<Did> {
         let wk = self.state::<Workers>(worker).await?;
@@ -194,28 +253,7 @@ impl App {
         let head = git.sha(&st.branch).map_err(fail("git"))?;
         let (merged, regenerated) = match here.merge_from(Path::new(&c.path), &st.branch, &message, &records) {
             Ok(merged) => merged,
-            Err(e) => {
-                // Proving moved since the last red's tip, which the branch now holds (#171).
-                let moved = wk
-                    .red_tip
-                    .as_deref()
-                    .filter(|p1| *p1 != tip && git.is_ancestor(p1, &tip) && git.is_ancestor(p1, &st.branch));
-                let since = match moved.map(|p1| (p1, git.landings(p1, &tip))) {
-                    Some((p1, Ok(landed))) => format!(" Proving moved since {p1}: {}.", landed.join("; ")),
-                    _ => String::new(),
-                };
-                let why = format!(
-                    "your branch does not merge onto the proving tip {tip}: {e}.{since} Merge or rebase onto it and resolve."
-                );
-                let red = w::Red {
-                    worker,
-                    why,
-                    tip: Some(tip.clone()),
-                    moved: moved.is_some(),
-                    moved_max: self.settings().await?.get(Setting::MovedRedsMax) as u32,
-                };
-                return self.red(red).await.map(Ok);
-            }
+            Err(e) => return self.not_merging(&git, worker, &wk, &tip, e).await.map(Ok),
         };
         let landing = Landing { worker, tip, head, merged, message, regenerated };
         let then = Then::Land { landing: landing.clone(), dir: here.dir.clone() };

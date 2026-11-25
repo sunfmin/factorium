@@ -1,0 +1,33 @@
+{
+  "tree": "a5162ffd9474c6f42481bd05df3af76d1bd6e69e+d1fba762150c532c",
+  "picker": "codex:01a21250-1fd8-75d0-a04b-99dc274bf0bf:default",
+  "author": "claude-code:8715e394-ab0c-5f80-9252-0e5c8d81d652:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/line.rs:228:86: replace && with || in App::not_merging",
+        "why": "A second conflict after proving advances could be counted as a first red even when the worker never incorporated the previous red tip.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:228:58: replace && with || in App::not_merging",
+        "why": "A rewritten proving tip could reset the red streak merely because its SHA differs from the previous red tip.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:230:13: delete match arm Some((p1, Ok(landed))) in App::not_merging",
+        "why": "The shown assertions could pass even if the worker's red message omits which changes landed since the previous red.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:196:75: replace && with || in App::check_waiting",
+        "why": "The single-checkout scenarios leave room for a waiting worker's branch to be looked up in a different checkout.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

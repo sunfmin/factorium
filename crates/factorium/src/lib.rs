@@ -209,6 +209,10 @@ struct Memory {
     beside: Vec<heavy::Beside>,
     /// The cuts whose installed binary is proven beside the ticks, recorded once it ends.
     proving: Vec<line::Proving>,
+    /// Each landing waiting its turn that merged onto the proving tip: that tip and its
+    /// branch head then, not checked again until one of them moves (factorium#307). An entry
+    /// is never wrong, so none is taken out: one per worker that waited, in this process.
+    merges: std::collections::BTreeMap<Uuid, (String, String)>,
     /// The upgrade of the daemon's own formula from the tap, running beside the ticks.
     upgrading: Option<tokio::task::JoinHandle<Result<String, String>>>,
     /// The linked binary not swapped to, as its proof failed, or none; for the tick to record.
