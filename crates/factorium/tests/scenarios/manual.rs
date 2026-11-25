@@ -12,7 +12,8 @@ use clap::CommandFactory;
 #[test]
 fn the_manual_is_whole() {
     cli::Cli::command().debug_assert();
-    agent_help::check(&cli::manual()).unwrap();
-    let all = cli::manual().manual().unwrap();
+    let manual = cli::manual();
+    agent_help::check(&manual).unwrap();
+    let all = manual.manual().unwrap();
     assert!(!all.contains("{const:"), "{all}");
 }

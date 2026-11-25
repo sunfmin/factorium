@@ -12,14 +12,9 @@ use factorium_domain::issue::{Blocker, Wait};
 use factorium_domain::when;
 use factum::Uuid;
 
-/// Who runs a command, its group in the manual: the person who owns the host.
+/// Who runs a command, its group in the manual: the person who owns the
+/// host runs every command but `worker`, `watch` and the hook's `guard`.
 const OWNER: &str = "Run by the owner";
-/// A worker, in its session.
-const WORKER: &str = "Run by a worker";
-/// The watch, in its session.
-const WATCH: &str = "Run by the watch";
-/// A session's hook, before each tool call.
-const HOOK: &str = "Run by a session's hook";
 
 /// The manual: clap's command tree, each command's text read from its doc
 /// comment as written.
@@ -129,13 +124,13 @@ pub enum Top {
         remove: bool,
     },
     /// A worker's commands.
-    #[command(subcommand, next_help_heading = WORKER, verbatim_doc_comment)]
+    #[command(subcommand, next_help_heading = "Run by a worker", verbatim_doc_comment)]
     Worker(WorkerCmd),
     /// The watch's commands.
-    #[command(subcommand, next_help_heading = WATCH, verbatim_doc_comment)]
+    #[command(subcommand, next_help_heading = "Run by the watch", verbatim_doc_comment)]
     Watch(WatchCmd),
     /// The hook a session runs before each tool call: refuses what its session may not run.
-    #[command(hide = true, next_help_heading = HOOK, verbatim_doc_comment)]
+    #[command(hide = true, next_help_heading = "Run by a session's hook", verbatim_doc_comment)]
     Guard { harness: String },
 }
 
@@ -168,8 +163,7 @@ pub enum CheckoutCmd {
         role: Option<String>,
     },
     /// Names a checkout's default role (`--role`), or takes it away (`--no-role`), for the workers that start from now; turns its idle work off on this host (`--no-idle`), or back on (`--idle`).
-    #[command(verbatim_doc_comment)]
-    #[command(group(clap::ArgGroup::new("edit").required(true).multiple(true)
+    #[command(verbatim_doc_comment, group(clap::ArgGroup::new("edit").required(true).multiple(true)
         .args(["role", "no_role", "idle", "no_idle"])))]
     Edit {
         name: String,
