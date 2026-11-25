@@ -30,3 +30,7 @@ truefit model
 truefit model heavy-run --trace models/heavy-run.jsonl
 truefit model worktrees-run --trace models/worktrees-run.jsonl
 truefit model line-run --trace models/line-run.jsonl
+
+# Each document in its one home, within its budget, and no tracked file
+# citing this host's tracker anew (docfit.toml; `docfit check --help`).
+docfit check
