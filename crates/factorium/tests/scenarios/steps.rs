@@ -109,3 +109,34 @@ async fn a_park_behind_what_its_issue_waits_for_records_why() {
     assert_eq!(parks[0]["why"], "waits for #2: needs b's parser", "{parks}");
     assert_eq!(parks[0]["ended_at"], Value::Null, "{parks}");
 }
+
+#[tokio::test]
+async fn a_landing_past_its_gate_s_limit_then_green_records_each_landing_with_its_own_gate() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    w.done(&wk, "factorium.toml", "[gate]\nfast = \"sleep 5\"\nfast_limit = 1\n").await;
+    w.tick().await;
+    // Its landings' gates are told apart by when they were asked: the next `done` comes later.
+    w.advance(1);
+    w.done(&wk, "factorium.toml", "[gate]\nfast = \"true\"\n").await;
+    w.tick().await;
+
+    let landings = steps_of(&w, 1).await["landings"].clone();
+    let [past, green] = landings.as_array().unwrap().as_slice() else { panic!("two landings: {landings}") };
+    assert_eq!(past["red"]["kind"], "past_limit", "{landings}");
+    let gates = |l: &Value| l["gates"].as_array().unwrap().iter().map(|g| g["outcome"].clone()).collect::<Vec<_>>();
+    assert_eq!(gates(past), [json!("timed_out")], "each landing its own gate: {landings}");
+    assert_eq!((gates(green), green["outcome"].clone()), (vec![json!("green")], json!("landed")), "{landings}");
+}
+
+#[tokio::test]
+async fn a_wait_it_declared_ends_when_the_watch_sends_it_on() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    w.app.worker_waiting(id(&wk), "a download", 60 * 60_000).await.unwrap();
+    w.advance(1);
+    w.app.watch_restart(id(&wk), "go on", false).await.unwrap();
+
+    let wait = steps_of(&w, 1).await["waits"][0].clone();
+    assert_eq!(ms(&wait, "ended_at") - ms(&wait, "at"), 60_000, "{wait}");
+}
