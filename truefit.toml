@@ -474,7 +474,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "ce89ebed2a61b342434d5b46c4866b0cda7e4735"
+commit = "9e4a167dd674ded2aaf260080eb0a227f1a8b836"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
