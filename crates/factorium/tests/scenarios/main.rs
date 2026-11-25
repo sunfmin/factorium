@@ -43,6 +43,7 @@ mod kit;
 mod limit;
 mod line;
 mod lines;
+mod manual;
 mod moved;
 mod needs;
 mod not_before;

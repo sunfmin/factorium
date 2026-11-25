@@ -1,26 +1,38 @@
 //! The command line: what the binary parses, which is its manual (SPEC
-//! §4), and the one [`App`] call each command makes, with the readings of
+//! §4), assembled by agent-help from the doc comments here ([`manual`]), and the one [`App`] call each command makes, with the readings of
 //! its arguments. A new command or flag lands here and in the module behind
 //! its call; how the process runs is `main.rs`'s (docs/adr/0002).
 
 use std::io::Read;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
 use factorium_domain::issue::{Blocker, Wait};
 use factorium_domain::when;
 use factum::Uuid;
 
-/// Runs AI coding agents on one machine while nobody watches: issues from a
-/// local tracker go to workers in their own worktrees, green work lands on a
-/// proving branch, the proving branch is promoted to the base, versions are
-/// cut, and a resident watch deals with what goes wrong. Every answer is JSON.
+/// Who runs a command, its group in the manual: the person who owns the host.
+const OWNER: &str = "Run by the owner";
+/// A worker, in its session.
+const WORKER: &str = "Run by a worker";
+/// The watch, in its session.
+const WATCH: &str = "Run by the watch";
+/// A session's hook, before each tool call.
+const HOOK: &str = "Run by a session's hook";
+
+/// The manual: clap's command tree, each command's text read from its doc
+/// comment as written.
+pub fn manual() -> agent_help::Help {
+    agent_help::Help::new(Cli::command())
+}
+
+/// Runs AI coding agents on one machine while nobody watches: issues from a local tracker go to workers in their own worktrees, green work lands on a proving branch, the proving branch is promoted to the base, versions are cut, and a resident watch deals with what goes wrong. Every answer is JSON.
 #[derive(Parser)]
-#[command(name = "factorium", version)]
+#[command(name = "factorium", version, verbatim_doc_comment)]
 pub struct Cli {
     /// The database. Default: $XDG_DATA_HOME/factorium/factorium.db.
-    #[arg(long, global = true, env = DB_ENV)]
+    #[arg(long, global = true, env = DB_ENV, verbatim_doc_comment)]
     pub db: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Top,
@@ -28,88 +40,65 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`; refused
-    /// while another runs. At start it moves the kit's commands to stablehand, once,
-    /// and looks for git, orca and the programs of the commands stablehand
-    /// keeps on its PATH; what is missing is a finding. When a cut
-    /// installs the formula it runs from, it runs the new binary in its place
-    /// between ticks, as the same pid. As a service, launchd runs it.
+    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Run,
-    /// Stops the daemon; run as the service, unloads the service, and no
-    /// command loads it back until `service install`.
+    /// Stops the daemon; run as the service, unloads the service, and no command loads it back until `service install`.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Stop,
     /// The daemon as a launchd agent, kept running and restarted when it exits.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Service(ServiceCmd),
     /// The repos on the list.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Checkout(CheckoutCmd),
     /// The host's issues.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Issue(IssueCmd),
     /// Answers the live workers (`--all`: the ended ones too).
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Workers {
         #[arg(long)]
         all: bool,
     },
-    /// Answers what was passed to a worker's session (`--worker`) or the
-    /// watch's, oldest first: who from, the line typed, and how its
-    /// delivery went (typed, submitted, queued, brief, not_typed, missed).
+    /// Answers what was passed to a worker's session (`--worker`) or the watch's, oldest first: who from, the line typed, and how its delivery went (typed, submitted, queued, brief, not_typed, missed).
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Outbox {
         #[arg(long)]
         worker: Option<Uuid>,
     },
-    /// Answers the findings, each with its fix; the reading; what the
-    /// watch's reports leave to the owner (`human`); and `asks`: every issue
-    /// that waits for a person, oldest first, with its title, its question
-    /// (its body's first line after any "Based on …" line), when it started
-    /// waiting and who left it so (`watch`, `session`, or `added`
-    /// `--waiting-for-human`). Answer one with `issue ready` (do it),
-    /// `issue close` (don't), or `issue comment` then `issue ready`; and
-    /// `decided`: the Decided records made since `decided --read`.
+    /// Answers the findings, each with its fix; the reading; what the watch's reports leave to the owner (`human`); and `asks`: every issue that waits for a person, oldest first, with its title, its question (its body's first line after any "Based on …" line), when it started waiting and who left it so (`watch`, `session`, or `added` `--waiting-for-human`). Answer one with `issue ready` (do it), `issue close` (don't), or `issue comment` then `issue ready`; and `decided`: the Decided records made since `decided --read`.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Doctor,
-    /// Answers the Decided records of the last 7 days, newest first, each
-    /// with its number (`id`, D<n>), issue, who, what, options, chose, undo
-    /// and when; `decided D17` (or `17`) answers that one record, whatever
-    /// its age and whether it was read; `--read` marks every one made until
-    /// now read, so doctor's `decided` leaves them out.
+    /// Answers the Decided records of the last 7 days, newest first, each with its number (`id`, D<n>), issue, who, what, options, chose, undo and when; `decided D17` (or `17`) answers that one record, whatever its age and whether it was read; `--read` marks every one made until now read, so doctor's `decided` leaves them out.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Decided {
         /// One record's number: `D17`, or `17`.
+        #[arg(verbatim_doc_comment)]
         id: Option<String>,
         #[arg(long, conflicts_with = "id")]
         read: bool,
     },
-    /// Removes a worker's worktree that no open issue's attempt owns, as
-    /// doctor names it, with its terminals: what it holds that is nowhere
-    /// else (commits, and changes, committed first) is kept on
-    /// `<branch>-abandoned`, named in a comment on its issue. Refused for
-    /// any other path.
+    /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Discard { worktree: PathBuf },
-    /// Promotes a checkout's proving branch to its base now: slow gate, then
-    /// a fast-forward.
+    /// Promotes a checkout's proving branch to its base now: slow gate, then a fast-forward.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Cut { checkout: String },
-    /// Runs a checkout's idle work now (SPEC §1.16), as `promote` and `cut`
-    /// move the line now: its steps, then its tasks line, in its own clone
-    /// at the base's tip, without waiting for an idle host or `every`.
-    /// Through the heavy queue at background priority, it yields to nothing
-    /// but the hold bound; `unqueue` ends it whole. Recorded as any run is
-    /// (its start begins `every` again), its tasks filed by the same rule.
-    /// Waits for it and answers its record: tip, at, green, took_ms, tail,
-    /// filed. Refused when the base declares no `[idle]`, or while idle work
-    /// of any checkout runs or waits on the host (one at a time), naming
-    /// it and its `unqueue`.
+    /// Runs a checkout's idle work now (SPEC §1.16), as `promote` and `cut` move the line now: its steps, then its tasks line, in its own clone at the base's tip, without waiting for an idle host or `every`. Through the heavy queue at background priority, it yields to nothing but the hold bound; `unqueue` ends it whole. Recorded as any run is (its start begins `every` again), its tasks filed by the same rule. Waits for it and answers its record: tip, at, green, took_ms, tail, filed. Refused when the base declares no `[idle]`, or while idle work of any checkout runs or waits on the host (one at a time), naming it and its `unqueue`.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Idle { checkout: String },
-    /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy
-    /// queue, waiting or running: one that does not move and holds the rest
-    /// up. A running one is ended with every process it started. Its
-    /// owner, if it still asks, queues again behind the rest.
+    /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy queue, waiting or running: one that does not move and holds the rest up. A running one is ended with every process it started. Its owner, if it still asks, queues again behind the rest.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Unqueue { entry: Uuid },
     /// The host's heavy queue, for a program of yours that is not a worker.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Heavy(HeavyCmd),
     /// Holds a checkout's landings (`--why`), or releases them (`--release`).
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Hold {
         checkout: String,
         #[arg(long, required_unless_present = "release")]
@@ -117,28 +106,16 @@ pub enum Top {
         #[arg(long)]
         release: bool,
     },
-    /// The kit: the checkouts pinned to one engine. The engine, model and
-    /// account a session starts on are stablehand's pick (`stablehand
-    /// pick`), walking its order (`stablehand order show`), and so is the
-    /// command each engine starts with (`stablehand command set|show`),
-    /// followed by factorium's own arguments: an engine stablehand keeps
-    /// none for starts on its bare program with its stock arguments. With
-    /// stablehand missing or failing, claude-code alone starts, by `claude
-    /// --dangerously-skip-permissions`, on the host user's own login.
-    #[command(subcommand)]
+    /// The kit: the checkouts pinned to one engine. The engine, model and account a session starts on are stablehand's pick (`stablehand pick`), walking its order (`stablehand order show`), and so is the command each engine starts with (`stablehand command set|show`), followed by factorium's own arguments: an engine stablehand keeps none for starts on its bare program with its stock arguments. With stablehand missing or failing, claude-code alone starts, by `claude --dangerously-skip-permissions`, on the host user's own login.
+    #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Kit(KitCmd),
-    /// Answers the engine accounts as stablehand's books say now: the
-    /// `accounts` of `stablehand status`, each with its windows and pace.
-    /// stablehand is their one home: none is kept here.
+    /// Answers the engine accounts as stablehand's books say now: the `accounts` of `stablehand status`, each with its windows and pace. stablehand is their one home: none is kept here.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Accounts,
     /// Answers the settings; with a name, one; with a value, sets it.
     ///
-    /// With `--resource <name>`, the host's named resources instead (a
-    /// device every checkout's workers share): with `--slots`, declares it
-    /// (how many hold it at once; 1 is a mutex) and `--note` (what it is);
-    /// with `--remove`, takes it away. Answers every resource declared.
-    /// A change of slots applies from the next ask for it. `host`, the
-    /// machine's load by the room rule, is never declared.
+    /// With `--resource <name>`, the host's named resources instead (a device every checkout's workers share): with `--slots`, declares it (how many hold it at once; 1 is a mutex) and `--note` (what it is); with `--remove`, takes it away. Answers every resource declared. A change of slots applies from the next ask for it. `host`, the machine's load by the room rule, is never declared.
+    #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Settings {
         name: Option<String>,
         value: Option<u64>,
@@ -152,35 +129,33 @@ pub enum Top {
         remove: bool,
     },
     /// A worker's commands.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = WORKER, verbatim_doc_comment)]
     Worker(WorkerCmd),
     /// The watch's commands.
-    #[command(subcommand)]
+    #[command(subcommand, next_help_heading = WATCH, verbatim_doc_comment)]
     Watch(WatchCmd),
-    /// The hook a session runs before each tool call: refuses what its
-    /// session may not run.
-    #[command(hide = true)]
+    /// The hook a session runs before each tool call: refuses what its session may not run.
+    #[command(hide = true, next_help_heading = HOOK, verbatim_doc_comment)]
     Guard { harness: String },
 }
 
 #[derive(Subcommand)]
 pub enum ServiceCmd {
-    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
-    /// and this database, and loads it (in place of one loaded before).
-    /// Run it from a shell that finds git, orca, stablehand and the engines' programs.
-    /// A boot loads no Background agent, so after one the first other
-    /// command (doctor among them) loads it again, unless `stop` stopped it.
+    /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH and this database, and loads it (in place of one loaded before). Run it from a shell that finds git, orca, stablehand and the engines' programs. A boot loads no Background agent, so after one the first other command (doctor among them) loads it again, unless `stop` stopped it.
+    #[command(verbatim_doc_comment)]
     Install,
     /// Unloads the agent and deletes its file.
+    #[command(verbatim_doc_comment)]
     Remove,
     /// Answers the agent's definition as `install` would write it.
+    #[command(verbatim_doc_comment)]
     Show,
 }
 
 #[derive(Subcommand)]
 pub enum CheckoutCmd {
-    /// Puts a repo on the list. It needs an `origin` holding the base; a
-    /// proving branch origin lacks is made at the base.
+    /// Puts a repo on the list. It needs an `origin` holding the base; a proving branch origin lacks is made at the base.
+    #[command(verbatim_doc_comment)]
     Add {
         name: String,
         path: PathBuf,
@@ -188,15 +163,12 @@ pub enum CheckoutCmd {
         base: String,
         #[arg(long, default_value = "proving")]
         proving: String,
-        /// Its default role: a directory, by its absolute path, that a
-        /// worker of an issue naming no role starts with (an issue's own
-        /// role wins).
-        #[arg(long, value_name = "DIR")]
+        /// Its default role: a directory, by its absolute path, that a worker of an issue naming no role starts with (an issue's own role wins).
+        #[arg(long, value_name = "DIR", verbatim_doc_comment)]
         role: Option<String>,
     },
-    /// Names a checkout's default role (`--role`), or takes it away
-    /// (`--no-role`), for the workers that start from now; turns its idle
-    /// work off on this host (`--no-idle`), or back on (`--idle`).
+    /// Names a checkout's default role (`--role`), or takes it away (`--no-role`), for the workers that start from now; turns its idle work off on this host (`--no-idle`), or back on (`--idle`).
+    #[command(verbatim_doc_comment)]
     #[command(group(clap::ArgGroup::new("edit").required(true).multiple(true)
         .args(["role", "no_role", "idle", "no_idle"])))]
     Edit {
@@ -206,120 +178,71 @@ pub enum CheckoutCmd {
         #[arg(long)]
         no_role: bool,
         /// Its idle work runs on this host, as the repo's `[idle]` declares.
-        #[arg(long, conflicts_with = "no_idle")]
+        #[arg(long, conflicts_with = "no_idle", verbatim_doc_comment)]
         idle: bool,
-        /// Its idle work runs not on this host: no idle run, no `tasks_bound`
-        /// run, no task filed; `factorium idle` by hand still runs it.
-        #[arg(long)]
+        /// Its idle work runs not on this host: no idle run, no `tasks_bound` run, no task filed; `factorium idle` by hand still runs it.
+        #[arg(long, verbatim_doc_comment)]
         no_idle: bool,
     },
     /// Takes a repo off the list.
+    #[command(verbatim_doc_comment)]
     Remove { name: String },
     /// Answers the checkouts on the list.
+    #[command(verbatim_doc_comment)]
     List,
 }
 
 #[derive(Subcommand)]
 pub enum IssueCmd {
     /// Makes an issue, numbered one past the checkout's last. Answers it.
-    #[command(group = clap::ArgGroup::new("waits").multiple(true).args(["waiting_for_human", "blocked_by"]))]
+    #[command(group = clap::ArgGroup::new("waits").multiple(true).args(["waiting_for_human", "blocked_by"]), verbatim_doc_comment)]
     Add {
         checkout: String,
         title: String,
         #[arg(long)]
         body: Option<String>,
         /// Reads the body from this file; `-` reads stdin.
-        #[arg(long, conflicts_with = "body")]
+        #[arg(long, conflicts_with = "body", verbatim_doc_comment)]
         body_file: Option<PathBuf>,
-        /// Waits for a person from the start: no worker takes it until a
-        /// person readies it.
-        #[arg(long)]
+        /// Waits for a person from the start: no worker takes it until a person readies it.
+        #[arg(long, verbatim_doc_comment)]
         waiting_for_human: bool,
-        /// Why it waits: for a person, as `wait-for-human --why` gives one,
-        /// shown in doctor's `asks`; and for each `--blocked-by`, required
-        /// with it, kept with each block and shown in `issue show`'s
-        /// `waits` and doctor's `parked`.
-        #[arg(long, requires = "waits")]
+        /// Why it waits: for a person, as `wait-for-human --why` gives one, shown in doctor's `asks`; and for each `--blocked-by`, required with it, kept with each block and shown in `issue show`'s `waits` and doctor's `parked`.
+        #[arg(long, requires = "waits", verbatim_doc_comment)]
         why: Option<String>,
-        /// An issue it waits for, repeat for each: `N` of its checkout;
-        /// `<checkout>#N` of another, until it lands; `<checkout>#N@cut`,
-        /// until a cut of that checkout holds its landing (and installs it).
-        /// Refused without `--why`: the code it needs from that issue. Two
-        /// issues that only use the same device or host do not block each
-        /// other: that is a resource (`settings --resource`).
-        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        /// An issue it waits for, repeat for each: `N` of its checkout; `<checkout>#N` of another, until it lands; `<checkout>#N@cut`, until a cut of that checkout holds its landing (and installs it). Refused without `--why`: the code it needs from that issue. Two issues that only use the same device or host do not block each other: that is a resource (`settings --resource`).
+        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]", verbatim_doc_comment)]
         blocked_by: Vec<Blocker>,
-        /// No worker takes it before this time: RFC 3339 with its offset
-        /// (`2026-11-23T14:34:37+09:00`, or `Z`), or ms since the epoch.
-        #[arg(long, value_name = "TIME", value_parser = when::parse)]
+        /// No worker takes it before this time: RFC 3339 with its offset (`2026-11-23T14:34:37+09:00`, or `Z`), or ms since the epoch.
+        #[arg(long, value_name = "TIME", value_parser = when::parse, verbatim_doc_comment)]
         not_before: Option<i64>,
-        /// The role its worker plays: a directory, by its absolute path,
-        /// whose rules (CLAUDE.md) and skills (.claude/skills) its worker
-        /// starts with beside factorium's worker rules. Read, never written.
-        /// One holding a rolesmith.toml is checked before each start
-        /// (`rolesmith doctor --project DIR`), a program it lacks installed;
-        /// while it lacks anything its issues wait, and doctor names what.
-        #[arg(long, value_name = "DIR")]
+        /// The role its worker plays: a directory, by its absolute path, whose rules (CLAUDE.md) and skills (.claude/skills) its worker starts with beside factorium's worker rules. Read, never written. One holding a rolesmith.toml is checked before each start (`rolesmith doctor --project DIR`), a program it lacks installed; while it lacks anything its issues wait, and doctor names what.
+        #[arg(long, value_name = "DIR", verbatim_doc_comment)]
         role: Option<String>,
-        /// The engine account its worker starts on, by its name in
-        /// stablehand, by the command stablehand keeps for its engine. Refused
-        /// unless `stablehand account show NAME` knows it and a session may
-        /// start on it here. While stablehand's pick passes it over (at its
-        /// limit, or full) its issue waits.
-        #[arg(long, value_name = "NAME")]
+        /// The engine account its worker starts on, by its name in stablehand, by the command stablehand keeps for its engine. Refused unless `stablehand account show NAME` knows it and a session may start on it here. While stablehand's pick passes it over (at its limit, or full) its issue waits.
+        #[arg(long, value_name = "NAME", verbatim_doc_comment)]
         account: Option<String>,
-        /// The model its worker starts on, by the id its engine starts it
-        /// with (`agy models`: `claude-opus-5-5-high`): stablehand's pick
-        /// is asked for it (`stablehand pick --model`), tried after the
-        /// order's own where the order does not list it.
-        #[arg(long, value_name = "MODEL")]
+        /// The model its worker starts on, by the id its engine starts it with (`agy models`: `claude-opus-5-5-high`): stablehand's pick is asked for it (`stablehand pick --model`), tried after the order's own where the order does not list it.
+        #[arg(long, value_name = "MODEL", verbatim_doc_comment)]
         model: Option<String>,
     },
     /// Answers the open issues, of one checkout or of all.
+    #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
         #[arg(long)]
         closed: bool,
     },
-    /// Answers one issue, with `waits`, each thing it waits for (`on`), why
-    /// (a block made before whys were asked for: "(no reason given)"; its
-    /// time: null) and how it was met (`met`, null while it is not); with
-    /// its comments: what the owner, its workers,
-    /// the watch and factorium said about it, each with who and when (ms);
-    /// the role and account it names; and `spent`, what it took: each
-    /// attempt's time from start to end (a live one's, to now) in ms, and the
-    /// tokens its session spent (`null`: its harness's files do not say),
-    /// with their sums. With `--steps`, each attempt answers too `steps`:
-    /// where its time went, each step with its start and end in ms (null:
-    /// still open). `heavy`: each heavy command it ran, `asked_at`,
-    /// `started_at` (the queue granted it), `ended_at`, `queued_ms` and
-    /// `ran_ms` apart, and `outcome` (`green`, `red`, `timed_out`; null: a
-    /// hold, or one that has not ended). `landings`: each `done`, its
-    /// `asked_at`, each check that its branch merges while it waited its turn
-    /// (`checked`), each fast gate on its merge (`gates`, as `heavy`: asked at
-    /// its turn in the line), `ended_at`, `outcome` (`landed`, `red`, or the
-    /// status it left landing for), and on a red its `kind` (`no_merge`,
-    /// `gate_red`, `past_limit`, `regenerated`: red on a merge that took
-    /// proving's copy of regenerated records), the `files` it names (those
-    /// that conflict, or the records taken) and `told`, the message that told
-    /// it, with when it reached the session (`reached_at`). `waits`: each wait
-    /// it declared (`worker waiting`); `parks`: each park, behind what its
-    /// issue waits for or on its engine's limit, with why. `messages`: each
-    /// message passed to its session, by its number in `outbox --worker
-    /// <id>`, which holds its text.
+    /// Answers one issue, with `waits`, each thing it waits for (`on`), why (a block made before whys were asked for: "(no reason given)"; its time: null) and how it was met (`met`, null while it is not); with its comments: what the owner, its workers, the watch and factorium said about it, each with who and when (ms); the role and account it names; and `spent`, what it took: each attempt's time from start to end (a live one's, to now) in ms, and the tokens its session spent (`null`: its harness's files do not say), with their sums. With `--steps`, each attempt answers too `steps`: where its time went, each step with its start and end in ms (null: still open). `heavy`: each heavy command it ran, `asked_at`, `started_at` (the queue granted it), `ended_at`, `queued_ms` and `ran_ms` apart, and `outcome` (`green`, `red`, `timed_out`; null: a hold, or one that has not ended). `landings`: each `done`, its `asked_at`, each check that its branch merges while it waited its turn (`checked`), each fast gate on its merge (`gates`, as `heavy`: asked at its turn in the line), `ended_at`, `outcome` (`landed`, `red`, or the status it left landing for), and on a red its `kind` (`no_merge`, `gate_red`, `past_limit`, `regenerated`: red on a merge that took proving's copy of regenerated records), the `files` it names (those that conflict, or the records taken) and `told`, the message that told it, with when it reached the session (`reached_at`). `waits`: each wait it declared (`worker waiting`); `parks`: each park, behind what its issue waits for or on its engine's limit, with why. `messages`: each message passed to its session, by its number in `outbox --worker <id>`, which holds its text.
+    #[command(verbatim_doc_comment)]
     Show {
         checkout: String,
         number: u64,
         #[arg(long)]
         steps: bool,
     },
-    /// Changes an issue's title, body or role. A live worker on it gets the
-    /// edit at once: its brief is rewritten to the title and body as they
-    /// are now, and a body changed is typed at its session as a comment is,
-    /// telling it to read its brief again (a waiting worker's brief is
-    /// rewritten, and it is not typed at). The answer's `delivery` says how
-    /// a changed body reached it (`brief`: only its brief), `undelivered`
-    /// why it did not.
+    /// Changes an issue's title, body or role. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
+    #[command(verbatim_doc_comment)]
     Edit {
         checkout: String,
         number: u64,
@@ -328,27 +251,25 @@ pub enum IssueCmd {
         #[arg(long)]
         body: Option<String>,
         /// Reads the body from this file; `-` reads stdin.
-        #[arg(long, conflicts_with = "body")]
+        #[arg(long, conflicts_with = "body", verbatim_doc_comment)]
         body_file: Option<PathBuf>,
-        /// Names the role its workers play from now, checked as at `issue
-        /// add --role`; a live worker keeps the role it started with. The
-        /// change is kept as a comment on the issue.
-        #[arg(long, value_name = "DIR", conflicts_with = "no_role")]
+        /// Names the role its workers play from now, checked as at `issue add --role`; a live worker keeps the role it started with. The change is kept as a comment on the issue.
+        #[arg(long, value_name = "DIR", conflicts_with = "no_role", verbatim_doc_comment)]
         role: Option<String>,
         /// Takes its role away: its workers start from now with none.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         no_role: bool,
     },
     /// Closes an issue; a worker on it ends.
+    #[command(verbatim_doc_comment)]
     Close {
         checkout: String,
         number: u64,
         #[arg(long, default_value = "closed by hand")]
         reason: String,
     },
-    /// Leaves an issue to a person, for a decision only a person can make:
-    /// only `issue ready` moves it again. A worker on it ends, keeping its
-    /// worktree.
+    /// Leaves an issue to a person, for a decision only a person can make: only `issue ready` moves it again. A worker on it ends, keeping its worktree.
+    #[command(verbatim_doc_comment)]
     WaitForHuman {
         checkout: String,
         number: u64,
@@ -356,60 +277,40 @@ pub enum IssueCmd {
         why: String,
     },
     /// Readies an issue that waits for a person.
+    #[command(verbatim_doc_comment)]
     Ready { checkout: String, number: u64 },
-    /// Moves an issue to another host's factorium, reached by ssh (`--to`,
-    /// as ssh names it; run there in a login shell). Checks first that its
-    /// factorium lists a checkout of this name with this one's origin,
-    /// changing nothing here until it does. Then: its worker here ends,
-    /// its worktree kept, as `wait-for-human`; what that worktree holds
-    /// that origin does not (its commits, and its changes not committed as
-    /// one commit on top) is pushed to origin's
-    /// `factorium/move/<checkout>-<n>`; it is filed there (its body, where
-    /// it came from, the branch to continue from, then its comments; its
-    /// role, account and blockers, this host's, are named, not carried);
-    /// and it is closed here with a comment naming the issue there.
-    /// Answers the issue there (`moved_to`) and the branch. A step that
-    /// fails answers what was done before it; the issue here stays open.
+    /// Moves an issue to another host's factorium, reached by ssh (`--to`, as ssh names it; run there in a login shell). Checks first that its factorium lists a checkout of this name with this one's origin, changing nothing here until it does. Then: its worker here ends, its worktree kept, as `wait-for-human`; what that worktree holds that origin does not (its commits, and its changes not committed as one commit on top) is pushed to origin's `factorium/move/<checkout>-<n>`; it is filed there (its body, where it came from, the branch to continue from, then its comments; its role, account and blockers, this host's, are named, not carried); and it is closed here with a comment naming the issue there. Answers the issue there (`moved_to`) and the branch. A step that fails answers what was done before it; the issue here stays open.
+    #[command(verbatim_doc_comment)]
     Move {
         checkout: String,
         number: u64,
         #[arg(long, value_name = "SSH_TARGET")]
         to: String,
     },
-    /// Starts an issue over: removes the worktree its last attempt kept, so
-    /// the next start begins from proving; the old branch is kept as
-    /// `<branch>-abandoned` and named in a comment with the why. Refused
-    /// while a worker is on it (leave it to a person first); ready or waiting for a person stays as it is.
+    /// Starts an issue over: removes the worktree its last attempt kept, so the next start begins from proving; the old branch is kept as `<branch>-abandoned` and named in a comment with the why. Refused while a worker is on it (leave it to a person first); ready or waiting for a person stays as it is.
+    #[command(verbatim_doc_comment)]
     StartOver {
         checkout: String,
         number: u64,
         #[arg(long)]
         why: String,
     },
-    /// Adds a comment: it reaches the live worker on the issue at once
-    /// (typed at its session, or in its brief not yet handed; a waiting
-    /// worker's through its watch episode), and the next worker's brief
-    /// carries it.
+    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode), and the next worker's brief carries it.
+    #[command(verbatim_doc_comment)]
     Comment { checkout: String, number: u64, text: String },
-    /// Makes an issue wait for another, of its checkout or of another, for
-    /// `--why`, or until a time (`--undo`: stop). Its worker is parked: once
-    /// idle (waiting, or in a wait it declared), back to work as soon as all
-    /// it waits for is met.
-    #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]))]
+    /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, or in a wait it declared), back to work as soon as all it waits for is met.
+    #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]), verbatim_doc_comment)]
     Block {
         checkout: String,
         number: u64,
         /// `N` of its checkout, `<checkout>#N` or `<checkout>#N@cut`, as for `issue add`.
-        #[arg(long, alias = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        #[arg(long, alias = "blocked-by", value_name = "[CHECKOUT#]N[@cut]", verbatim_doc_comment)]
         by: Option<Blocker>,
-        /// Why it waits for `--by`, required with it unless `--undo`, as
-        /// for `issue add`: blocking it again with another why replaces it.
-        #[arg(long, requires = "by")]
+        /// Why it waits for `--by`, required with it unless `--undo`, as for `issue add`: blocking it again with another why replaces it.
+        #[arg(long, requires = "by", verbatim_doc_comment)]
         why: Option<String>,
-        /// No worker takes it before this time, as for `issue add
-        /// --not-before`; it replaces the time it waited for. With
-        /// `--undo`, give no time: it waits for none.
-        #[arg(long, value_name = "TIME", num_args = 0..=1, value_parser = when::parse)]
+        /// No worker takes it before this time, as for `issue add --not-before`; it replaces the time it waited for. With `--undo`, give no time: it waits for none.
+        #[arg(long, value_name = "TIME", num_args = 0..=1, value_parser = when::parse, verbatim_doc_comment)]
         until: Option<Option<i64>>,
         #[arg(long)]
         undo: bool,
@@ -418,11 +319,11 @@ pub enum IssueCmd {
 
 #[derive(Subcommand)]
 pub enum KitCmd {
-    /// Answers the kit: `{"pins": {"<checkout>": "<engine>"}}`. Each
-    /// engine's command is stablehand's (`stablehand command show`).
+    /// Answers the kit: `{"pins": {"<checkout>": "<engine>"}}`. Each engine's command is stablehand's (`stablehand command show`).
+    #[command(verbatim_doc_comment)]
     Show,
-    /// Pins a checkout to one engine (`--harness`), or unpins it: its
-    /// starts ask stablehand's pick of that engine alone (`--engine`).
+    /// Pins a checkout to one engine (`--harness`), or unpins it: its starts ask stablehand's pick of that engine alone (`--engine`).
+    #[command(verbatim_doc_comment)]
     Pin {
         checkout: String,
         #[arg(long)]
@@ -433,129 +334,91 @@ pub enum KitCmd {
 #[derive(Subcommand)]
 pub enum WorkerCmd {
     /// Runs the repo's fast gate on your worktree, through the queue.
+    #[command(verbatim_doc_comment)]
     Gate,
     /// Asks to land your branch. Then stop: you are told if it is red.
+    #[command(verbatim_doc_comment)]
     Done {
-        /// Finishes without a landing, for an issue whose work changes no
-        /// code (a publish, an upload, a measurement): your issue closes
-        /// with this evidence (what you did, how you verified it) as its
-        /// reason, no gate runs, and your session ends. Refused while your
-        /// branch has commits of its own: those land.
-        #[arg(long, value_name = "EVIDENCE")]
+        /// Finishes without a landing, for an issue whose work changes no code (a publish, an upload, a measurement): your issue closes with this evidence (what you did, how you verified it) as its reason, no gate runs, and your session ends. Refused while your branch has commits of its own: those land.
+        #[arg(long, value_name = "EVIDENCE", verbatim_doc_comment)]
         no_landing: Option<String>,
     },
-    /// Hands you to the watch with what you need, kept as a comment on your
-    /// issue. Then stop.
+    /// Hands you to the watch with what you need, kept as a comment on your issue. Then stop.
+    #[command(verbatim_doc_comment)]
     Escalate { why: String },
-    /// Adds a comment to your issue, as yours: for records (measurements,
-    /// what you found). It changes nothing else and calls no one; to ask
-    /// for a decision, escalate.
+    /// Adds a comment to your issue, as yours: for records (measurements, what you found). It changes nothing else and calls no one; to ask for a decision, escalate.
+    #[command(verbatim_doc_comment)]
     Comment {
         /// The comment; without it, it is read from stdin.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         text: Option<String>,
     },
-    /// Says you wait on a long command of your own (a background download),
-    /// kept as a comment on your issue: you are not found silent until
-    /// `--until` from now (held to 2h). Past it you are, with what you said.
+    /// Says you wait on a long command of your own (a background download), kept as a comment on your issue: you are not found silent until `--until` from now (held to 2h). Past it you are, with what you said.
+    #[command(verbatim_doc_comment)]
     Waiting {
         /// What you wait for.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         why: String,
         /// How long: `90s`, `45m`, `2h`; a bare number is minutes.
-        #[arg(long, value_parser = when::duration_ms)]
+        #[arg(long, value_parser = when::duration_ms, verbatim_doc_comment)]
         until: i64,
     },
-    /// Files an issue your issue asks for (a follow-up), as `issue add`
-    /// does, on any checkout on the list; your issue keeps the record
-    /// ("filed <checkout>#<n>") and the filed one names you. Answers it,
-    /// with the blocks it got. On your own checkout it also waits for your
-    /// issue to land, unless `--independent`. An issue that needs the
-    /// owner's decision is escalated instead.
+    /// Files an issue your issue asks for (a follow-up), as `issue add` does, on any checkout on the list; your issue keeps the record ("filed <checkout>#<n>") and the filed one names you. Answers it, with the blocks it got. On your own checkout it also waits for your issue to land, unless `--independent`. An issue that needs the owner's decision is escalated instead.
+    #[command(verbatim_doc_comment)]
     File {
         checkout: String,
         title: String,
         /// Reads the body from this file; `-` reads stdin.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         body_file: PathBuf,
         /// An issue it waits for, repeat for each, as for `issue add`.
-        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]")]
+        #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]", verbatim_doc_comment)]
         blocked_by: Vec<Blocker>,
-        /// Why it waits for its `--blocked-by`, required with them, as for
-        /// `issue add`. The wait for your own issue says why on its own.
-        #[arg(long, requires = "blocked_by")]
+        /// Why it waits for its `--blocked-by`, required with them, as for `issue add`. The wait for your own issue says why on its own.
+        #[arg(long, requires = "blocked_by", verbatim_doc_comment)]
         why: Option<String>,
         /// No worker takes it before this time, as for `issue add`.
-        #[arg(long, value_name = "TIME", value_parser = when::parse)]
+        #[arg(long, value_name = "TIME", value_parser = when::parse, verbatim_doc_comment)]
         not_before: Option<i64>,
-        /// On your own checkout, does not wait for your issue: for a
-        /// follow-up that does not need your change.
-        #[arg(long)]
+        /// On your own checkout, does not wait for your issue: for a follow-up that does not need your change.
+        #[arg(long, verbatim_doc_comment)]
         independent: bool,
     },
-    /// Has a second agent, a fresh session factorium starts, pick your
-    /// change's mutants from slimfit's candidates, given slimfit's goal
-    /// (`slimfit help picker`) and your diff. Answers the picks, or why
-    /// none, by whom, and the commands that run and record them.
+    /// Has a second agent, a fresh session factorium starts, pick your change's mutants from slimfit's candidates, given slimfit's goal (`slimfit help picker`) and your diff. Answers the picks, or why none, by whom, and the commands that run and record them.
+    #[command(verbatim_doc_comment)]
     PickMutants,
-    /// Has a second agent, a fresh session factorium starts, judge whether
-    /// your change could be smaller, given slimfit's goal (`slimfit help
-    /// reviewer`) and your diff. Answers its verdict (`as_is` with why, or
-    /// `cut`), by whom, and the command that writes the growth record.
+    /// Has a second agent, a fresh session factorium starts, judge whether your change could be smaller, given slimfit's goal (`slimfit help reviewer`) and your diff. Answers its verdict (`as_is` with why, or `cut`), by whom, and the command that writes the growth record.
+    #[command(verbatim_doc_comment)]
     ReviewGrowth,
-    /// Runs a heavy command once the machine has room, after those queued
-    /// before it, at a gate's priority. Exits with its exit code.
+    /// Runs a heavy command once the machine has room, after those queued before it, at a gate's priority. Exits with its exit code.
     ///
-    /// A resource is a named thing with a capacity rule, each with its own
-    /// queue: `host`, the machine's load (the room rule: what is above),
-    /// and those the owner declares in the host's settings (a device, a
-    /// build host: `slots`, how many hold it at once). With `--resource`
-    /// (repeat it), it holds those while it runs, granted all at once or
-    /// not at all, and not `host` unless named: it waits for them alone, and
-    /// commands asking for others run beside it. Only a command holding
-    /// `host` is ended by the hold bound. Use a resource for a device or a
-    /// host, never `issue block` on another issue only because both use
-    /// the same device: only your command waits, not your issue. `doctor`
-    /// and `workers` show who holds each resource and who waits for it.
+    /// A resource is a named thing with a capacity rule, each with its own queue: `host`, the machine's load (the room rule: what is above), and those the owner declares in the host's settings (a device, a build host: `slots`, how many hold it at once). With `--resource` (repeat it), it holds those while it runs, granted all at once or not at all, and not `host` unless named: it waits for them alone, and commands asking for others run beside it. Only a command holding `host` is ended by the hold bound. Use a resource for a device or a host, never `issue block` on another issue only because both use the same device: only your command waits, not your issue. `doctor` and `workers` show who holds each resource and who waits for it.
+    #[command(verbatim_doc_comment)]
     Exclusive {
-        /// Runs it at background priority instead: for work whose time no
-        /// gate compares (a mutation run), so gates get the CPU first.
-        #[arg(long)]
+        /// Runs it at background priority instead: for work whose time no gate compares (a mutation run), so gates get the CPU first.
+        #[arg(long, verbatim_doc_comment)]
         background: bool,
-        /// A resource it holds while it runs, repeat for each: `host`, or
-        /// one the host's settings declare (refused `unknown_resource`
-        /// otherwise). None: `host`.
-        #[arg(long = "resource", value_name = "NAME")]
+        /// A resource it holds while it runs, repeat for each: `host`, or one the host's settings declare (refused `unknown_resource` otherwise). None: `host`.
+        #[arg(long = "resource", value_name = "NAME", verbatim_doc_comment)]
         resources: Vec<String>,
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
-    /// Holds named resources across several commands (a soak on a device),
-    /// all at once, once each has a free slot: waits for them, and answers
-    /// the hold. Each resource's queue starts the shortest declared hold
-    /// first (a command, which declares none, is read as `hold_default`),
-    /// so declare what you will take, not more; one waiting past
-    /// `starve_bound` goes ahead of all others. Use this order, never
-    /// `issue block` between issues that share a device. It stays yours after this answers, until `worker release`
-    /// or your worker ends (factorium gives it back). It is never cut short
-    /// before `--for`; past it, it is a finding for the watch. Your own
-    /// `worker exclusive --resource` of a resource you hold runs inside
-    /// your hold. Not `host`: the host is held by a command alone.
+    /// Holds named resources across several commands (a soak on a device), all at once, once each has a free slot: waits for them, and answers the hold. Each resource's queue starts the shortest declared hold first (a command, which declares none, is read as `hold_default`), so declare what you will take, not more; one waiting past `starve_bound` goes ahead of all others. Use this order, never `issue block` between issues that share a device. It stays yours after this answers, until `worker release` or your worker ends (factorium gives it back). It is never cut short before `--for`; past it, it is a finding for the watch. Your own `worker exclusive --resource` of a resource you hold runs inside your hold. Not `host`: the host is held by a command alone.
+    #[command(verbatim_doc_comment)]
     Hold {
         /// The resources, as the host's settings declare them.
-        #[arg(required = true, value_name = "NAME")]
+        #[arg(required = true, value_name = "NAME", verbatim_doc_comment)]
         resources: Vec<String>,
         /// How long you hold them: `90s`, `160m`, `2h`; a bare number is minutes.
-        #[arg(long = "for", value_name = "DURATION", value_parser = when::duration_ms)]
+        #[arg(long = "for", value_name = "DURATION", value_parser = when::duration_ms, verbatim_doc_comment)]
         hold_for: i64,
-        /// When it may start, the host's local time: `22:00-07:00` (an
-        /// overnight run on the charger). It joins the line only inside
-        /// this window, every day; outside it, doctor shows it waiting for
-        /// its window. Once started, it holds until released.
-        #[arg(long, value_name = "HH:MM-HH:MM", value_parser = when::window)]
+        /// When it may start, the host's local time: `22:00-07:00` (an overnight run on the charger). It joins the line only inside this window, every day; outside it, doctor shows it waiting for its window. Once started, it holds until released.
+        #[arg(long, value_name = "HH:MM-HH:MM", value_parser = when::window, verbatim_doc_comment)]
         between: Option<(u32, u32)>,
     },
     /// Gives back your hold of a resource (`worker hold`).
+    #[command(verbatim_doc_comment)]
     Release {
         #[arg(value_name = "NAME")]
         resource: String,
@@ -564,55 +427,54 @@ pub enum WorkerCmd {
 
 #[derive(Subcommand)]
 pub enum HeavyCmd {
-    /// Runs a heavy command once the machine has room, by the queue's
-    /// rule, beside workers' and gates' (a line move past its bound goes
-    /// ahead of it, as of a worker's), at a gate's priority. Exits with its
-    /// exit code. With `--resource`, it holds those resources instead, all
-    /// at once, as `worker exclusive --resource` does.
+    /// Runs a heavy command once the machine has room, by the queue's rule, beside workers' and gates' (a line move past its bound goes ahead of it, as of a worker's), at a gate's priority. Exits with its exit code. With `--resource`, it holds those resources instead, all at once, as `worker exclusive --resource` does.
+    #[command(verbatim_doc_comment)]
     Run {
         /// Runs it at background priority instead: gates get the CPU first.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         background: bool,
         /// A resource it holds while it runs, repeat for each (none: `host`).
-        #[arg(long = "resource", value_name = "NAME")]
+        #[arg(long = "resource", value_name = "NAME", verbatim_doc_comment)]
         resources: Vec<String>,
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
     /// Answers the queue's depth: how many run and wait, and each entry.
+    #[command(verbatim_doc_comment)]
     Depth,
 }
 
 #[derive(Subcommand)]
 pub enum WatchCmd {
     /// Answers the round running now and every open episode.
+    #[command(verbatim_doc_comment)]
     Next,
     /// Ends the round with what you found and did.
+    #[command(verbatim_doc_comment)]
     Report {
         #[arg(long)]
         text: String,
         /// What only the owner can do (spend money).
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         human: Option<String>,
     },
-    /// Sends a waiting worker back to work, told `--text`, kept as a comment
-    /// on its issue.
+    /// Sends a waiting worker back to work, told `--text`, kept as a comment on its issue.
+    #[command(verbatim_doc_comment)]
     Restart {
         worker: Uuid,
         #[arg(long, default_value = "The watch looked at what stopped you; go on.")]
         text: String,
         /// First stops its running turn (a hung call), so it reads this now.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         now: bool,
     },
-    /// Types a line at a worker, kept as a comment on its issue; answers
-    /// `submitted` (it started a turn) or `queued` (it waits behind the
-    /// worker's running turn). To a waiting worker it is `restart`.
+    /// Types a line at a worker, kept as a comment on its issue; answers `submitted` (it started a turn) or `queued` (it waits behind the worker's running turn). To a waiting worker it is `restart`.
+    #[command(verbatim_doc_comment)]
     Tell {
         worker: Uuid,
         text: String,
         /// First stops its running turn (a hung call), so it reads this now.
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         now: bool,
     },
 }

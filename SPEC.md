@@ -436,7 +436,11 @@ newer one linked, it swaps, and that one's good first tick ends the
 rollback.
 
 The help in the binary is the manual (as in afkconvoy): every command's
-`--help` says what it does and what it answers. Answers are JSON.
+`--help` says what it does and what it answers. Answers are JSON. It is
+written with agent-help, as stablehand's and slimfit's is: each command's
+and argument's doc comment, Markdown with each paragraph on one line, kept
+as written (`verbatim_doc_comment`), each top-level command in the group of
+who runs it; a test runs `agent_help::check` on it.
 
 ## 5. Crates
 

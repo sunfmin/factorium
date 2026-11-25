@@ -7,12 +7,14 @@
 
 mod cli;
 
+agent_help::binary!("factorium");
+
 use std::io::Read;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::FromArgMatches;
 use cli::{Cli, HeavyCmd, Top, WorkerCmd};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, Refusal, default_db};
@@ -68,7 +70,17 @@ fn stopped_by_signals() -> Answer<Arc<AtomicBool>> {
 }
 
 fn main() -> ExitCode {
-    let matches = Cli::command().get_matches();
+    // Every `--help` answers from the manual (`cli::manual`); one that
+    // cannot be assembled is refused, as `agent_help::check` refuses it in
+    // the tests.
+    let command = match cli::manual().clap() {
+        Ok(command) => command,
+        Err(broken) => {
+            println!("{:#}", json!({ "error": Refusal::new("manual", broken.to_string()) }));
+            return ExitCode::FAILURE;
+        }
+    };
+    let matches = command.get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     if let Top::Guard { harness } = &cli.command {
         // The guard hook: the tool call on stdin, refused with the code its harness reads.

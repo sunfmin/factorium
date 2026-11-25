@@ -15,6 +15,7 @@ factorium-host = { path = "crates/host" }
 factum = { git = "https://github.com/sunfmin/factum", rev = "499b4afe13d999bf3dab0aeb99a9d0405969be10" }
 factum-core = { git = "https://github.com/sunfmin/factum", rev = "499b4afe13d999bf3dab0aeb99a9d0405969be10" }
 factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "499b4afe13d999bf3dab0aeb99a9d0405969be10" }
+agent-help = { git = "https://github.com/sunfmin/agent-cli", rev = "f506df826a97b2fd834e1d65b9057001a6a6e796" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v5", "v7", "serde"] }
