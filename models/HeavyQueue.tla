@@ -80,7 +80,8 @@ VARIABLES
     now,         \* the time of the last step
     waiter,      \* waiter[i]: the process that asks for entry i
     ask,         \* ask[i]: what entry i asks for
-    last         \* the last step and what it read: for the properties
+    last         \* the last step, what it read, and the last start before it
+                 \* (`since`): for the properties
 
 vars == <<q, last_start, rules, now, waiter, ask, last>>
 
@@ -104,7 +105,7 @@ Init ==
     /\ now = 0
     /\ waiter = [i \in Ids |-> NoWaiter]
     /\ ask = [i \in Ids |-> NoAsk]
-    /\ last = [act |-> "init", i |-> 0, t |-> 0, room |-> FALSE, read |-> 0]
+    /\ last = [act |-> "init", i |-> 0, t |-> 0, room |-> FALSE, read |-> 0, since |-> None]
 
 -----------------------------------------------------------------------------
 (* The queue as heavy.rs's Queue and neutral/queue.rs read it.            *)
@@ -237,7 +238,7 @@ Overheld(i, t) ==
 
 Times == now..(IF now + MaxStep > Horizon THEN Horizon ELSE now + MaxStep)
 Waiter(i, f, v) == waiter' = [waiter EXCEPT ![i][f] = v]
-Did(act, i, t) == last' = [act |-> act, i |-> i, t |-> t, room |-> FALSE, read |-> 0]
+Did(act, i, t) == last' = [act |-> act, i |-> i, t |-> t, room |-> FALSE, read |-> 0, since |-> last_start]
 Off(i) == q' = [q EXCEPT ![i] = Absent]
 \* A waiter that answered: only its answer, and whether it was unqueued, are kept.
 Ended(w, answer) == [NoWaiter EXCEPT !.phase = "done", !.answer = answer, !.unqueued = w.unqueued]
@@ -316,7 +317,7 @@ Ask(i) ==
         LET d == Decide(i, room, read, t) IN
         /\ now' = t
         /\ last' = [act |-> IF d = "stale" THEN "stale" ELSE "ask",
-                    i |-> i, t |-> t, room |-> room, read |-> read]
+                    i |-> i, t |-> t, room |-> room, read |-> read, since |-> last_start]
         /\ \/ /\ d = "start"
               /\ q' = [q EXCEPT ![i].started_at = t]
               /\ last_start' = IF "host" \in Res(i) THEN t ELSE last_start
@@ -477,16 +478,29 @@ InLine(r, t) == {j \in Waiting : r \in Res(j) /\ ~Covered(j, r) /\ j \notin Stal
                                  /\ ~Full(j) /\ ~Outside(j, t)}
 HostIdle == ~\E j \in Running : "host" \in Res(j)
 
+\* What an ask leaves (its `last`): a waiter's ask changes no entry but its
+\* own, and that one only by starting it; told to wait it changes nothing.
+\* So the queue it read is the queue after it, but for its own start, and
+\* the last start before it is `last.since`. Of a waiter's ask: idle work,
+\* which leaves the queue on any answer but start, asks under none of the
+\* configs that check these (Kinds = {"wait"}).
+AskedBy(i) == last.act = "ask" /\ last.i = i
+StartedBy(i) == AskedBy(i) /\ q[i].started_at # None
+\* Nothing but i holds "host".
+IdleBut(i) == ~\E j \in Running \ {i} : "host" \in Res(j)
+
 \* It never starves the oldest: with nothing holding "host", the oldest
 \* entry in its line, asking for it alone, starts at once when it asks,
 \* whatever the reading (no line move past its bound waiting ahead of it):
 \* a stale one ahead of it holds it up no more than one gone (factorium#241),
-\* nor does one waiting for a full resource (factorium#284).
+\* nor does one waiting for a full resource (factorium#284). Told to wait,
+\* it is still in the line it read.
 AtOnce ==
-    [][ (/\ Asked /\ Res(Who) = {"host"} /\ HostIdle /\ waiter[Who].rules >= rules
-         /\ Who \in InLine("host", At) /\ Who = OldestOf(InLine("host", At))
-         /\ ~\E j \in InLine("host", At) : Overdue(j, At))
-        => q'[Who].started_at # None ]_vars
+    \A i \in Ids :
+        ~(/\ AskedBy(i) /\ i \in Waiting
+          /\ Res(i) = {"host"} /\ HostIdle /\ waiter[i].rules >= rules
+          /\ i \in InLine("host", last.t) /\ i = OldestOf(InLine("host", last.t))
+          /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t))
 
 \* Before in a resource's line, in SPEC §1.9's words: one waiting past the
 \* starve bound (since it joined the line) before all that have not, oldest
@@ -511,16 +525,19 @@ InOrder ==
                 \/ Overdue(Who, At) /\ \E y \in InLine(r, At) : q[y].yields /\ (y = j \/ Prior(y, j, At)) ]_vars
 
 \* A line move past its bound goes ahead of workers' and programs' waiting
-\* entries: none of those starts while one waits in its line.
+\* entries: none of those starts while one waits in its line. (A line move
+\* asks for "host" alone, so the start beside it leaves it in the line.)
 LineAhead ==
-    [][ Started /\ q[Who].yields =>
-        \A r \in Res(Who) : Covered(Who, r) \/ ~\E j \in InLine(r, At) : Overdue(j, At) ]_vars
+    \A i \in Ids :
+        (StartedBy(i) /\ q[i].yields) =>
+            \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : Overdue(j, last.t)
 
 \* It starts one beside what holds "host" only when the host has room, on a
 \* reading taken heavy_settle after the last start of one holding it.
 Settled ==
-    [][ Started /\ "host" \in Res(Who) /\ ~HostIdle =>
-        last'.room /\ last'.read > last_start /\ last'.read - last_start >= Settle ]_vars
+    \A i \in Ids :
+        (StartedBy(i) /\ "host" \in Res(i) /\ ~IdleBut(i)) =>
+            last.room /\ last.read > last.since /\ last.read - last.since >= Settle
 
 \* `slots = n`: n holders at most. A start takes a slot of each named
 \* resource it asks for (but those its worker's hold holds) only while one
@@ -579,7 +596,6 @@ UnqueuedAnswers ==
 \* nothing else (a refused one's is a `stale` step), so the queue it read
 \* is the queue after it. Of a waiter's ask: idle work, which leaves the
 \* queue on any answer but start, asks under AtOnce (HeavyStarts.cfg).
-AskedBy(i) == last.act = "ask" /\ last.i = i
 StaleHoldsNone ==
     \A i \in Ids :
         ~(/\ AskedBy(i) /\ i \in Waiting
@@ -603,6 +619,12 @@ KeptPlace ==
         (last.act = "rejoin" /\ last.i = i) =>
             \A j \in Waiting \ {i} :
                 q[j].queued_at > waiter[i].place => q[i].queued_at < q[j].queued_at
+
+\* Under a config whose invariants of an ask read what it read (`room`,
+\* `read`, `since`), which View and StepView leave out: whether each holds
+\* tells states apart too. Where none fails it is View, state for state; a
+\* state that breaks one is never taken for one seen that does not.
+StartView == <<View, AtOnce, LineAhead, Settled>>
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
