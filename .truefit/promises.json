@@ -236,6 +236,12 @@
     "sentence": "While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can.",
     "source": "SPEC.md:37"
   },
+  "71da3ec544b3": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is truefit's own configuration, not code that keeps a promise: the fixes (factorium#186-189) only registered the line and worktrees models, named their covers, and moved each model's pinned commit. The promises those fixes keep are already registered with model checks (model line, line-live, worktrees) whose covers name the code they stand for."
+  },
   "74a0f7cd0c23": {
     "mark": "not",
     "sentence": "Promotion and cut (one per checkout, which the daemon orders itself), the issue claim and the accounts' windows are not resources: each could become a rule when a second need shows (factorium#284). The resource `host`: a command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run.",
