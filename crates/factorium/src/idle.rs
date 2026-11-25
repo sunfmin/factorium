@@ -173,7 +173,7 @@ impl App {
             let why = format!(
                 "`{}` is on the heavy queue (entry {}): the host runs one idle run at a time. \
                  Wait for it, or end it with `factorium unqueue {}`",
-                e.what, e.id, e.id
+                e.ask.what, e.ask.id, e.ask.id
             );
             return Err(Refusal::new("idle_runs", why));
         }

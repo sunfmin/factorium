@@ -57,7 +57,7 @@ pub fn holds(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Vec<String> 
     let bound = s.ms(Time::QueueWaitBound);
     if let Some(e) = queue.oldest(now).filter(|e| now - e.queued_at > bound) {
         // A command line can run long (a ratchet's `--considered`): its head names it.
-        let what: String = e.what.chars().take(60).collect();
+        let what: String = e.ask.what.chars().take(60).collect();
         let waited = (now - e.queued_at) / 1000;
         why.push(format!("queue: `{what}` has waited {waited}s for its turn, over {}s", bound / 1000));
     }

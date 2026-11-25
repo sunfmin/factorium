@@ -35,7 +35,7 @@ pub fn job(checkout: &str) -> String {
 /// The idle work the queue holds, waiting or running, if any: the host runs
 /// one at a time, however it was started.
 pub fn queued(queue: &Queue) -> Option<&crate::heavy::Entry> {
-    queue.entries.iter().find(|e| e.what.starts_with(JOB))
+    queue.entries.iter().find(|e| e.ask.what.starts_with(JOB))
 }
 
 /// One run that ended: when it started, on which base tip, and how it went.
@@ -75,7 +75,7 @@ pub fn host_idle(workers: &[Status], queue: &Queue, room: Result<(), String>) ->
     }
     // A named resource held or waited for (a device) loads nothing of the host's.
     if let Some(e) = queue.entries.iter().find(|e| e.asks_for(crate::heavy::HOST)) {
-        return Err(format!("the heavy queue holds `{}`", e.what));
+        return Err(format!("the heavy queue holds `{}`", e.ask.what));
     }
     room
 }

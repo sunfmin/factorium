@@ -440,17 +440,17 @@ fn resources(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, S
         if named.is_empty() {
             continue;
         }
-        let worker = e.worker.map_or(String::new(), |w| format!(", worker {w}"));
-        let by = format!("`{}` (entry {}{worker})", e.what, e.id);
+        let worker = e.ask.worker.map_or(String::new(), |w| format!(", worker {w}"));
+        let by = format!("`{}` (entry {}{worker})", e.ask.what, e.ask.id);
         let waiting: usize = all.iter().filter(|r| named.contains(&r.name.as_str())).map(|r| r.waiting.len()).sum();
-        let why = if let Some((_, gone)) = seen.holders_gone.iter().find(|(id, _)| *id == e.id) {
+        let why = if let Some((_, gone)) = seen.holders_gone.iter().find(|(id, _)| *id == e.ask.id) {
             Some(format!("and {gone}; the next tick gives it back"))
         } else {
             e.until().filter(|u| now > *u).map(|u| format!("past the time it declared, by {} min", min(now - u)))
         };
         if let Some(why) = why {
             add(
-                format!("resource:{}", e.id),
+                format!("resource:{}", e.ask.id),
                 format!("{} held by {by}, {why}; {waiting} waiting for it", named.join(" and ")),
                 unqueue,
             );
@@ -485,7 +485,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
     let oldest = q.oldest(now);
     let head = oldest.map_or(String::new(), |e| {
         let ago = min(now - e.queued_at);
-        format!("; the heavy queue's oldest waiting is `{}` (entry {}), queued {ago} min ago", e.what, e.id)
+        format!("; the heavy queue's oldest waiting is `{}` (entry {}), queued {ago} min ago", e.ask.what, e.ask.id)
     });
     let unqueue = "if an entry of the heavy queue (doctor's `heavy`) does not move — its owner no longer asks for it, \
                    or it runs past the hold bound — take it off with `factorium unqueue <entry>`; an owner still \
@@ -494,17 +494,17 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         let waited = now - e.queued_at;
         let idle = q.running().next().is_none();
         if (idle && waited > stall) || waited > s.ms(Time::HoldBound) + stall {
-            let running: Vec<String> = q.running().map(|r| format!("`{}` (entry {})", r.what, r.id)).collect();
+            let running: Vec<String> = q.running().map(|r| format!("`{}` (entry {})", r.ask.what, r.ask.id)).collect();
             let running = if idle { "nothing runs".into() } else { format!("running: {}", running.join(", ")) };
             add(
-                format!("queue:{}", e.id),
+                format!("queue:{}", e.ask.id),
                 format!(
                     "the heavy queue has started nothing for {} min: {} waiting and {running}; its oldest, `{}` \
                      (entry {}), does not start",
                     min(waited),
                     q.waiting().count(),
-                    e.what,
-                    e.id
+                    e.ask.what,
+                    e.ask.id
                 ),
                 unqueue,
             );

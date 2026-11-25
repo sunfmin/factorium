@@ -3,7 +3,7 @@
 //! inside it, and the host's queue in its old order where none declares a
 //! hold (factorium#286).
 
-use factorium_domain::heavy::{Entry, HOST, Queue, Reading, Window};
+use factorium_domain::heavy::{Ask, Entry, HOST, Queue, Reading, Window};
 use factorium_domain::neutral::queue::{self, Order};
 use factum::Uuid;
 
@@ -11,17 +11,23 @@ const MIN: i64 = 60_000;
 const ORDER: Order = Order { starve: 240 * MIN, default: 30 * MIN };
 
 fn entry(n: u128, queued_at: i64) -> Entry {
-    Entry { id: Uuid::from_u128(n), what: n.to_string(), queued_at, ..Entry::default() }
+    Entry { ask: Ask { id: Uuid::from_u128(n), what: n.to_string(), ..Ask::default() }, queued_at, ..Entry::default() }
+}
+
+/// `e` with `f` done to its ask.
+fn with(mut e: Entry, f: impl FnOnce(&mut Ask)) -> Entry {
+    f(&mut e.ask);
+    e
 }
 
 fn on(e: Entry, resources: &[&str]) -> Entry {
-    Entry { resources: resources.iter().map(|r| r.to_string()).collect(), ..e }
+    with(e, |a| a.resources = resources.iter().map(|r| r.to_string()).collect())
 }
 
 /// A worker's hold of `name` for `min` minutes, asked at `queued_at`.
 fn hold(n: u128, queued_at: i64, min: i64, name: &str) -> Entry {
     let worker = Some(Uuid::from_u128(100 + n));
-    Entry { hold_for: Some(min * MIN), worker, ..on(entry(n, queued_at), &[name]) }
+    with(on(entry(n, queued_at), &[name]), |a| (a.hold_for, a.worker) = (Some(min * MIN), worker))
 }
 
 fn starts(q: &Queue, id: Uuid, now: i64) -> Result<(), String> {
@@ -38,14 +44,14 @@ fn whys(q: &Queue, name: &str, now: i64) -> Vec<Option<String>> {
 fn a_five_minute_hold_asked_after_a_160_minute_one_goes_first() {
     let (long, short) = (hold(1, 0, 160, "FMGG"), hold(2, MIN, 5, "FMGG"));
     let q = Queue { entries: vec![long.clone(), short.clone()], ..Queue::default() };
-    assert_eq!(starts(&q, short.id, 2 * MIN), Ok(()));
-    assert_eq!(starts(&q, long.id, 2 * MIN).unwrap_err(), "waits for FMGG behind `2`, a 5 min hold");
+    assert_eq!(starts(&q, short.ask.id, 2 * MIN), Ok(()));
+    assert_eq!(starts(&q, long.ask.id, 2 * MIN).unwrap_err(), "waits for FMGG behind `2`, a 5 min hold");
     // A command declares none: it is read as the default, between the two.
     let command = on(entry(3, 2 * MIN), &["FMGG"]);
     let q = Queue { entries: vec![long.clone(), command.clone()], ..Queue::default() };
-    assert_eq!(starts(&q, command.id, 3 * MIN), Ok(()));
+    assert_eq!(starts(&q, command.ask.id, 3 * MIN), Ok(()));
     let shown = &q.resources(3 * MIN, ORDER)[0];
-    assert_eq!(shown.waiting.iter().map(|h| h.entry).collect::<Vec<_>>(), [command.id, long.id]);
+    assert_eq!(shown.waiting.iter().map(|h| h.entry).collect::<Vec<_>>(), [command.ask.id, long.ask.id]);
     assert_eq!(shown.waiting[1].why.as_deref(), Some("behind `3`, a 30 min hold (the default)"));
     assert_eq!((shown.waiting[1].declared, shown.waiting[0].why.clone()), (Some(160 * MIN), None));
     assert_eq!(whys(&q, HOST, 3 * MIN), Vec::<Option<String>>::new(), "none of them asks for the host");
@@ -54,7 +60,7 @@ fn a_five_minute_hold_asked_after_a_160_minute_one_goes_first() {
     let q = Queue { entries: vec![long, longer.clone()], ..Queue::default() };
     assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `1`, a 2 h 40 min hold".into())]);
     let (two_hours, half_a_minute) =
-        (hold(5, 0, 120, "FMGG"), Entry { hold_for: Some(30_000), ..hold(6, 0, 0, "FMGG") });
+        (hold(5, 0, 120, "FMGG"), with(hold(6, 0, 0, "FMGG"), |a| a.hold_for = Some(30_000)));
     let q = Queue { entries: vec![two_hours, longer.clone()], ..Queue::default() };
     assert_eq!(whys(&q, "FMGG", MIN), [None, Some("behind `5`, a 2 h hold".into())]);
     let q = Queue { entries: vec![half_a_minute, longer], ..Queue::default() };
@@ -66,45 +72,48 @@ fn a_long_hold_past_the_starve_bound_goes_ahead_of_short_ones() {
     let long = hold(1, 0, 160, "FMGG");
     let shorts = [hold(2, 200 * MIN, 5, "FMGG"), hold(3, 230 * MIN, 1, "FMGG")];
     let q = Queue { entries: [vec![long.clone()], shorts.to_vec()].concat(), ..Queue::default() };
-    assert_eq!(starts(&q, shorts[1].id, 240 * MIN), Ok(()), "at the bound, the shortest");
+    assert_eq!(starts(&q, shorts[1].ask.id, 240 * MIN), Ok(()), "at the bound, the shortest");
     let past = 240 * MIN + 1;
-    assert_eq!(starts(&q, long.id, past), Ok(()), "past it, the long one");
-    assert_eq!(starts(&q, shorts[1].id, past).unwrap_err(), "waits for FMGG behind `1`, waiting past the starve bound");
+    assert_eq!(starts(&q, long.ask.id, past), Ok(()), "past it, the long one");
+    assert_eq!(
+        starts(&q, shorts[1].ask.id, past).unwrap_err(),
+        "waits for FMGG behind `1`, waiting past the starve bound"
+    );
 }
 
 #[test]
 fn a_hold_with_a_window_starts_inside_it_only_and_joins_the_line_as_it_opens() {
     // 22:00-07:00 at UTC+9: 13:00 to 22:00 UTC.
     let window = Some(Window { from: 22 * 60, to: 7 * 60, offset: 9 * 60 });
-    let night = Entry { window, ..hold(1, 0, 600, "FMGG") };
+    let night = with(hold(1, 0, 600, "FMGG"), |a| a.window = window);
     let q = Queue { entries: vec![night.clone()], ..Queue::default() };
     let (noon_utc, opens, closes) = (12 * 60 * MIN, 13 * 60 * MIN, 22 * 60 * MIN);
-    assert_eq!(starts(&q, night.id, noon_utc).unwrap_err(), "waits for its window from 22:00");
+    assert_eq!(starts(&q, night.ask.id, noon_utc).unwrap_err(), "waits for its window from 22:00");
     let shown = &q.resources(noon_utc, ORDER)[0];
     assert_eq!(shown.waiting[0].why.as_deref(), Some("waits for its window from 22:00"));
     assert_eq!(shown.waiting[0].window.as_deref(), Some("22:00-07:00"));
-    assert_eq!(starts(&q, night.id, opens), Ok(()), "inside, at its opening");
-    assert_eq!(starts(&q, night.id, closes - MIN), Ok(()), "inside, at 06:59");
-    assert!(starts(&q, night.id, closes).is_err(), "closed again at 07:00");
+    assert_eq!(starts(&q, night.ask.id, opens), Ok(()), "inside, at its opening");
+    assert_eq!(starts(&q, night.ask.id, closes - MIN), Ok(()), "inside, at 06:59");
+    assert!(starts(&q, night.ask.id, closes).is_err(), "closed again at 07:00");
     // Waiting all day before its window: it joined the line as it opened, so it is not starved.
     let short = hold(2, opens + MIN, 5, "FMGG");
     let q = Queue { entries: vec![night.clone(), short.clone()], ..Queue::default() };
-    assert_eq!(starts(&q, short.id, opens + 2 * MIN), Ok(()));
-    assert_eq!(starts(&q, night.id, opens + 241 * MIN), Ok(()), "past the bound from its opening");
+    assert_eq!(starts(&q, short.ask.id, opens + 2 * MIN), Ok(()));
+    assert_eq!(starts(&q, night.ask.id, opens + 241 * MIN), Ok(()), "past the bound from its opening");
 }
 
 #[test]
 fn the_hosts_queue_keeps_its_order_where_none_declares_a_hold() {
     // Ten hours apart, the first past the starve bound, a line move past its bound among them.
-    let (a, b) = (Entry { worker: Some(Uuid::from_u128(9)), ..entry(1, 0) }, entry(2, 600 * MIN));
-    let line = Entry { bound_at: Some(MIN), ..entry(3, 601 * MIN) };
+    let (a, b) = (with(entry(1, 0), |a| a.worker = Some(Uuid::from_u128(9))), entry(2, 600 * MIN));
+    let line = with(entry(3, 601 * MIN), |a| a.bound_at = Some(MIN));
     let q = Queue { entries: vec![b.clone(), line.clone(), a.clone()], ..Queue::default() };
-    let order = |o| queue::line(&q.entries, 602 * MIN, o).iter().map(|e| e.id).collect::<Vec<_>>();
+    let order = |o| queue::line(&q.entries, 602 * MIN, o).iter().map(|e| e.ask.id).collect::<Vec<_>>();
     assert_eq!(order(ORDER), order(Order::default()));
-    assert_eq!(order(ORDER), [line.id, a.id, b.id]);
+    assert_eq!(order(ORDER), [line.ask.id, a.ask.id, b.ask.id]);
     assert_eq!(whys(&q, HOST, 602 * MIN)[1].as_deref(), Some("behind `3`, a line move past its bound"));
     // At its bound, not past it: a line move is first only as the oldest.
-    let (due, then) = (Entry { bound_at: Some(MIN), ..entry(4, 0) }, entry(5, MIN / 2));
+    let (due, then) = (with(entry(4, 0), |a| a.bound_at = Some(MIN)), entry(5, MIN / 2));
     let q = Queue { entries: vec![due, then], ..Queue::default() };
     assert_eq!(whys(&q, HOST, MIN), [None, Some("behind `4`, queued before it".into())]);
 }
@@ -125,9 +134,9 @@ fn a_resource_of_two_slots_takes_two_holders_and_the_oldest_waiting_next() {
     let one = Entry { started_at: Some(1), ..on(entry(1, 0), &["MAC"]) };
     let (two, three) = (on(entry(2, 1), &["MAC"]), on(entry(3, 2), &["MAC"]));
     let q = Queue { entries: vec![one.clone(), two.clone(), three.clone()], slots: slots.clone(), ..Queue::default() };
-    assert_eq!(starts(&q, two.id, 10), Ok(()));
-    assert!(starts(&q, three.id, 10).is_err(), "the oldest first");
+    assert_eq!(starts(&q, two.ask.id, 10), Ok(()));
+    assert!(starts(&q, three.ask.id, 10).is_err(), "the oldest first");
     let two = Entry { started_at: Some(5), ..two };
     let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
-    assert!(starts(&q, three.id, 10).unwrap_err().starts_with("waits for MAC, held by"));
+    assert!(starts(&q, three.ask.id, 10).unwrap_err().starts_with("waits for MAC, held by"));
 }
