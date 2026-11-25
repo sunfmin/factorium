@@ -186,6 +186,21 @@
     "source": "SPEC.md:420",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
+  "43d8855f5275": {
+    "mark": "promise",
+    "sentence": "With stablehand missing or failing, claude-code alone starts, by `claude --dangerously-skip-permissions` (built in, for that case only), on the host user's own login.",
+    "source": "SPEC.md:36"
+  },
+  "459f1dc753d4": {
+    "mark": "promise",
+    "sentence": "The first tick after `done`, and each tick after that while it waits its turn on which its branch or the proving tip moved since it last merged, checks the merge of every branch waiting in line onto the proving tip, without a work tree or a gate (`git merge-tree`), by the same rules (a conflict only in `regenerated` records merges). One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since, §2 step 5), and leaves the line; one that merges keeps its place.",
+    "source": "SPEC.md:42"
+  },
+  "51ffe0033cd4": {
+    "mark": "promise",
+    "sentence": "**Where a checkout's issues spent their time**: `spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing.",
+    "source": "SPEC.md:374"
+  },
   "535e8408a8fd": {
     "mark": "promise",
     "sentence": "Every block says why (factorium#285): `--blocked-by` and `issue block --by` are refused without `--why <text>` (one why serves all the `--blocked-by` of one `add`), kept with the block; `issue show` answers each thing it waits for in `waits`, with its why and how it was met, and doctor's `parked` names each unmet one with its why.",
@@ -216,10 +231,20 @@
     "sentence": "A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it.",
     "source": "SPEC.md:39"
   },
+  "5fe2ffcddf67": {
+    "mark": "promise",
+    "sentence": "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all: the tick gives it to the outboxes of every worker it is owed and goes on, and it is typed at them at once beside the ticks, on a store connection of its own; the tick's `roles` answers each worker told, its changed files and its delivery as it stood when the tick ended (`queued` while it is typed), and the outbox records how it went.",
+    "source": "SPEC.md:317"
+  },
   "671e9481e446": {
     "mark": "promise",
     "sentence": "Off the path, everything goes to the watch: `worker escalate`, a worker whose session died, never came up (five minutes after it started, a fixed bound), went silent past its bound, or hung past it (its turn open, its processes next to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held for one reason past the host's span.",
     "source": "SPEC.md:136"
+  },
+  "693b615771a0": {
+    "mark": "not",
+    "sentence": "The checkouts pinned to one engine (`kit pin`). The split (factorium#291, stablehand#24, factorium#306): which engine, model and account a session starts on is stablehand's, its order (`stablehand order set`) and its pick its one home, and so is each engine's command, its program and the flags it always takes (`stablehand command set\\",
+    "source": "SPEC.md:36"
   },
   "6b3236f11c1f": {
     "mark": "promise",
@@ -431,6 +456,11 @@
     "sentence": "One binary, `factorium`. Three groups, by who uses them; the guard lets a worker run only `factorium worker …` and lets only the watch run `factorium watch …`.",
     "source": "SPEC.md:174"
   },
+  "cb730b2c89f0": {
+    "mark": "promise",
+    "sentence": "Its merge is checked from `done` on, not only at its turn (§1.12, factorium#307). A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds: proving moved since the worker merged what it was told (factorium#171). It is told as for a first red, with what landed since that tip and the files that conflict; past `moved_reds_max` of these in a row, it counts.",
+    "source": "SPEC.md:112"
+  },
   "cd8736ddf529": {
     "mark": "promise",
     "sentence": "It is recorded as any run is, its start beginning `every` again, and its tasks are filed by the same rule, so it never files a second open issue of a kind.",
@@ -491,6 +521,11 @@
     "mark": "promise",
     "sentence": "A new event kind may be written first by any process of the version that adds it, a CLI call before the daemon swapped among them: a daemon of an older version whose store cannot read it fails its ticks, and a failed tick still starts that proof and swaps once it passed (not while a line move runs beside the ticks), since the newer binary alone reads the store; a rollback's kept binary is gone back to only when no link to swap to is proven (factorium#252). A cut of the formula proves it right after the install (the daemon's cut beside its ticks, recorded on the tick after the proof ended); one that fails is a failed cut, its why the error and the copy's path (kept for a look), and the old binary runs on.",
     "source": "SPEC.md:315"
+  },
+  "df05ad7bce8a": {
+    "mark": "promise",
+    "sentence": "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs (factorium#311). A prompt Claude Code took is read from its session file as typed, or in the block it writes a long paste in (`<pasted_content id=\"…\">`). `factorium outbox [--worker <id>]` answers the record.",
+    "source": "SPEC.md:323"
   },
   "e1fcaa4d3692": {
     "mark": "promise",

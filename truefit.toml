@@ -1232,3 +1232,42 @@ name = "command-loads-lost-service"
 says = "So the first `factorium` command run after the boot loads it, unless `factorium stop` stopped it."
 source = "README.md:26"
 check = ["test"]
+
+[[promise]]
+name = "without-stablehand-claude-code-alone"
+says = "With stablehand missing or failing, claude-code alone starts, by `claude --dangerously-skip-permissions` (built in, for that case only), on the host user's own login."
+source = "SPEC.md:36"
+check = ["test"]
+
+[[promise]]
+name = "merge-checked-from-done"
+says = "One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since, §2 step 5), and leaves the line; one that merges keeps its place."
+source = "SPEC.md:42"
+check = ["test"]
+why = "factorium has no `truefit sim`, and models/Line.tla has no merge; each tick's check is one pass over the line under the daemon's lock, and in_line.rs drives a branch that stops merging once another lands, one that conflicts while another gates, and one conflicting only in a regenerated record"
+
+[[promise]]
+name = "moved-red-not-second-red"
+says = "A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds"
+source = "SPEC.md:112"
+check = ["test"]
+
+[[promise]]
+name = "no-tick-waits-for-typing"
+says = "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all"
+source = "SPEC.md:317"
+check = ["test"]
+why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
+
+[[promise]]
+name = "typing-beside-ends-before-retry-or-swap"
+says = "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs"
+source = "SPEC.md:323"
+check = ["test"]
+why = "factorium has no `truefit sim`, and no model has the outboxes; on.rs ticks again while seven are typed (none typed twice) and holds the restart until the typing's outcome is recorded"
+
+[[promise]]
+name = "spent-stores-nothing"
+says = "`spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing."
+source = "SPEC.md:374"
+check = ["test"]
