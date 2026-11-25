@@ -1,0 +1,10 @@
+{
+  "tree": "3f85bf74a72c862d854873a0c6a3405bcd39cc3b+d1fba762150c532c",
+  "lines": 266,
+  "serves": "factorium#309",
+  "considered": "issue show --steps' Steps (reused as the input, not copied); issue_spent's attempt loop (its end and tokens now shared through attempt_end and Tokens::summed); the line's gate name (LineJob::of now names a worker's gate too)",
+  "reviewer": "codex:01a2132b-de82-78c0-be7c-2b007c156177:default",
+  "author": "claude-code:06eef7b0-0802-544b-b166-25ddfb8a789b:opus",
+  "cut": "In crates/domain/src/spent.rs, update both the issue and checkout splits as each interval is assigned and delete Split::merge. Include the attempt endpoints in the interval boundaries so uncovered intervals go straight to rest and the covered counter can go. Move the token accumulator from crates/factorium/src/issues.rs onto Tokens and reuse it in both reports, deleting spent.rs’s separate sum helper.",
+  "answer": "Made all three: split() adds each cut to the issue's and the checkout's Split at once and Split::merge is gone; the attempt's from and to are among the cuts, so an uncovered cut goes to rest and the covered counter is gone; Tokens::summed in the domain is used by issue show's spent and by spent, and spent.rs's sum is gone"
+}

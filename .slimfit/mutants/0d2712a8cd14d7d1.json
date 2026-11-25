@@ -1,0 +1,39 @@
+{
+  "tree": "86e8198ebb2be23615f52ed2fc9ccf2c81d5ab97+d1fba762150c532c",
+  "picker": "codex:01a21348-badc-7690-91a0-b76156374a0f:default",
+  "author": "claude-code:06eef7b0-0802-544b-b166-25ddfb8a789b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/cli.rs:802:13: replace > with >= in numbers",
+        "why": "This rejects single issue numbers and equal-endpoint ranges, while the scenario calls the app directly and bypasses the CLI parser.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/spent.rs:156:96: replace && with || in spent",
+        "why": "This lets landings outside the report window affect red counts and wall time, while the cutoff assertions only check durations.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/spent.rs:188:50: replace == with != in broke",
+        "why": "This breaks conflict counts when a file appears again, while the scenario has one conflicting landing and one file.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/spent.rs:222:5: replace command -> &'static str with \"\"",
+        "why": "This erases the gate, exclusive, and hold labels, while the scenario checks only the total heavy time in each row's sum.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/worker.rs:196:92: replace + with * in Tokens::summed",
+        "why": "This corrupts output-token totals when multiple attempts report usage, while the scenario has no token assertions.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
