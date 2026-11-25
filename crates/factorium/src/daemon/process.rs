@@ -31,8 +31,9 @@ impl App {
         let mut needed = vec!["git".to_string(), "orca".to_string()];
         let kept = self.kept_commands().map(|k| k.into_values().collect::<Vec<_>>());
         for command in kept.unwrap_or_else(|_| vec![factorium_domain::kit::FALLBACK_COMMAND.into()]) {
-            let program = command.split_whitespace().next().unwrap_or_default().to_string();
-            if !program.is_empty() && !needed.contains(&program) {
+            if let Some(program) = command.split_whitespace().next().map(str::to_string)
+                && !needed.contains(&program)
+            {
                 needed.push(program);
             }
         }
