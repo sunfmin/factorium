@@ -8,6 +8,7 @@ use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::tracker::{self, shown};
 use factorium_domain::when;
+use factorium_domain::worker::{Started, Status as WorkerStatus, Tokens, Worker, Workers};
 use factorium_domain::{checkout_id, issue_id};
 use factum::{Aggregate, Command};
 use serde_json::json;
@@ -158,13 +159,9 @@ impl App {
 
     /// Where `worker`'s time went, from its events, its heavy runs' rows and
     /// its session's outbox, `st` its start.
-    async fn attempt_steps(
-        &self,
-        worker: factum::Uuid,
-        st: &factorium_domain::worker::Started,
-    ) -> Answer<factorium_domain::steps::Steps> {
+    async fn attempt_steps(&self, worker: factum::Uuid, st: &Started) -> Answer<factorium_domain::steps::Steps> {
         use factorium_domain::outbox::{OutboxEvent, Outboxes, outbox_id};
-        use factorium_domain::worker::{WorkerEvent, Workers};
+        use factorium_domain::worker::WorkerEvent;
         let events: Vec<(i64, WorkerEvent)> = self.timed(factum::StreamId::new(Workers::NAME, worker)).await?;
         let outbox: Vec<(i64, OutboxEvent)> =
             self.timed(factum::StreamId::new(Outboxes::NAME, outbox_id(&st.terminal))).await?;
@@ -561,6 +558,47 @@ impl App {
         Ok(())
     }
 
+    /// When worker `wk`, started at `st`, ended (a live one: now), and the
+    /// tokens its session spent: as recorded when it ended, a live one's as
+    /// its session files say now.
+    fn attempt_end(&self, wk: &Worker, st: &Started) -> (i64, Option<Tokens>) {
+        if wk.status == WorkerStatus::Ended { (wk.since, wk.spent) } else { (self.now(), self.spent(st)) }
+    }
+
+    /// `spent`: where the time of `checkout`'s issues went, those numbered
+    /// within `numbers` (none: all of them), each attempt's from `since` on
+    /// (none: from its start); an attempt that ended before `since` is left
+    /// out, and an issue with no attempt left.
+    pub async fn spent_of(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<i64>) -> Answer {
+        use factorium_domain::spent;
+        self.checkout(checkout).await?;
+        if let Some((n, _)) = numbers.filter(|(from, to)| from == to) {
+            self.issue(checkout, n).await?;
+        }
+        let rows = self.rows(tracker::issues(Some(checkout), true)).await?;
+        let mut issues = Vec::new();
+        for r in rows.iter().filter(|r| numbers.is_none_or(|(from, to)| from <= r.number && r.number <= to)) {
+            let i = self.issue(checkout, r.number).await?;
+            let mut attempts = Vec::new();
+            for attempt in 1..=i.attempts {
+                let worker = factorium_domain::worker_id(checkout, i.number, attempt);
+                let wk = self.state::<Workers>(worker).await?;
+                let Some(st) = &wk.started else { continue };
+                let ((to, tokens), from) = (self.attempt_end(&wk, st), since.map_or(st.at, |s| s.max(st.at)));
+                if to >= from {
+                    attempts.push(spent::Attempt { from, to, tokens, steps: self.attempt_steps(worker, st).await? });
+                }
+            }
+            if !attempts.is_empty() {
+                issues.push(spent::Issue { number: i.number, title: i.title.clone(), attempts });
+            }
+        }
+        let mut answer = json!(spent::spent(&issues));
+        answer["checkout"] = json!(checkout);
+        answer["since"] = json!(since);
+        Ok(answer)
+    }
+
     /// What issue `i` took: each attempt's time, from its start to its end
     /// (a live one's, to now), in ms, and the tokens its session spent, as
     /// recorded when it ended (a live one's, as its session files say now;
@@ -569,15 +607,13 @@ impl App {
     /// started with and the hash of what that role gave it (`null`: none);
     /// with `steps`, where its time went.
     async fn issue_spent(&self, i: &Issue, steps: bool) -> Answer<serde_json::Value> {
-        use factorium_domain::worker::{Status as W, Tokens, Workers};
         let (mut ms, mut tokens, mut attempts) = (0, None::<Tokens>, Vec::new());
         for attempt in 1..=i.attempts {
             let worker = factorium_domain::worker_id(&i.checkout, i.number, attempt);
             let wk = self.state::<Workers>(worker).await?;
             let Some(st) = &wk.started else { continue };
-            let ended = wk.status == W::Ended;
-            let took = ((if ended { wk.since } else { self.now() }) - st.at).max(0);
-            let spent = if ended { wk.spent } else { self.spent(st) };
+            let (ended, (end, spent)) = (wk.status == WorkerStatus::Ended, self.attempt_end(&wk, st));
+            let took = (end - st.at).max(0);
             ms += took;
             if let Some(s) = spent {
                 let sum = tokens.get_or_insert_default();

@@ -48,6 +48,7 @@ stablehand command set 'claude-code=claude --dangerously-skip-permissions'   # h
 factorium issue add web "Fix the login" --body-file body.md   # or --body "..."; - reads stdin
 factorium run          # the daemon in the foreground (the service runs it for you)
 factorium doctor       # what needs you
+factorium spent web 198..222 --since 2026-11-25T00:00:00Z   # where those issues' time went
 ```
 
 A repo says how it is gated and cut in `factorium.toml`:

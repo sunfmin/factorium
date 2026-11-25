@@ -79,6 +79,37 @@ pub enum Top {
         #[arg(long, conflicts_with = "id")]
         read: bool,
     },
+    /// Answers where a checkout's issues spent their time, read from each
+    /// attempt's steps (`issue show --steps`): all its issues, open and
+    /// closed, or one (`12`), or a range (`198..222`); with `--since`, only
+    /// each attempt's time from then on, one that ended before it left out.
+    /// Each attempt's time is cut into parts that do not overlap, summing to
+    /// its time: a moment two steps share goes to the first of waiting for a
+    /// landing, a heavy command running, one queued, a park, a declared wait;
+    /// the rest is the session's own (the engine and its tools). It answers
+    /// `checkout`, `since`; `totals`: `issues`, `attempts`, `ms` (the
+    /// attempts' time), `tokens` (`in`, `out`, summed over attempts whose
+    /// harness says; all of an attempt's, whatever `--since`), `first_start`,
+    /// `last_landing` and `wall_ms` between them (null: nothing landed);
+    /// `split`: `heavy_queued` and `heavy_ran` (`ms`, and `by` command:
+    /// `gate`, `exclusive`, `hold`), `landing` (`ms`, `green`, `red` with
+    /// `ms` and `by` kind: `no_merge`, `gate_red`, `past_limit`,
+    /// `regenerated`, `unknown` for one before its kind was kept; `other`:
+    /// one that ended otherwise, or still lands), `waits` and `parks` (`ms`,
+    /// `by` why), `rest`; `reds`: `count`, `by_kind`, and `files` that
+    /// conflicted (`file`, `landings` it broke), most first; and `issues`:
+    /// one row each, `number`, `title`, `attempts`, `ms`, `tokens`, and its
+    /// own `split` and `reds`. All times are ms.
+    Spent {
+        checkout: String,
+        /// One issue's number (`12`), or a range of them, both ends in (`198..222`).
+        #[arg(value_name = "N|FROM..TO", value_parser = numbers)]
+        numbers: Option<(u64, u64)>,
+        /// Only the time from then: RFC 3339 with its offset
+        /// (`2026-11-25T00:00:00+09:00`, or `Z`), or ms since the epoch.
+        #[arg(long, value_name = "TIME", value_parser = when::parse)]
+        since: Option<i64>,
+    },
     /// Removes a worker's worktree that no open issue's attempt owns, as
     /// doctor names it, with its terminals: what it holds that is nowhere
     /// else (commits, and changes, committed first) is kept on
@@ -696,6 +727,7 @@ impl Top {
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
             Top::Idle { checkout } => app.idle_now(&checkout).await,
+            Top::Spent { checkout, numbers, since } => app.spent_of(&checkout, numbers, since).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
             Top::Heavy(h) => match h {
                 HeavyCmd::Run { background, resources, command } => {
@@ -759,6 +791,20 @@ impl Top {
 }
 
 /// Each of `blocked_by`, waited for for the one `why` its command gives.
+/// An issue's number, `12`, or a range of them, `198..222`, as its ends.
+fn numbers(s: &str) -> Result<(u64, u64), String> {
+    let n =
+        |t: &str| t.trim().parse::<u64>().map_err(|_| format!("`{s}` is no issue number, nor a range as `198..222`"));
+    let (from, to) = match s.split_once("..") {
+        Some((from, to)) => (n(from)?, n(to)?),
+        None => (n(s)?, n(s)?),
+    };
+    if from > to {
+        return Err(format!("`{s}` is a range that ends before it starts: name it as `{to}..{from}`"));
+    }
+    Ok((from, to))
+}
+
 fn waits(blocked_by: Vec<Blocker>, why: Option<&str>) -> Vec<Wait> {
     blocked_by.into_iter().map(|by| Wait { by, why: why.map(String::from) }).collect()
 }

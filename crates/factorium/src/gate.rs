@@ -79,7 +79,7 @@ impl App {
                 (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at).landing(lands), turn)
             }
             At::Worktree { worker, number } => {
-                (job(format!("{} gate of {checkout}#{number}", named(kind))).of(Some(worker), None), Turn::Wait)
+                (job(heavy::LineJob::Gate(kind).of(&format!("{checkout}#{number}"))).of(Some(worker), None), Turn::Wait)
             }
         };
         let beside = matches!(turn, Turn::Beside { .. });
