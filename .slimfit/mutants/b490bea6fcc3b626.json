@@ -1,0 +1,39 @@
+{
+  "tree": "f78aaa11bee11211ee3d7e741b3cc284f7dab185+d1fba762150c532c",
+  "picker": "codex:01a21433-80dd-7863-bd9c-fb0ed74ba128:default",
+  "author": "claude-code:897155ba-d6cb-5329-a2b9-d4a4d93d8e32:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/doctor.rs:496:47: replace > with >= in stalls",
+        "why": "A busy queue reports a stall at the exact combined hold and stall bound, which tests just before and after the cutoff would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:253:85: replace && with || in App::worker_hold",
+        "why": "An earlier hold by the same worker for a different resource can appear in the response if the test checks only that the new hold succeeded.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:370:65: replace && with || in App::adopt_queued",
+        "why": "Adoption can claim another process's waiting entry, which a test containing only the current process's waiting entry would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:319:83: replace && with || in Queue::covered",
+        "why": "A worker's command can bypass a slot held by a different worker, while the shown negative case uses a command with no worker.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/load.rs:100:73: replace && with || in Load::granted",
+        "why": "A waiting entry's process tree can be treated as granted, which a load test using only started entries for one worker would miss.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

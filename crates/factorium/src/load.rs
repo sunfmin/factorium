@@ -42,7 +42,7 @@ impl App {
 impl Load {
     /// The host read now, beside `queue` as its caller read it.
     pub(crate) fn read(host: &dyn Host, queue: Queue) -> Load {
-        let alive = queue.entries.iter().map(|e| e.pid).filter(|&pid| host.alive(pid)).collect();
+        let alive = queue.entries.iter().map(|e| e.ask.pid).filter(|&pid| host.alive(pid)).collect();
         let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
         Load { host: host.reading(), procs: host.processes(), queue, alive, cores }
     }
@@ -75,12 +75,12 @@ impl Load {
     /// within `hold` ms and alive, keeps it from being silent: one waiting
     /// for a resource is waiting, not silent.
     pub(crate) fn worker(&self, worker: Uuid, now: i64, hold: i64) -> Share {
-        let mine = |e: &Entry| e.worker == Some(worker);
+        let mine = |e: &Entry| e.ask.worker == Some(worker);
         let (held, tag) = (self.granted(mine), Some(worker.to_string()));
         let procs: Vec<_> = self.procs.iter().filter(|p| p.worker == tag && !held.contains(&p.pid)).collect();
         let cpu = procs.iter().map(|p| p.cpu).sum::<f64>();
         let load = health::Load::of(cpu, procs.iter().map(|p| p.rss_kib).sum(), procs.len() as u64, self.cores);
-        let live = |e: &Entry| self.alive.contains(&e.pid) && e.started_at.is_none_or(|t| now - t <= hold);
+        let live = |e: &Entry| self.alive.contains(&e.ask.pid) && e.started_at.is_none_or(|t| now - t <= hold);
         Share { load, quiet: health::quiet(cpu), heavy: self.queue.entries.iter().any(|e| mine(e) && live(e)) }
     }
 
@@ -97,7 +97,7 @@ impl Load {
     /// The pid of each started entry `of` picks, and every process under it.
     fn granted(&self, of: impl Fn(&Entry) -> bool) -> BTreeSet<u32> {
         let mut roots: Vec<u32> =
-            self.queue.entries.iter().filter(|e| e.started_at.is_some() && of(e)).map(|e| e.pid).collect();
+            self.queue.entries.iter().filter(|e| e.started_at.is_some() && of(e)).map(|e| e.ask.pid).collect();
         let mut all = BTreeSet::new();
         while let Some(pid) = roots.pop() {
             if all.insert(pid) {

@@ -160,7 +160,7 @@ impl App {
     /// (`ended`); one not yet noted, its waiter ends on seeing it gone.
     pub async fn unqueue(&self, id: Uuid) -> Answer {
         let q = self.state::<heavy::Heavy>(heavy::queue_id()).await?;
-        let Some(entry) = q.entries.into_iter().find(|e| e.id == id) else {
+        let Some(entry) = q.entries.into_iter().find(|e| e.ask.id == id) else {
             return Err(Refusal::new("no_entry", format!("the heavy queue holds no entry {id}")));
         };
         self.submit::<heavy::EndHeavy>(heavy::End { id, keeps: false, gone: None, outcome: None }).await?;

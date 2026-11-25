@@ -48,7 +48,7 @@ impl World {
             Heavy::evolve(&mut q, serde_json::from_value(json!({ "type": kind, "data": data })).unwrap());
             let rel = |t: i64| t - t0;
             let slot = |id: &String| {
-                let e = q.entries.iter().find(|e| &e.id.to_string() == id);
+                let e = q.entries.iter().find(|e| &e.ask.id.to_string() == id);
                 e.map_or_else(absent, |e| present(e, rel))
             };
             let rules = versions.iter().position(|v| *v == q.rules).map_or(0, |p| p + 1);
@@ -83,7 +83,7 @@ fn present(e: &Entry, rel: impl Fn(i64) -> i64) -> Value {
         "queued_at": rel(e.queued_at),
         "started_at": e.started_at.map_or(-1, &rel),
         "yields": e.yields(),
-        "bound_at": e.bound_at.map_or(-1, &rel),
+        "bound_at": e.ask.bound_at.map_or(-1, &rel),
         "noted": e.session.is_some(),
     })
 }

@@ -250,7 +250,7 @@ impl App {
         let job = Job::hold(resources.to_vec(), hold_for, window, &dir).of(Some(worker), None);
         self.heavy(job, Turn::Wait).await?;
         let q = self.state::<Heavy>(queue_id()).await?;
-        let mine = q.running().find(|e| e.is_hold() && e.worker == Some(worker) && e.resources == resources);
+        let mine = q.running().find(|e| e.is_hold() && e.ask.worker == Some(worker) && e.ask.resources == resources);
         let held = mine.map(factorium_domain::heavy::Holding::from);
         Ok(serde_json::json!({ "resources": resources, "held": held }))
     }
@@ -259,14 +259,14 @@ impl App {
     pub async fn worker_release(&self, worker: Uuid, name: &str) -> Answer {
         let q = self.state::<Heavy>(queue_id()).await?;
         let mine: Vec<_> =
-            q.running().filter(|e| e.is_hold() && e.worker == Some(worker) && e.asks_for(name)).collect();
+            q.running().filter(|e| e.is_hold() && e.ask.worker == Some(worker) && e.asks_for(name)).collect();
         if mine.is_empty() {
             return Err(Refusal::new("not_held", format!("you hold no {name}")));
         }
         for e in &mine {
-            self.submit::<EndHeavy>(End { id: e.id, keeps: false, gone: None, outcome: None }).await?;
+            self.submit::<EndHeavy>(End { id: e.ask.id, keeps: false, gone: None, outcome: None }).await?;
         }
-        let released: Vec<_> = mine.iter().map(|e| e.id).collect();
+        let released: Vec<_> = mine.iter().map(|e| e.ask.id).collect();
         Ok(serde_json::json!({ "released": name, "entries": released }))
     }
 
@@ -367,7 +367,7 @@ impl App {
     pub(crate) async fn adopt_queued(&self) -> Answer<()> {
         let pid = std::process::id();
         let q = self.state::<Heavy>(queue_id()).await?;
-        let mine = q.entries.iter().filter(|e| e.pid == pid && e.started_at.is_none()).map(|e| e.id);
+        let mine = q.entries.iter().filter(|e| e.ask.pid == pid && e.started_at.is_none()).map(|e| e.ask.id);
         self.memory.lock().unwrap().queued.extend(mine);
         Ok(())
     }
@@ -484,12 +484,12 @@ impl App {
         for e in q.running().filter(|e| e.asks().iter().any(|r| *r != factorium_domain::heavy::HOST)) {
             use factorium_domain::worker::{Status, Workers};
             let ended = async |w| Ok::<_, Refusal>(self.state::<Workers>(w).await?.status == Status::Ended);
-            if !e.is_hold() && !alive(e.pid) {
-                gone.push((e.id, "its waiter died"));
-            } else if let Some(w) = e.worker
+            if !e.is_hold() && !alive(e.ask.pid) {
+                gone.push((e.ask.id, "its waiter died"));
+            } else if let Some(w) = e.ask.worker
                 && ended(w).await?
             {
-                gone.push((e.id, "its worker ended"));
+                gone.push((e.ask.id, "its worker ended"));
             }
         }
         Ok(gone)
@@ -511,11 +511,14 @@ impl App {
         let pid = std::process::id();
         // A granted hold outlives its waiter: only its release or its worker's end gives it back.
         let dead = |e: &&Entry| {
-            e.id != id && e.pid != pid && !(e.is_hold() && e.started_at.is_some()) && !self.host.alive(e.pid)
+            e.ask.id != id
+                && e.ask.pid != pid
+                && !(e.is_hold() && e.started_at.is_some())
+                && !self.host.alive(e.ask.pid)
         };
         for e in q.entries.iter().filter(dead) {
             let gone = e.started_at.is_some().then(|| "its waiter died".to_string());
-            self.submit::<EndHeavy>(End { id: e.id, keeps: true, gone, outcome: None }).await?;
+            self.submit::<EndHeavy>(End { id: e.ask.id, keeps: true, gone, outcome: None }).await?;
         }
         if !q.holds(id) && queued {
             return Err(Refusal::new("unqueued", format!("`{}` was unqueued while it waited: it never ran", job.what)));

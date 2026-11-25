@@ -520,13 +520,14 @@ async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason() {
 fn every_reason_admission_holds_is_named_and_the_kit_only_when_no_issue_can_start() {
     use factorium_domain::admission::Reading;
     use factorium_domain::doctor::{ReadySeen, Seen, unstarted};
-    use factorium_domain::heavy::{Entry, Queue};
+    use factorium_domain::heavy::{Ask, Entry, Queue};
     let used = |issue: &str| ReadySeen {
         issue: issue.into(),
         waits: false,
         kit: Some("codex: every account is used up".into()),
     };
-    let queued = Entry { what: "cargo test".into(), queued_at: 1_000_000, ..Entry::default() };
+    let queued =
+        Entry { ask: Ask { what: "cargo test".into(), ..Ask::default() }, queued_at: 1_000_000, ..Entry::default() };
     let seen = Seen {
         ready: vec![used("web#1"), used("web#2")],
         reading: Reading { cpu_busy: 10, memory_free: 3, disk_free: 500 * GIB, workers_cpu: 90 },
