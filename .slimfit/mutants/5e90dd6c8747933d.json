@@ -1,0 +1,15 @@
+{
+  "tree": "0fde6e9d011bfc45b8a0373a403709ca11930e30+d1fba762150c532c",
+  "picker": "codex:01a2133c-627c-70b2-a287-64949dae32b5:default",
+  "author": "claude-code:db6efaf2-9e66-579b-aca3-9455560a287a:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/main.rs:76:5: replace main -> ExitCode with Default::default()",
+        "why": "The new test checks the manual directly, so it can pass even if the binary exits successfully without printing help or dispatching commands.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
