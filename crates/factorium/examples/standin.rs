@@ -31,7 +31,8 @@
 //!   `{sha}`, and removes its worktrees on `branch` and the branch.
 //!
 //! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
-//! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`); `real` never reads it.
+//! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`,
+//! `fakes::STABLEHAND_FAULTS`); `real` never reads it.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -198,6 +199,9 @@ fn main() {
             let host = FakeHost::at(&dir, Arc::new(ManualClock::new(now)), reading);
             match std::env::var("TRUEFIT_FAULT") {
                 Ok(f) if fakes::BREW_FAULTS.contains(&f.as_str()) => host.brew.lock().unwrap().fault(&f, true),
+                Ok(f) if fakes::STABLEHAND_FAULTS.contains(&f.as_str()) => {
+                    host.stablehand.lock().unwrap().fault(&f, true)
+                }
                 Ok(f) => host.orca.fault(&f, true),
                 Err(_) => {}
             }
