@@ -1,9 +1,10 @@
 #!/bin/sh
 # Checks `release.sh cut` without building or publishing (gate.sh runs it):
-# cargo, lipo, rustup and gh are faked, origin is a bare repo here. The cut
-# commits the version, dispatches the tap's workflow, waits for that run and
-# fails with its log when it fails; a tag it pushed is gone from origin when
-# it ends, and a tag origin already had on HEAD stays.
+# cargo, lipo, rustup, sleep and gh are faked, origin is a bare repo here. The
+# cut commits the version, dispatches the tap's workflow, waits for that run
+# through failing `gh` calls and fails with its log when it fails; a tag it
+# pushed is gone from origin when it ends, after the run it left unfinished
+# is cancelled, and a tag origin already had on HEAD stays.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 t=$(mktemp -d)
@@ -30,14 +31,26 @@ cat >"$t/bin/lipo" <<'EOF'
 case "$1" in -archs) echo "x86_64 arm64" ;; -create) cp "$4" "$3" ;; esac
 EOF
 printf '#!/bin/sh\n' >"$t/bin/rustup"
-# gh: `workflow run` makes run <n+1>, which `run view` reports as $RUN_ENDS.
+printf '#!/bin/sh\nexec /bin/sleep 0.1\n' >"$t/bin/sleep"
+# gh: `workflow run` makes run <n+1>, which `run view` reports as $RUN_ENDS
+# after failing its first $VIEW_FAILS times with HTTP 500. `run cancel` is
+# recorded with what origin's tag is on then.
 cat >"$t/bin/gh" <<'EOF'
 #!/bin/sh
 s=$FAKE_GH
 case "$1 $2" in
 "workflow run") echo "$*" >>"$s.calls"; echo $(( $(cat "$s.n") + 1 )) >"$s.n" ;;
 "run list") n=$(cat "$s.n"); [ "$n" = 0 ] || echo "$n" ;;
-"run view") case "$*" in *--log-failed*) echo "the run's failed log" ;; *) echo "$RUN_ENDS" ;; esac ;;
+"run view")
+    case "$*" in *--log-failed*) echo "the run's failed log"; exit ;; esac
+    echo x >>"$s.views"
+    if [ "$(wc -l <"$s.views")" -le "${VIEW_FAILS:-0}" ]; then
+        echo "HTTP 500: Internal Server Error (https://api.github.com/)" >&2
+        exit 1
+    fi
+    echo "$RUN_ENDS"
+    ;;
+"run cancel") echo "cancel $3 tag=$(git ls-remote "$FAKE_ORIGIN" refs/tags/v1.2.3 | cut -f1)" >>"$s.calls" ;;
 esac
 EOF
 chmod +x "$t/bin/"*
@@ -48,8 +61,11 @@ printf 'dist/\ntarget/\n' >.gitignore
 git add . && git commit -q -m one
 git remote add origin "$t/origin.git"
 
+# run_cut <what run view ends with> [<its HTTP 500s first>] [<wait limit>]
 run_cut() {
-    PATH="$t/bin:$PATH" FAKE_GH="$t/gh" RELEASE_WAIT_LIMIT=20 RUN_ENDS="$1" \
+    rm -f "$t/gh.views" "$t/gh.calls"
+    PATH="$t/bin:$PATH" FAKE_GH="$t/gh" FAKE_ORIGIN="$t/origin.git" \
+        RELEASE_WAIT_LIMIT="${3:-20}" RUN_ENDS="$1" VIEW_FAILS="${2:-0}" \
         packaging/release.sh cut v1.2.3 >"$t/out" 2>&1
 }
 fail() { echo "release-test: $*" >&2; cat "$t/out" >&2; exit 1; }
@@ -70,6 +86,20 @@ grep -q 'url "@URL@"' dist/factorium.rb && grep -q 'sha256 "@SHA256@"' dist/fact
 if run_cut "completed failure"; then fail "a run that fails passes the cut"; fi
 grep -q "the run's failed log" "$t/out" || fail "a failed run's log is not printed"
 [ -z "$(tagged)" ] || fail "the tag of a failed cut is still on origin"
+! grep -q '^cancel' "$t/gh.calls" || fail "the cut cancelled a run that had ended"
+
+# GitHub answering HTTP 500 while the run goes on ends nothing.
+run_cut "completed success" 2 || fail "two HTTP 500s from gh run view fail the cut"
+[ "$(wc -l <"$t/gh.views")" -eq 3 ] || fail "gh run view was asked $(wc -l <"$t/gh.views") times, not 3"
+! grep -q '^cancel' "$t/gh.calls" || fail "the cut cancelled a run that succeeded"
+
+# A run still queued at the limit is cancelled while its tag is there, then
+# the tag goes.
+if run_cut "queued " 0 1; then fail "a run queued past the limit passes the cut"; fi
+grep -q "still 'queued '" "$t/out" || fail "the cut does not say the run is still queued"
+grep -Eq "^cancel [0-9]+ tag=[0-9a-f]{40}$" "$t/gh.calls" \
+    || fail "the run was not cancelled before the tag went: '$(cat "$t/gh.calls")'"
+[ -z "$(tagged)" ] || fail "the tag of a cut past its limit is still on origin"
 
 # factorium's tag step, after the cut: it tags HEAD and pushes the tag. Then a
 # cut run again finds it there, and leaves it.
