@@ -109,10 +109,8 @@ leaves it out: the daemon runs the look.
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
 5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
-   a row goes to the watch. Its merge is checked on the first tick after
-   `done` and again on each move of the proving tip while it waits its
-   turn, so one that does not merge is told then, not at its turn
-   (factorium#307). A branch that does not merge onto the proving
+   a row goes to the watch. Its merge is checked from `done` on, not only
+   at its turn (§1.12, factorium#307). A branch that does not merge onto the proving
    tip is not the second red when the red before was one onto an older
    tip, which the branch now holds: proving moved since the worker merged
    what it was told (factorium#171). It is told as for a first red, with

@@ -57,18 +57,11 @@ impl Git {
 
     /// [`Git::run`], with `env` added to git's environment.
     fn run_with(&self, args: &[&str], env: &[(&str, &Path)]) -> Result<String, String> {
-        let out = self.output(args, env)?;
-        let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if out.status.success() {
-            Ok(said)
-        } else {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said } else { err }))
-        }
+        self.run_coded(args, env, None).map(|(_, said)| said)
     }
 
-    /// What git printed and how it exited, with `env` added to its environment.
-    fn output(&self, args: &[&str], env: &[(&str, &Path)]) -> Result<std::process::Output, String> {
+    /// [`Git::run_with`], exiting `also` answered as well, with its exit code.
+    fn run_coded(&self, args: &[&str], env: &[(&str, &Path)], also: Option<i32>) -> Result<(i32, String), String> {
         // What factorium itself commits (a landing merge, a cut tag, the
         // watch's home) needs an identity; a host with none commits as factorium.
         let commits = matches!(args.first(), Some(&("commit" | "commit-tree" | "merge" | "tag")));
@@ -93,11 +86,19 @@ impl Git {
             git.args(args).current_dir(&self.dir).env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).output()
         };
         // A binary found once may be gone since (git upgraded): `git` on PATH then.
-        match output(binary()) {
+        let out = match output(binary()) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => output(Path::new("git")),
             out => out,
         }
-        .map_err(|e| format!("git {}: {e}", args.join(" ")))
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
+        let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let code = out.status.code();
+        if out.status.success() || (also.is_some() && code == also) {
+            Ok((code.unwrap_or(0), said))
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said } else { err }))
+        }
     }
 
     /// Whether git answers yes (exit 0).
@@ -226,16 +227,10 @@ impl Git {
     /// merges. Answers why not, naming every conflicting file.
     pub fn merges(&self, tip: &str, branch: &str, regenerated: &[String]) -> Result<(), String> {
         let args = ["merge-tree", "--write-tree", "--name-only", "--no-messages", tip, branch];
-        let out = self.output(&args, &[])?;
-        let said = String::from_utf8_lossy(&out.stdout).to_string();
-        // 0: it merges; 1: it conflicts, its tree then each conflicting path; else it failed.
-        match out.status.code() {
-            Some(0) => return Ok(()),
-            Some(1) => {}
-            _ => {
-                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                return Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said.trim() } else { &err }));
-            }
+        // 0: it merges; 1: it conflicts, its tree then each conflicting path.
+        let (code, said) = self.run_coded(&args, &[], Some(1))?;
+        if code == 0 {
+            return Ok(());
         }
         let mut lines = said.lines().map(str::trim).filter(|l| !l.is_empty());
         let tree = lines.next().unwrap_or_default().to_string();

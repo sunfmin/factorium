@@ -194,15 +194,14 @@ impl App {
         let mut reds = Vec::new();
         self.memory.lock().unwrap().merges.retain(|wk, _| asks.iter().any(|a| a.worker == *wk));
         for c in checkouts {
-            let waiting: Vec<Uuid> =
-                asks.iter().filter(|a| a.checkout == c.name && !running(a.worker)).map(|a| a.worker).collect();
-            if waiting.is_empty() {
+            let mut waiting = asks.iter().filter(|a| a.checkout == c.name && !running(a.worker)).peekable();
+            if waiting.peek().is_none() {
                 continue;
             }
             let git = self.host.git(&c.path);
             let tip = git.fetch(&c.proving).map_err(fail("git"))?;
             let records = self.declared(&git, &tip)?.gate.regenerated;
-            for worker in waiting {
+            for worker in waiting.map(|a| a.worker) {
                 let wk = self.state::<Workers>(worker).await?;
                 let Some(st) = wk.started.as_ref() else { continue };
                 let head = git.sha(&st.branch).map_err(fail("git"))?;
