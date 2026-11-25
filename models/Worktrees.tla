@@ -165,7 +165,7 @@ UndoF(S) == LET t == S.pc.daemon.t
                 S1 == IF UndoRm(S) THEN Remove(S, t) ELSE S
             IN Done([S1 EXCEPT !.taken = 0], "daemon")
 
-\* The daemon starts again after it died (daemon.rs daemon_start, life.rs
+\* The daemon starts again after it died (daemon/process.rs daemon_start, life.rs
 \* free_unstarted): no start is under way, so an issue taken by an attempt
 \* never recorded started is free again, and the worktree that attempt
 \* made, if it made one, goes as undo_start's does: unless it holds work of
