@@ -80,16 +80,6 @@ enum Then {
     Cut { version: String, base: String, dir: std::path::PathBuf, steps: Vec<String> },
 }
 
-impl Moving {
-    /// The worker whose landing this is, if it is one.
-    fn lands(&self) -> Option<Uuid> {
-        match &self.then {
-            Then::Land { landing, .. } => Some(landing.worker),
-            _ => None,
-        }
-    }
-}
-
 /// A worker's branch merged onto the proving tip, its fast gate to run.
 #[derive(Clone)]
 struct Landing {
@@ -199,7 +189,8 @@ impl App {
     async fn check_waiting(&self, checkouts: &[Checkout]) -> Answer<Vec<Value>> {
         let live = self.live_workers().await?;
         let asks: Vec<_> = live.iter().filter(|w| w.state.status == w::Status::Landing).collect();
-        let running = |worker: Uuid| self.beside_runs(|f| matches!(f, For::Line(m) if m.lands() == Some(worker)));
+        let lands = |f: &For, w: Uuid| matches!(f, For::Line(m) if matches!(&m.then, Then::Land { landing, .. } if landing.worker == w));
+        let running = |w: Uuid| self.beside_runs(|f| lands(f, w));
         let mut reds = Vec::new();
         self.memory.lock().unwrap().merges.retain(|wk, _| asks.iter().any(|a| a.worker == *wk));
         for c in checkouts {
