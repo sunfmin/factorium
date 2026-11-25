@@ -1,0 +1,39 @@
+{
+  "tree": "dc6572c3fe59ada56def93b865fb8cc855f0df49+d1fba762150c532c",
+  "picker": "codex:01a21442-bf88-7de0-abe6-7744d11cc26e:default",
+  "author": "claude-code:fdb5057d-521c-571a-87f0-a87f147828aa:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon/process.rs:35:20: delete ! in App::daemon_start",
+        "why": "Startup tests may check for missing git or orca without checking that a distinct executable from a kept command is also reported.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/process.rs:65:78: replace && with || in App::run",
+        "why": "A second-daemon test may assert the running refusal without checking its wording when the held pid file names a dead process.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/process.rs:98:82: replace < with <= in App::run",
+        "why": "The extra sleep at the exact tick deadline may escape tests that check whether the daemon ticks and stops without checking its cadence.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/process.rs:121:36: replace && with || in App::daemon_down",
+        "why": "Liveness tests may miss a fresh heartbeat and a live PID paired with an unlocked pid file.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/process.rs:192:5: replace handed_lock -> Option<i32> with None",
+        "why": "Ordinary launches work without an inherited descriptor, so detecting this requires exercising the lock handoff across exec.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

@@ -585,7 +585,7 @@ commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
 covers = [
   { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules" },
-  { action = "NoteRules", file = "crates/factorium/src/daemon.rs", function = "App::daemon_start" },
+  { action = "NoteRules", file = "crates/factorium/src/daemon/process.rs", function = "App::daemon_start" },
   { action = "StaleHoldsNone", file = "crates/domain/src/heavy.rs", function = "Queue::stale, Queue::live, Queue::may_start" },
   { action = "StaleRefused", file = "crates/factorium/src/heavy.rs", function = "App::heavy (stale), App::as_installed" },
   { action = "StaleRefused", file = "crates/domain/src/heavy.rs", function = "StartHeavy" },
@@ -662,8 +662,9 @@ covers = [
   { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
   { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
   { action = "CutMake", file = "crates/domain/src/line.rs", function = "RecordCut" },
-  { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::run, App::tick" },
-  { action = "OneAtATime", file = "crates/factorium/src/daemon.rs", function = "App::run (pid file)" },
+  { action = "Die", file = "crates/factorium/src/daemon/process.rs", function = "App::run" },
+  { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
+  { action = "OneAtATime", file = "crates/factorium/src/daemon/process.rs", function = "App::run (pid file)" },
 ]
 
 [[model]]
@@ -733,7 +734,7 @@ covers = [
   { action = "Record", file = "crates/factorium/src/life.rs", function = "App::open_worker, App::begin (StartWorker)" },
   { action = "Undo", file = "crates/factorium/src/life.rs", function = "App::undo_start, App::finish" },
   { action = "Undo", file = "crates/factorium/src/kept.rs", function = "App::release_worker, tip, holds_own" },
-  { action = "Free", file = "crates/factorium/src/daemon.rs", function = "App::daemon_start" },
+  { action = "Free", file = "crates/factorium/src/daemon/process.rs", function = "App::daemon_start" },
   { action = "Free", file = "crates/factorium/src/life.rs", function = "App::free_unstarted" },
   { action = "Ends", file = "crates/factorium/src/issues.rs", function = "App::issue_wait_for_human, App::leave" },
   { action = "Ends", file = "crates/factorium/src/watch.rs", function = "App::restart (its session gone)" },
