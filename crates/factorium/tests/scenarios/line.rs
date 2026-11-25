@@ -323,8 +323,38 @@ async fn a_cut_whose_version_the_lock_holder_installs_is_made() {
     assert!(t.lines.iter().all(|l| l["failed"].is_null()), "no CutFailed: {:?}", t.lines);
 }
 
+/// Its tag pushed, the cut's install is refused by brew (truefit's brew
+/// fault `upgrade-refused`): the cut fails at once with brew's words, not
+/// waited for as a lock, and is a finding; its tag stays on origin, and once
+/// brew installs that version the next tick reads it back, with no new cut.
 #[tokio::test]
-async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder() {
+async fn a_cut_whose_install_brew_refuses_after_its_tag_fails_at_once_keeps_the_tag_and_is_read_back() {
+    let w = World::new();
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
+    w.host.brew.lock().unwrap().fault("upgrade-refused", true);
+    let t = cut_one(&w).await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    let why = cut["failed"].as_str().expect("the cut fails");
+    assert!(why.contains("installing web failed") && why.contains("curl"), "{why}");
+    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 1, "not waited for as a lock");
+    assert!(brew_waits(&w).is_empty(), "no backoff: {:?}", brew_waits(&w));
+    let tag = w.remote_tip("web", "v0.1.0^{commit}");
+    assert!(w.finding("cut:web:v0.1.0").await.is_some(), "{:?}", w.findings().await);
+    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.0.9");
+
+    w.host.brew.lock().unwrap().fault("upgrade-refused", false);
+    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.1.0".into());
+    let t = w.tick().await;
+    let read = t.lines.iter().find(|l| l["cut"] == "web").expect("the failure is read back");
+    assert_eq!((&read["read_back"], &read["commit"]), (&json!(true), &json!(tag)), "{read}");
+    assert_eq!(w.finding("cut:web:v0.1.0").await, None);
+}
+
+/// A cut still locked past the bound fails naming the holder; the brew
+/// that held the lock then installed that version: the next tick reads the
+/// install back and clears the failure, without a new cut (factorium#185).
+#[tokio::test]
+async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder_and_is_cleared_once_installed_anyway() {
     let w = World::new();
     w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
     {
@@ -342,57 +372,6 @@ async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder() {
     }
     assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 7);
     assert_eq!(cut["installed"], json!(null));
-}
-
-#[tokio::test]
-async fn a_cut_whose_upgrade_fails_other_than_by_a_lock_fails_at_once() {
-    let w = World::new();
-    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    w.host.brew.lock().unwrap().refuses = Some("Error: web: SHA256 mismatch".into());
-    let t = cut_one(&w).await;
-    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
-    let why = cut["failed"].as_str().expect("the cut fails");
-    assert!(why.contains("SHA256 mismatch"), "{why}");
-    assert_eq!(w.host.brewed().iter().filter(|b| *b == "upgrade web").count(), 1, "not waited for as a lock");
-    assert!(brew_waits(&w).is_empty());
-}
-
-/// Its tag pushed, the cut's install is refused by brew (truefit's brew
-/// fault `upgrade-refused`): the cut fails with brew's words and is a
-/// finding, its tag stays on origin, and once brew installs that version
-/// the next tick reads it back, with no new cut.
-#[tokio::test]
-async fn a_cut_whose_install_brew_refuses_after_its_tag_keeps_the_tag_and_is_read_back() {
-    let w = World::new();
-    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    w.host.brew.lock().unwrap().fault("upgrade-refused", true);
-    let t = cut_one(&w).await;
-    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
-    let why = cut["failed"].as_str().expect("the cut fails");
-    assert!(why.contains("installing web failed") && why.contains("curl"), "{why}");
-    let tag = w.remote_tip("web", "v0.1.0^{commit}");
-    assert!(w.finding("cut:web:v0.1.0").await.is_some(), "{:?}", w.findings().await);
-    assert_eq!(w.host.brew.lock().unwrap().installed["web"], "0.0.9");
-
-    w.host.brew.lock().unwrap().fault("upgrade-refused", false);
-    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.1.0".into());
-    let t = w.tick().await;
-    let read = t.lines.iter().find(|l| l["cut"] == "web").expect("the failure is read back");
-    assert_eq!((&read["read_back"], &read["commit"]), (&json!(true), &json!(tag)), "{read}");
-    assert_eq!(w.finding("cut:web:v0.1.0").await, None);
-}
-
-/// A cut failed on the Homebrew lock, and the brew that held it then
-/// installed that version: the next tick reads the install back and clears
-/// the failure, without a new cut (factorium#185).
-#[tokio::test]
-async fn a_failed_cut_whose_version_got_installed_anyway_is_cleared() {
-    let w = World::new();
-    w.host.brew.lock().unwrap().installed.insert("web".into(), "0.0.9".into());
-    w.host.brew.lock().unwrap().locked = u32::MAX;
-    let t = cut_one(&w).await;
-    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
-    assert!(cut["failed"].as_str().is_some_and(|f| f.contains("has already locked")), "{cut}");
     let finding = || async { w.finding("cut:web:v0.1.0").await.is_some() };
     assert!(finding().await, "{:?}", w.findings().await);
     // Still not installed: the next tick leaves the failure as it is.
@@ -528,7 +507,7 @@ async fn an_idle_cut_waits_until_everything_landed_is_promoted() {
 }
 
 #[tokio::test]
-async fn a_checkout_is_idle_whatever_another_checkout_s_workers_do() {
+async fn a_checkout_is_idle_and_its_landings_unheld_whatever_another_checkout_s_workers_and_hold_do() {
     let w = World::new();
     w.checkout("api").await;
     w.checkout("web").await;
@@ -542,19 +521,10 @@ async fn a_checkout_is_idle_whatever_another_checkout_s_workers_do() {
     w.done(&web, "w", "x").await;
     let t = w.tick().await;
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
-}
-
-#[tokio::test]
-async fn holding_one_checkout_s_landings_holds_no_other_s() {
-    let w = World::new();
-    w.checkout("api").await;
-    w.checkout("web").await;
-    w.kit().await;
-    w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
+    // web is held: api's landing is not.
     w.app.hold("web", Some("repairs")).await.unwrap();
-    let wk = worker(&w.app).await;
-    w.done(&wk, "a", "x").await;
+    let api = w.worker_on("api", 1).await;
+    w.done(&api, "a", "x").await;
     assert_eq!(w.tick().await.landed[0]["landed"], "api#1");
     assert_eq!(w.app.hold("api", None).await.unwrap()["held"], json!(null));
 }
