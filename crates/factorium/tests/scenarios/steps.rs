@@ -9,8 +9,8 @@ use crate::fixture::{CLAUDE, POLL, STUCK, World, id, until_file};
 /// The steps of `web`#`n`'s first attempt, as `issue show --steps` answers them.
 async fn steps_of(w: &World, n: u64) -> Value {
     let shown = w.app.issue_show_steps("web", n).await.unwrap();
-    assert_eq!(shown["steps"][0]["attempt"], 1, "{shown}");
-    shown["steps"][0]["steps"].clone()
+    assert_eq!(shown["spent"]["attempts"][0]["attempt"], 1, "{shown}");
+    shown["spent"]["attempts"][0]["steps"].clone()
 }
 
 /// The ms of `v` at `key`.

@@ -223,7 +223,6 @@ pub enum WorkerEvent {
     /// tip (factorium#307's check); one that does not is red instead.
     MergeChecked {
         tip: String,
-        at: i64,
     },
     /// Written before the outbox (#47), which now records what reached
     /// its session; read and ignored.
@@ -563,7 +562,7 @@ pub struct Checked {
 // Waiting its turn, its branch merges onto the proving tip.
 on_worker!(NoteMergeChecked, "worker.merge_checked", Checked, |s, p, now| {
     landing(s)?;
-    Ok(vec![WorkerEvent::MergeChecked { tip: p.tip.clone(), at: now.0 }])
+    Ok(vec![WorkerEvent::MergeChecked { tip: p.tip.clone() }])
 });
 
 // What a parked worker's issue waited for is met, or its engine's limit

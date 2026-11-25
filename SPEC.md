@@ -340,7 +340,7 @@ times were kept read as the owner's (start-over's as factorium's), with no
 time.
 
 **Where an attempt's time went** (factorium#308): `issue show --steps`
-answers each attempt's `steps`, read from what the database keeps of it and
+answers in each attempt of `spent` its `steps`, read from what the database keeps of it and
 written nowhere twice, each step with its start and end in ms. Its
 `heavy`: each heavy command of its own (`worker gate`, `worker
 exclusive`, a hold), when it asked (the place it took, §1.9), when the

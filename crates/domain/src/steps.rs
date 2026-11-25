@@ -4,10 +4,8 @@
 //! of its landings' gates ([`crate::tracker::RunRow`]), and its session's
 //! outbox. Each step has its start and end, in ms; one still open, none.
 
-use factum_core::Uuid;
 use serde::Serialize;
 
-use crate::heavy::Outcome;
 use crate::outbox::{OutboxEvent, Sender};
 use crate::tracker::RunRow;
 use crate::worker::{RedKind, Status, WorkerEvent};
@@ -20,53 +18,39 @@ pub struct Steps {
     pub heavy: Vec<Run>,
     /// Each `done`, from the ask to how it ended.
     pub landings: Vec<Landing>,
-    /// Each wait it declared (`worker waiting`).
-    pub waits: Vec<Wait>,
+    /// Each wait it declared (`worker waiting`), until when it declared it.
+    pub waits: Vec<Span>,
     /// Each time it was parked: behind what its issue waits for, or on its
-    /// engine's limit.
-    pub parks: Vec<Park>,
+    /// engine's limit, until its reset.
+    pub parks: Vec<Span>,
     /// Each message passed to its session: who from, when given, and when
-    /// it reached it. Their text is the outbox's (`factorium outbox --worker`).
+    /// it reached it. Their text is the outbox's (`outbox --worker`).
     pub messages: Vec<Told>,
 }
 
-/// One heavy command: asked, granted, ended, and how it ran.
+/// One heavy command as its row keeps it, with its wait and its run apart.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Run {
-    pub entry: Uuid,
-    pub what: String,
-    pub hold: bool,
-    pub asked_at: i64,
-    pub started_at: Option<i64>,
-    pub ended_at: Option<i64>,
+    #[serde(flatten)]
+    pub run: RunRow,
     /// From its ask to its grant (to now, or its end, if never granted).
     pub queued_ms: i64,
     /// From its grant to its end (to now, if it runs); none if never granted.
     pub ran_ms: Option<i64>,
-    pub outcome: Option<Outcome>,
 }
 
 impl Run {
     fn of(r: &RunRow, now: i64) -> Run {
         let granted_or = r.started_at.or(r.ended_at).unwrap_or(now);
-        Run {
-            entry: r.entry,
-            what: r.what.clone(),
-            hold: r.hold,
-            asked_at: r.asked_at,
-            started_at: r.started_at,
-            ended_at: r.ended_at,
-            queued_ms: (granted_or - r.asked_at).max(0),
-            ran_ms: r.started_at.map(|s| (r.ended_at.unwrap_or(now) - s).max(0)),
-            outcome: r.outcome,
-        }
+        let ran_ms = r.started_at.map(|s| (r.ended_at.unwrap_or(now) - s).max(0));
+        Run { run: r.clone(), queued_ms: (granted_or - r.asked_at).max(0), ran_ms }
     }
 }
 
 /// One landing: `done` asked, each check that its branch merges while it
 /// waited its turn, each fast gate on its merge (asked at its turn in the
 /// line), and how it ended.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Landing {
     pub asked_at: i64,
     pub checked: Vec<Checked>,
@@ -96,20 +80,12 @@ pub struct Red {
     pub told: Option<Told>,
 }
 
+/// A wait or a park: why, from when, until when it was declared or its
+/// engine resets (none: until what it waits for is met), and when it ended.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Wait {
+pub struct Span {
     pub why: String,
     pub at: i64,
-    /// Until when it declared it.
-    pub until: i64,
-    pub ended_at: Option<i64>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Park {
-    pub why: String,
-    pub at: i64,
-    /// Its engine's reset, parked on its limit.
     pub until: Option<i64>,
     pub ended_at: Option<i64>,
 }
@@ -132,12 +108,11 @@ pub struct Told {
 /// session's outbox events each with its time. `now` ends nothing: a step
 /// still open has no end.
 pub fn steps(events: &[(i64, WorkerEvent)], runs: &[RunRow], outbox: &[(i64, OutboxEvent)], now: i64) -> Steps {
-    let messages = told(outbox);
-    let mut s = Steps {
-        heavy: runs.iter().filter(|r| !r.lands && shown(r)).map(|r| Run::of(r, now)).collect(),
-        messages: messages.clone(),
-        ..Steps::default()
-    };
+    let shown =
+        |lands: bool| runs.iter().filter(move |r| r.lands == lands && (r.started_at.is_some() || r.ended_at.is_none()));
+    let mut s =
+        Steps { heavy: shown(false).map(|r| Run::of(r, now)).collect(), messages: told(outbox), ..Steps::default() };
+    let span = |why: String, at: i64, until: Option<i64>| Span { why, at, until, ended_at: None };
     for (at, e) in events {
         let at = *at;
         if let Some(st) = e.standing() {
@@ -145,43 +120,29 @@ pub fn steps(events: &[(i64, WorkerEvent)], runs: &[RunRow], outbox: &[(i64, Out
                 l.ended_at = Some(at);
                 l.outcome = Some(word(st.status, e).into());
             }
-            close(s.waits.iter_mut().map(|w| &mut w.ended_at), at);
+            close(&mut s.waits, at);
         }
+        let landing = s.landings.last_mut();
         match e {
-            WorkerEvent::LandingAsked { at: asked } => s.landings.push(Landing {
-                asked_at: *asked,
-                checked: Vec::new(),
-                gates: Vec::new(),
-                ended_at: None,
-                outcome: None,
-                commit: None,
-                red: None,
-            }),
-            WorkerEvent::MergeChecked { tip, at } => {
-                if let Some(l) = s.landings.last_mut() {
-                    l.checked.push(Checked { at: *at, tip: tip.clone() });
-                }
+            WorkerEvent::LandingAsked { at } => s.landings.push(Landing { asked_at: *at, ..Landing::default() }),
+            WorkerEvent::MergeChecked { tip } => {
+                landing.into_iter().for_each(|l| l.checked.push(Checked { at, tip: tip.clone() }))
             }
             WorkerEvent::LandingRed { at: red_at, tip, moved, kind, files, .. } => {
-                let told = messages.iter().find(|m| m.from == Sender::Factorium && m.at >= *red_at).cloned();
-                if let Some(l) = s.landings.last_mut() {
-                    let red = Red { kind: *kind, files: files.clone(), tip: tip.clone(), moved: *moved, told };
-                    l.red = Some(red);
+                let told = s.messages.iter().find(|m| m.from == Sender::Factorium && m.at >= *red_at).cloned();
+                if let Some(l) = landing {
+                    l.red = Some(Red { kind: *kind, files: files.clone(), tip: tip.clone(), moved: *moved, told });
                 }
             }
             WorkerEvent::WorkerLanded { commit, .. } => {
-                if let Some(l) = s.landings.last_mut() {
-                    l.commit = Some(commit.clone());
-                }
+                landing.into_iter().for_each(|l| l.commit = Some(commit.clone()))
             }
-            WorkerEvent::WaitDeclared(d) => {
-                s.waits.push(Wait { why: d.why.clone(), at: d.at, until: d.until, ended_at: None })
-            }
-            WorkerEvent::WaitEnded => close(s.waits.iter_mut().map(|w| &mut w.ended_at), at),
-            WorkerEvent::WorkerParked => s.parks.push(park("(no reason given)".into(), at, None)),
-            WorkerEvent::ParkedBehind { why } => s.parks.push(park(why.clone(), at, None)),
+            WorkerEvent::WaitDeclared(d) => s.waits.push(span(d.why.clone(), d.at, Some(d.until))),
+            WorkerEvent::WaitEnded => close(&mut s.waits, at),
+            WorkerEvent::WorkerParked => s.parks.push(span("(no reason given)".into(), at, None)),
+            WorkerEvent::ParkedBehind { why } => s.parks.push(span(why.clone(), at, None)),
             WorkerEvent::WorkerLimited(l) => {
-                s.parks.push(park(format!("its engine is at its limit: {}", l.said), l.at, Some(l.until)))
+                s.parks.push(span(format!("its engine is at its limit: {}", l.said), l.at, Some(l.until)))
             }
             _ => {}
         }
@@ -193,30 +154,20 @@ pub fn steps(events: &[(i64, WorkerEvent)], runs: &[RunRow], outbox: &[(i64, Out
                 | WorkerEvent::WorkerLanded { .. }
                 | WorkerEvent::WorkerEnded { .. }
         ) {
-            close(s.parks.iter_mut().map(|p| &mut p.ended_at), at);
+            close(&mut s.parks, at);
         }
     }
     // Each landing's gates: those asked from its `done` to its end.
     for l in &mut s.landings {
-        let within = |r: &&RunRow| r.lands && r.asked_at >= l.asked_at && l.ended_at.is_none_or(|e| r.asked_at <= e);
-        l.gates = runs.iter().filter(within).filter(|r| shown(r)).map(|r| Run::of(r, now)).collect();
+        let within = |r: &&RunRow| r.asked_at >= l.asked_at && l.ended_at.is_none_or(|e| r.asked_at <= e);
+        l.gates = shown(true).filter(within).map(|r| Run::of(r, now)).collect();
     }
     s
 }
 
-/// Whether a run is shown: not one that left the queue unstarted, whose
-/// wait the run that took its place counts.
-fn shown(r: &RunRow) -> bool {
-    r.started_at.is_some() || r.ended_at.is_none()
-}
-
-fn park(why: String, at: i64, until: Option<i64>) -> Park {
-    Park { why, at, until, ended_at: None }
-}
-
-/// Ends each of `open` still open, at `at`.
-fn close<'a>(open: impl Iterator<Item = &'a mut Option<i64>>, at: i64) {
-    open.filter(|e| e.is_none()).for_each(|e| *e = Some(at));
+/// Ends each of `spans` still open, at `at`.
+fn close(spans: &mut [Span], at: i64) {
+    spans.iter_mut().filter(|s| s.ended_at.is_none()).for_each(|s| s.ended_at = Some(at));
 }
 
 /// How a landing ended, by the event that ended it.

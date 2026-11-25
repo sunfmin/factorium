@@ -289,8 +289,8 @@ pub enum IssueCmd {
     /// the role and account it names; and `spent`, what it took: each
     /// attempt's time from start to end (a live one's, to now) in ms, and the
     /// tokens its session spent (`null`: its harness's files do not say),
-    /// with their sums. With `--steps`, it answers too `steps`: where each
-    /// attempt's time went, each step with its start and end in ms (null:
+    /// with their sums. With `--steps`, each attempt answers too `steps`:
+    /// where its time went, each step with its start and end in ms (null:
     /// still open). `heavy`: each heavy command it ran, `asked_at`,
     /// `started_at` (the queue granted it), `ended_at`, `queued_ms` and
     /// `ran_ms` apart, and `outcome` (`green`, `red`, `timed_out`; null: a
