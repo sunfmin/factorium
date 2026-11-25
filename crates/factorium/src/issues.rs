@@ -614,11 +614,7 @@ impl App {
             let Some(st) = &wk.started else { continue };
             let (ended, (end, spent)) = (wk.status == WorkerStatus::Ended, self.attempt_end(&wk, st));
             let took = (end - st.at).max(0);
-            ms += took;
-            if let Some(s) = spent {
-                let sum = tokens.get_or_insert_default();
-                (sum.input, sum.output) = (sum.input + s.input, sum.output + s.output);
-            }
+            (ms, tokens) = (ms + took, Tokens::summed(tokens, spent));
             let mut shown = json!({ "attempt": attempt, "worker": worker, "harness": st.harness,
                 "account": st.account, "ended": ended, "ms": took, "tokens": spent,
                 "role": st.role.as_ref().map(|r| json!({ "dir": r.dir, "from": r.from })),

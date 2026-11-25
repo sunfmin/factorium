@@ -1,4 +1,4 @@
-//! Where a set of issues' time went (factorium#309), read from each
+//! Where a set of issues' time went, read from each
 //! attempt's steps ([`crate::steps`]) and what it spent: nothing kept of its
 //! own. Each attempt's time, from its start to its end (a live one's, to
 //! now; one before `--since`, from then), is cut into parts that do not
@@ -89,7 +89,7 @@ impl Parts {
 }
 
 /// Waiting for a landing: one that landed (`green`), one that came back
-/// red, by its kind (`unknown`: one before factorium#308), and one that
+/// red, by its kind (`unknown`: one kept before reds kept their kind), and one that
 /// ended otherwise or still lands (`other`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Landing {
@@ -151,8 +151,8 @@ pub fn spent(issues: &[Issue]) -> Spent {
         };
         for a in &i.attempts {
             row.ms += a.to - a.from;
-            row.tokens = sum(row.tokens, a.tokens);
-            split(a, &mut row.split);
+            row.tokens = Tokens::summed(row.tokens, a.tokens);
+            split(a, [&mut row.split, &mut all.split]);
             for l in a.steps.landings.iter().filter(|l| l.ended_at.is_some_and(|e| a.from <= e && e <= a.to)) {
                 if let Some(red) = &l.red {
                     let kind = red.kind.map(crate::named).unwrap_or("unknown".into());
@@ -171,8 +171,7 @@ pub fn spent(issues: &[Issue]) -> Spent {
         }
         let t = &mut all.totals;
         (t.issues, t.attempts, t.ms, t.tokens) =
-            (t.issues + 1, t.attempts + row.attempts, t.ms + row.ms, sum(t.tokens, row.tokens));
-        all.split.merge(&row.split);
+            (t.issues + 1, t.attempts + row.attempts, t.ms + row.ms, Tokens::summed(t.tokens, row.tokens));
         all.issues.push(row);
     }
     let t = &mut all.totals;
@@ -181,13 +180,6 @@ pub fn spent(issues: &[Issue]) -> Spent {
         r.files.sort_by(|a, b| b.landings.cmp(&a.landings).then_with(|| a.file.cmp(&b.file)));
     }
     all
-}
-
-fn sum(a: Option<Tokens>, b: Option<Tokens>) -> Option<Tokens> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(Tokens { input: a.input + b.input, output: a.output + b.output }),
-        (a, b) => a.or(b),
-    }
 }
 
 /// Counts each of `files` once more, a conflict's.
@@ -201,22 +193,12 @@ fn broke(ranked: &mut Vec<Broke>, files: &[String], conflict: bool) {
 }
 
 impl Split {
-    fn merge(&mut self, o: &Split) {
-        for (mine, theirs) in [
-            (&mut self.heavy_queued, &o.heavy_queued),
-            (&mut self.heavy_ran, &o.heavy_ran),
-            (&mut self.waits, &o.waits),
-            (&mut self.parks, &o.parks),
-            (&mut self.landing.red, &o.landing.red),
-        ] {
-            theirs.by.iter().for_each(|(what, ms)| mine.add(what, *ms));
-        }
-        let (l, ol) = (&mut self.landing, &o.landing);
-        (l.ms, l.green, l.other) = (l.ms + ol.ms, l.green + ol.green, l.other + ol.other);
-        self.rest += o.rest;
-    }
-
-    fn add(&mut self, took: &Took, ms: i64) {
+    /// Adds `ms` to the part `took` names; none: the session's own.
+    fn add(&mut self, took: Option<&Took>, ms: i64) {
+        let Some(took) = took else {
+            self.rest += ms;
+            return;
+        };
         match took {
             Took::Landing(outcome) => {
                 self.landing.ms += ms;
@@ -246,8 +228,8 @@ fn command(r: &Run) -> &'static str {
     }
 }
 
-/// Adds attempt `a`'s time, cut into its parts, to `into`.
-fn split(a: &Attempt, into: &mut Split) {
+/// Adds attempt `a`'s time, cut into its parts, to each of `into`.
+fn split(a: &Attempt, into: [&mut Split; 2]) {
     let s = &a.steps;
     let mut spans: Vec<(i64, i64, Took)> = Vec::new();
     for l in &s.landings {
@@ -274,16 +256,13 @@ fn split(a: &Attempt, into: &mut Split) {
     }
     let clip = |t: i64| t.clamp(a.from, a.to);
     let spans: Vec<_> = spans.into_iter().map(|(f, t, k)| (clip(f), clip(t), k)).filter(|(f, t, _)| f < t).collect();
-    let mut cuts: Vec<i64> = spans.iter().flat_map(|(f, t, _)| [*f, *t]).collect();
+    let mut cuts: Vec<i64> = spans.iter().flat_map(|(f, t, _)| [*f, *t]).chain([a.from, a.to]).collect();
     cuts.sort_unstable();
     cuts.dedup();
-    let mut covered = 0;
+    let [mine, all] = into;
     for w in cuts.windows(2) {
-        let (from, to) = (w[0], w[1]);
-        if let Some(took) = spans.iter().filter(|(f, t, _)| *f <= from && to <= *t).map(|(.., k)| k).min() {
-            into.add(took, to - from);
-            covered += to - from;
-        }
+        let took = spans.iter().filter(|(f, t, _)| *f <= w[0] && w[1] <= *t).map(|(.., k)| k).min();
+        mine.add(took, w[1] - w[0]);
+        all.add(took, w[1] - w[0]);
     }
-    into.rest += (a.to - a.from) - covered;
 }

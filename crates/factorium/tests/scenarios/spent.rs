@@ -1,4 +1,4 @@
-//! Where a checkout's issues spent their time (factorium#309), read from
+//! Where a checkout's issues spent their time, read from
 //! each attempt's steps: the parts its time is cut into, the reds and the
 //! files that conflicted.
 

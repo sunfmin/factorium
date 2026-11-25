@@ -363,7 +363,7 @@ when it was given and when it reached it. `spent.ms` stays what it is.
 Steps before factorium#308 read as they were kept: a red with no kind, a
 park with "(no reason given)", a heavy command with no outcome.
 
-**Where a checkout's issues spent their time** (factorium#309): `spent
+**Where a checkout's issues spent their time**: `spent
 <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every
 attempt of the issues named (all, open and closed, by default) and stores
 nothing. Each attempt's time (from `--since`, if later than its start) is
