@@ -91,3 +91,20 @@ async fn a_conflict_only_in_a_regenerated_record_is_not_red_and_keeps_its_place(
     let landed: Vec<_> = t.landed.iter().filter_map(|l| l["landed"].as_str()).collect();
     assert_eq!(landed, ["web#2", "web#1"], "{:?}", t.landed);
 }
+
+#[tokio::test]
+async fn a_merge_check_git_refuses_is_red_in_gits_words() {
+    let w = World::new();
+    w.two_at_work().await;
+    let wk = w.worker_on("web", 1).await;
+    let (tree, branch) = (worktree(&wk), wk["branch"].as_str().unwrap().to_string());
+    // A branch of a history of its own: git refuses to merge it at all.
+    w.git(&tree, &["checkout", "-q", "--orphan", "alone"]).unwrap();
+    w.git(&tree, &["commit", "-qm", "alone"]).unwrap();
+    w.git(&tree, &["branch", "-qf", &branch, "alone"]).unwrap();
+    w.git(&tree, &["checkout", "-q", &branch]).unwrap();
+    w.app.worker_done(crate::fixture::id(&wk), None).await.unwrap();
+    let t = w.tick_alone().await;
+    let red = red_of(&w, &t.landed, 1).await.unwrap_or_else(|| panic!("red: {:?}", t.landed));
+    assert!(red.contains("does not merge") && red.contains("unrelated histories"), "{red}");
+}

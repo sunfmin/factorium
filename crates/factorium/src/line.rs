@@ -192,7 +192,6 @@ impl App {
         let lands = |f: &For, w: Uuid| matches!(f, For::Line(m) if matches!(&m.then, Then::Land { landing, .. } if landing.worker == w));
         let running = |w: Uuid| self.beside_runs(|f| lands(f, w));
         let mut reds = Vec::new();
-        self.memory.lock().unwrap().merges.retain(|wk, _| asks.iter().any(|a| a.worker == *wk));
         for c in checkouts {
             let mut waiting = asks.iter().filter(|a| a.checkout == c.name && !running(a.worker)).peekable();
             if waiting.peek().is_none() {
