@@ -56,8 +56,8 @@ impl App {
     /// tick waits on Orca's window (factorium#311). The next tick reads how
     /// each went from its outbox. A session typed at beside already is left
     /// to the look after that ended.
-    pub(crate) fn flush_beside(&self, sessions: &[Session]) -> Answer<()> {
-        let sessions: Vec<Session> = sessions.iter().filter(|s| !self.typing(&s.terminal)).cloned().collect();
+    pub(crate) fn flush_beside<'a>(&self, sessions: impl IntoIterator<Item = &'a Session>) -> Answer<()> {
+        let sessions: Vec<Session> = sessions.into_iter().filter(|s| !self.typing(&s.terminal)).cloned().collect();
         if sessions.is_empty() {
             return Ok(());
         }
@@ -77,12 +77,7 @@ impl App {
     /// failure among them, so a tick that reads them fails as it would
     /// have typing itself.
     pub(crate) async fn typed_beside(&self) -> Answer<()> {
-        let ended: Vec<Typing> = {
-            let mut m = self.memory.lock().unwrap();
-            let (ended, running) = std::mem::take(&mut m.typing).into_iter().partition(|t| t.run.is_finished());
-            m.typing = running;
-            ended
-        };
+        let ended: Vec<Typing> = self.memory.lock().unwrap().typing.extract_if(.., |t| t.run.is_finished()).collect();
         let mut failed = Ok(());
         for t in ended {
             let ran = t.run.await.unwrap_or_else(|e| Err(Refusal::new("panicked", e.to_string())));

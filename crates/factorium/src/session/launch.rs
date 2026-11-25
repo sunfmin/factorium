@@ -405,7 +405,7 @@ impl App {
             self.submit::<NoteRoleTold>(TellRole { worker: row.worker, read: now }).await?;
             owed.push((row.worker, changed, live.session, n));
         }
-        self.flush_beside(&owed.iter().map(|(_, _, s, _)| s.clone()).collect::<Vec<_>>())?;
+        self.flush_beside(owed.iter().map(|(_, _, s, _)| s))?;
         let mut told = Vec::new();
         for (worker, changed, s, n) in owed {
             let given = self.outbox(&s).await?.messages.into_iter().find(|m| m.n == n);

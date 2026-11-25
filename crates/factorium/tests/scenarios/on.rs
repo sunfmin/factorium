@@ -423,7 +423,7 @@ async fn word_that_its_role_changed_an_idle_worker_takes_as_a_paste_is_submitted
         w.set_screen(handle, &footer);
         std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
         assert_eq!(w.tick().await.roles.len(), 1, "{footer:?}");
-        assert_eq!(role_outcomes(&w).await, vec![json!("missed")], "{footer:?}: not in its session file yet");
+        assert_eq!(role_outcomes(&w, 1).await, vec![json!("missed")], "{footer:?}: not in its session file yet");
         assert_eq!(worker(&w.app).await["status"], "working", "{footer:?}");
 
         // Its session writes the paste it took.
@@ -439,14 +439,14 @@ async fn word_that_its_role_changed_an_idle_worker_takes_as_a_paste_is_submitted
         let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(w.app_now() as u64);
         std::fs::File::options().write(true).open(&file).unwrap().set_modified(now).unwrap();
         w.tick().await;
-        assert_eq!(role_outcomes(&w).await, vec![json!("submitted")], "{footer:?}");
+        assert_eq!(role_outcomes(&w, 1).await, vec![json!("submitted")], "{footer:?}");
         assert_eq!((role_words(&w).await.len(), worker(&w.app).await["status"].clone()), (1, json!("working")));
     }
 }
 
-/// What became of word that its role changed, in the outbox of the worker on `web#1`.
-async fn role_outcomes(w: &World) -> Vec<serde_json::Value> {
-    let messages = w.app.outbox_of(Some(id(&w.worker_on("web", 1).await))).await.unwrap()["messages"].clone();
+/// What became of word that its role changed, in the outbox of the worker on `web#n`.
+async fn role_outcomes(w: &World, n: u64) -> Vec<serde_json::Value> {
+    let messages = w.app.outbox_of(Some(id(&w.worker_on("web", n).await))).await.unwrap()["messages"].clone();
     let role = messages.as_array().unwrap().iter().filter(|m| m["from"]["kind"] == "role");
     role.map(|m| m["outcome"]["outcome"].clone()).collect()
 }
@@ -467,7 +467,7 @@ async fn word_that_its_role_changed_an_unknown_dialog_takes_is_typed_again_on_th
     std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
     assert_eq!(w.tick().await.roles.len(), 1);
     assert_eq!(worker(&w.app).await["status"], "working", "not parked for the watch");
-    assert_eq!(role_outcomes(&w).await, vec![json!("missed")]);
+    assert_eq!(role_outcomes(&w, 1).await, vec![json!("missed")]);
 
     // Still in the dialog: missed again, still working.
     w.tick().await;
@@ -477,7 +477,7 @@ async fn word_that_its_role_changed_an_unknown_dialog_takes_is_typed_again_on_th
     w.set_busy(&handle, false, false);
     w.host.orca.terminals.lock().unwrap().get_mut(&handle).unwrap().dialog = false;
     w.tick().await;
-    assert_eq!(role_outcomes(&w).await, vec![json!("submitted")]);
+    assert_eq!(role_outcomes(&w, 1).await, vec![json!("submitted")]);
     assert_eq!(worker(&w.app).await["status"], "working");
     w.tick().await;
     assert_eq!(role_words(&w).await.len(), 3, "taken once, typed no more");
@@ -535,11 +535,7 @@ async fn a_role_change_under_seven_busy_workers_adds_no_orca_window_to_the_tick_
     let typed = started.elapsed();
     assert!(typed < window * 2, "all seven at once, one window: {typed:?}");
     for (n, handle) in (1..=7).zip(&handles) {
-        let wk = w.worker_on("web", n).await;
-        let messages = w.app.outbox_of(Some(id(&wk))).await.unwrap()["messages"].clone();
-        let role: Vec<_> = messages.as_array().unwrap().iter().filter(|m| m["from"]["kind"] == "role").collect();
-        assert_eq!(role.len(), 1, "worker {n}'s outbox: {messages}");
-        assert_eq!(role[0]["outcome"]["outcome"], "queued", "its delivery recorded: {messages}");
+        assert_eq!(role_outcomes(&w, n).await, vec![json!("queued")], "worker {n}: told once, its delivery recorded");
         assert_eq!(w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count(), 1);
     }
 }
@@ -580,12 +576,9 @@ async fn a_role_change_two_of_five_workers_miss_is_typed_in_one_window_and_so_is
     eprintln!("the tick that told 5 workers, 2 missing, and their typing took {} ms", took.as_millis());
     let mut words = Vec::new();
     for n in 1..=5 {
-        let messages = w.app.outbox_of(Some(id(&w.worker_on("web", n).await))).await.unwrap()["messages"].clone();
-        let role = messages.as_array().unwrap().iter().find(|m| m["from"]["kind"] == "role").unwrap().clone();
-        words.push(role["outcome"]["outcome"].as_str().unwrap().to_string());
+        words.extend(role_outcomes(&w, n).await);
     }
-    words.sort();
-    assert_eq!(words, ["missed", "missed", "queued", "queued", "queued"]);
+    assert_eq!(words, [json!("queued"), json!("queued"), json!("queued"), json!("missed"), json!("missed")]);
     assert!(took < bound, "a miss held the typing past one window: {took:?}");
 
     // The next look types the two again, still in their dialogs, in one window.
