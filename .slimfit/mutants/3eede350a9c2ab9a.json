@@ -1,0 +1,21 @@
+{
+  "tree": "62ca586c9e0a3749989fc215c0bd7c4b4ce00a04+d1fba762150c532c",
+  "picker": "codex:01a21349-264c-70e3-8235-2b3c7c35dea5:default",
+  "author": "claude-code:6593c0dd-ff0c-5da8-8c83-d6f8ecd416db:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/outbox.rs:116:9: replace Outcome::word -> &'static str with \"\"",
+        "why": "The removed scenarios checked delivery words in the tick response. Their replacements check completed outcomes in the outbox and assert only the tick’s queued fallback, so a blank label for an already recorded outcome could pass.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/on.rs:497: a_role_change_under_five_busy_workers_is_typed_at_them_at_once_not_one_after_another",
+      "crates/factorium/tests/scenarios/on.rs:541: a_role_change_two_of_five_workers_miss_holds_the_tick_one_window_and_so_does_its_retry"
+    ]
+  }
+}
