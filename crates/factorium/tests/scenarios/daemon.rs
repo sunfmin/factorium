@@ -174,11 +174,11 @@ fn the_service_runs_homebrews_link_not_the_versioned_keg() {
 }
 
 #[tokio::test]
-async fn a_program_two_kit_entries_need_is_missing_once() {
+async fn a_program_of_a_command_stablehand_keeps_is_missing_at_start() {
     let w = World::new();
-    w.kit_of(&["claude-code=claude", "codex=claude --x"]).await;
-    *w.host.missing.lock().unwrap() = vec!["claude".into()];
-    assert_eq!(w.app.daemon_start().await.unwrap()["missing"], json!(["claude"]));
+    w.kit_of(&["claude-code=claude", "codex=codex --x"]).await;
+    *w.host.missing.lock().unwrap() = vec!["codex".into()];
+    assert_eq!(w.app.daemon_start().await.unwrap()["missing"], json!(["codex"]));
 }
 
 #[tokio::test]

@@ -378,7 +378,7 @@ async fn a_db_kept_with_parked_issues_reads_them_as_waiting_for_human_unrewritte
 #[tokio::test]
 async fn an_event_the_tracker_cannot_read_is_a_dead_letter_doctor_names() {
     let w = World::new();
-    w.kit().await;
+    w.checkout("web").await;
     w.a_dead_letter_for_the_tracker();
     let found = w.app.doctor().await.unwrap();
     let dead = findings(&found).iter().find(|f| f["key"] == "dead:tracker");

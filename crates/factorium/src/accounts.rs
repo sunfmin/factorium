@@ -3,19 +3,27 @@
 //! the limits each met. factorium asks it which account one more session
 //! starts on (`stablehand pick`, told how many sessions factorium runs on
 //! each), what that session is handed of its login (`stablehand credential`), and tells it of
-//! a limit a session's screen showed (`stablehand limit`). It keeps no
+//! a limit a session's screen showed (`stablehand limit`). Each engine starts by the
+//! command it keeps (`stablehand command show`). It keeps no
 //! account of its own.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use factorium_domain::kit::{Ask, Picked, Unpicked};
+use factorium_domain::kit::{Ask, Kits, MoveCommands, Moved, Picked, Refused, Unpicked, kit_id};
 use factorium_domain::watch::{Watches, watch_id};
 use factorium_domain::worker::Workers;
 use factorium_harness::Harness;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::{Answer, App, Refusal};
+
+/// The command each engine starts with: the one stablehand keeps for it
+/// (`kept`, `stablehand command show`), else its bare program.
+pub(crate) fn engine_commands(kept: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let each = Harness::all().iter().map(|h| (h.key(), kept.get(h.key()).map_or(h.program(), String::as_str)));
+    each.map(|(e, c)| (e.to_string(), c.to_string())).collect()
+}
 
 /// An account as stablehand keeps it, as far as a session needs it.
 pub(crate) struct Shown {
@@ -85,7 +93,14 @@ impl App {
         if !counts.is_empty() {
             args.extend(["--running", &counts]);
         }
-        let answer = self.stablehand(&args).map_err(|r| r.message)?;
+        let answer = match self.stablehand(&args) {
+            Ok(answer) => answer,
+            // An order not kept yet is stablehand's answer, not a fault: none starts.
+            Err(r) if r.message.ends_with("(no_order)") => {
+                return Ok(Picked::None { until: None, why: vec![Unpicked { account: None, why: r.message }] });
+            }
+            Err(r) => return Err(r.message),
+        };
         let text = |v: &Value, k: &str| v[k].as_str().map(str::to_string);
         if let (Some(engine), Some(account)) = (text(&answer, "engine"), text(&answer, "account")) {
             return Ok(Picked::On { engine, model: text(&answer, "model"), account });
@@ -93,6 +108,14 @@ impl App {
         let why = answer["why"].as_array().into_iter().flatten();
         let why = why.map(|u| Unpicked { account: text(u, "account"), why: text(u, "why").unwrap_or_default() });
         Ok(Picked::None { until: text(&answer, "until"), why: why.collect() })
+    }
+
+    /// The engines' commands stablehand keeps (`stablehand command show`),
+    /// only those with one kept.
+    pub(crate) fn kept_commands(&self) -> Answer<BTreeMap<String, String>> {
+        let shown = self.stablehand(&["command", "show"])?;
+        serde_json::from_value(shown["commands"].clone())
+            .map_err(|e| Refusal::new("stablehand", format!("stablehand command show: {e}")))
     }
 
     /// The account `name` as stablehand keeps it (`stablehand account
@@ -162,25 +185,49 @@ impl App {
 
 impl App {
     /// Why stablehand cannot say what a session starts on, if it cannot:
-    /// not on the PATH, or its pick refused or failed, as a start would ask
-    /// it; and the engine it picks that `kit` has no command for, if it
-    /// does. Neither while the kit has no command.
-    pub(crate) async fn stablehand_seen(
-        &self,
-        kit: &factorium_domain::kit::Kit,
-    ) -> Answer<(Option<factorium_domain::doctor::StablehandSeen>, Option<String>)> {
+    /// not on the PATH, or its commands or its pick refused or failed, as a
+    /// start would ask it.
+    pub(crate) async fn stablehand_seen(&self) -> Answer<Option<factorium_domain::doctor::StablehandSeen>> {
         use factorium_domain::doctor::StablehandSeen;
-        if kit.commands.is_empty() {
-            return Ok((None, None));
-        }
         if !self.host.programs().found("stablehand") {
-            return Ok((Some(StablehandSeen { found: false, why: "`stablehand` is not on the PATH".into() }), None));
+            return Ok(Some(StablehandSeen { found: false, why: "`stablehand` is not on the PATH".into() }));
         }
         let running = self.running().await?;
-        Ok(match self.picked(&Ask::default(), &running) {
-            Err(why) => (Some(StablehandSeen { found: true, why }), None),
-            Ok(Picked::On { engine, .. }) if !kit.commands.contains_key(&engine) => (None, Some(engine)),
-            Ok(_) => (None, None),
-        })
+        let kept = self.kept_commands().map_err(|r| r.message);
+        let why = kept.and_then(|_| self.picked(&Ask::default(), &running)).err();
+        Ok(why.map(|why| StablehandSeen { found: true, why }))
+    }
+
+    /// The kit's commands stablehand refused when they moved to it, of the
+    /// engines it keeps no command for now (all of them, if it cannot say).
+    pub(crate) fn unmoved(&self, kit: &factorium_domain::kit::Kit) -> Vec<(String, factorium_domain::kit::Refused)> {
+        let kept = self.kept_commands().unwrap_or_default();
+        kit.refused.iter().filter(|(e, _)| !kept.contains_key(*e)).map(|(e, r)| (e.clone(), r.clone())).collect()
+    }
+
+    /// Moves the kit's commands to stablehand, once (factorium#306): each
+    /// set there (`stablehand command set`) unless it keeps one for that
+    /// engine already, then dropped from the kit; one it refuses
+    /// (`bad_command`) is kept for doctor. Nothing moves while stablehand
+    /// cannot be asked: the next start of the daemon tries again.
+    pub(crate) async fn move_commands(&self) -> Answer {
+        let kit = self.state::<Kits>(kit_id()).await?;
+        if kit.commands.is_empty() || !self.host.programs().found("stablehand") {
+            return Ok(json!(null));
+        }
+        let Ok(kept) = self.kept_commands() else { return Ok(json!(null)) };
+        let (mut moved, mut refused) = (Vec::new(), BTreeMap::new());
+        for (engine, command) in kit.commands.iter().filter(|(e, _)| !kept.contains_key(*e)) {
+            let line = format!("{engine}={command}");
+            match self.stablehand(&["command", "set", &line]) {
+                Ok(_) => moved.push(engine.clone()),
+                Err(r) if r.message.ends_with("(bad_command)") => {
+                    refused.insert(engine.clone(), Refused { command: command.clone(), why: r.message });
+                }
+                Err(_) => return Ok(json!(null)),
+            }
+        }
+        self.submit::<MoveCommands>(Moved { refused: refused.clone() }).await?;
+        Ok(json!({ "moved": moved, "refused": refused }))
     }
 }

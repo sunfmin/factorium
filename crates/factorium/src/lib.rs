@@ -151,7 +151,7 @@ fn model() -> Model {
         .command::<line::RecordCut>()
         .command::<line::HoldLandings>()
         .aggregate::<kit::Kits>()
-        .command::<kit::SetTheKit>()
+        .command::<kit::MoveCommands>()
         .command::<kit::PinCheckout>()
         .command::<kit::LimitHarness>()
         .aggregate::<settings::HostSettings>()

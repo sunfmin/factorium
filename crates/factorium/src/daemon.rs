@@ -12,7 +12,6 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Start, StartDaemon, Step, Steps, Ticked};
 use factorium_domain::doctor;
 use factorium_domain::issue::Author;
-use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::settings::{Settings, Time};
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -346,13 +345,16 @@ impl App {
         }
     }
 
-    /// The daemon starts: the programs it needs are looked for on its PATH
-    /// once, and what is missing is recorded for doctor, not met tick by
-    /// tick; a start it died in the middle of is undone.
+    /// The daemon starts: the kit's commands move to stablehand, once; the
+    /// programs it needs (git, orca, and those of the commands stablehand
+    /// keeps, else the fallback's) are looked for on its PATH once, and
+    /// what is missing is recorded for doctor, not met tick by tick; a
+    /// start it died in the middle of is undone.
     pub async fn daemon_start(&self) -> Answer {
-        let kit = self.state::<Kits>(kit_id()).await?;
+        let moved = self.move_commands().await?;
         let mut needed = vec!["git".to_string(), "orca".to_string()];
-        for command in kit.commands.values() {
+        let kept = self.kept_commands().map(|k| k.into_values().collect::<Vec<_>>());
+        for command in kept.unwrap_or_else(|_| vec![factorium_domain::kit::FALLBACK_COMMAND.into()]) {
             let program = command.split_whitespace().next().unwrap_or_default().to_string();
             if !program.is_empty() && !needed.contains(&program) {
                 needed.push(program);
@@ -365,7 +367,7 @@ impl App {
         self.note_rules().await?;
         self.adopt_queued().await?;
         let freed = self.free_unstarted().await?;
-        Ok(json!({ "path": path, "missing": missing, "freed": freed }))
+        Ok(json!({ "path": path, "missing": missing, "freed": freed, "moved": moved }))
     }
 
     /// `factorium run`: ticks until `stop` is set (on SIGTERM or SIGINT, as

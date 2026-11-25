@@ -342,6 +342,22 @@ stdin = """
 {"run": ["stablehand", "pick", "--machine", "{machine}", "--engine", "codex", "--model", "o9"], "read": ["/engine", "/model", "/account"]}
 """
 
+# What a start reads of the engines' commands (factorium#306): none on a
+# fresh store; those set, as `command show` answers them; the refusals a
+# move of the kit's commands meets (no `=`, an engine it does not know, a
+# command naming a model), each writing nothing; and one dropped.
+[[standin.case]]
+name = "commands"
+stdin = """
+{"run": ["stablehand", "command", "show"], "read": ["/commands"]}
+{"run": ["stablehand", "command", "set", "claude-code=claude --x", "grok=grok --always-approve"], "read": ["/commands/claude-code", "/commands/grok"]}
+{"run": ["stablehand", "command", "set", "codex"], "read": ["/code"]}
+{"run": ["stablehand", "command", "set", "vim=vim"], "read": ["/code"]}
+{"run": ["stablehand", "command", "set", "codex=codex --model o3"], "read": ["/code"]}
+{"run": ["stablehand", "command", "set", "grok="], "read": ["/commands"]}
+{"run": ["stablehand", "command", "show"], "read": ["/commands"]}
+"""
+
 # What it refuses factorium: an account it does not keep, by every
 # command factorium names one to, and a limit that lifted already.
 [[standin.case]]

@@ -64,6 +64,7 @@ impl Kind for Dsh {
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     /// Nothing.
+    const PROGRAM: &'static str = "dsh";
     const STOCK_ARGUMENTS: &'static str = "";
     /// The question dsh-tui asks before its screen is up (seen 2026-11, dsh's
     /// program having exited and been started again): typed text answers it.

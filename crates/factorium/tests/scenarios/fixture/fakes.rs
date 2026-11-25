@@ -572,6 +572,8 @@ pub struct FakeStablehand {
     /// The order `pick` walks (`order set`): each engine, and its models
     /// (none: the engine's own), highest first.
     pub order: Vec<(String, Vec<String>)>,
+    /// Each engine's command kept (`command set`), as `command show` answers.
+    pub commands: BTreeMap<String, String>,
 }
 
 /// An account as stablehand keeps it.
@@ -695,7 +697,7 @@ impl FakeStablehand {
         }
     }
 
-    fn answer(&mut self, args: &[&str], now: i64) -> Said {
+    pub fn answer(&mut self, args: &[&str], now: i64) -> Said {
         if let Some(fault) = &self.fault {
             return Said { ok: false, out: json!({ "error": fault, "code": "fault" }).to_string(), err: String::new() };
         }
@@ -773,6 +775,28 @@ impl FakeStablehand {
                 ok(
                     json!({ "limit": { "account": name, "at": at, "window": window, "resets_at": resets.map(factorium_domain::when::utc) } }),
                 )
+            }
+            ["command", "show"] => ok(json!({ "commands": self.commands })),
+            ["command", "set", given @ ..] => {
+                let mut commands = self.commands.clone();
+                for g in given {
+                    let Some((engine, command)) = g.split_once('=') else {
+                        return refused("bad_command", format!("{g}: <engine>=<command>"));
+                    };
+                    if engine_vars(engine).is_none() {
+                        return refused("bad_command", format!("{engine}: no such engine"));
+                    }
+                    // Its program is not checked here: a scenario's stand-in is a path of its own.
+                    if command.trim().is_empty() {
+                        commands.remove(engine);
+                    } else if command.split_whitespace().any(|w| w == "--model") {
+                        return refused("bad_command", format!("{engine}: `{command}` names a model"));
+                    } else {
+                        commands.insert(engine.to_string(), command.to_string());
+                    }
+                }
+                self.commands = commands;
+                ok(json!({ "commands": self.commands }))
             }
             ["order", "set", ranks @ ..] => {
                 self.order(ranks);

@@ -49,17 +49,14 @@ pub struct Seen {
     /// Admission's reading, as the tick reads it.
     #[serde(default)]
     pub reading: Reading,
-    /// Whether the kit has no command: nothing starts until it has one.
-    #[serde(default)]
-    pub kit_empty: bool,
     /// Why stablehand, the accounts' one home, cannot be asked which account
-    /// a session of the kit starts on, if it cannot: no worker starts then.
+    /// a session starts on, if it cannot: no worker starts then.
     #[serde(default)]
     pub stablehand: Option<StablehandSeen>,
-    /// The engine stablehand's pick answers that the kit has no command
-    /// for, if it does: no session starts on it.
+    /// The kit's commands stablehand refused when they moved to it
+    /// (factorium#306), of the engines it keeps no command for yet.
     #[serde(default)]
-    pub no_command: Option<String>,
+    pub unmoved: Vec<(String, crate::kit::Refused)>,
     /// The running entries holding a named resource whose holder is gone,
     /// and why: a command's waiter died, or its worker ended.
     #[serde(default)]
@@ -295,16 +292,6 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "find what holds the resource: a hot process, a full disk; free it",
         );
     }
-    if seen.kit_empty && !seen.ready.is_empty() {
-        let issues: Vec<&str> = seen.ready.iter().map(|r| r.issue.as_str()).collect();
-        add(
-            "kit:empty".into(),
-            format!("the kit is empty, so no worker can start: {} ready ({})", issues.len(), issues.join(", ")),
-            "set the command this host starts each engine with: `factorium kit set \
-             \"<engine>=<command>\"…`, e.g. `factorium kit set \"claude-code=claude \
-             --dangerously-skip-permissions\"`; which engine and model is stablehand's (`stablehand order set`)",
-        );
-    }
     if let Some(StablehandSeen { found, why }) = &seen.stablehand {
         let fix = match found {
             false => "install it: `brew install sunfmin/tap/stablehand`; the next tick asks it again".to_string(),
@@ -316,14 +303,14 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             &fix,
         );
     }
-    if let Some(engine) = &seen.no_command {
+    for (engine, crate::kit::Refused { command, why }) in &seen.unmoved {
         add(
-            format!("kit:no_command:{engine}"),
-            format!("stablehand's pick answers {engine}, which the kit has no command for, so no session starts on it"),
-            &format!(
-                "add its command to the kit: `factorium kit set {engine}=<command>` with the kit's other commands \
-                 (`factorium kit show`), or take {engine} out of `stablehand order set`"
+            format!("kit:unmoved:{engine}"),
+            format!(
+                "the kit's command for {engine}, `{command}`, was not moved to stablehand, which refused it: {why}; \
+                 {engine} starts on its bare program"
             ),
+            &format!("keep a command for it that stablehand takes: `stablehand command set '{engine}=<command>'`"),
         );
     }
     for program in &seen.daemon.missing {

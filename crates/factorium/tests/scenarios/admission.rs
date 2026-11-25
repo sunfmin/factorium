@@ -53,7 +53,7 @@ async fn memory_disk_and_the_workers_share_each_hold_admission() {
 }
 
 #[tokio::test]
-async fn one_worker_starts_per_tick_and_an_empty_kit_starts_none() {
+async fn one_worker_starts_per_tick_and_none_while_stablehand_keeps_no_order() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
@@ -467,7 +467,7 @@ async fn a_declared_wait_past_the_cap_is_held_to_two_hours() {
 }
 
 #[tokio::test]
-async fn doctor_says_why_nothing_starts_and_an_empty_kit_is_a_finding_with_its_fix() {
+async fn doctor_says_why_nothing_starts_and_what_stablehand_s_pick_answers() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
@@ -480,18 +480,17 @@ async fn doctor_says_why_nothing_starts_and_an_empty_kit_is_a_finding_with_its_f
     };
     assert!(w.tick().await.started.is_none());
     let d = w.doctor().await;
+    let unstarted = d["unstarted"].as_array().unwrap();
     assert_eq!(
-        d["unstarted"],
-        json!(["disk: 18.5 GiB free, under the floor of 20 GiB", "cpu: 90% busy, over 75%", "kit: the kit is empty"]),
-        "{d}"
+        unstarted[..2],
+        [json!("disk: 18.5 GiB free, under the floor of 20 GiB"), json!("cpu: 90% busy, over 75%")]
     );
-    let kit = w.finding("kit:empty").await.expect("an empty kit with an issue ready is a finding");
-    assert!(kit["what"].as_str().unwrap().contains("web#1"), "{kit}");
-    assert!(kit["fix"].as_str().unwrap().contains("factorium kit set"), "{kit}");
+    let kit = unstarted[2].as_str().unwrap();
+    assert!(kit.starts_with("kit: stablehand picks none (") && kit.ends_with("(no_order))"), "no order to walk: {d}");
+    assert!(w.finding("stablehand").await.is_none(), "an order not kept is no fault of stablehand's: {d}");
 
-    // The kit set, the host alone holds it.
+    // stablehand walking an order, the host alone holds it.
     w.kit().await;
-    assert!(w.finding("kit:empty").await.is_none());
     let d = w.doctor().await;
     assert_eq!(d["unstarted"], json!(["disk: 18.5 GiB free, under the floor of 20 GiB", "cpu: 90% busy, over 75%"]));
 
@@ -506,7 +505,7 @@ async fn doctor_says_why_nothing_starts_and_an_empty_kit_is_a_finding_with_its_f
 }
 
 #[tokio::test]
-async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason_but_an_empty_kit_is_still_a_finding() {
+async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason() {
     let w = World::new();
     w.checkout("web").await;
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
@@ -514,7 +513,6 @@ async fn a_ready_issue_that_waits_for_a_blocker_is_no_reason_but_an_empty_kit_is
     w.app.issue_add("web", "b", "", false, &[factorium_domain::issue::Wait::new(blocker, "needs a")]).await.unwrap();
     w.app.issue_wait_for_human("web", 1, "not yet").await.unwrap();
     assert!(w.doctor().await.get("unstarted").is_none(), "web#2 waits for web#1");
-    assert!(w.finding("kit:empty").await.is_some());
 }
 
 /// doctor's reasons from a reading, the heavy queue and the kit's answer alone.

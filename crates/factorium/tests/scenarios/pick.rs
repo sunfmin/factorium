@@ -256,13 +256,14 @@ async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_ta
 }
 
 #[tokio::test]
-async fn a_kit_with_no_harness_that_can_be_asked_refuses_to_pick() {
+async fn no_account_of_an_engine_that_can_be_asked_refuses_to_pick() {
     let w = World::new();
     let wk = w.working("pi=pi", "t").await;
     w.slimfit(GOAL, LISTING);
     let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
     assert_eq!(none.code, "no_harness");
-    assert!(none.message.ends_with("the kit has no command of an engine that can be asked"), "{none}");
+    let why = "no harness that can pick mutants: stablehand picks none (no agy account is kept";
+    assert!(none.message.starts_with(why), "{none}");
 }
 
 const PICKS: &str = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
@@ -379,7 +380,7 @@ async fn a_picker_stablehand_picks_none_of_the_other_harnesses_for_runs_on_the_w
     w.host.stablehand.lock().unwrap().accounts.get_mut("claude-code").unwrap().off = true;
     let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
     let why = none.message.as_str();
-    assert!(why.starts_with("no harness of the kit that can pick mutants: stablehand picks none"), "{why}");
+    assert!(why.starts_with("no harness that can pick mutants: stablehand picks none"), "{why}");
     assert_eq!(why.matches("stablehand picks none").count(), 2, "one for codex, one for claude-code: {why}");
 }
 

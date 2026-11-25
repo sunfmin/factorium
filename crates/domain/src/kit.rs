@@ -1,17 +1,19 @@
-//! The kit: how this host starts each engine (its launch command), and the
-//! checkouts pinned to one. Which engine, model and account a session
-//! starts on is stablehand's (`stablehand pick`, walking its order, the one
-//! home of the order and the models: stablehand#24); factorium starts the
-//! answer with the kit's command for its engine. Without stablehand a
-//! session starts on [`FALLBACK`] alone, on the host user's own login,
-//! which rests on its own limits here.
+//! The kit: the checkouts pinned to one engine, and the host's own login's
+//! limits. Which engine, model and account a session starts on is
+//! stablehand's (`stablehand pick`, walking its order, the one home of the
+//! order and the models: stablehand#24), and so is the command each engine
+//! starts with (`stablehand command show`: factorium#306, stablehand#30);
+//! an engine it keeps none for starts on its bare program. Without
+//! stablehand a session starts on [`FALLBACK`] alone, by
+//! [`FALLBACK_COMMAND`], on the host user's own login, which rests on its
+//! own limits here.
 
 use std::collections::BTreeMap;
 
 use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};
 
-use crate::{command, id, no};
+use crate::{command, id};
 
 pub fn kit_id() -> factum_core::Uuid {
     id("kit")
@@ -19,10 +21,15 @@ pub fn kit_id() -> factum_core::Uuid {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Kit {
-    /// Engine (a harness's key) → the line that launches it, e.g.
-    /// `claude --dangerously-skip-permissions`.
+    /// Engine (a harness's key) → the command the kit kept for it before
+    /// stablehand kept them (factorium#306): moved to stablehand once
+    /// ([`KitEvent::CommandsMoved`]), then empty. No start reads it.
     #[serde(default)]
     pub commands: BTreeMap<String, String>,
+    /// Engine → the command the move found and stablehand refused, and why:
+    /// a finding of doctor until stablehand keeps one for that engine.
+    #[serde(default)]
+    pub refused: BTreeMap<String, Refused>,
     /// Checkout name → the engine it is pinned to.
     pub pins: BTreeMap<String, String>,
     /// Engine → until when (ms) the host's own login of it is at its
@@ -36,7 +43,18 @@ pub struct Kit {
 /// engine's accounts or windows are known.
 pub const FALLBACK: &str = "claude-code";
 
-/// What a session starts on: an engine, the kit's command for it, a model
+/// The command [`FALLBACK`] starts with when stablehand cannot be asked,
+/// for that case alone: stablehand keeps every other start's command.
+pub const FALLBACK_COMMAND: &str = "claude --dangerously-skip-permissions";
+
+/// A command of the kit's that stablehand refused to keep, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Refused {
+    pub command: String,
+    pub why: String,
+}
+
+/// What a session starts on: an engine, the command it starts with, a model
 /// (`None`: the engine's own) and an account (`None`: the host user's own
 /// login).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,20 +110,22 @@ impl Kit {
     }
 
     /// What a start of `checkout` starts on, from what stablehand's pick
-    /// answered to [`Kit::ask`]: its engine, model and account, with the
-    /// kit's command for that engine. A pick that failed (stablehand not
-    /// found, or a fault) leaves [`FALLBACK`] alone, on the host user's own
-    /// login, where the pin and that login's limit allow. `Err`: why none
-    /// can.
+    /// answered to [`Kit::ask`]: its engine, model and account, with
+    /// `commands`' command for that engine (each engine's: the one
+    /// stablehand keeps, else its bare program). A pick that failed
+    /// (stablehand not found, or a fault) leaves [`FALLBACK`] alone, by
+    /// [`FALLBACK_COMMAND`], on the host user's own login, where the pin and
+    /// that login's limit allow. `Err`: why none can.
     pub fn choose(
         &self,
         checkout: &str,
         model: Option<&str>,
         now: i64,
+        commands: &BTreeMap<String, String>,
         picked: Result<Picked, String>,
     ) -> Result<Choice, String> {
         match picked {
-            Ok(Picked::On { engine, model, account }) => self.on(engine, model, Some(account)),
+            Ok(Picked::On { engine, model, account }) => on(commands, engine, model, Some(account)),
             Ok(Picked::None { until, why }) => Err(Picked::none_why(&until, &why)),
             Err(fault) => self.fallback(self.pins.get(checkout).is_none_or(|p| p == FALLBACK), model, now, fault),
         }
@@ -114,14 +134,16 @@ impl Kit {
     /// What a worker of `checkout` whose issue names `account`, of the
     /// engine `engine`, starts on, from what stablehand's pick of that
     /// engine answered: that account, on the model the pick answered (else
-    /// `model`, the issue's own). Refused when `checkout` is pinned to
-    /// another engine, or the pick passed the account over.
+    /// `model`, the issue's own), by `commands`' command for that engine.
+    /// Refused when `checkout` is pinned to another engine, or the pick
+    /// passed the account over.
     pub fn choose_on(
         &self,
         checkout: &str,
         account: &str,
         engine: &str,
         model: Option<&str>,
+        commands: &BTreeMap<String, String>,
         picked: &Picked,
     ) -> Result<Choice, String> {
         if let Some(p) = self.pins.get(checkout).filter(|p| *p != engine) {
@@ -136,65 +158,69 @@ impl Kit {
                 model.map(Into::into)
             }
         };
-        self.on(engine.into(), model, Some(account.into()))
+        on(commands, engine.into(), model, Some(account.into()))
     }
 
     /// What a worker on `harness` has its mutants picked on, from
-    /// stablehand's pick of each of `asks` in turn (the engines of the kit
-    /// that can be asked headless other than `harness`, then `harness`
-    /// again, a new session), whatever a pin says. `Err`: why none can.
+    /// stablehand's pick of each of `asks` in turn (the engines of
+    /// `commands` that can be asked headless other than `harness`, then
+    /// `harness` again, a new session), whatever a pin says. `Err`: why
+    /// none can.
     pub fn choose_picker(
         &self,
         harness: &str,
         asks: impl Fn(&str) -> bool,
         now: i64,
+        commands: &BTreeMap<String, String>,
         mut pick: impl FnMut(&Ask) -> Result<Picked, String>,
     ) -> Result<Choice, String> {
-        let engines = self.commands.keys().filter(|e| asks(e));
+        let engines = commands.keys().filter(|e| asks(e));
         let (others, same): (Vec<String>, Vec<String>) = engines.cloned().partition(|e| e != harness);
         let mut why = Vec::new();
         for engines in [others, same].into_iter().filter(|e| !e.is_empty()) {
             let fallback = engines.iter().any(|e| e == FALLBACK);
             match pick(&Ask { engines, model: None }) {
-                Ok(Picked::On { engine, model, account }) => return self.on(engine, model, Some(account)),
+                Ok(Picked::On { engine, model, account }) => return on(commands, engine, model, Some(account)),
                 Ok(Picked::None { until, why: passed }) => why.push(Picked::none_why(&until, &passed)),
                 Err(fault) => return self.fallback(fallback, None, now, fault),
             }
         }
         if why.is_empty() {
-            why.push("the kit has no command of an engine that can be asked".into());
+            why.push("no engine can be asked headless".into());
         }
-        Err(format!("no harness of the kit that can pick mutants: {}", why.join("; ")))
-    }
-
-    /// A session of `engine` on `model` and `account`, by the kit's command
-    /// for it; refused, naming the fix, when the kit has none.
-    fn on(&self, engine: String, model: Option<String>, account: Option<String>) -> Result<Choice, String> {
-        match self.commands.get(&engine) {
-            Some(command) => Ok(Choice { command: command.clone(), harness: engine, model, account }),
-            None => Err(format!(
-                "stablehand picks {engine}, and the kit has no command for it: `factorium kit set {engine}=<command>` \
-                 (with the kit's other commands), or take it out of `stablehand order`"
-            )),
-        }
+        Err(format!("no harness that can pick mutants: {}", why.join("; ")))
     }
 
     /// What a session starts on when stablehand could not be asked
-    /// (`fault`): [`FALLBACK`], where `allowed`, on the host user's own
-    /// login unless that is at its limit.
+    /// (`fault`): [`FALLBACK`] by [`FALLBACK_COMMAND`], where `allowed`, on
+    /// the host user's own login unless that is at its limit.
     fn fallback(&self, allowed: bool, model: Option<&str>, now: i64, fault: String) -> Result<Choice, String> {
-        let Some(command) = self.commands.get(FALLBACK).filter(|_| allowed) else {
+        if !allowed {
             return Err(format!("{fault}; without stablehand only {FALLBACK} starts, and it is not to be had here"));
-        };
+        }
         match self.limits.get(FALLBACK).copied().filter(|t| *t > now) {
             None => Ok(Choice {
                 harness: FALLBACK.into(),
-                command: command.clone(),
+                command: FALLBACK_COMMAND.into(),
                 model: model.map(Into::into),
                 account: None,
             }),
             Some(t) => Err(format!("{fault}; {FALLBACK} on the host's own login is at its limit until {t} (ms)")),
         }
+    }
+}
+
+/// A session of `engine` on `model` and `account`, by `commands`' command
+/// for it; refused when factorium has no harness of that engine.
+fn on(
+    commands: &BTreeMap<String, String>,
+    engine: String,
+    model: Option<String>,
+    account: Option<String>,
+) -> Result<Choice, String> {
+    match commands.get(&engine) {
+        Some(command) => Ok(Choice { command: command.clone(), harness: engine, model, account }),
+        None => Err(format!("stablehand picks {engine}, which factorium has no harness of")),
     }
 }
 
@@ -215,9 +241,14 @@ pub enum KitEvent {
     KitSet {
         entries: Vec<Entry>,
     },
-    /// The kit's commands, each engine's.
+    /// The kit's commands, each engine's, as factorium once kept them.
     CommandsSet {
         commands: BTreeMap<String, String>,
+    },
+    /// The kit's commands moved to stablehand (factorium#306): dropped
+    /// here, those it refused kept for doctor.
+    CommandsMoved {
+        refused: BTreeMap<String, Refused>,
     },
     CheckoutPinned {
         checkout: String,
@@ -246,6 +277,7 @@ impl Aggregate for Kits {
                 s.commands = entries.into_iter().rev().map(|e| (e.harness, e.command)).collect()
             }
             KitEvent::CommandsSet { commands } => s.commands = commands,
+            KitEvent::CommandsMoved { refused } => (s.commands, s.refused) = (BTreeMap::new(), refused),
             KitEvent::CheckoutPinned { checkout, harness: Some(h) } => _ = s.pins.insert(checkout, h),
             KitEvent::CheckoutPinned { checkout, harness: None } => _ = s.pins.remove(&checkout),
             KitEvent::AccountLimited { .. } => {}
@@ -253,24 +285,21 @@ impl Aggregate for Kits {
         }
     }
 
-    /// "2": the kit keeps commands by engine, its order and models gone.
+    /// "3": the kit's commands move to stablehand, those it refused kept.
     fn code() -> &'static str {
-        "2"
+        "3"
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SetKit {
-    pub commands: BTreeMap<String, String>,
+pub struct Moved {
+    pub refused: BTreeMap<String, Refused>,
 }
 
-command!(SetTheKit, "kit.set", Kits, SetKit, |_p| kit_id(), |s, p, now| {
-    for (engine, command) in &p.commands {
-        if command.trim().is_empty() {
-            return no("no_command", format!("{engine} needs a launch command"));
-        }
-    }
-    Ok(vec![KitEvent::CommandsSet { commands: p.commands.clone() }])
+// The kit's commands were set in stablehand, those it refused named:
+// once, while the kit holds any.
+command!(MoveCommands, "kit.moved", Kits, Moved, |_p| kit_id(), |s, p, now| {
+    crate::only(!s.commands.is_empty(), KitEvent::CommandsMoved { refused: p.refused.clone() })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

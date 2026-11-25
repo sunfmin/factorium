@@ -231,13 +231,15 @@ async fn without_stablehand_a_worker_starts_on_claude_code_alone_on_the_host_s_o
     for broken in ["missing", "fault"] {
         let w = World::new();
         w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-1");
+        w.checkout("web").await;
+        // codex first: without stablehand no account of it, nor its windows, is known.
+        w.kit_of(&["codex=codex", CLAUDE]).await;
+        // The command stablehand keeps, which it cannot be asked for: not the fallback's.
+        w.stablehand_commands(&["claude-code=claude --kept"]);
         match broken {
             "missing" => w.host.missing.lock().unwrap().push("stablehand".into()),
             _ => w.host.stablehand.lock().unwrap().fault = Some("its books are of a schema it cannot read".into()),
         }
-        w.checkout("web").await;
-        // codex first: without stablehand no account of it, nor its windows, is known.
-        w.kit_of(&["codex=codex", CLAUDE]).await;
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         let found = w.finding("stablehand").await.unwrap_or_else(|| panic!("{broken}: a finding"));
         let (what, fix) = (found["what"].as_str().unwrap(), found["fix"].as_str().unwrap());
@@ -252,6 +254,8 @@ async fn without_stablehand_a_worker_starts_on_claude_code_alone_on_the_host_s_o
         assert_eq!((wk["harness"].clone(), wk["account"].clone()), (json!("claude-code"), json!(null)), "{broken}");
         let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
         assert!(!line.starts_with(". "), "{broken}: no account's secret: {line}");
+        assert!(line.contains("claude --dangerously-skip-permissions"), "{broken}: the built-in command: {line}");
+        assert!(!line.contains("--kept"), "{broken}: {line}");
 
         // stablehand answers again: starts go through it, and the finding is gone.
         w.host.missing.lock().unwrap().clear();

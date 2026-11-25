@@ -1,7 +1,7 @@
 //! A session for a role: who runs a command, what each may run, and how a
 //! session of a role is opened. A worker's session starts in its worktree
 //! with its brief; the watch's in its home, its rules for its brief. Both
-//! get the engine, model and account stablehand picks, started by the kit's command for that engine,
+//! get the engine, model and account stablehand picks, started by the command stablehand keeps for that engine,
 //! the account's login (`stablehand credential`: a token by a file, or its login files linked), this factorium on PATH and its database,
 //! the guard, and their rules; a worker whose role changes under it is
 //! told once. The environment names that tell a session's
@@ -18,7 +18,8 @@ use factorium_harness::{Call, Harness, Kept, RULES, Start};
 use factum::{Uuid, Value};
 use serde_json::json;
 
-use crate::accounts::Credential;
+use crate::accounts::{Credential, engine_commands};
+
 use crate::kept::WorkerBranch;
 use crate::{Answer, App, Refusal, Want, fail};
 
@@ -230,7 +231,9 @@ impl App {
         let model = on.model.as_deref();
         let Some(account) = on.account.as_deref() else {
             return self
-                .choose_by(|kit, now, pick| kit.choose(checkout, model, now, pick(&kit.ask(checkout, model))))
+                .choose_by(|kit, commands, now, pick| {
+                    kit.choose(checkout, model, now, commands, pick(&kit.ask(checkout, model)))
+                })
                 .await;
         };
         let kept = self.kept_account(account).map_err(|r| Refusal::new("no_harness", r.message))?;
@@ -238,9 +241,9 @@ impl App {
             return Err(Refusal::new("no_harness", format!("account {account} cannot be used here: {why}")));
         }
         let engine = kept.engine;
-        self.choose_by(|kit, _, pick| {
+        self.choose_by(|kit, commands, _, pick| {
             let ask = Ask { engines: vec![engine.clone()], model: model.map(Into::into) };
-            kit.choose_on(checkout, account, &engine, model, &pick(&ask)?)
+            kit.choose_on(checkout, account, &engine, model, commands, &pick(&ask)?)
         })
         .await
     }
@@ -250,25 +253,41 @@ impl App {
     /// `no_harness` when it cannot.
     pub(crate) async fn pick_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&Ask) -> Result<Picked, String>) -> Result<Choice, String>,
+        choose: impl FnOnce(
+            &Kit,
+            &BTreeMap<String, String>,
+            i64,
+            &mut dyn FnMut(&Ask) -> Result<Picked, String>,
+        ) -> Result<Choice, String>,
     ) -> Answer<Pick> {
         let choice = self.choose_by(choose).await?;
         self.pick_of(choice)
     }
 
-    /// What `choose` chooses from the kit, the time and stablehand's pick
-    /// (`stablehand pick`), told the sessions factorium runs on each
-    /// account; refused `no_harness` when it cannot.
+    /// What `choose` chooses from the kit, each engine's command (the one
+    /// stablehand keeps, `stablehand command show`, else its bare program),
+    /// the time and stablehand's pick (`stablehand pick`), told the
+    /// sessions factorium runs on each account; refused `no_harness` when
+    /// it cannot. While stablehand's commands cannot be read, every pick
+    /// fails as that read did.
     async fn choose_by(
         &self,
-        choose: impl FnOnce(&Kit, i64, &mut dyn FnMut(&Ask) -> Result<Picked, String>) -> Result<Choice, String>,
+        choose: impl FnOnce(
+            &Kit,
+            &BTreeMap<String, String>,
+            i64,
+            &mut dyn FnMut(&Ask) -> Result<Picked, String>,
+        ) -> Result<Choice, String>,
     ) -> Answer<Choice> {
         let kit = self.state::<Kits>(kit_id()).await?;
-        if kit.commands.is_empty() {
-            return Err(Refusal::new("no_harness", "the kit is empty"));
-        }
         let running = self.running().await?;
-        choose(&kit, self.now(), &mut |ask| self.picked(ask, &running)).map_err(fail("no_harness"))
+        let kept = self.kept_commands().map_err(|r| r.message);
+        let commands = engine_commands(kept.as_ref().unwrap_or(&BTreeMap::new()));
+        let mut pick = |ask: &Ask| match &kept {
+            Ok(_) => self.picked(ask, &running),
+            Err(why) => Err(why.clone()),
+        };
+        choose(&kit, &commands, self.now(), &mut pick).map_err(fail("no_harness"))
     }
 
     /// A session on `choice`, handed its account's login as stablehand
@@ -563,7 +582,7 @@ fn keep(kept: &Kept) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The directory of the program a kit's `command` names by path, as its
+/// The directory of the program a session's `command` names by path, as its
 /// first word: absolute, or under the host user's `home` as `~/`. A program
 /// named by name is found on the PATH already.
 fn program_dir(command: &str, home: &Path) -> Option<String> {

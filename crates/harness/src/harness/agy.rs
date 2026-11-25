@@ -228,6 +228,7 @@ impl Kind for Agy {
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     /// No permission prompts: every tool call is approved, the guard aside.
+    const PROGRAM: &'static str = "agy";
     const STOCK_ARGUMENTS: &'static str = "--dangerously-skip-permissions";
     const ASKS_FIRST: Option<&'static str> = None;
     /// Its brief is on its line (`-i`): nothing is typed before it is up.

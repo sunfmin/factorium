@@ -175,6 +175,7 @@ impl Kind for Kimi {
     const USER_HOME: Option<&'static str> = None;
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     /// No approval prompts.
+    const PROGRAM: &'static str = "kimi";
     const STOCK_ARGUMENTS: &'static str = "--auto";
     const ASKS_FIRST: Option<&'static str> = None;
     /// Its footer, drawn once its screen is up (Kimi Code 2.5.3): `context: 0%

@@ -26,6 +26,9 @@ trait Kind {
     const USER_HOME: Option<&'static str>;
     /// The host user's files its home links to; a login's file first.
     const KEPT_LINKS: &'static [Link];
+    /// Its program, as a session starts it when stablehand keeps no
+    /// command for it (`Harness::program`).
+    const PROGRAM: &'static str;
     /// What a bare program is started with (`Harness::command`).
     const STOCK_ARGUMENTS: &'static str;
     /// Words of a question it asks before its screen is up, which typed
@@ -255,13 +258,20 @@ impl Harness {
         ALL
     }
 
-    /// The launch command a kit entry's `given` command runs as. A bare
-    /// program (a path or a name, no arguments) gets this harness's stock
-    /// arguments, as its stock command would: naming where a program is must
-    /// not drop the flags a worker relies on. A command with arguments of its
-    /// own is taken as given.
+    /// The launch command a `given` command (the one stablehand keeps for
+    /// it, else [`Harness::program`]) runs as. A bare program (a path or a
+    /// name, no arguments) gets this harness's stock arguments, as its stock
+    /// command would: naming where a program is must not drop the flags a
+    /// worker relies on. A command with arguments of its own is taken as
+    /// given.
     pub fn command(self, given: &str) -> String {
         each!(self, |K| command::<K>(given))
+    }
+
+    /// Its program: what a session of it starts on when stablehand keeps
+    /// no command for it (`stablehand command show`).
+    pub fn program(self) -> &'static str {
+        each!(self, |K| K::PROGRAM)
     }
 
     /// How an account of it is logged in.

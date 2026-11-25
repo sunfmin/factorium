@@ -222,7 +222,7 @@ fn wk_brief(w: &World, wk: &serde_json::Value) -> String {
 }
 
 #[tokio::test]
-async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_arguments() {
+async fn a_kept_command_that_names_only_a_program_keeps_its_harness_stock_arguments() {
     for (key, program, stock) in [
         ("grok", "/opt/grok/bin/grok", "--always-approve"),
         ("kimi", "/opt/kimi/kimi", "--auto"),
@@ -230,10 +230,8 @@ async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_argumen
     ] {
         let w = World::new();
         w.checkout("web").await;
-        let kit = w.kit_of(&[format!("{key}={program}")]).await;
+        w.kit_of(&[format!("{key}={program}")]).await;
         let runs = format!("{program} {stock}");
-        assert_eq!(kit["commands"][key], runs.as_str(), "{key}: kit set answers what will run");
-        assert_eq!(w.app.kit().await.unwrap()["commands"][key], runs.as_str(), "{key}: so does kit show");
         w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
         w.tick().await;
         let term = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap());
@@ -241,8 +239,11 @@ async fn a_kit_command_that_names_only_a_program_keeps_its_harness_stock_argumen
 
         // A command with arguments of its own is taken as given.
         let given = format!("{program} --model-picker");
-        let kit = w.app.kit_set(&[format!("{key}={given}")]).await.unwrap();
-        assert_eq!(kit["commands"][key], given.as_str(), "{key}");
+        w.stablehand_commands(&[format!("{key}={given}")]);
+        w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+        w.tick().await;
+        let term = w.terminal(w.worker_on("web", 2).await["terminal"].as_str().unwrap());
+        assert!(term.line.contains(&format!("&& {given} ")), "{key}: {}", term.line);
     }
 }
 
@@ -325,32 +326,59 @@ async fn a_harness_s_question_before_its_screen_is_up_is_not_typed_at() {
     assert_eq!(w.terminal(handle).sent.len(), 1);
 }
 
+/// The kit's commands move to stablehand when the daemon starts, once
+/// (factorium#306): each set there, unless it keeps one for that engine
+/// already; one it refuses is a finding until it keeps one; the kit keeps
+/// pins only.
 #[tokio::test]
-async fn the_kit_keeps_each_engine_s_command_and_no_order_or_model_and_only_an_engine_factorium_knows() {
+async fn the_kit_s_commands_move_to_stablehand_once_and_one_it_refuses_is_a_finding() {
     let w = World::new();
-    let kit = w.app.kit_set(&["codex=codex --x a@b c".into(), "claude-code=claude".into()]).await.unwrap();
-    let commands =
-        serde_json::json!({ "claude-code": "claude --dangerously-skip-permissions", "codex": "codex --x a@b c" });
-    assert_eq!(kit, serde_json::json!({ "commands": commands, "pins": {} }), "commands and pins only");
-    let twice = w.app.kit_set(&["codex=a".into(), "codex=b".into()]).await.unwrap_err();
-    assert_eq!(twice.code, "bad_entry");
-    let no = w.app.kit_set(&["nope=nope".into()]).await.unwrap_err();
-    assert_eq!(no.code, "no_harness");
+    w.checkout("web").await;
+    w.app.kit_pin("web", Some("codex")).await.unwrap();
+    w.kit_as_code_before_306_set_it(&[
+        "agy=agy --dangerously-skip-permissions",
+        "claude-code=claude --dangerously-skip-permissions",
+        "codex=codex --model o3",
+        "grok=grok --always-approve",
+    ]);
+    w.stablehand_commands(&["grok=grok --kept"]);
+    let started = w.app.daemon_start().await.unwrap();
+    assert_eq!(started["moved"]["moved"], serde_json::json!(["agy", "claude-code"]), "{started}");
+    let kept = w.host.stablehand.lock().unwrap().commands.clone();
+    let want = [
+        ("agy", "agy --dangerously-skip-permissions"),
+        ("claude-code", "claude --dangerously-skip-permissions"),
+        ("grok", "grok --kept"),
+    ];
+    assert_eq!(kept, want.map(|(e, c)| (e.to_string(), c.to_string())).into(), "stablehand's own kept");
+    assert_eq!(w.app.kit().await.unwrap(), serde_json::json!({ "pins": {} }), "pins only");
+    let found = w.finding("kit:unmoved:codex").await.expect("the refused one is said");
+    assert!(found["what"].as_str().unwrap().contains("`codex --model o3`"), "{found}");
+    assert!(found["fix"].as_str().unwrap().contains("stablehand command set 'codex=<command>'"), "{found}");
+    // Moved once: a later start moves nothing.
+    assert_eq!(w.app.daemon_start().await.unwrap()["moved"], serde_json::json!(null));
+    w.stablehand_commands(&["codex=codex --fixed"]);
+    assert!(w.finding("kit:unmoved:codex").await.is_none(), "stablehand keeps one now");
+
+    // The kit as factorium once kept it, in order, moves each engine's first command.
+    let w = World::new();
+    w.checkout("web").await;
+    w.app.kit_pin("web", Some("codex")).await.unwrap();
+    w.kit_as_code_before_291_set_it();
+    w.app.daemon_start().await.unwrap();
+    let kept = w.host.stablehand.lock().unwrap().commands.clone();
+    assert_eq!(kept, [("codex".to_string(), "codex --first".to_string())].into());
     // A snapshot of the kit as it was kept in order holds no commands read
     // as this kit: its fold names other code, so no such snapshot is read.
     let old = r#"{"entries": [{"harness": "codex", "command": "x"}], "pins": {}}"#;
     assert!(serde_json::from_str::<factorium_domain::kit::Kit>(old).unwrap().commands.is_empty());
     let code = <factorium_domain::kit::Kits as factum::Aggregate>::code();
-    assert!(!["", "1"].contains(&code), "{code}");
-    // The kit as factorium once kept it, in order, reads as each engine's first command.
-    w.kit_as_code_before_291_set_it();
-    let commands = w.app.kit().await.unwrap()["commands"].clone();
-    assert_eq!(commands, serde_json::json!({ "codex": "first --dangerously-bypass-approvals-and-sandbox" }));
+    assert!(!["", "1", "2"].contains(&code), "{code}");
     // An account named for an issue of a checkout pinned to another engine is refused.
     use factorium_domain::kit::{Kit, Picked};
     let pinned = Kit { pins: [("web".to_string(), "codex".to_string())].into(), ..Kit::default() };
     let on = Picked::On { engine: "claude-code".into(), model: None, account: "y".into() };
-    let why = pinned.choose_on("web", "x", "claude-code", None, &on).unwrap_err();
+    let why = pinned.choose_on("web", "x", "claude-code", None, &Default::default(), &on).unwrap_err();
     assert_eq!(why, "account x is of claude-code, and web is pinned to codex");
 }
 
