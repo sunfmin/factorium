@@ -17,7 +17,9 @@
 #                             build, push the tag to origin, run the tap's
 #                             release.yml on it and wait for that run, bounded
 #                             (RELEASE_WAIT_LIMIT seconds from the cut's start,
-#                             default 1700); publishes nothing from this host
+#                             default 1700), a failing `gh` asked again until
+#                             then; a cut that ends before its run does
+#                             cancels that run; publishes nothing from this host
 #   release.sh dry            what the gate runs: build at the version
 #                             Cargo.toml says, check the formula, publish
 #                             nothing
@@ -120,11 +122,25 @@ push_tag() {
     there=$(git ls-remote origin "refs/tags/$1" "refs/tags/$1^{}" | tail -n1 | cut -f1)
     if [ -z "$there" ]; then
         git push --quiet origin "$head:refs/tags/$1"
-        trap 'git push --quiet origin ":refs/tags/$tag"' EXIT
+        trap untag EXIT
     elif [ "$there" != "$head" ]; then
         echo "release: origin's $1 is on $there, not HEAD ($head)" >&2
         exit 1
     fi
+}
+
+# untag: the cut's end, however it ends, once it pushed the tag. A run it
+# dispatched and did not see finish is cancelled first: without the tag it
+# could only fail.
+untag() {
+    if [ -n "${dispatched:-}" ] && [ -z "${finished:-}" ]; then
+        [ -n "$run" ] || run=$(latest_run "$tag") || run=
+        if [ -n "$run" ] && [ "$run" != "$before" ]; then
+            echo "release: cancelling run $run of factorium $tag" >&2
+            gh run cancel "$run" -R "$TAP" >&2 || true
+        fi
+    fi
+    git push --quiet origin ":refs/tags/$tag"
 }
 
 # latest_run <tag>: the id of the newest run of the tap's release.yml on
@@ -172,12 +188,15 @@ fi
 build "$version" "$DIST"
 before=$(latest_run "$tag")
 push_tag "$tag"
-gh workflow run release.yml -R "$TAP" -f repo=factorium -f "tag=$tag"
-
 run=
+gh workflow run release.yml -R "$TAP" -f repo=factorium -f "tag=$tag"
+dispatched=1
+
+# A failing `gh` (GitHub answers HTTP 500 at times) is asked again until the
+# limit: the run it asks about goes on regardless.
 while :; do
-    run=$(latest_run "$tag")
-    [ -n "$run" ] && [ "$run" != "$before" ] && break
+    found=$(latest_run "$tag") || found=
+    [ -n "$found" ] && [ "$found" != "$before" ] && run=$found && break
     [ $(($(date +%s) - started)) -lt "$limit" ] || {
         echo "release: no release.yml run of factorium $tag in $TAP after ${limit}s" >&2
         exit 1
@@ -186,10 +205,12 @@ while :; do
 done
 echo "release: waiting for https://github.com/$TAP/actions/runs/$run"
 while :; do
-    state=$(gh run view "$run" -R "$TAP" --json status,conclusion --jq '.status + " " + .conclusion')
+    state=$(gh run view "$run" -R "$TAP" --json status,conclusion --jq '.status + " " + .conclusion') ||
+        state="unknown (gh run view failed)"
     case "$state" in
-    "completed success") break ;;
+    "completed success") finished=1 && break ;;
     completed*)
+        finished=1
         echo "release: run $run of factorium $tag ended '$state'" >&2
         gh run view "$run" -R "$TAP" --log-failed >&2 || true
         exit 1
