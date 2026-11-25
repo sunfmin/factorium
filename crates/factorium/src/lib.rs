@@ -214,6 +214,8 @@ struct Memory {
     /// branch head then, not checked again until one of them moves (factorium#307). An entry
     /// is never wrong, so none is taken out: one per worker that waited, in this process.
     merges: std::collections::BTreeMap<Uuid, (String, String)>,
+    /// The sessions whose messages are typed beside the ticks (factorium#311).
+    typing: Vec<session::Typing>,
     /// The upgrade of the daemon's own formula from the tap, running beside the ticks.
     upgrading: Option<tokio::task::JoinHandle<Result<String, String>>>,
     /// The linked binary not swapped to, as its proof failed, or none; for the tick to record.
@@ -268,6 +270,13 @@ impl App {
             proofs: Default::default(),
             rules: factorium_domain::heavy::RULES.into(),
         })
+    }
+
+    /// An app of its own over this one's store and host, its commands
+    /// recorded as this one's: for work beside the ticks that writes.
+    fn alike(&self) -> Answer<App> {
+        let By::Principal(by) = &self.by else { unreachable!("an app is opened by a principal") };
+        Ok(App { rules: self.rules.clone(), ..App::open(&self.db, by, self.host.clone())? })
     }
 
     /// The same app, asking the heavy queue under the rules of `version`: a

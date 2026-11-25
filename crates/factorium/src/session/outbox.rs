@@ -44,10 +44,87 @@ impl App {
     }
 
     /// Tries again what each of `sessions` holds, the sessions at once: on
-    /// each look at them.
+    /// each look at them. One being typed at beside the ticks is left to
+    /// the look after that ended.
     pub(crate) async fn retry(&self, sessions: &[&Session]) -> Answer<()> {
-        let asked: Vec<_> = sessions.iter().map(|s| (*s, None)).collect();
+        let asked: Vec<_> = sessions.iter().filter(|s| !self.typing(&s.terminal)).map(|s| (*s, None)).collect();
         self.flush(&asked).await.map(drop)
+    }
+
+    /// Tries what each of `sessions` holds beside the ticks, as
+    /// [`App::flush`] does, on an app of its own over the same store: no
+    /// tick waits on Orca's window (factorium#311). The next tick reads how
+    /// each went from its outbox. A session typed at beside already is left
+    /// to the look after that ended.
+    pub(crate) fn flush_beside(&self, sessions: &[Session]) -> Answer<()> {
+        let sessions: Vec<Session> = sessions.iter().filter(|s| !self.typing(&s.terminal)).cloned().collect();
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        let app = self.alike()?;
+        let (done, ended) = tokio::sync::watch::channel(());
+        let terminals = sessions.iter().map(|s| s.terminal.clone()).collect();
+        let run = tokio::task::spawn_blocking(move || {
+            let _done = done;
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            runtime.block_on(app.flush(&sessions.iter().map(|s| (s, None)).collect::<Vec<_>>())).map(drop)
+        });
+        self.memory.lock().unwrap().typing.push(Typing { terminals, ended, run });
+        Ok(())
+    }
+
+    /// Takes each typing beside the ticks that ended: answers the first
+    /// failure among them, so a tick that reads them fails as it would
+    /// have typing itself.
+    pub(crate) async fn typed_beside(&self) -> Answer<()> {
+        let ended: Vec<Typing> = {
+            let mut m = self.memory.lock().unwrap();
+            let (ended, running) = std::mem::take(&mut m.typing).into_iter().partition(|t| t.run.is_finished());
+            m.typing = running;
+            ended
+        };
+        let mut failed = Ok(());
+        for t in ended {
+            let ran = t.run.await.unwrap_or_else(|e| Err(Refusal::new("panicked", e.to_string())));
+            failed = failed.and(ran);
+        }
+        failed
+    }
+
+    /// Until each typing beside the ticks that runs now ended: before the
+    /// daemon is replaced, and for a scenario to read how it went.
+    pub async fn typing_ended(&self) {
+        let ended: Vec<_> = self.memory.lock().unwrap().typing.iter().map(|t| t.ended.clone()).collect();
+        for mut ended in ended {
+            // Nothing is sent on it: it answers once its sender is dropped.
+            let _ = ended.changed().await;
+        }
+    }
+
+    /// Whether the session on `terminal` is typed at beside the ticks now.
+    fn typing(&self, terminal: &str) -> bool {
+        self.memory
+            .lock()
+            .unwrap()
+            .typing
+            .iter()
+            .any(|t| !t.run.is_finished() && t.terminals.iter().any(|h| h == terminal))
+    }
+
+    /// Until the typing beside the ticks at any of `sessions` ended: what is
+    /// typed at a session here is never typed there too.
+    async fn after_typing(&self, sessions: &[&Session]) {
+        let ended: Vec<_> = {
+            let m = self.memory.lock().unwrap();
+            let at = |t: &&Typing| t.terminals.iter().any(|h| sessions.iter().any(|s| &s.terminal == h));
+            m.typing.iter().filter(at).map(|t| t.ended.clone()).collect()
+        };
+        for mut ended in ended {
+            let _ = ended.changed().await;
+        }
     }
 
     /// `factorium outbox`: what was passed to worker `worker`'s session, or
@@ -76,6 +153,7 @@ impl App {
     /// on a busy agent for its whole window (factorium#279). Answers, by
     /// session, how its message `n` went.
     pub(crate) async fn flush(&self, asked: &[(&Session, Option<(u64, bool)>)]) -> Answer<Vec<Option<Outcome>>> {
+        self.after_typing(&asked.iter().map(|(s, _)| *s).collect::<Vec<_>>()).await;
         let mut each = Vec::new();
         for (s, now) in asked {
             let limit = match s.worker {
@@ -222,6 +300,14 @@ impl App {
         };
         Outcome::Missed { why: format!("typed, it started no turn and none runs; its screen ends: {shows}") }
     }
+}
+
+/// The typing beside the ticks at some sessions ([`App::flush_beside`]).
+pub(crate) struct Typing {
+    terminals: Vec<String>,
+    /// Closed once it ended.
+    ended: tokio::sync::watch::Receiver<()>,
+    run: tokio::task::JoinHandle<Answer<()>>,
 }
 
 /// A session being flushed: what it has still to be tried this flush, what

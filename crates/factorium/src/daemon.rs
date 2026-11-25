@@ -423,6 +423,7 @@ impl App {
             }
         }
         let _ = self.beside(|_| true, false, true).await;
+        self.typing_ended().await;
         let _ = std::fs::remove_file(self.data().ticked());
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
@@ -470,6 +471,8 @@ impl App {
             Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
         };
         let _ = self.beside(|_| true, false, true).await;
+        // A message typed beside the ticks has its outcome recorded first: else the next daemon types it again.
+        self.typing_ended().await;
         let e =
             std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
         let _ = crate::host::procs::kept_across_exec(held, false);
