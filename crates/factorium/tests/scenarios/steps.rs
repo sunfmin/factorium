@@ -140,3 +140,25 @@ async fn a_wait_it_declared_ends_when_the_watch_sends_it_on() {
     let wait = steps_of(&w, 1).await["waits"][0].clone();
     assert_eq!(ms(&wait, "ended_at") - ms(&wait, "at"), 60_000, "{wait}");
 }
+
+#[tokio::test]
+async fn a_landing_its_worker_leaves_before_it_lands_records_what_it_left_for() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    w.done(&wk, "a", "x").await;
+    w.advance(1);
+    w.app.worker_escalate(id(&wk), "a decision").await.unwrap();
+    w.advance(1);
+    w.app.watch_restart(id(&wk), "go on", false).await.unwrap();
+    w.advance(1);
+    w.done(&wk, "a", "y").await;
+    w.advance(1);
+    w.app.issue_close("web", 1, "not needed").await.unwrap();
+
+    let landings = steps_of(&w, 1).await["landings"].clone();
+    let [escalated, closed] = landings.as_array().unwrap().as_slice() else { panic!("two landings: {landings}") };
+    assert_eq!(escalated["outcome"], "waiting", "it left landing to wait for the watch: {landings}");
+    assert_eq!(closed["outcome"], "ended", "its issue closed under it: {landings}");
+    assert!(ms(escalated, "ended_at") < ms(closed, "asked_at"), "{landings}");
+    assert_eq!(closed["commit"], Value::Null, "{landings}");
+}
