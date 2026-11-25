@@ -522,14 +522,14 @@ async fn a_role_change_under_seven_busy_workers_adds_no_orca_window_to_the_tick_
     let told = w.tick_alone().await.roles;
     let took = started.elapsed();
     eprintln!("the tick that told 7 busy workers their role changed took {} ms", took.as_millis());
-    assert!(took < std::time::Duration::from_secs(1), "the tick waited on Orca's window: {took:?}");
+    assert!(took < window, "the tick waited on Orca's window: {took:?}");
     let words: Vec<_> = told.iter().map(|t| t["delivery"].clone()).collect();
     assert_eq!(words, vec![json!("queued"); 7], "each is queued while it is typed: {told:?}");
 
     // The next tick, while they are typed still, types none of them again, and waits on none.
     let started = std::time::Instant::now();
     w.tick_alone().await;
-    assert!(started.elapsed() < std::time::Duration::from_secs(1), "{:?}", started.elapsed());
+    assert!(started.elapsed() < window, "{:?}", started.elapsed());
     let started = std::time::Instant::now();
     w.app.typing_ended().await;
     let typed = started.elapsed();
