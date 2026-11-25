@@ -100,7 +100,10 @@ impl App {
         loop {
             let asks =
                 |key: &str| !failed.iter().any(|(h, _)| h == key) && Harness::read(key).is_some_and(Harness::asks);
-            let on = match self.pick_by(|kit, now, pick| kit.choose_picker(&st.harness, asks, now, pick)).await {
+            let on = match self
+                .pick_by(|kit, commands, now, pick| kit.choose_picker(&st.harness, asks, now, commands, pick))
+                .await
+            {
                 Ok(on) => on,
                 Err(none) => return Err(last.unwrap_or(none)),
             };

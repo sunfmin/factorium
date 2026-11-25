@@ -29,8 +29,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Top {
     /// Runs the daemon in the foreground until `factorium stop`; refused
-    /// while another runs. At start it looks for git, orca and the kit's
-    /// harnesses on its PATH; what is missing is a finding. When a cut
+    /// while another runs. At start it moves the kit's commands to stablehand, once,
+    /// and looks for git, orca and the programs of the commands stablehand
+    /// keeps on its PATH; what is missing is a finding. When a cut
     /// installs the formula it runs from, it runs the new binary in its place
     /// between ticks, as the same pid. As a service, launchd runs it.
     Run,
@@ -116,10 +117,14 @@ pub enum Top {
         #[arg(long)]
         release: bool,
     },
-    /// The kit: the command this host starts each engine with, and the
-    /// checkouts pinned to one. The engine, model and account a session
-    /// starts on are stablehand's pick (`stablehand pick`), walking its
-    /// order (`stablehand order show`).
+    /// The kit: the checkouts pinned to one engine. The engine, model and
+    /// account a session starts on are stablehand's pick (`stablehand
+    /// pick`), walking its order (`stablehand order show`), and so is the
+    /// command each engine starts with (`stablehand command set|show`),
+    /// followed by factorium's own arguments: an engine stablehand keeps
+    /// none for starts on its bare program with its stock arguments. With
+    /// stablehand missing or failing, claude-code alone starts, by `claude
+    /// --dangerously-skip-permissions`, on the host user's own login.
     #[command(subcommand)]
     Kit(KitCmd),
     /// Answers the engine accounts as stablehand's books say now: the
@@ -162,7 +167,7 @@ pub enum Top {
 pub enum ServiceCmd {
     /// Writes the agent to ~/Library/LaunchAgents, with this shell's PATH
     /// and this database, and loads it (in place of one loaded before).
-    /// Run it from a shell that finds git, orca and the kit's harnesses.
+    /// Run it from a shell that finds git, orca, stablehand and the engines' programs.
     /// A boot loads no Background agent, so after one the first other
     /// command (doctor among them) loads it again, unless `stop` stopped it.
     Install,
@@ -257,7 +262,7 @@ pub enum IssueCmd {
         #[arg(long, value_name = "DIR")]
         role: Option<String>,
         /// The engine account its worker starts on, by its name in
-        /// stablehand, by the kit's command for that account's engine. Refused
+        /// stablehand, by the command stablehand keeps for its engine. Refused
         /// unless `stablehand account show NAME` knows it and a session may
         /// start on it here. While stablehand's pick passes it over (at its
         /// limit, or full) its issue waits.
@@ -391,17 +396,9 @@ pub enum IssueCmd {
 
 #[derive(Subcommand)]
 pub enum KitCmd {
-    /// Answers the kit.
+    /// Answers the kit: `{"pins": {"<checkout>": "<engine>"}}`. Each
+    /// engine's command is stablehand's (`stablehand command show`).
     Show,
-    /// Sets the kit's commands, each `engine=command`, replacing those it
-    /// had. An unknown engine is refused, naming those there are. A
-    /// command that is only a program (a path or a name) gets that
-    /// engine's stock arguments; one with arguments is taken as given.
-    /// Which engine and model a session starts on is not the kit's: it is
-    /// stablehand's pick, walking `stablehand order` (`stablehand order
-    /// set`); an engine it picks that the kit has no command for starts
-    /// nothing, and doctor finds it (`kit:no_command:<engine>`).
-    Set { entries: Vec<String> },
     /// Pins a checkout to one engine (`--harness`), or unpins it: its
     /// starts ask stablehand's pick of that engine alone (`--engine`).
     Pin {
@@ -689,7 +686,6 @@ impl Top {
             }
             Top::Kit(k) => match k {
                 KitCmd::Show => app.kit().await,
-                KitCmd::Set { entries } => app.kit_set(&entries).await,
                 KitCmd::Pin { checkout, harness } => app.kit_pin(&checkout, harness.as_deref()).await,
             },
             Top::Accounts => app.accounts().await,

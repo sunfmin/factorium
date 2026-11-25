@@ -326,6 +326,7 @@ impl Kind for ClaudeCode {
     const USER_HOME: Option<&'static str> = Some(".claude");
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     /// No permission prompts.
+    const PROGRAM: &'static str = "claude";
     const STOCK_ARGUMENTS: &'static str = "--dangerously-skip-permissions";
     const ASKS_FIRST: Option<&'static str> = None;
     const SHOWS_UP: Option<&'static str> = None;

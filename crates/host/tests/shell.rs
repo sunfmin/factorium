@@ -1,4 +1,4 @@
-//! The real programs, as the daemon looks for the kit's at its start: a
+//! The real programs, as the daemon looks for those of stablehand's commands at its start: a
 //! file that may be run, found by its path or by its name on `PATH`.
 
 use std::os::unix::fs::PermissionsExt;

@@ -120,15 +120,32 @@ impl World {
         );
     }
 
-    /// The kit as the code before factorium#291 set it: in order, with
-    /// models, the same engine twice (`first`, then `second`).
+    /// The kit as the code before factorium#291 set it, in place of its one
+    /// event (a pin's): in order, with models, the same engine twice
+    /// (`codex --first`, then `codex --second`).
     pub fn kit_as_code_before_291_set_it(&self) {
         self.migrate(
             "UPDATE events SET kind = 'KitSet', data = json_object('entries', json_array(\
-                 json_object('harness', 'codex', 'command', 'first', 'model', 'm'), \
-                 json_object('harness', 'codex', 'command', 'second', 'model', NULL))) \
-             WHERE kind = 'CommandsSet'; DELETE FROM snapshots;",
+                 json_object('harness', 'codex', 'command', 'codex --first', 'model', 'm'), \
+                 json_object('harness', 'codex', 'command', 'codex --second', 'model', NULL))) \
+             WHERE kind = 'CheckoutPinned'; DELETE FROM snapshots;",
         );
+    }
+
+    /// The kit's commands as the code before factorium#306 set them
+    /// (`engine=command` each), in place of its one event (a pin's).
+    pub fn kit_as_code_before_306_set_it(&self, commands: &[&str]) {
+        let quoted = |t: &str| format!("'{}'", t.replace('\'', "''"));
+        let pairs: Vec<String> = commands
+            .iter()
+            .map(|c| c.split_once('=').unwrap())
+            .map(|(e, c)| format!("{}, {}", quoted(e), quoted(c)))
+            .collect();
+        self.migrate(&format!(
+            "UPDATE events SET kind = 'CommandsSet', data = json_object('commands', json_object({})) \
+             WHERE kind = 'CheckoutPinned'; DELETE FROM snapshots;",
+            pairs.join(", ")
+        ));
     }
 
     /// Issues waiting for a human as the code before factorium#95 wrote

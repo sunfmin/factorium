@@ -69,27 +69,28 @@ async fn each_harness_starts_with_its_line_and_its_turn_is_read_from_its_own_ses
 }
 
 #[tokio::test]
-async fn the_kit_takes_only_harnesses_factorium_starts_and_names_them_all() {
+async fn the_kit_pins_only_to_harnesses_factorium_starts_and_names_them_all() {
     let w = World::new();
     w.checkout("web").await;
-    let refused = w.app.kit_set(&["vim=vim".into()]).await.unwrap_err();
+    let refused = w.app.kit_pin("web", Some("vim")).await.unwrap_err();
     assert_eq!(refused.code, "no_harness");
     for h in Harness::all() {
         assert!(refused.message.contains(h.key()), "{}: {}", h.key(), refused.message);
     }
-    assert_eq!(w.app.kit_pin("web", Some("vim")).await.unwrap_err().code, "no_harness");
-    assert_eq!(w.app.kit().await.unwrap()["commands"], serde_json::json!({}), "nothing set");
+    assert_eq!(w.app.kit().await.unwrap(), serde_json::json!({ "pins": {} }), "pins only");
     for h in Harness::all() {
-        w.kit_of(&[format!("{}=x", h.key())]).await;
+        w.kit_of(&[format!("{}={}", h.key(), h.program())]).await;
         w.app.kit_pin("web", Some(h.key())).await.unwrap();
     }
 }
 
-/// A worker of `h` whose kit names a stand-in program, its line run as its
-/// terminal would: the worker, its line, and the directory the program
-/// started in, its environment and its arguments.
+/// A worker of `h` whose command stablehand keeps names a stand-in of its
+/// program, its line run as its terminal would: the worker, its line, and
+/// the directory the program started in, its environment and its
+/// arguments.
 async fn started(w: &World, h: Harness) -> (serde_json::Value, String, PathBuf, HashMap<String, String>, String) {
-    let (program, ran, args) = (w.dir.join("program"), w.dir.join("ran"), w.dir.join("args"));
+    let (program, ran, args) = (w.dir.join("stand-in").join(h.program()), w.dir.join("ran"), w.dir.join("args"));
+    std::fs::create_dir_all(program.parent().unwrap()).unwrap();
     let script = format!(
         "#!/bin/sh\n{{ pwd -P; env -0; }} > '{}'\nprintf '%s\\n' \"$@\" > '{}'\n",
         ran.display(),
@@ -219,6 +220,7 @@ fn the_harness_crate_offers_only_what_factorium_uses() {
         "harness.rs: fn home",
         "harness.rs: fn launch",
         "harness.rs: fn not_up",
+        "harness.rs: fn program",
         "harness.rs: fn read",
         "harness.rs: fn shell_call",
         "harness.rs: fn stopped",

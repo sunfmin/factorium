@@ -234,6 +234,7 @@ impl Kind for Grok {
     const KEPT_LINKS: &'static [Link] = KEPT_LINKS;
     /// No approval prompts (its `auto-review` mode denies `factorium worker
     /// done`).
+    const PROGRAM: &'static str = "grok";
     const STOCK_ARGUMENTS: &'static str = "--always-approve";
     const ASKS_FIRST: Option<&'static str> = None;
     const SHOWS_UP: Option<&'static str> = None;

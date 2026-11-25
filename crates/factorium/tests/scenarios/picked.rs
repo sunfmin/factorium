@@ -1,6 +1,7 @@
 //! A start is what `stablehand pick` answers whole (factorium#291): its
 //! engine, model and account, asked once, narrowed by a checkout's pin
-//! and an issue's own model; the kit only says how each engine starts.
+//! and an issue's own model; each engine starts by the command stablehand
+//! keeps for it.
 
 use factorium_domain::issue::On;
 
@@ -82,20 +83,30 @@ async fn while_the_pick_answers_none_the_issue_waits_until_its_until() {
     assert!(w.tick().await.started.is_some(), "its until passed, it starts");
 }
 
+/// A session starts by the command stablehand keeps for the engine it
+/// picks (`stablehand command show`), then factorium's own arguments; an
+/// engine it keeps none for starts on its bare program, with its stock
+/// arguments (factorium#306).
 #[tokio::test]
-async fn an_engine_the_pick_answers_with_no_command_in_the_kit_is_a_finding_naming_kit_set() {
+async fn a_session_starts_by_stablehand_s_command_else_its_engine_s_bare_program() {
     let w = World::new();
     w.checkout("web").await;
-    w.kit_of(&[CLAUDE]).await;
-    w.stablehand_keeps(&["grok", "claude-code"]);
+    w.kit_of(&["claude-code=claude --x"]).await;
+    w.stablehand_keeps(&["claude-code", "grok"]);
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
-    let t = w.tick().await;
-    assert!(t.started.is_none(), "{t:?}");
-    assert!(t.held.as_deref().unwrap().contains("`factorium kit set grok=<command>`"), "{t:?}");
-    let found = w.finding("kit:no_command:grok").await.expect("a finding");
-    assert!(found["fix"].as_str().unwrap().contains("`factorium kit set grok=<command>`"), "{found}");
-    w.app.kit_set(&[CLAUDE.into(), "grok=grok".into()]).await.unwrap();
-    assert!(w.finding("kit:no_command:grok").await.is_none());
     assert!(w.tick().await.started.is_some());
-    assert_eq!(worker(&w.app).await["harness"], "grok");
+    let line = w.terminal(worker(&w.app).await["terminal"].as_str().unwrap()).line;
+    assert!(line.contains("&& claude --x --add-dir"), "stablehand's command, then factorium's: {line}");
+    assert!(!line.contains("--dangerously-skip-permissions"), "{line}");
+    assert!(w.host.ran.lock().unwrap().iter().any(|r| r == "stablehand command show"));
+
+    // grok first, with no command kept: its bare program.
+    w.stablehand_keeps(&["grok", "claude-code"]);
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+    assert!(w.tick().await.started.is_some());
+    let wk = w.worker_on("web", 2).await;
+    assert_eq!(wk["harness"], "grok");
+    let line = w.terminal(wk["terminal"].as_str().unwrap()).line;
+    assert!(line.contains("grok --always-approve"), "its bare program, stock arguments: {line}");
+    assert!(w.finding("kit:no_command:grok").await.is_none(), "no kept command is no fault");
 }

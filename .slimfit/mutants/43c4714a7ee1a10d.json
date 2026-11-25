@@ -1,0 +1,29 @@
+{
+  "tree": "9949ec840ddac7f5b2439cd4144eee1ed00f0787+d1fba762150c532c",
+  "picker": "codex:01a210cf-6644-7a82-8773-ec57f9b266f9:default",
+  "author": "claude-code:911fe2ec-ad69-54eb-8c73-614d20ad3a69:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/session/launch.rs:589:5: replace program_dir -> Option<String> with None",
+        "why": "The launch tests can pass with an absolute command path even if the session loses that program’s directory from PATH.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/admission.rs:470: doctor_says_why_nothing_starts_and_an_empty_kit_is_a_finding_with_its_fix",
+      "crates/factorium/tests/scenarios/admission.rs:509: a_ready_issue_that_waits_for_a_blocker_is_no_reason_but_an_empty_kit_is_still_a_finding",
+      "crates/factorium/tests/scenarios/binary.rs:690: the_daemon_looks_for_the_kit_s_programs_on_its_path_at_its_start",
+      "crates/factorium/tests/scenarios/daemon.rs:177: a_program_two_kit_entries_need_is_missing_once",
+      "crates/factorium/tests/scenarios/harnesses.rs:72: the_kit_takes_only_harnesses_factorium_starts_and_names_them_all",
+      "crates/factorium/tests/scenarios/kit.rs:23: a_start_is_the_pick_s_engine_model_and_account_on_the_kit_s_command",
+      "crates/factorium/tests/scenarios/one_harness.rs:225: a_kit_command_that_names_only_a_program_keeps_its_harness_stock_arguments",
+      "crates/factorium/tests/scenarios/one_harness.rs:329: the_kit_keeps_each_engine_s_command_and_no_order_or_model_and_only_an_engine_factorium_knows",
+      "crates/factorium/tests/scenarios/pick.rs:259: a_kit_with_no_harness_that_can_be_asked_refuses_to_pick",
+      "crates/factorium/tests/scenarios/picked.rs:86: an_engine_the_pick_answers_with_no_command_in_the_kit_is_a_finding_naming_kit_set"
+    ]
+  }
+}

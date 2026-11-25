@@ -687,15 +687,21 @@ fn run_ticks_quietly_until_stop_ends_it() {
 }
 
 #[test]
-fn the_daemon_looks_for_the_kit_s_programs_on_its_path_at_its_start() {
+fn the_daemon_looks_for_the_programs_of_stablehand_s_commands_on_its_path_at_its_start() {
     let dir = Dir::new();
     // One not on its PATH, one there but not to be run, one a directory.
     let stubs = dir.0.join("stubs");
     let _ = bin(&dir);
     std::fs::write(stubs.join("notrun"), "#!/bin/sh\n").unwrap();
     std::fs::create_dir_all(stubs.join("adir")).unwrap();
-    let kit = run(&dir, &["kit", "set", "claude-code=nosuch-program", "codex=notrun", "pi=adir"]);
-    assert!(kit.0, "{}", kit.1);
+    let commands = r#"{"commands":{"claude-code":"nosuch-program","codex":"notrun","pi":"adir"}}"#;
+    let script = format!("#!/bin/sh\ncase \"$1 $2\" in 'command show') echo '{commands}' ;; *) exit 1 ;; esac\n");
+    std::fs::write(stubs.join("stablehand"), script).unwrap();
+    // The kit keeps no commands: they are stablehand's.
+    let refused = bin(&dir).args(["kit", "set", "claude-code=claude"]).output().unwrap();
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success() && said.contains("unrecognized subcommand 'set'"), "{said}");
+    assert_eq!(run(&dir, &["kit", "show"]).1, serde_json::json!({ "pins": {} }));
     // It looks before its first tick.
     daemon_for(&dir, 1);
     let (_, doctor) = run(&dir, &["doctor"]);

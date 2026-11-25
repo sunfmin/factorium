@@ -22,8 +22,8 @@ them with Developer ID, notarizes and publishes them
 ([ADR 4](docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md)).
 
 The daemon runs as a launchd agent, started again whenever it exits.
-Install it from a shell whose PATH finds git, orca and the kit's
-harnesses: that PATH is written into the agent. launchd does not load it
+Install it from a shell whose PATH finds git, orca, stablehand and the
+engines' programs: that PATH is written into the agent. launchd does not load it
 by itself after a reboot: a boot loads no Background agent from
 ~/Library/LaunchAgents, at boot or at a login, and only root's jobs run
 before a login (factorium#287). So the first `factorium` command run after
@@ -44,7 +44,7 @@ cannot find at start, and ticks failing in a row (`tick_failures_max`), are
 
 ```sh
 factorium checkout add web ~/src/web --base main --proving proving
-factorium kit set claude-code=claude codex=codex   # how each engine starts; which one, and on what model, is `stablehand order set`'s
+stablehand command set 'claude-code=claude --dangerously-skip-permissions'   # how each engine starts: stablehand's, as are which one and its model (`stablehand order set`)
 factorium issue add web "Fix the login" --body-file body.md   # or --body "..."; - reads stdin
 factorium run          # the daemon in the foreground (the service runs it for you)
 factorium doctor       # what needs you

@@ -153,11 +153,11 @@ impl World {
         self.kit_of(&[CLAUDE]).await;
     }
 
-    /// The kit's commands `entries` (`engine=command[@model]`), on a host
-    /// whose stablehand walks those engines in that order, each on its
-    /// `@model` if named (a word after the command's last `@`), and keeps an
-    /// account of each (one named after its engine, bound here, where the
-    /// test keeps none of it): the kit answered.
+    /// stablehand keeping the commands `entries` (`engine=command[@model]`),
+    /// walking those engines in that order, each on its `@model` if named
+    /// (a word after the command's last `@`), and keeping an account of
+    /// each (one named after its engine, bound here, where the test keeps
+    /// none of it): its commands, as `stablehand command set` answers them.
     pub async fn kit_of(&self, entries: &[impl AsRef<str>]) -> Value {
         let (mut commands, mut ranks) = (Vec::new(), Vec::new());
         for e in entries {
@@ -169,10 +169,20 @@ impl World {
             commands.push(format!("{engine}={command}"));
             ranks.push(rank);
         }
-        let kit = self.app.kit_set(&commands).await.unwrap();
         let ranks: Vec<&str> = ranks.iter().map(String::as_str).collect();
         self.stablehand_keeps(&ranks);
-        kit
+        self.stablehand_commands(&commands)
+    }
+
+    /// stablehand keeping `commands` (`engine=command`; `engine=` drops
+    /// one), as `stablehand command set` answers them; panics on one it
+    /// refuses.
+    pub fn stablehand_commands(&self, commands: &[impl AsRef<str>]) -> Value {
+        let mut args = vec!["command", "set"];
+        args.extend(commands.iter().map(AsRef::as_ref));
+        let said = self.host.stablehand.lock().unwrap().answer(&args, 0);
+        assert!(said.ok, "stablehand keeps {args:?}: {}", said.out);
+        serde_json::from_str(&said.out).unwrap()
     }
 
     /// stablehand walking `ranks` (`engine[@model,…]`) in this order,
