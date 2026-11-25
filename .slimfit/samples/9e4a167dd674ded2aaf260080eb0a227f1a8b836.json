@@ -1,0 +1,33 @@
+{
+  "tip": "9e4a167dd674ded2aaf260080eb0a227f1a8b836",
+  "from": "ce89ebed2a61b342434d5b46c4866b0cda7e4735",
+  "pool": 407,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/domain/src/worker.rs:196:92: replace + with - in Tokens::summed",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/session/outbox.rs:93:9: replace App::typing_ended with ()",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:152:9: replace Entry::queued -> Entry with Default::default()",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:510:9: replace App::take_turn -> Answer<bool> with Answer::new(true)",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/spent.rs:178:66: replace - with / in spent",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/accounts.rs:215:39: delete ! in App::move_commands",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
