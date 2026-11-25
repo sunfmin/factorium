@@ -574,7 +574,15 @@ pub struct FakeStablehand {
     pub order: Vec<(String, Vec<String>)>,
     /// Each engine's command kept (`command set`), as `command show` answers.
     pub commands: BTreeMap<String, String>,
+    /// `limit` is refused as books it cannot write are (`limit-refused`).
+    pub limit_refused: bool,
 }
+
+/// The failures the stand-in stablehand answers when asked (truefit.toml's
+/// stablehand `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as
+/// stablehand 0.1.17 answers it: `limit-refused`, every `limit` refused
+/// (`fault`, exit 1), as one whose books it may not write.
+pub const STABLEHAND_FAULTS: [&str; 1] = ["limit-refused"];
 
 /// An account as stablehand keeps it.
 #[derive(Clone, Debug, Default)]
@@ -632,6 +640,14 @@ fn stablehand_machine() -> String {
 }
 
 impl FakeStablehand {
+    /// Sets, or clears, the failure `name` (one of [`STABLEHAND_FAULTS`]).
+    pub fn fault(&mut self, name: &str, on: bool) {
+        match name {
+            "limit-refused" => self.limit_refused = on,
+            _ => panic!("no stablehand fault {name}: {STABLEHAND_FAULTS:?}"),
+        }
+    }
+
     /// A portable account `name` of `engine`, logged in with `token`.
     pub fn portable(&mut self, name: &str, engine: &str, token: &str) {
         let sessions = (engine == "claude-code").then_some(2);
@@ -761,6 +777,9 @@ impl FakeStablehand {
             ["limit", name, ..] => {
                 if !self.accounts.contains_key(*name) {
                     return no_account(name);
+                }
+                if self.limit_refused {
+                    return refused("fault", "stablehand.db: Permission denied (os error 13)".into());
                 }
                 let resets = match flag("--resets-at") {
                     Some(t) => match factorium_domain::when::parse(t) {

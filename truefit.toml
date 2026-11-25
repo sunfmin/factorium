@@ -294,6 +294,15 @@ run = ["crates/factorium/tests/contract/standin", "fake"]
 real = ["crates/factorium/tests/contract/standin", "real"]
 needs = "stablehand on PATH"
 version = ["stablehand", "--version"]
+# What factorium handles after a step took effect (fakes::STABLEHAND_FAULTS):
+# a limit stablehand will not book once a session on the account met it
+# (the worker ends all the same, its issue free again, and the tick says
+# stablehand's words as `unbooked`). Its other calls come before any step
+# of factorium's (a pick, a credential, an account shown: the start is
+# refused, nothing taken) or only read (`status`, `command show`); a
+# `command set` refused leaves the kit's commands to move at the next
+# daemon start: no fault stands for those.
+faults = ["limit-refused"]
 
 # What factorium reads of stablehand's answers about a bound login: which
 # account a pick takes, and each it passes over with its reason; what a
@@ -308,7 +317,7 @@ name = "bound"
 stdin = """
 {"run": ["mkdir", "-p", "home/night", "home/later"], "read": "ok"}
 {"run": ["stablehand", "account", "add", "night", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/night"], "read": ["/account/name", "/account/login", "/account/home"]}
-{"run": ["stablehand", "account", "add", "later", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/later", "--sessions", "1"], "read": ["/account/sessions"]}
+{"run": ["stablehand", "account", "add", "later", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home/later"], "read": ["/account/name"]}
 {"run": ["stablehand", "account", "add", "away", "--engine", "codex", "--machine", "truefit-elsewhere", "--home", "/nowhere"], "read": ["/account/machine"]}
 {"run": ["stablehand", "account", "show", "night"], "read": ["/account/engine", "/account/login", "/account/home", "/account/machine", "/account/off", "/logged_in"]}
 {"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}"], "read": ["/account", "/none", "/until", "/why/*/account", "/why/*/reason", "/why/*/until"]}
@@ -369,6 +378,19 @@ stdin = """
 {"run": ["stablehand", "limit", "ghost"], "read": ["/code"]}
 {"run": ["stablehand", "pick", "--engine", "codex", "--machine", "{machine}", "--running", "ghost=1"], "read": ["/code"]}
 {"run": ["stablehand", "limit", "night", "--resets-at", "2001-01-01T00:00:00Z"], "read": ["/code"]}
+"""
+
+# A limit it will not book, of an account it keeps: the real one's books
+# made read-only, as stablehand refuses a write it may not make.
+[[standin.case]]
+name = "limit-refused"
+fault = "limit-refused"
+stdin = """
+{"run": ["stablehand", "account", "add", "night", "--engine", "codex", "--machine", "{machine}", "--home", "{dir}/home"], "read": "ok"}
+{"run": ["chmod", "-R", "a-w", "{dir}/.stablehand"], "only": "real"}
+{"run": ["stablehand", "limit", "night"], "read": ["/code", "/limit"]}
+{"run": ["stablehand", "limit", "night", "--resets-at", "2030-01-01T00:00:00Z"], "read": ["/code", "/limit"]}
+{"run": ["chmod", "-R", "u+w", "{dir}/.stablehand"], "only": "real"}
 """
 
 [[standin]]

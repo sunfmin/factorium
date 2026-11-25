@@ -203,6 +203,35 @@ async fn a_limit_stablehand_cannot_take_is_said_and_the_worker_still_ends() {
     assert!(t.seen[0]["unbooked"].as_str().unwrap().contains("no_account"), "{t:?}");
 }
 
+// truefit's stablehand fault `limit-refused`: stablehand cannot write the
+// limit into its books once the session on the account met it. The worker
+// ends all the same, saying stablehand's words; stablehand, never told,
+// picks the account again, so its issue starts again on it.
+#[tokio::test]
+async fn a_limit_stablehand_refuses_to_book_is_said_the_worker_ends_and_its_issue_starts_again() {
+    let w = World::new();
+    bound(&w, "night");
+    let wk = w.working("codex=codex", "t").await;
+    w.host.stablehand.lock().unwrap().fault("limit-refused", true);
+    w.set_screen(
+        wk["terminal"].as_str().unwrap(),
+        &["■ You've hit your usage limit reached.", "Increase your limits to continue using Codex."],
+    );
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["ended"], "quota");
+    let unbooked = t.seen[0]["unbooked"].as_str().unwrap();
+    assert!(unbooked.contains("stablehand limit night") && unbooked.contains("Permission denied"), "{t:?}");
+    assert!(unbooked.ends_with("(fault)"), "{t:?}");
+    assert!(crate::fixture::closed(&w.app, wk["terminal"].as_str().unwrap()).await, "its terminal is closed");
+    assert!(w.host.stablehand.lock().unwrap().limits.is_empty(), "no limit booked");
+    // Unlike a limit booked (no start until stablehand lifts it), the same
+    // tick starts the issue again on the account it was never told of.
+    assert!(t.started.is_some() && t.held.is_none(), "the account is picked again: {t:?}");
+    assert_eq!(worker(&w.app).await["account"], "night");
+    let issue = w.app.issue_show("web", 1).await.unwrap();
+    assert_ne!(issue["worker"], wk["worker"], "its issue starts again, on a new worker");
+}
+
 #[tokio::test]
 async fn an_account_stablehand_does_not_keep_or_no_session_may_start_on_here_is_refused_at_add() {
     let w = World::new();
