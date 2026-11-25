@@ -196,9 +196,10 @@ impl App {
     }
 
     /// The linked binary to exec once proven; not while a line move runs
-    /// beside the ticks, which a restart would end.
+    /// beside the ticks, which a restart would end, nor while a message is
+    /// typed beside them: the next daemon would type it again.
     fn swap_due(&self) -> Option<std::path::PathBuf> {
-        (!self.moves_run()).then(|| self.swapped(false)).flatten()
+        (!self.moves_run() && !self.typing(|_| true)).then(|| self.swapped(false)).flatten()
     }
 
     /// The binary to run in place of this one after a tick: a good tick's
@@ -471,8 +472,6 @@ impl App {
             Err(e) => return eprintln!("restart as {}: its lock would not stay held: {e}", binary.display()),
         };
         let _ = self.beside(|_| true, false, true).await;
-        // A message typed beside the ticks has its outcome recorded first: else the next daemon types it again.
-        self.typing_ended().await;
         let e =
             std::process::Command::new(binary).args(std::env::args_os().skip(1)).env(LOCK_FD, fd.to_string()).exec();
         let _ = crate::host::procs::kept_across_exec(held, false);

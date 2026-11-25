@@ -322,7 +322,7 @@ ticks, on a store connection of its own; the tick's `roles` answers each
 worker told, its changed files and its delivery as it stood when the tick
 ended (`queued` while it is typed), and the outbox records how it went. A
 session typed at beside the ticks is not tried again by a look until that
-ended, and the daemon lets it end before it stops or is replaced
+ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs
 (factorium#311). A prompt Claude Code took is
 read from its session file as typed, or in the block it writes a long paste
 in (`<pasted_content id="…">`).

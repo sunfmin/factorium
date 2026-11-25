@@ -8,7 +8,7 @@ use factorium_domain::issue::On;
 use factorium_harness::{Harness, RULES, SKILLS};
 use serde_json::json;
 
-use crate::fixture::{CLAUDE, World, id, refused, worker, write_session_in};
+use crate::fixture::{CLAUDE, OPENS, World, id, refused, worker, write_session_in};
 use crate::watch::NEXT_CENTURY;
 
 /// A claude-code account `name` stablehand keeps, logged in by a token.
@@ -538,6 +538,34 @@ async fn a_role_change_under_seven_busy_workers_adds_no_orca_window_to_the_tick_
         assert_eq!(role_outcomes(&w, n).await, vec![json!("queued")], "worker {n}: told once, its delivery recorded");
         assert_eq!(w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count(), 1);
     }
+}
+
+/// A restart ends the process that types beside the ticks: none is due while a role note is
+/// typed, or the next daemon would type it again, its outcome never recorded (factorium#311).
+#[tokio::test]
+async fn no_restart_is_due_while_a_role_note_is_typed_beside_the_ticks() {
+    let w = World::new();
+    w.kit_of(&[CLAUDE]).await;
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    w.app.issue_add("web", "Build the app", "", false, &[]).await.unwrap();
+    w.running_as(&w.app, "factorium");
+    w.tick().await;
+    w.links_newer("factorium", OPENS);
+    let proven = std::time::Instant::now();
+    while w.tick().await.restart.is_none() {
+        assert!(proven.elapsed() < crate::fixture::STUCK, "the proof ends");
+        tokio::time::sleep(crate::fixture::LOOK).await;
+    }
+
+    let handle = w.worker_on("web", 1).await["terminal"].as_str().unwrap().to_string();
+    w.set_busy(&handle, true, false);
+    *w.host.orca.window.lock().unwrap() = Some(std::time::Duration::from_secs(2));
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    let t = w.tick_alone().await;
+    assert_eq!((t.roles.len(), t.restart), (1, None), "typed beside the ticks still");
+    w.app.typing_ended().await;
+    assert!(w.tick_alone().await.restart.is_some(), "due again once its outcome is recorded");
 }
 
 /// factorium#281: on 0.1.98 the step that told 5 workers their role changed

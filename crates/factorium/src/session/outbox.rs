@@ -47,7 +47,7 @@ impl App {
     /// each look at them. One being typed at beside the ticks is left to
     /// the look after that ended.
     pub(crate) async fn retry(&self, sessions: &[&Session]) -> Answer<()> {
-        let asked: Vec<_> = sessions.iter().filter(|s| !self.typing(&s.terminal)).map(|s| (*s, None)).collect();
+        let asked: Vec<_> = sessions.iter().filter(|s| !self.typing(|h| h == s.terminal)).map(|s| (*s, None)).collect();
         self.flush(&asked).await.map(drop)
     }
 
@@ -57,7 +57,8 @@ impl App {
     /// each went from its outbox. A session typed at beside already is left
     /// to the look after that ended.
     pub(crate) fn flush_beside<'a>(&self, sessions: impl IntoIterator<Item = &'a Session>) -> Answer<()> {
-        let sessions: Vec<Session> = sessions.into_iter().filter(|s| !self.typing(&s.terminal)).cloned().collect();
+        let sessions: Vec<Session> =
+            sessions.into_iter().filter(|s| !self.typing(|h| h == s.terminal)).cloned().collect();
         if sessions.is_empty() {
             return Ok(());
         }
@@ -92,14 +93,10 @@ impl App {
         self.after_typing(|_| true).await
     }
 
-    /// Whether the session on `terminal` is typed at beside the ticks now.
-    fn typing(&self, terminal: &str) -> bool {
-        self.memory
-            .lock()
-            .unwrap()
-            .typing
-            .iter()
-            .any(|t| !t.run.is_finished() && t.terminals.iter().any(|h| h == terminal))
+    /// Whether a session at a terminal `at` picks is typed at beside the ticks now.
+    pub(crate) fn typing(&self, at: impl Fn(&str) -> bool) -> bool {
+        let m = self.memory.lock().unwrap();
+        m.typing.iter().any(|t| !t.run.is_finished() && t.terminals.iter().any(|h| at(h)))
     }
 
     /// Until each typing beside the ticks at a terminal `at` picks ended.
