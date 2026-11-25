@@ -1,0 +1,25 @@
+{
+  "tree": "2c142cef06cc8ceffb5f96e4489a713f371fc7b4+35a211014fa3e8ce",
+  "picker": "codex:01a21435-0b69-7d91-8396-e1ae157c4b7d:default",
+  "author": "claude-code:447f9f1e-fe80-5933-bbfe-6c83a221b232:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/owner.rs:152:9: replace App::hold -> Answer with Default::default()",
+        "why": "The merged scenario checks that api can land and reads null for api's hold, so it can pass even if the hold on web was never recorded.",
+        "outcome": "unviable",
+        "first_outcome": "unviable"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/line.rs:327: a_cut_still_locked_past_the_bound_fails_naming_the_holder",
+      "crates/factorium/tests/scenarios/line.rs:348: a_cut_whose_upgrade_fails_other_than_by_a_lock_fails_at_once",
+      "crates/factorium/tests/scenarios/line.rs:365: a_cut_whose_install_brew_refuses_after_its_tag_keeps_the_tag_and_is_read_back",
+      "crates/factorium/tests/scenarios/line.rs:389: a_failed_cut_whose_version_got_installed_anyway_is_cleared",
+      "crates/factorium/tests/scenarios/line.rs:531: a_checkout_is_idle_whatever_another_checkout_s_workers_do",
+      "crates/factorium/tests/scenarios/line.rs:548: holding_one_checkout_s_landings_holds_no_other_s"
+    ]
+  }
+}
