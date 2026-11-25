@@ -196,9 +196,10 @@ impl App {
     }
 
     /// The linked binary to exec once proven; not while a line move runs
-    /// beside the ticks, which a restart would end.
+    /// beside the ticks, which a restart would end, nor while a message is
+    /// typed beside them: the next daemon would type it again.
     fn swap_due(&self) -> Option<std::path::PathBuf> {
-        (!self.moves_run()).then(|| self.swapped(false)).flatten()
+        (!self.moves_run() && !self.typing(|_| true)).then(|| self.swapped(false)).flatten()
     }
 
     /// The binary to run in place of this one after a tick: a good tick's
@@ -423,6 +424,7 @@ impl App {
             }
         }
         let _ = self.beside(|_| true, false, true).await;
+        self.typing_ended().await;
         let _ = std::fs::remove_file(self.data().ticked());
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))

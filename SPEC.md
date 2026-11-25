@@ -315,7 +315,15 @@ its role changed changes nothing in the worker's task: missed, it sends its
 worker to no one and holds up nothing after it, and is looked for again on
 each next look: found taken in its session file since, it arrived; not
 found, it is typed again. So no look waits on it past Orca's window: it is
-given no grace after it, as other messages are (factorium#281). A prompt Claude Code took is
+given no grace after it, as other messages are (factorium#281). And no
+tick waits for its typing at all: the tick gives it to the outboxes of every
+worker it is owed and goes on, and it is typed at them at once beside the
+ticks, on a store connection of its own; the tick's `roles` answers each
+worker told, its changed files and its delivery as it stood when the tick
+ended (`queued` while it is typed), and the outbox records how it went. A
+session typed at beside the ticks is not tried again by a look until that
+ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs
+(factorium#311). A prompt Claude Code took is
 read from its session file as typed, or in the block it writes a long paste
 in (`<pasted_content id="…">`).
 `factorium outbox [--worker <id>]` answers the record.
