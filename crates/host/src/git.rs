@@ -57,6 +57,18 @@ impl Git {
 
     /// [`Git::run`], with `env` added to git's environment.
     fn run_with(&self, args: &[&str], env: &[(&str, &Path)]) -> Result<String, String> {
+        let out = self.output(args, env)?;
+        let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() {
+            Ok(said)
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said } else { err }))
+        }
+    }
+
+    /// What git printed and how it exited, with `env` added to its environment.
+    fn output(&self, args: &[&str], env: &[(&str, &Path)]) -> Result<std::process::Output, String> {
         // What factorium itself commits (a landing merge, a cut tag, the
         // watch's home) needs an identity; a host with none commits as factorium.
         let commits = matches!(args.first(), Some(&("commit" | "commit-tree" | "merge" | "tag")));
@@ -81,18 +93,11 @@ impl Git {
             git.args(args).current_dir(&self.dir).env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).output()
         };
         // A binary found once may be gone since (git upgraded): `git` on PATH then.
-        let out = match output(binary()) {
+        match output(binary()) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => output(Path::new("git")),
             out => out,
         }
-        .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
-        let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if out.status.success() {
-            Ok(said)
-        } else {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said } else { err }))
-        }
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))
     }
 
     /// Whether git answers yes (exit 0).
@@ -213,6 +218,42 @@ impl Git {
         }
         let _ = self.run(&["merge", "--abort"]);
         Err(if files.is_empty() { e } else { format!("{e}; conflicts in: {}", files.join(", ")) })
+    }
+
+    /// Whether `branch` merges onto `tip` here, without a work tree or a
+    /// commit (`git merge-tree`), as [`Git::merge_from`] would merge it: one
+    /// whose every conflicting path matches a glob pathspec of `regenerated`
+    /// merges. Answers why not, naming every conflicting file.
+    pub fn merges(&self, tip: &str, branch: &str, regenerated: &[String]) -> Result<(), String> {
+        let args = ["merge-tree", "--write-tree", "--name-only", "--no-messages", tip, branch];
+        let out = self.output(&args, &[])?;
+        let said = String::from_utf8_lossy(&out.stdout).to_string();
+        // 0: it merges; 1: it conflicts, its tree then each conflicting path; else it failed.
+        match out.status.code() {
+            Some(0) => return Ok(()),
+            Some(1) => {}
+            _ => {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                return Err(format!("git {}: {}", args.join(" "), if err.is_empty() { said.trim() } else { &err }));
+            }
+        }
+        let mut lines = said.lines().map(str::trim).filter(|l| !l.is_empty());
+        let tree = lines.next().unwrap_or_default().to_string();
+        let mut files: Vec<String> = lines.map(str::to_string).collect();
+        files.dedup();
+        if !files.is_empty() && !regenerated.is_empty() {
+            let globs: Vec<String> = regenerated.iter().map(|g| format!(":(glob){g}")).collect();
+            // The merged tree's paths that match, as a diff from the empty tree lists them:
+            // `ls-tree` takes no glob pathspec.
+            let empty = self.run(&["hash-object", "-t", "tree", "--stdin"])?;
+            let mut list = vec!["diff", "--name-only", empty.as_str(), tree.as_str(), "--"];
+            list.extend(globs.iter().map(String::as_str));
+            let records = self.run(&list)?;
+            if files.iter().all(|f| records.lines().any(|r| r == f)) {
+                return Ok(());
+            }
+        }
+        Err(format!("conflicts in: {}", files.join(", ")))
     }
 
     /// Amends `HEAD` with `paths` as they stand in the work tree, and

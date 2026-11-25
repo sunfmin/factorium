@@ -36,6 +36,7 @@ mod fixtures;
 mod harnesses;
 mod heavy;
 mod idle;
+mod in_line;
 mod issue;
 mod kept;
 mod kit;
