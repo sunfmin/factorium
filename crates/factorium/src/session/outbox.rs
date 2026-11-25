@@ -66,10 +66,7 @@ impl App {
         let terminals = sessions.iter().map(|s| s.terminal.clone()).collect();
         let run = tokio::task::spawn_blocking(move || {
             let _done = done;
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a tokio runtime");
             runtime.block_on(app.flush(&sessions.iter().map(|s| (s, None)).collect::<Vec<_>>())).map(drop)
         });
         self.memory.lock().unwrap().typing.push(Typing { terminals, ended, run });
@@ -97,11 +94,7 @@ impl App {
     /// Until each typing beside the ticks that runs now ended: before the
     /// daemon is replaced, and for a scenario to read how it went.
     pub async fn typing_ended(&self) {
-        let ended: Vec<_> = self.memory.lock().unwrap().typing.iter().map(|t| t.ended.clone()).collect();
-        for mut ended in ended {
-            // Nothing is sent on it: it answers once its sender is dropped.
-            let _ = ended.changed().await;
-        }
+        self.after_typing(|_| true).await
     }
 
     /// Whether the session on `terminal` is typed at beside the ticks now.
@@ -114,15 +107,14 @@ impl App {
             .any(|t| !t.run.is_finished() && t.terminals.iter().any(|h| h == terminal))
     }
 
-    /// Until the typing beside the ticks at any of `sessions` ended: what is
-    /// typed at a session here is never typed there too.
-    async fn after_typing(&self, sessions: &[&Session]) {
+    /// Until each typing beside the ticks at a terminal `at` picks ended.
+    async fn after_typing(&self, at: impl Fn(&str) -> bool) {
         let ended: Vec<_> = {
             let m = self.memory.lock().unwrap();
-            let at = |t: &&Typing| t.terminals.iter().any(|h| sessions.iter().any(|s| &s.terminal == h));
-            m.typing.iter().filter(at).map(|t| t.ended.clone()).collect()
+            m.typing.iter().filter(|t| t.terminals.iter().any(|h| at(h))).map(|t| t.ended.clone()).collect()
         };
         for mut ended in ended {
+            // Nothing is sent on it: it answers once its sender is dropped.
             let _ = ended.changed().await;
         }
     }
@@ -153,7 +145,8 @@ impl App {
     /// on a busy agent for its whole window (factorium#279). Answers, by
     /// session, how its message `n` went.
     pub(crate) async fn flush(&self, asked: &[(&Session, Option<(u64, bool)>)]) -> Answer<Vec<Option<Outcome>>> {
-        self.after_typing(&asked.iter().map(|(s, _)| *s).collect::<Vec<_>>()).await;
+        // What is typed at a session here is never typed there too.
+        self.after_typing(|h| asked.iter().any(|(s, _)| s.terminal == h)).await;
         let mut each = Vec::new();
         for (s, now) in asked {
             let limit = match s.worker {
