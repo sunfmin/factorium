@@ -46,6 +46,132 @@
       "test": "factorium::scenarios::one_harness::of_several_sessions_in_a_worktree_the_turn_that_started_last_speaks",
       "hash": "8e2b10fbdf4749a0",
       "reason": "No assertion maps: this test checks which of several session files in a worktree speaks (start order, end order, both read orders), probed once at 60 min; admission::silence_counts_from_the_end_of_the_last_turn checks the silent bound's timing (30 min working, 31 min silent with its why) on one session. The shared lines are World::working and the session write; folding the 30/31 timeline into silent_with's single 60-min probe changes what each case checks."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_of_the_daemons_own_formula_asks_for_a_restart",
+      "hash": "786f1e91be3c9d18",
+      "reason": "checks the proof on a copy of the db and that another formula's cut does not restart; the relink test sets a stale link, so folding would lose the plain case"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_failed_cut_is_a_finding_and_waits_for_a_new_promotion",
+      "hash": "f9ddcd01dc1a3f96",
+      "reason": "a cut step that exits 7, its finding and the recut after a fix are asserted nowhere else; the brew-not-linking test fails in brew, not in a step"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now",
+      "hash": "7a7af8705fa39c67",
+      "reason": "asserts the promotion clone's origin refs and pruning; the by-hand test asserts authorship and tags, not clone refs"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::an_idle_cut_waits_until_everything_landed_is_promoted",
+      "hash": "06f44b39834814ea",
+      "reason": "#2 keeps working throughout and the cut bound is advanced past; the other two_at_work tests land both or escalate, which conflicts"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip",
+      "hash": "7c202f054f685da7",
+      "reason": "a red slow gate holding the base and not regated is asserted only here; the brew-update test has a green line"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own",
+      "hash": "b0c33cc506145fa9",
+      "reason": "the commit author from the host identity and by-hand promote/cut answers are asserted only here"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
+      "hash": "64073a22bfdecb7a",
+      "reason": "origin's tags reaching an existing clone is asserted only here; its gates are git describe, which conflicts with other setups"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::one_landing_per_checkout_at_a_time_the_first_to_ask_first",
+      "hash": "219577749958e43d",
+      "reason": "the stall test asserts order of three waiting their turn, not that the first to ask lands first and one promotion then cuts both"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_whose_binary_cannot_open_the_hosts_database_fails_and_the_old_one_runs_on",
+      "hash": "b8872a73e3ff8d6e",
+      "reason": "NEEDS_NEWER binary, the kept db copy and no re-proof by another process are asserted only here; the stale-link setup conflicts"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_whose_path_link_relinking_does_not_fix_fails_naming_the_link",
+      "hash": "433650822338b30b",
+      "reason": "relink_fails and the failure naming the link are asserted only here; the proof test fails a slow binary, a different fault"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_from_the_cli_restarts_the_daemon_onto_the_new_binary",
+      "hash": "cdf3c3b42f49174c",
+      "reason": "a cut by another process then the daemon's tick restarting is asserted only here; the proof test cuts within the tick"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_homebrew_does_not_link_fails_and_says_so",
+      "hash": "bcb441b8d3972f31",
+      "reason": "brew stuck on the old version, 7 upgrades and the backoff sleeps are asserted only here; the brew-update test's setup (behind) installs"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_base_moved_outside_factorium_turns_promotion_red_and_stays",
+      "hash": "3386895a5f87a587",
+      "reason": "a base pushed by hand turning promotion red is asserted only here; the queue test checks a long gate is no stall"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_whose_path_link_is_left_on_a_removed_keg_relinks_it",
+      "hash": "dbd5134d4ce5d650",
+      "reason": "the stale link relinked once onto the new keg is asserted only here; the proof test has no stale link"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_installs_once_brew_update_sees_its_version",
+      "hash": "4c645b25887b6fe3",
+      "reason": "the tap behind by two updates and its backoff are asserted only here; the base test checks the checkout's tree"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_whose_version_the_lock_holder_installs_is_made",
+      "hash": "634ab060079378a6",
+      "reason": "holder_installs: one upgrade and no wait; folding it into the lock test changes its count of upgrades"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_worker_waiting_for_the_watch_leaves_its_checkout_idle",
+      "hash": "a4229055fd784a48",
+      "reason": "an escalated worker leaving its checkout idle is asserted only here; the work-dirs test has one worker"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_cut_waits_for_a_homebrew_lock_another_brew_holds",
+      "hash": "f338dd02c594bfd4",
+      "reason": "a lock freed after one try, two upgrades and one sleep, asserted only here; the work-dirs test has no lock"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout",
+      "hash": "647ccfe821dd1a52",
+      "reason": "an old worktree landing dir replaced by clones is asserted only here; the path test checks a repo with no fast gate"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones_go",
+      "hash": "1f4320864cc78ed9",
+      "reason": "the whole-output file and keeping the newest 20 are asserted only here; the queue test checks a long gate is no stall"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::line::a_failed_cut_waits_for_a_newer_promotion",
+      "hash": "75efed24f4d7c89b",
+      "reason": "a pure domain test (6ms) that a re-promotion of the same commit keeps the cut failure; the scenario does not re-promote the same commit"
     }
   ],
   "kept_files": [
