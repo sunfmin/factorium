@@ -12,9 +12,9 @@ It succeeds afkconvoy and is built on factum. Guild depends on its crates.
 Status: approved 2026-11-17. Phases 1–6 are done. Their real runs: one
 Claude Code worker on a throwaway repo, one real watch round, and
 factorium cut its own v0.1.0 through Homebrew. Phase 3 had real runs for
-Claude Code, and (factorium#39) for DSH and Kimi Code: each worker started by
+Claude Code, and for DSH and Kimi Code: each worker started by
 a daemon from its kit entry, refused by the real guard when it pushed, landed;
-and (factorium#201) for agy: the same, its tokens read from its real
+and for agy: the same, its tokens read from its real
 transcript, and a real headless ask read; codex, pi and grok have had no
 such run on this host. Phase 7 waits
 on the owner: which repo moves first, and how Guild moves its gate and landing dependencies, since factorium has no
@@ -29,7 +29,7 @@ approval and an entry here.
 | # | Concept | What it is |
 |---|---|---|
 | 1 | **Host** | The one machine and its one user account. One daemon (`factorium run`) and one SQLite database hold everything factorium knows of it. |
-| 2 | **Checkout** | A repo on the host's checkout list: its path, base branch, proving branch, its **default role**, if any, and what the repo declares (§4). The default role is a role directory as for an issue (§1.3), by its absolute path, kept in the host's list and not in the repo's `factorium.toml`, since the path holds only on this host; it is named at `checkout add --role`, changed with `checkout edit --role` or taken away with `checkout edit --no-role`, each refused unless it is such a directory (factorium#249). |
+| 2 | **Checkout** | A repo on the host's checkout list: its path, base branch, proving branch, its **default role**, if any, and what the repo declares (§4). The default role is a role directory as for an issue (§1.3), by its absolute path, kept in the host's list and not in the repo's `factorium.toml`, since the path holds only on this host; it is named at `checkout add --role`, changed with `checkout edit --role` or taken away with `checkout edit --no-role`, each refused unless it is such a directory. |
 | 3 | **Issue** | A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed. It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written. An issue that names no role takes its checkout's default role (§1.2); an issue's own role always wins over it, and `issue show` answers the role the next worker starts with as `role`, and as `role_from` whether it is the issue's own (`issue`) or the checkout's (`checkout`). The role is named at `issue add --role` or at `issue edit --role` (changed, or taken away with `--no-role`), each refused unless it is such a directory; a worker already started keeps the directory it started in, each attempt after the edit starts with the role as edited, and the edit is a comment on the issue saying from what to what (factorium#248). A role directory that holds a `rolesmith.toml` is checked before a worker starts with it, each directory once a tick however many of its issues are ready (factorium#277): the daemon runs `rolesmith doctor --project <dir>`, and a program it lacks is installed first (`rolesmith tool install --project <dir>`, not again while the same lack stands) and the role checked again. While the role still lacks anything (a program not installed, a mytokens entry) no worker starts with it: its issues wait behind ready issues that can start, and doctor finds it (`role:<dir>`), naming each thing it lacks and the fix rolesmith gives, so the watch is handed it; the first check that passes starts them. A role directory without `rolesmith.toml`, or no role, starts with no check. An account is one of §1.7, refused at `issue add` unless stablehand keeps it (`stablehand account show <name>`) and a session may start on it here: its engine a harness factorium starts, not off, logged in, and its login portable or bound to this machine. What an issue took, `issue show` answers as `spent` (§4). |
 | 4 | **Worker** | One harness session working one issue in its own worktree, branched from the proving tip. It ends with `factorium worker done`, `factorium worker escalate`, or by failing. |
 | 5 | **Harness** | A coding agent program factorium starts: Claude Code, Codex, pi, DSH, Kimi Code, Grok, Antigravity CLI (`agy`). How each starts, where it keeps its session and which lines start and end a turn are its own module's to say. The session file is the turn. |
@@ -65,7 +65,7 @@ leaves it out: the daemon runs the look.
    `<checkout>#N@cut` is met only once a cut of that checkout holds its
    landing, and installed it where its `[cut]` names a formula, for a tool
    used from another repo. `issue block` takes the same names. Every
-   block says why (factorium#285): `--blocked-by` and `issue block --by`
+   block says why: `--blocked-by` and `issue block --by`
    are refused without `--why <text>` (one why serves all the
    `--blocked-by` of one `add`), kept with the block; `issue show`
    answers each thing it waits for in `waits`, with its why and how it
@@ -73,7 +73,7 @@ leaves it out: the daemon runs the look.
    block made before whys were asked for reads "(no reason given)". Two
    issues that only use one device or host do not block each other: that
    is a resource (§1.9), which the watch turns such a block into. An issue
-   can wait until a time too (factorium#229): `issue add --not-before
+   can wait until a time too: `issue add --not-before
    <time>` (RFC 3339 with its offset, or ms; `worker file` takes it as
    well), or on an existing one `issue block --until <time>`, which
    replaces the time it waited for (`--until --undo`: none). It is met on
@@ -106,8 +106,7 @@ leaves it out: the daemon runs the look.
    watch: `worker escalate`). A follow-up its issue asks for
    it files with `factorium worker file <checkout> <title> --body-file <f>
    [--blocked-by …]`, as `issue add` does; on its own checkout the filed one also waits for its issue
-   to land, unless `--independent`
-   (factorium#184). Both keep the record as its comments: its issue says
+   to land, unless `--independent`. Both keep the record as its comments: its issue says
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
 5. Landing (§1.12), the urgent first (§1.17). Red: the worker is told why and goes on; red twice in
@@ -168,7 +167,7 @@ leaves it out: the daemon runs the look.
    `Cargo.toml` gets one issue, on the first tick that finds the pin behind
    that checkout's base tip as last fetched: "Bump <dep> to its base tip
    (<sha>)", listing the landings since the pin. No second while one is
-   open (factorium#127).
+   open.
 
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
