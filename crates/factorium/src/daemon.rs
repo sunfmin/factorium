@@ -144,13 +144,9 @@ impl App {
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
         let live = self.live_workers().await?;
-        self.retry_workers(&live.iter().map(|w| w.worker).collect::<Vec<_>>()).await?;
-        for w in live {
-            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
-            {
-                t.seen.push(seen);
-            }
-        }
+        let workers: Vec<_> = live.iter().map(|w| w.worker).collect();
+        self.retry_workers(&workers).await?;
+        t.seen = self.workers_health(&workers, |w| load.worker(w, self.now(), hold), &settings).await?;
         steps.ended("watching workers", self.now());
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());

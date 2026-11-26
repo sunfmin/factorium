@@ -1,0 +1,10 @@
+{
+  "tree": "667ede217c6bb1c38790701de51a4aac33d0103e+d1fba762150c532c",
+  "lines": 77,
+  "serves": "factorium#363",
+  "considered": "flush's threads per session (factorium#279) for the concurrent reads: std::thread::scope as there; Orca::call, given the limit for screen reads rather than a second call method; System::run, which waits with no limit and so cannot give a read up",
+  "reviewer": "codex:01a21671-fa1b-7cc2-8cc6-296fd6234483:default",
+  "author": "claude-code:8a685c3c-1aa6-5684-af79-5b0adf7dc0be:opus",
+  "cut": "In crates/factorium/src/session/health.rs, have each scoped read return its worker, Live, and sight together on success, then flatten the joined results in worker order and delete the separate sights vector, zip, and skip branch. In crates/host/src/orca.rs, apply READ_WAIT to the terminal read --screen command in the existing call method and delete the forwarding method and optional timeout parameter.",
+  "answer": "Made both: each read thread answers (worker, live, sight) and the joined results are filter_mapped in order, with no sights vector, zip or skip; Orca::call gives terminal read READ_WAIT itself and call_within is gone. Still 77 lines net, mostly System::run_within (a kill at the limit, draining both pipes) and the scenario test."
+}

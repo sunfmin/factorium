@@ -623,3 +623,51 @@ fn a_tick_past_half_the_hang_bound_is_slow_and_kept_until_a_slower_one() {
     Daemons::evolve(&mut s, DaemonEvent::TickDone);
     assert_eq!(s.slow, Some(slow), "a later tick does not clear it");
 }
+
+/// daemon.log, 2026-11-26 ~12:17 JST: a tick spent 55 s watching 18 workers, as their screens
+/// were read one after another and Orca was slow to answer. They are read
+/// at once, so ten slow reads cost the tick one; a read past its limit is
+/// given up, and that worker gets no verdict that tick, as an unreadable
+/// screen does.
+#[tokio::test]
+async fn watching_ten_workers_whose_screens_orca_reads_slowly_takes_one_read_and_one_past_the_limit_has_no_verdict() {
+    use crate::fixture::{SHELL, id};
+    use factorium::host::orca::READ_WAIT;
+    use std::time::{Duration, Instant};
+
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit_of(&[CLAUDE]).await;
+    for n in 1..=10 {
+        w.app.issue_add("web", &format!("Build part {n}"), "", false, &[]).await.unwrap();
+        w.tick().await;
+    }
+    let mut workers = Vec::new();
+    for n in 1..=10 {
+        let wk = w.worker_on("web", n).await;
+        let handle = wk["terminal"].as_str().unwrap().to_string();
+        // Its harness went back to the shell, long enough ago to be a verdict.
+        w.set_screen(&handle, &[SHELL]);
+        let read = if n == 10 { READ_WAIT * 4 } else { Duration::from_secs(1) };
+        w.host.orca.terminals.lock().unwrap().get_mut(&handle).unwrap().reads_take = Some(read);
+        workers.push((id(&wk), handle));
+    }
+    w.advance(6);
+
+    let started = Instant::now();
+    let seen = w.tick_alone().await.seen;
+    let took = started.elapsed();
+    eprintln!("the tick that watched 10 slowly read workers took {} ms", took.as_millis());
+    assert!(took < READ_WAIT + Duration::from_secs(3), "one read's time, not ten: {took:?}");
+    let judged: Vec<String> = seen.iter().map(|s| s["worker"].as_str().unwrap().to_string()).collect();
+    // In the order the live workers are listed, by id, as before.
+    let mut fast: Vec<String> = workers[..9].iter().map(|(wk, _)| wk.to_string()).collect();
+    fast.sort();
+    assert_eq!(judged, fast, "each read in time, in order, and not the one past the limit: {seen:?}");
+    assert!(seen.iter().all(|s| s["waits"].as_str().unwrap().contains("not up 6 min")), "{seen:?}");
+
+    // Read in time again, it is judged as the others were.
+    w.host.orca.terminals.lock().unwrap().get_mut(&workers[9].1).unwrap().reads_take = None;
+    let seen = w.tick_alone().await.seen;
+    assert_eq!(seen.iter().map(|s| s["worker"].clone()).collect::<Vec<_>>(), vec![json!(workers[9].0.to_string())]);
+}
