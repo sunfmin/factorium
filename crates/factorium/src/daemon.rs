@@ -163,13 +163,17 @@ impl App {
                 false if !halt.is_empty() => Err(format!("halt: behind urgent {}", halt.join(", "))),
                 false => admission::admit(&reading, &load.queue, self.now(), &settings),
             };
+            // What it goes ahead of, read while it is still among the ready ones.
+            let ahead_of = match (urgent, &held) {
+                (true, Ok(())) => self.ahead_of(&checkout, number).await?,
+                _ => Vec::new(),
+            };
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
                     Ok(mut started) => {
                         if urgent {
                             let past = admission::holds(&reading, &load.queue, self.now(), &settings);
-                            let went = json!({ "ahead_of": self.ahead_of(&checkout, number).await?, "past": past });
-                            started["urgent"] = went;
+                            started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
                         }
                         t.started = Some(started);
                         // An urgent start halts the rest from now, not from the next tick.

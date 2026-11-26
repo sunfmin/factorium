@@ -91,7 +91,7 @@ fn an_urgent_entry_goes_ahead_of_no_line_job_that_does_not_yield_and_a_mark_move
         ..Entry::default()
     };
     let u = workers(2, MIN, true);
-    let mut q = Queue { entries: vec![gate, u, workers(3, 0, false)], ..Queue::default() };
+    let mut q = Queue { entries: vec![gate, u, workers(3, MIN / 2, false)], ..Queue::default() };
     assert_eq!(ids(queue::line(&q.entries, 2 * MIN, ORDER)), [1, 2, 3], "a line's gate queued first stays first");
     // Its issue's mark taken away while it waits: that entry alone goes back to the ordinary order.
     Heavy::evolve(&mut q, HeavyEvent::HeavyMarked { id: Uuid::from_u128(2), urgent: false });
@@ -143,10 +143,11 @@ async fn an_urgent_landing_lands_next_after_the_gate_already_running_before_the_
     w.checkout("web").await;
     w.kit().await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
-    for title in ["a", "b", "c", "d"] {
+    // #5 keeps working all along, ahead of the rest in the line of workers: never one that waits to land.
+    for title in ["a", "b", "c", "d", "e"] {
         w.app.issue_add("web", title, "", false, &[]).await.unwrap();
     }
-    for _ in 0..4 {
+    for _ in 0..5 {
         w.tick().await;
     }
     for n in 1..=3 {
@@ -344,4 +345,36 @@ async fn halted_a_worker_s_command_waits_behind_the_urgent_gate_and_one_running_
         tokio::select! { r = next => r, () = polls => unreachable!() }
     });
     assert_eq!(ran.await.expect("lifted, it runs").unwrap()["ok"], true);
+}
+
+#[tokio::test]
+async fn an_urgent_start_goes_ahead_of_no_ready_issue_whose_block_is_unmet() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    for title in ["a", "b", "c"] {
+        w.app.issue_add("web", title, "", false, &[]).await.unwrap();
+    }
+    w.app.issue_block("web", 1, 3, Some("it needs c's API"), false).await.unwrap();
+    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
+    let started = starts(&w, 2).await;
+    assert_eq!(started["urgent"]["ahead_of"], serde_json::json!([]), "#1 could not go: {started}");
+}
+
+#[tokio::test]
+async fn halted_a_landing_not_urgent_waits_while_the_urgent_worker_works_and_is_no_stall() {
+    let w = World::new();
+    w.two_at_work().await;
+    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
+    w.tick().await;
+    w.done(&w.worker_on("web", 1).await, "a", "x").await;
+    let t = w.tick().await;
+    assert!(!t.landed.iter().any(|l| l["landed"] == "web#1"), "{:?}", t.landed);
+    w.advance(11);
+    let t = w.tick().await;
+    assert!(!t.landed.iter().any(|l| l["landed"] == "web#1"), "still halted: {:?}", t.landed);
+    let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
+    assert!(!found.iter().any(|f| f.contains("to land")), "the halt is no stall: {found:?}");
+    w.lands("web", 2, "b").await;
+    assert!(w.tick().await.landed.iter().any(|l| l["landed"] == "web#1"), "lifted, #1 lands");
 }
