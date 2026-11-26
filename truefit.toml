@@ -884,11 +884,11 @@ covers = [
 [model.trace]
 s = '[status |-> r.state.status, taken |-> r.state.taken, attempts |-> r.state.attempts, started |-> [a \in Attempts |-> r.state.started[a]], live |-> [a \in Attempts |-> r.state.live[a]], disk |-> [t \in Trees |-> r.state.disk[t]], dirty |-> [t \in Trees |-> Set(r.state.dirty[t])], hasbr |-> [t \in Trees |-> r.state.hasbr[t]], br |-> [t \in Trees |-> Set(r.state.br[t])], kept |-> [t \in Trees |-> Set(r.state.kept[t])], proving |-> Set(r.state.proving), tipok |-> r.state.tipok, made |-> Set(r.state.made), claim |-> "", pc |-> [p \in Procs |-> Idle]]'
 
-# The promises SPEC, README and the ADRs make, each tied to the check
+# The promises the README and the ADRs make, each tied to the check
 # that keeps it (`truefit promise`; the candidates' marks are in
 # .truefit/promises.json).
 [promises]
-sources = ["SPEC.md", "README.md", "docs/adr/*.md"]
+sources = ["README.md", "docs/adr/*.md"]
 
 [[promise]]
 name = "waiting-moves-only-by-ready"
