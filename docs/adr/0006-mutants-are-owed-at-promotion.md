@@ -22,6 +22,9 @@ Each worker picked and ran its change's mutants before `done`: 21 of 86,
   ordinary issues, behind the urgent. Its worker picks over the range
   (`worker pick-mutants --target <base>`), kills or loosens each survivor,
   and lands the tests and the record on their fast gate.
+- A checkout at its `workers_per_checkout` does not hold that issue;
+  admission's load rules do
+  ([ADR 0016](0016-a-checkout-runs-at-most-workers-per-checkout.md)).
 - The promotion waits for that issue at most `mutants_bound` from its
   filing. Past it, or while no worker can start it, it goes on: a survivor
   is a weak test, not a broken change, so it does not hold the base back.

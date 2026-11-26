@@ -6,7 +6,8 @@ use factorium_domain::issue::{self, IssueEvent, Issues};
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
-use factorium_domain::{daemon, decided, doctor, heavy, watch, worker};
+use factorium_domain::stack::{Stacks, stack_id};
+use factorium_domain::{daemon, decided, doctor, heavy, next, watch, worker};
 use factorium_domain::{issue_id, tracker};
 use factum::{Aggregate, By, StreamId, Value};
 use serde_json::json;
@@ -14,6 +15,23 @@ use serde_json::json;
 use crate::{Answer, App, Caller};
 
 impl App {
+    /// Where the landing of `worker` (as doctor names it) is in `checkout`'s stack, if it is:
+    /// its depth, what it merged onto, its merge, and its gate's state, as the queue holds it.
+    async fn stacked(&self, checkout: &str, worker: &str, queue: &heavy::Queue) -> Answer<Value> {
+        let stack = self.state::<Stacks>(stack_id(checkout)).await?;
+        let Some(at) = stack.layers.iter().position(|l| l.worker.to_string() == worker) else { return Ok(Value::Null) };
+        let layer = &stack.layers[at];
+        let entry = queue.entries.iter().find(|e| e.ask.lands == Some(layer.worker));
+        let gate = match (&layer.green, &layer.red, entry) {
+            (Some(_), _, _) if at == 0 => "green",
+            (Some(_), _, _) => "green, waits for the gates below it",
+            (_, Some(_), _) => "red, told once the gates below it are green",
+            (None, None, Some(e)) if e.started_at.is_some() => "its gate runs",
+            (None, None, _) => "its gate waits its turn in the heavy queue",
+        };
+        Ok(json!({ "depth": at + 1, "on": layer.on, "merge": layer.merged, "gate": gate }))
+    }
+
     /// What doctor reads, from the database and a reading.
     pub(crate) async fn seen(&self) -> Answer<doctor::Seen> {
         let mut seen = doctor::Seen::default();
@@ -70,6 +88,7 @@ impl App {
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
         seen.orphaned = self.orphaned().await?;
+        seen.kept_dirs = self.work_dirs_kept();
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             let projection = factorium_domain::tracker::TRACKER.into();
@@ -97,6 +116,28 @@ impl App {
             ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
         }
         Ok(ready)
+    }
+
+    /// Each checkout at its cap (`workers_per_checkout`) that holds ready
+    /// issues: its live workers, the cap, and those issues (none urgent or
+    /// starting ahead, none waiting for a blocker, its time or a claim), in
+    /// the order they start.
+    async fn capped(&self, ready: &[doctor::ReadySeen], cap: u64) -> Answer<Vec<Value>> {
+        let workers = self.live_workers().await?;
+        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
+        let mut held = std::collections::BTreeMap::<String, Vec<String>>::new();
+        for r in next::order(self.rows(tracker::untaken()).await?, std::iter::empty()) {
+            let issue = format!("{}#{}", r.checkout, r.number);
+            let waits = ready.iter().find(|s| s.issue == issue).is_none_or(|s| s.waits);
+            if !waits && next::capped(&live, &r, cap) {
+                held.entry(r.checkout).or_default().push(issue);
+            }
+        }
+        let at = |c: &str| live.get(c).copied().unwrap_or(0);
+        Ok(held
+            .into_iter()
+            .map(|(c, waiting)| json!({ "checkout": c, "live": at(&c), "cap": cap, "waiting": waiting }))
+            .collect())
     }
 
     /// Every issue that waits for a person, oldest wait first: its title,
@@ -218,14 +259,14 @@ impl App {
                 declared.push(json!({ "worker": w.worker, "issue": issue, "why": d.why, "until": d.until }));
             }
         }
-        let landing: Vec<Value> = (seen.landing.iter())
-            .map(|l| {
-                let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
-                let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
-                let issue = format!("{}#{}", l.checkout, l.number);
-                json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count(), "urgent": l.urgent })
-            })
-            .collect();
+        let mut landing = Vec::new();
+        for l in &seen.landing {
+            let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
+            let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
+            let issue = format!("{}#{}", l.checkout, l.number);
+            let stacked = self.stacked(&l.checkout, &l.worker, &seen.queue).await?;
+            landing.push(json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count(), "urgent": l.urgent, "stack": stacked }));
+        }
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         let now = self.now();
@@ -263,10 +304,17 @@ impl App {
             // Promotions waiting for their mutants issue (where slimfit holds them at the base): the issue, and
             // until when (ms, UTC, seconds left), `mutants_bound` after its filing; past it, they go on without it.
             "mutants": mutants,
-            // Each landing waiting, with its place in its checkout's line (1 lands next).
+            // Each landing waiting, with its place in its checkout's line (the urgent first, then each
+            // as it asked), and where it is in its checkout's stack: its depth (1 merged onto the proving
+            // tip), the commit it merged onto, its merge, and its gate's state; none while it waits to be
+            // stacked (docs/adr/0019-stacked-landing-gates.md). Landings go on while its checkout's
+            // promotion or cut runs (docs/adr/0018-a-checkout-s-moves-run-apart.md).
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
+            // Each checkout at its cap of live workers (`workers_per_checkout`, those in landing among them),
+            // with the ready issues waiting for one of them to end; an urgent one is not held.
+            "capped": self.capped(&seen.ready, settings.get(factorium_domain::settings::Setting::WorkersPerCheckout)).await?,
             // Ready issues parked until their time (ms, and in UTC): none starts before it.
             "not_before": timed,
             // Waiting workers parked until their engine's limit resets, until when (ms).

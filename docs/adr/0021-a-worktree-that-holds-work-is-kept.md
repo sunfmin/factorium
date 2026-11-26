@@ -28,6 +28,9 @@ acts on what it read while another changed it removes the wrong thing.
 - A start and the commands that abandon a worktree (start-over, close,
   discard) each claim the issue, one at a time; a claim whose process is
   gone is cleared by the next tick.
+- The owner's stop wins: a start refuses no `close` (abandoning nothing)
+  or `wait-for-human`; its worker recorded, a start whose issue is not
+  ready ends it, worktree kept.
 - An open issue owns one worktree: its last started attempt's. A worker's
   worktree no open issue owns is a doctor finding, fixed by `discard`,
   which removes it the same way.

@@ -95,6 +95,24 @@ stdin = """
 {"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 
+# A worktree made with a name and a comment, as the line's work dirs and
+# workers' worktrees are: Orca lists it with both, then with the name it is
+# shown as and the comment set after, and once it is removed, not at all.
+[[standin.case]]
+name = "commented-worktree"
+stdin = """
+{"scratch": "truefit-commented-worktree"}
+{"orca": "worktree", "args": ["{scratch}", "truefit commented", "truefit-commented-worktree", "{sha}", "what runs here; factorium removes it when this ends (pid 1)."], "keep": {"worktree": "/ok"}}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"orca": "show_as", "args": ["{worktree}", "truefit shown"]}
+{"orca": "comment", "args": ["{worktree}", "what ran here; kept."]}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"scratch": "truefit-commented-worktree"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
 # A terminal Orca will not type at: the real one closed first.
 [[standin.case]]
 name = "send-refused"
@@ -684,6 +702,7 @@ covers = [
   { action = "PromPush", file = "crates/domain/src/line.rs", function = "Promotion::red" },
   { action = "PromRecord", file = "crates/domain/src/line.rs", function = "Promote" },
   { action = "PromRecord", file = "crates/domain/src/neutral/landing.rs", function = "Line::apply (Promoted)" },
+  { action = "CutRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::runs" },
   { action = "CutRead", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base (fetch base)" },
   { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
   { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
@@ -718,6 +737,7 @@ covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
   { action = "LandedCloses", file = "crates/domain/src/line.rs", function = "RecordLanding" },
+  { action = "PromotedCut", file = "crates/domain/src/neutral/landing.rs", function = "Line::apply (CutMade)" },
 ]
 
 # The code's two steps for a worker's end, between which a daemon may die:
@@ -1329,8 +1349,8 @@ check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-typing"
-says = "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all"
-source = "SPEC.md:82"
+says = "And no tick waits for its typing at all"
+source = "SPEC.md:83"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
 

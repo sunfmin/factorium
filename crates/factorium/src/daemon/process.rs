@@ -43,7 +43,10 @@ impl App {
         // Waiters of older binaries no longer start once this one runs.
         self.note_rules().await?;
         self.adopt_queued().await?;
+        // The landing gates its stacks waited for ran in the process this one replaces.
+        self.clear_stacks().await?;
         let freed = self.free_unstarted().await?;
+        self.retire_clones()?;
         Ok(json!({ "path": path, "missing": missing, "freed": freed, "moved": moved }))
     }
 

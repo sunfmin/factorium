@@ -27,6 +27,7 @@ mod swap;
 mod upgrade;
 mod watch;
 mod work;
+mod workdir;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,7 +44,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 pub use daemon::{Tick, handed_lock};
-pub use data::{Data, LineClone};
+pub use data::{Data, LineDir};
 pub use factorium_host as host;
 pub use heavy::Exclusive;
 pub use session::{Caller, DB_ENV};
@@ -113,8 +114,8 @@ pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// command is registered here, beside the engine (docs/adr/0001).
 fn model() -> Model {
     use factorium_domain::{
-        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, tracker, watch,
-        worker,
+        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, stack, tracker,
+        watch, worker,
     };
     Model::new()
         .aggregate::<checkout::Checkouts>()
@@ -165,6 +166,12 @@ fn model() -> Model {
         .command::<line::RecordCut>()
         .command::<line::HoldLandings>()
         .command::<line::AwaitMutants>()
+        .aggregate::<stack::Stacks>()
+        .command::<stack::StackLanding>()
+        .command::<stack::GreenLayer>()
+        .command::<stack::RedLayer>()
+        .command::<stack::Unstack>()
+        .command::<stack::LandStack>()
         .aggregate::<kit::Kits>()
         .command::<kit::MoveCommands>()
         .command::<kit::PinCheckout>()
@@ -223,6 +230,12 @@ struct Memory {
     /// The heavy jobs running beside the ticks: idle work, one at a time, and
     /// line moves, one of a checkout at a time.
     beside: Vec<heavy::Beside>,
+    /// The work dirs this process made that a job asked for since the last sweep
+    /// ([`workdir`]): the sweep leaves them.
+    work_dirs: std::collections::BTreeSet<PathBuf>,
+    /// Whether this app ticks (the daemon's): the work dirs it makes are asked for tick by tick,
+    /// not held until their job ends.
+    ticks: bool,
     /// The cuts whose installed binary is proven beside the ticks, recorded once it ends.
     proving: Vec<line::Proving>,
     /// Each landing waiting its turn that merged onto the proving tip: that tip and its

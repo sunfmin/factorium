@@ -154,5 +154,6 @@ fn a_tag_already_on_the_commit_is_kept_and_one_on_another_is_refused_naming_both
     here.run(&["tag", "--delete", "v0.1.1"]).unwrap();
     let why = here.tag_pushed("v0.1.1", &two).unwrap_err();
     assert!(why.contains("origin") && why.contains(&one) && why.contains(&two), "{why}");
+    assert!(here.sha("refs/tags/v0.1.1").is_err(), "the tag made here that origin did not take is gone");
     std::fs::remove_dir_all(&dir).unwrap();
 }

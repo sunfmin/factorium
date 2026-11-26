@@ -152,14 +152,24 @@ pub(crate) enum For {
 }
 
 impl For {
-    /// Whether it is a move of `checkout`'s line.
-    pub(crate) fn moves(&self, checkout: &str) -> bool {
-        matches!(self, For::Line(m) if m.checkout == checkout)
+    /// Whether it is a move of `checkout`'s line, of the `kind` of job.
+    pub(crate) fn moves(&self, checkout: &str, kind: crate::LineDir) -> bool {
+        matches!(self, For::Line(m) if m.checkout == checkout && m.kind() == kind)
     }
 }
 
 /// A run beside the ticks and what it is for, kept as one.
 pub(crate) struct Beside(Running, For);
+
+impl Beside {
+    /// The work dir it runs in.
+    pub(crate) fn dir(&self) -> &Path {
+        match &self.1 {
+            For::Idle(idle) => idle.dir(),
+            For::Line(moving) => &moving.dir,
+        }
+    }
+}
 
 /// A job's steps running on a thread of their own, as entry `id`: beside
 /// the ticks, within `deadline` on the app's clock; ended once it must, `why`.
@@ -174,6 +184,14 @@ pub(crate) struct Running {
     run: tokio::task::JoinHandle<Vec<Ran>>,
     /// Closed once its steps ended: [`App::beside_ended`] waits on it.
     ended: tokio::sync::watch::Receiver<()>,
+}
+
+impl Running {
+    /// Whether its steps ended: its thread dropped the sender of `ended` (what
+    /// [`App::beside_ended`] answers on), though the task may not show finished yet.
+    fn steps_ended(&self) -> bool {
+        self.run.is_finished() || self.ended.has_changed().is_err()
+    }
 }
 
 /// How `rans`, a run's steps up to the first that failed, ran; none: no step
@@ -402,7 +420,7 @@ impl App {
         while let Some(mut b) = picked.next() {
             let looked = self.look_at(&mut b.0, busy || end).await;
             b.0.stop.fetch_or(end, Ordering::Relaxed);
-            if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.run.is_finished())) {
+            if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.steps_ended())) {
                 self.memory.lock().unwrap().beside.push(b);
                 failed = failed.or(looked.err());
                 continue;
@@ -428,6 +446,16 @@ impl App {
             ));
         }
         failed.map_or(Ok(ended), Err)
+    }
+
+    /// Takes the jobs beside the ticks that `pick` picks off the queue, as an unqueue does: the
+    /// next tick's [`App::beside`] ends each, every process it started with it.
+    pub(crate) async fn unqueue_beside(&self, pick: impl Fn(&For) -> bool) -> Answer<()> {
+        let ids: Vec<Uuid> = self.memory.lock().unwrap().beside.iter().filter(|b| pick(&b.1)).map(|b| b.0.id).collect();
+        for id in ids {
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome: None }).await?;
+        }
+        Ok(())
     }
 
     /// Whether a job that `pick` picks runs beside the ticks.
@@ -605,7 +633,7 @@ impl App {
         let q = self.state::<Heavy>(queue_id()).await?;
         let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
         // Steps that ended on their own keep how they ran: the halt cuts nothing that ended.
-        let ends = ends.filter(|e| *e != Ends::Halted || !r.run.is_finished());
+        let ends = ends.filter(|e| *e != Ends::Halted || !r.steps_ended());
         r.why = r.why.or(ends);
         r.stop.store(r.why.is_some(), Ordering::Relaxed);
         Ok(())

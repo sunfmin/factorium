@@ -43,6 +43,10 @@ pub struct Seen {
     /// Workers' worktrees that no open issue's attempt owns.
     #[serde(default)]
     pub orphaned: Vec<Orphaned>,
+    /// The line's work dirs whose job is gone, kept as they hold commits
+    /// found nowhere else.
+    #[serde(default)]
+    pub kept_dirs: Vec<KeptDir>,
     /// Ready issues no worker holds, of listed checkouts, oldest first.
     #[serde(default)]
     pub ready: Vec<ReadySeen>,
@@ -105,6 +109,15 @@ pub fn unstarted(seen: &Seen, s: &Settings, now: i64) -> Vec<String> {
         }
     }
     why
+}
+
+/// A work dir of the line whose job is gone, kept: the commits it holds
+/// that no branch, tag or remote-tracking ref holds.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeptDir {
+    pub name: String,
+    pub path: String,
+    pub commits: Vec<String>,
 }
 
 /// A worker's worktree that no open issue's attempt owns, and why.
@@ -289,21 +302,20 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             format!("halt:{by}"),
             format!(
-                "urgent {by} halts every other start: no other worker, and no worker's or program's heavy command \
-                 not urgent, starts; landings, promotions and cuts go on, behind the urgent issue's heavy commands"
+                "urgent {by} halts heavy commands not urgent: no worker's or program's heavy command not urgent \
+                 starts; workers start as admission allows, and landings, promotions and cuts go on, behind the urgent \
+                 issue's heavy commands"
             ),
-            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick resumes \
-             the rest in their order",
+            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick lets \
+             the waiting heavy commands start in their order",
         );
     }
     stalls(seen, s, now, &mut add);
     resources(seen, s, now, &mut add);
-    // Held behind the urgent halt is the halt doing its work: its own finding says so.
     if let Some(HeldSeen { since, why }) = &seen.held
         && now - since >= s.ms(Time::HeldFor)
-        && let kind = why.split(':').next().unwrap_or(why)
-        && kind != "halt"
     {
+        let kind = why.split(':').next().unwrap_or(why);
         add(
             format!("held:{kind}"),
             format!("admission held for {} min: {why}", (now - since) / 60_000),
@@ -429,6 +441,19 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             &format!(
                 "{first}remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
                  `{kept}`"
+            ),
+        );
+    }
+    for KeptDir { name, path, commits } in &seen.kept_dirs {
+        add(
+            format!("work_dir:{path}"),
+            format!(
+                "work dir {path} ({name}) is the line's, its job is gone, and it holds commits found nowhere else: {}",
+                commits.join("; ")
+            ),
+            &format!(
+                "keep what you need of it on a branch (`git -C {path} branch <name> HEAD`), then remove it: \
+                 `orca worktree rm --worktree path:{path} --force`"
             ),
         );
     }

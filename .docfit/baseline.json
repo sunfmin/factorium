@@ -1,7 +1,7 @@
 {
   "SPEC.md": {
-    "local_refs": 32,
-    "rehome": 34555
+    "local_refs": 23,
+    "rehome": 34412
   },
   "checks.sh": {
     "local_refs": 2
@@ -73,7 +73,7 @@
     "local_refs": 1
   },
   "crates/factorium/tests/scenarios/beside.rs": {
-    "local_refs": 2
+    "local_refs": 1
   },
   "crates/factorium/tests/scenarios/binary.rs": {
     "local_refs": 6
@@ -121,7 +121,7 @@
     "local_refs": 1
   },
   "crates/factorium/tests/scenarios/kept.rs": {
-    "local_refs": 3
+    "local_refs": 2
   },
   "crates/factorium/tests/scenarios/kit.rs": {
     "local_refs": 1
@@ -220,7 +220,7 @@
     "local_refs": 2
   },
   "crates/host/src/git.rs": {
-    "local_refs": 4
+    "local_refs": 2
   },
   "crates/host/src/procs.rs": {
     "local_refs": 1
@@ -307,6 +307,6 @@
     "local_refs": 1
   },
   "truefit.toml": {
-    "local_refs": 5
+    "local_refs": 4
   }
 }

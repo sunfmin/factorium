@@ -1,7 +1,7 @@
 //! Each bound of the host's readings at its edge: a reading at the bound
 //! still has room, one past it does not.
 
-use factorium::LineClone;
+use factorium::LineDir;
 use factorium::host::{Proc, Reading};
 
 use crate::fixture::{CLAUDE, GIB, World, worker};
@@ -50,9 +50,9 @@ async fn each_admission_bound_has_room_at_its_value_and_none_past_it() {
     );
 }
 
-/// A build output in a landing worktree, as a gate leaves it.
+/// A build output in a landing's cache, as a gate leaves it.
 fn built(w: &World) -> std::path::PathBuf {
-    let target = w.data().clone_of(LineClone::Landing, "web-1").join("target");
+    let target = w.data().cache(LineDir::Landing, "web-1", 0).join("target");
     std::fs::create_dir_all(&target).unwrap();
     std::fs::write(target.join("out"), "built").unwrap();
     target
@@ -70,8 +70,6 @@ async fn the_line_s_build_outputs_are_reclaimed_only_when_the_disk_is_under_its_
     w.host.reading.lock().unwrap().disk_free = 19 * GIB;
     w.tick().await;
     assert!(!target.exists(), "under the floor");
-    let worktree = target.parent().unwrap();
-    assert!(worktree.exists(), "only the build output goes");
 }
 
 /// The worker's status and why, after its processes held `procs` for longer

@@ -24,6 +24,10 @@ pub struct Line {
     /// promotions recorded before it was kept).
     #[serde(default)]
     pub gated: Option<String>,
+    /// The last promotion was asked for by hand: its cut is left to one by hand until the cut
+    /// bound less the lead, so the daemon starts none in the gap between the two.
+    #[serde(default)]
+    pub promoted_by_hand: bool,
     /// The proving tip whose slow gate went red, while it is the tip.
     pub red: Option<(String, String)>,
     pub version: Option<String>,
@@ -58,14 +62,16 @@ pub struct CutFailure {
 
 /// What happened on a line. A cut's `at` is none in cuts recorded before
 /// factorium#222, a failed cut's `commit` (the base it was cut from) in those
-/// before factorium#251, a promotion's `gated` in those before it was kept.
+/// before factorium#251, a promotion's `gated` and `by_hand` in those before each was kept; a
+/// cut's `base` (the base commit it was cut from) in those before it was
+/// kept, and in one read back.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
     Landed { number: u64, commit: String, at: i64 },
     PromotionRed { tip: String, why: String },
-    Promoted { tip: String, at: i64, gated: Option<String> },
-    CutMade { version: String, commit: String, at: Option<i64> },
+    Promoted { tip: String, at: i64, gated: Option<String>, by_hand: Option<bool> },
+    CutMade { version: String, commit: String, at: Option<i64>, base: Option<String> },
     CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
     LandingsReleased,
@@ -82,7 +88,7 @@ impl Line {
                 s.moved = Some(at);
             }
             LineEvent::PromotionRed { tip, why } => s.red = Some((tip, why)),
-            LineEvent::Promoted { tip, at, gated } => {
+            LineEvent::Promoted { tip, at, gated, by_hand } => {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
                 s.uncut.extend(s.unpromoted.drain(..n));
@@ -91,9 +97,13 @@ impl Line {
                     s.cut_failed = None;
                 }
                 (s.promoted, s.red, s.moved, s.gated) = (Some(tip), None, Some(at), gated);
+                s.promoted_by_hand = by_hand == Some(true);
             }
-            LineEvent::CutMade { version, at, .. } => {
-                s.uncut.clear();
+            LineEvent::CutMade { version, at, base, .. } => {
+                // The promotions up to the base it was cut from are cut; one made while it ran
+                // is owed a cut of its own (models/Line.tla, PromotedCut).
+                let n = base.and_then(|b| s.uncut.iter().position(|l| l.commit == b));
+                s.uncut.drain(..n.map_or(s.uncut.len(), |i| i + 1));
                 s.moved = s.moved.max(at);
                 (s.version, s.cut_failed) = (Some(version), None);
             }
@@ -113,11 +123,11 @@ pub enum Move {
     Cut,
 }
 
-/// What is due: the move, for a landing the one it lands, and for a
-/// promotion the proving tip it was judged on.
+/// What is due: the move, for landings those that ask, in the order they
+/// stack, and for a promotion the proving tip it was judged on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Due {
-    Land(Uuid),
+    Land(Vec<Uuid>),
     Promote(String),
     Cut,
 }
@@ -154,8 +164,9 @@ pub struct Look {
     pub now: i64,
     /// Nothing works on the repo or lands on it.
     pub idle: bool,
-    /// Of those asking to land, the one that asked first.
-    pub asks: Option<Uuid>,
+    /// Those asking to land, in the order they stack: the urgent first, then
+    /// each as it asked.
+    pub asks: Vec<Uuid>,
     pub bounds: Bounds,
     /// Asked for by hand: the bounds and a red tip or failed cut do not hold it.
     pub by_hand: bool,
@@ -243,8 +254,11 @@ impl Line {
         if let Some(why) = &self.held {
             return Err(NotDue::Held(why.clone()));
         }
-        // One landing at a time: the one that asked first.
-        look.asks.map(Due::Land).ok_or(NotDue::NoAsk)
+        // Every one that asks, each stacked on the one before (docs/adr/0019-stacked-landing-gates.md).
+        if look.asks.is_empty() {
+            return Err(NotDue::NoAsk);
+        }
+        Ok(Due::Land(look.asks.clone()))
     }
 
     /// Whether a promotion is due on everything but the proving tip.
@@ -273,7 +287,7 @@ impl Line {
         if let Some(f) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
             return Err(NotDue::CutFailed { version: f.version.clone(), why: f.why.clone() });
         }
-        let settled = look.idle && self.unpromoted.is_empty();
+        let settled = look.idle && self.unpromoted.is_empty() && !self.promoted_by_hand;
         if !(look.by_hand || settled || owed.due()) {
             return Err(NotDue::Unsettled);
         }
