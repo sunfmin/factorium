@@ -15,7 +15,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::{Author, urgent_first};
 use factorium_domain::next;
-use factorium_domain::settings::Time;
+use factorium_domain::settings::{Setting, Time};
 use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
@@ -288,9 +288,13 @@ impl App {
     /// The first ready issue no worker holds and nothing open blocks, the
     /// urgent ones first, then those that start ahead (a promotion's mutants
     /// issue), then in the ordinary order ([`App::ready`]);
-    /// whose account, if it names one, can start now, and whose role has
-    /// what it needs of this host (each role checked once a tick).
+    /// whose checkout is under its cap (`workers_per_checkout`), unless it is
+    /// urgent; whose account, if it names one, can start now, and whose role
+    /// has what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
+        let workers = self.live_workers().await?;
+        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
+        let cap = self.settings().await?.get(Setting::WorkersPerCheckout);
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
@@ -300,6 +304,10 @@ impl App {
         urgent_first(&mut rows, |r| r.ahead);
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
+            // Its checkout at its cap, it waits for one of its workers to end: doctor's `capped`.
+            if next::capped(&live, &r.checkout, r.urgent, cap) {
+                continue;
+            }
             let (checkout, number) = (r.checkout.clone(), r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;

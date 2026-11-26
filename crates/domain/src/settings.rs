@@ -51,6 +51,7 @@ settings! {
     MemoryFreeMin "memory_free_min" 15 Percent "nor while less memory than this is free";
     DiskFloorGib "disk_floor_gib" 20 Gib "nor while less disk than this is free; worktrees' target/ are reclaimed";
     WorkersCpuShare "workers_cpu_share" 80 Percent "workers together may hold this much of the CPU";
+    WorkersPerCheckout "workers_per_checkout" 6 Count "a checkout with this many live workers, those in landing among them, starts no other but an urgent issue's";
     WorkerCpuShare "worker_cpu_share" 50 Percent "one worker past this share of the CPU is hot";
     WorkerMemoryGib "worker_memory_gib" 16 Gib "one worker past this resident memory is hot";
     WorkerProcsMax "worker_procs_max" 400 Count "one worker past this many processes is hot";
