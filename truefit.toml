@@ -501,8 +501,14 @@ covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
-  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over, Queue::urgent" },
   { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, line, oldest, overdue" },
+  { action = "Marks", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
+  { action = "Marks", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy (HeavyMarked), Heavy::evolve (HeavyMarked)" },
+  { action = "NoteHalt", file = "crates/factorium/src/issues.rs", function = "App::note_halt" },
+  { action = "NoteHalt", file = "crates/domain/src/heavy.rs", function = "NoteHalt, Heavy::evolve (HeavyHalted)" },
+  { action = "UrgentAhead", file = "crates/domain/src/neutral/queue.rs", function = "line" },
+  { action = "HaltHolds", file = "crates/domain/src/heavy.rs", function = "Queue::passed_over, Queue::urgent" },
   { action = "AtOnce", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
   { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
   { action = "LineAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
@@ -813,6 +819,18 @@ why = "factorium has no `truefit sim`: the model checks every order the waiters 
 name = "settled"
 says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start"
 source = "SPEC.md:39"
+check = ["model heavy-starts"]
+
+[[promise]]
+name = "urgent-ahead"
+says = "behind a line move past its bound, an urgent issue's entry goes ahead of workers' and programs' waiting entries"
+source = "SPEC.md:39"
+check = ["model heavy-starts"]
+
+[[promise]]
+name = "halt"
+says = "once an urgent issue's worker starts, until it closes or is unmarked, nothing else starts"
+source = "SPEC.md:47"
 check = ["model heavy-starts"]
 
 [[promise]]

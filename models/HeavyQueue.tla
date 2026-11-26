@@ -27,6 +27,15 @@
 (* granted, stays held after its waiter answers, until released, and its   *)
 (* worker's own commands asking for what it holds take no slot of theirs.  *)
 (*                                                                         *)
+(* An owner's urgent mark (factorium#361): an entry of an urgent issue's   *)
+(* worker, or of its landing's gate, is marked so as it asks, and asked    *)
+(* again while it waits it takes the mark as it is then. In each line it   *)
+(* goes ahead of workers' and programs' entries not marked, behind a line  *)
+(* move past its bound. While the tick finds urgent issues that halt the   *)
+(* queue, every entry not urgent (marked, or of one of their live workers) *)
+(* is passed over in every queue, and a command not urgent holding what an *)
+(* urgent one waits for is ended.                                          *)
+(*                                                                         *)
 (* Time: `now` is the time of the last step, in the config's units. A     *)
 (* step happens at any time from `now` to `now + MaxStep`, up to Horizon.  *)
 (*                                                                         *)
@@ -56,6 +65,7 @@ CONSTANTS
     Opens,      \* when a hold's window may open (`--between`); it stays open
     Starve,     \* starve_bound
     Default,    \* hold_default: what a command, which declares none, is read to hold
+    Urgent,     \* whether issues are marked urgent, and halt the queue
     Bug         \* "none", or a broken variant
 
 None == -1
@@ -69,9 +79,9 @@ Absent == [in |-> FALSE, queued_at |-> None, started_at |-> None,
 
 \* What entry i asks for, as heavy::Entry holds it besides: its resources,
 \* its declared hold (None: a command), its window's opening (None: any
-\* time), and its worker (NoWorker: none).
+\* time), its worker (NoWorker: none), and its urgent mark.
 NoWorker == ""
-NoAsk == [res |-> {"host"}, hold |-> None, win |-> None, worker |-> NoWorker]
+NoAsk == [res |-> {"host"}, hold |-> None, win |-> None, worker |-> NoWorker, urgent |-> FALSE]
 
 VARIABLES
     q,           \* q[i]: entry i (Absent when the queue holds none)
@@ -80,10 +90,12 @@ VARIABLES
     now,         \* the time of the last step
     waiter,      \* waiter[i]: the process that asks for entry i
     ask,         \* ask[i]: what entry i asks for
+    halt,        \* Queue::halt is not empty: urgent issues halt the queue
+    halt_for,    \* Queue::halt_for: their live workers
     last         \* the last step, what it read, and the last start before it
                  \* (`since`): for the properties
 
-vars == <<q, last_start, rules, now, waiter, ask, last>>
+vars == <<q, last_start, rules, now, waiter, ask, halt, halt_for, last>>
 
 Phases == {"none", "waits", "runs", "done"}
 \* `left_at`, `place`: when its entry left unstarted with its place kept
@@ -97,6 +109,7 @@ TypeOK ==
     /\ last_start \in Int /\ rules \in 0..MaxRules /\ now \in 0..Horizon
     /\ \A i \in Ids : waiter[i].kind \in Kinds \cup {"wait"} /\ waiter[i].phase \in Phases
                       /\ waiter[i].rules \in 0..MaxRules
+    /\ halt \in BOOLEAN /\ halt_for \subseteq Workers
 
 Init ==
     /\ q = [i \in Ids |-> Absent]
@@ -105,6 +118,8 @@ Init ==
     /\ now = 0
     /\ waiter = [i \in Ids |-> NoWaiter]
     /\ ask = [i \in Ids |-> NoAsk]
+    /\ halt = FALSE
+    /\ halt_for = {}
     /\ last = [act |-> "init", i |-> 0, t |-> 0, room |-> FALSE, read |-> 0, since |-> None]
 
 -----------------------------------------------------------------------------
@@ -132,6 +147,10 @@ Full(i) == \E r \in Res(i) \ {"host"} : ~Covered(i, r) /\ Cardinality(Holders(r)
 \* `outside`: the waiting i's window is not open yet.
 Opened(i, t) == ask[i].win # None /\ t >= ask[i].win
 Outside(i, t) == ask[i].win # None /\ ~Opened(i, t)
+\* `Queue::urgent`: marked so, or of a live worker of an issue that halts it.
+UrgentOf(i) == ask[i].urgent \/ ask[i].worker \in halt_for
+\* Not urgent while urgent issues halt the queue: passed over.
+Halted(i) == halt /\ ~UrgentOf(i)
 
 \* What the code reads, a broken variant's way: `covered`, `full_for`,
 \* `outside` and `stale`, and whether the waiting i is passed over in every
@@ -139,7 +158,8 @@ Outside(i, t) == ask[i].win # None /\ ~Opened(i, t)
 \* takes any rules), a stale one holds its place at the head; (`full_holds`)
 \* one waiting for a full resource holds its place in its other queues;
 \* (`no_slots`) none is ever full; (`no_window`) a window is never waited for;
-\* (`no_cover`) a worker's command waits for a slot beside its own hold.
+\* (`no_cover`) a worker's command waits for a slot beside its own hold;
+\* (`no_halt`) a halt passes none over.
 CoveredC(i, r) == Bug # "no_cover" /\ Covered(i, r)
 HoldersC(r) == {j \in Running : r \in Res(j) /\ ~CoveredC(j, r)}
 FullC(i) ==
@@ -149,6 +169,7 @@ PassedOver(i, t) ==
     \/ i \in Stale /\ Bug \notin {"stale_holds", "no_stale"}
     \/ FullC(i) /\ Bug # "full_holds"
     \/ Outside(i, t) /\ Bug # "no_window"
+    \/ Halted(i) /\ Bug # "no_halt"
 
 \* `queue_of`: resource r's queue at t: the entries asking for it but
 \* those passed over, and commands inside their worker's hold of it.
@@ -182,15 +203,25 @@ KeyLt(a, b) == \/ a[1] < b[1]
 FirstKey(S, t) == Key(CHOOSE a \in S : \A b \in S \ {a} : KeyLt(Key(a, t), Key(b, t)), t)
 
 \* `line`, `next`: by key, but one past its bound goes ahead of every entry
-\* that yields, just before the first of them.
+\* that yields, just before the first of them; and one marked urgent ahead
+\* of every entry that yields and is not, just before the first of them,
+\* behind those past their bound. Broken (`no_urgent`), the mark is not
+\* read; (`urgent_first`) a marked one goes ahead of those past their bound.
+MarkedC(i) == ask[i].urgent /\ Bug # "no_urgent"
+\* Its rank: past its bound 0, marked 1, else 2.
+Rank(i, t) == IF Overdue(i, t) THEN IF MarkedC(i) /\ Bug = "urgent_first" THEN 1 ELSE 0
+              ELSE IF MarkedC(i) THEN IF Bug = "urgent_first" THEN 0 ELSE 1
+              ELSE 2
 PlaceOf(i, L, t) ==
-    LET y == {j \in L : q[j].yields} IN
-    IF Overdue(i, t) /\ y # {} /\ KeyLt(FirstKey(y, t), Key(i, t)) THEN FirstKey(y, t) ELSE Key(i, t)
+    LET y == IF Rank(i, t) = 0 THEN {j \in L : q[j].yields}
+             ELSE IF Rank(i, t) = 1 THEN {j \in L : q[j].yields /\ ~MarkedC(j)}
+             ELSE {} IN
+    IF y # {} /\ KeyLt(FirstKey(y, t), Key(i, t)) THEN FirstKey(y, t) ELSE Key(i, t)
 KeyLess(i, j, L, t) ==
     LET p == PlaceOf(i, L, t)  r == PlaceOf(j, L, t) IN
     \/ p # r /\ KeyLt(p, r)
-    \/ p = r /\ Overdue(i, t) /\ ~Overdue(j, t)
-    \/ p = r /\ Overdue(i, t) = Overdue(j, t) /\ KeyLt(Key(i, t), Key(j, t))
+    \/ p = r /\ Rank(i, t) < Rank(j, t)
+    \/ p = r /\ Rank(i, t) = Rank(j, t) /\ KeyLt(Key(i, t), Key(j, t))
 NextIn(r, t) ==
     LET L == LineOf(r, t) IN
     IF Bug = "no_line_ahead" THEN OldestOf(L)
@@ -257,7 +288,8 @@ Entry(t, yields, bound) == [Absent EXCEPT !.in = TRUE, !.queued_at = t,
 \* a cut) has a bound or none. It asks for `a`: its resources, all at once
 \* (idle work and a line move ask for "host"); a worker's hold (`worker
 \* hold`) declares how long it holds, asks for named ones alone, and may
-\* name its window.
+\* name its window. A worker's entry (one that yields) or a landing's gate
+\* (a line move) is marked urgent if its issue is.
 Arrive(i, kind, r, yields, bound, a) ==
     /\ waiter[i].phase = "none"
     /\ kind = "beside" => ~yields /\ bound = None
@@ -266,6 +298,7 @@ Arrive(i, kind, r, yields, bound, a) ==
     /\ (kind = "beside" \/ bound # None) => a.res = {"host"}
     /\ a.hold # None => a.worker # NoWorker /\ "host" \notin a.res
     /\ a.win # None => a.hold # None
+    /\ a.urgent => Urgent /\ (yields \/ bound # None)
     /\ \E t \in Times :
         /\ now' = t
         /\ q' = [q EXCEPT ![i] = Entry(t, yields, bound)]
@@ -274,7 +307,7 @@ Arrive(i, kind, r, yields, bound, a) ==
               !.kind = kind, !.rules = r, !.yields = yields, !.bound = bound,
               !.phase = "waits"]]
         /\ Did("queue", i, t)
-    /\ UNCHANGED <<last_start, rules>>
+    /\ UNCHANGED <<last_start, rules, halt, halt_for>>
 
 \* heavy.rules: a daemon starts under other rules than the queue's: a newer
 \* binary swapped to, or an older one a rollback went back to. Only the
@@ -283,7 +316,29 @@ Arrive(i, kind, r, yields, bound, a) ==
 NoteRules ==
     /\ \E r \in 1..MaxRules, t \in Times :
         rules # r /\ rules' = r /\ now' = t /\ Did("rules", 0, t)
-    /\ UNCHANGED <<q, last_start, waiter, ask>>
+    /\ UNCHANGED <<q, last_start, waiter, ask, halt, halt_for>>
+
+\* take_turn, each poll, asks again (heavy.queue) with its issue's mark as
+\* it is now: its waiting entry, queued under its rules, takes it
+\* (HeavyMarked). Its issue's mark changed since.
+Marks(i) ==
+    /\ Urgent
+    /\ waiter[i].phase = "waits" /\ q[i].in /\ q[i].started_at = None
+    /\ q[i].yields \/ q[i].bound_at # None
+    /\ \E t \in Times :
+        /\ now' = t /\ Did("mark", i, t)
+        /\ ask' = [ask EXCEPT ![i].urgent = ~ask[i].urgent]
+    /\ UNCHANGED <<q, last_start, rules, waiter, halt, halt_for>>
+
+\* heavy.halt: the tick notes which urgent issues halt the queue (none:
+\* it runs as usual), and their live workers.
+NoteHalt ==
+    /\ Urgent
+    /\ \E h \in BOOLEAN, w \in SUBSET Workers, t \in Times :
+        /\ w # {} => h
+        /\ <<h, w>> # <<halt, halt_for>>
+        /\ halt' = h /\ halt_for' = w /\ now' = t /\ Did("halt", 0, t)
+    /\ UNCHANGED <<q, last_start, rules, waiter, ask, halt, halt_for>>
 
 \* take_turn, each poll after its first ask: a waiter whose waiting entry
 \* was taken off (an unqueue) answers `unqueued`, and is not queued again.
@@ -299,7 +354,7 @@ Unqueued(i) ==
            ELSE /\ waiter' = [waiter EXCEPT ![i] = Ended(waiter[i], "unqueued")]
                 /\ Did("unqueued", i, t)
                 /\ UNCHANGED q
-    /\ UNCHANGED <<last_start, rules, ask>>
+    /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 
 \* heavy.start (take_turn): i asks on a reading taken at `read`, which
@@ -335,7 +390,7 @@ Ask(i) ==
                     /\ Waiter(i, "rules", MaxRules)
                  \/ /\ Off(i)
                     /\ waiter' = [waiter EXCEPT ![i] = Left(i, "stale", t)]
-    /\ UNCHANGED <<rules, ask>>
+    /\ UNCHANGED <<rules, ask, halt, halt_for>>
 
 \* A waiter gives up (killed, as a harness ends a command past its timeout):
 \* another's take_turn forgets its waiting entry, its place kept.
@@ -347,7 +402,7 @@ GivesUp(i) ==
         /\ now' = t /\ Did("gaveup", i, t)
         /\ waiter' = [waiter EXCEPT ![i] = Left(i, "gaveup", t)]
     /\ Off(i)
-    /\ UNCHANGED <<last_start, rules, ask>>
+    /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 \* Its asker asks for the same command again, as a new waiter under the
 \* newest rules, within the keep bound of its entry leaving: queued
@@ -361,29 +416,33 @@ Rejoin(i) ==
         /\ q' = [q EXCEPT ![i] = Entry(IF Bug = "rejoins_at_back" THEN t ELSE waiter[i].place, TRUE, None)]
         /\ waiter' = [waiter EXCEPT ![i] = [NoWaiter EXCEPT
               !.rules = MaxRules, !.yields = TRUE, !.phase = "waits", !.place = waiter[i].place]]
-    /\ UNCHANGED <<last_start, rules, ask>>
+    /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 \* heavy.runs: the running i's step runs in a session, noted on its entry.
 NoteRun(i) ==
     /\ waiter[i].phase = "runs" /\ q[i].in /\ ~q[i].noted
     /\ \E t \in Times : now' = t /\ Did("runs", i, t)
     /\ q' = [q EXCEPT ![i].noted = TRUE]
-    /\ UNCHANGED <<last_start, rules, waiter, ask>>
+    /\ UNCHANGED <<last_start, rules, waiter, ask, halt, halt_for>>
 
-\* `look_at`, each poll: the running i must end once unqueued, once it holds
-\* others up past the hold bound, or (idle work) once anything else asking
-\* for "host" is queued or the host is busy; its steps are then ended, whole.
+\* `look_at`, each poll: the running i must end once unqueued, once it is a
+\* command not urgent holding what an urgent waiting entry asks for while
+\* urgent issues halt the queue, once it holds others up past the hold
+\* bound, or (idle work) once anything else asking for "host" is queued or
+\* the host is busy; its steps are then ended, whole.
+Wanted(i) == halt /\ \E u \in Waiting : UrgentOf(u) /\ Res(u) \cap Res(i) # {}
 Look(i) ==
     /\ waiter[i].phase = "runs" /\ waiter[i].stop = ""
     /\ \E t \in Times, busy \in BOOLEAN :
         LET why == IF ~q[i].in THEN "unqueued"
+                   ELSE IF ~UrgentOf(i) /\ ~IsHold(i) /\ Wanted(i) THEN "halted"
                    ELSE IF Overheld(i, t) /\ Bug # "no_held" THEN "held"
                    ELSE IF waiter[i].kind = "beside" /\ (busy \/ \E j \in Present \ {i} : "host" \in Res(j)) THEN "gaveway"
                    ELSE IF Bug = "line_cuts_short" /\ \E j \in Waiting : Overdue(j, t) THEN "gaveway"
                    ELSE ""
         IN /\ now' = t /\ Did("look", i, t)
            /\ Waiter(i, "stop", why)
-    /\ UNCHANGED <<q, last_start, rules, ask>>
+    /\ UNCHANGED <<q, last_start, rules, ask, halt, halt_for>>
 
 \* The running i's steps end (done, or ended), and its waiter answers how
 \* they ran: `unqueued` if the queue no longer holds it (run_held; beside's
@@ -394,12 +453,12 @@ Done(i) ==
     /\ waiter[i].phase = "runs"
     /\ \E t \in Times :
         LET answer == IF ~q[i].in /\ Bug # "answer_ran" THEN "unqueued"
-                      ELSE IF waiter[i].stop \in {"held", "gaveway"} THEN waiter[i].stop
+                      ELSE IF waiter[i].stop \in {"held", "gaveway", "halted"} THEN waiter[i].stop
                       ELSE "ran"
         IN /\ now' = t /\ Did("done", i, t)
            /\ waiter' = [waiter EXCEPT ![i] = Ended(waiter[i], answer)]
     /\ IF q[i].in THEN Off(i) ELSE UNCHANGED q
-    /\ UNCHANGED <<last_start, rules, ask>>
+    /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 \* `factorium unqueue`: heavy.end of any entry, waiting or running (its
 \* session, if noted, is ended then too: its steps end, as Done). A granted
@@ -410,7 +469,7 @@ Unqueue(i) ==
     /\ Off(i)
     /\ IF waiter[i].phase = "done" THEN UNCHANGED waiter
        ELSE Waiter(i, "unqueued", IF q[i].started_at = None THEN "waiting" ELSE "running")
-    /\ UNCHANGED <<last_start, rules, ask>>
+    /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 \* A granted hold is given back (heavy.end): `worker release`, or its
 \* worker ended (`give_back`).
@@ -418,11 +477,11 @@ Release(i) ==
     /\ q[i].in /\ q[i].started_at # None /\ IsHold(i)
     /\ \E t \in Times : now' = t /\ Did("release", i, t)
     /\ Off(i)
-    /\ UNCHANGED <<last_start, rules, waiter, ask>>
+    /\ UNCHANGED <<last_start, rules, waiter, ask, halt, halt_for>>
 
 \* What an entry may ask for.
 AskOf == [res : Asks, hold : {None} \cup Holds, win : {None} \cup Opens,
-          worker : {NoWorker} \cup Workers]
+          worker : {NoWorker} \cup Workers, urgent : BOOLEAN]
 
 \* Any process, of any kind and rules, asking for anything, for any free id.
 Arrives ==
@@ -436,26 +495,27 @@ Arrives ==
 Tick ==
     /\ now < Horizon
     /\ now' = now + 1 /\ Did("tick", 0, now + 1)
-    /\ UNCHANGED <<q, last_start, rules, waiter, ask>>
+    /\ UNCHANGED <<q, last_start, rules, waiter, ask, halt, halt_for>>
 
 Next ==
     \/ Tick
     \/ Arrives
     \/ NoteRules
+    \/ NoteHalt
     \/ \E i \in Ids : Unqueued(i) \/ Ask(i) \/ NoteRun(i)
-                      \/ Look(i) \/ Done(i) \/ Unqueue(i)
+                      \/ Look(i) \/ Done(i) \/ Unqueue(i) \/ Marks(i)
                       \/ GivesUp(i) \/ Rejoin(i) \/ Release(i)
 
 Spec == Init /\ [][Next]_vars
 
 \* What tells states apart: `last` only says which step reached one.
-View == <<q, last_start, rules, now, waiter, ask>>
+View == <<q, last_start, rules, now, waiter, ask, halt, halt_for>>
 \* Under a config whose invariants read `last`: which step reached a state,
 \* and whose, tell it apart too (its time is `now`; what it read, only the
 \* action properties). Under View, a step that changes nothing else (an
 \* ask told to wait) reaches a state already seen, whose invariants TLC
 \* does not check again.
-StepView == <<q, last_start, rules, now, waiter, ask, last.act, last.i>>
+StepView == <<q, last_start, rules, now, waiter, ask, halt, halt_for, last.act, last.i>>
 \* A bound on the steps a model check explores (TLCGet("level")).
 CONSTANT Depth
 Shallow == TLCGet("level") < Depth
@@ -472,10 +532,10 @@ Started == Asked /\ q[Who].started_at = None /\ q'[Who].started_at # None
 
 \* Resource r's line at t: the entries waiting for it, but those inside
 \* their worker's hold of it, and those passed over in every queue: under
-\* replaced rules, waiting for a resource whose slots are all held, or
-\* outside their window.
+\* replaced rules, waiting for a resource whose slots are all held,
+\* outside their window, or not urgent while urgent issues halt the queue.
 InLine(r, t) == {j \in Waiting : r \in Res(j) /\ ~Covered(j, r) /\ j \notin Stale
-                                 /\ ~Full(j) /\ ~Outside(j, t)}
+                                 /\ ~Full(j) /\ ~Outside(j, t) /\ ~Halted(j)}
 HostIdle == ~\E j \in Running : "host" \in Res(j)
 
 \* What an ask leaves (its `last`): a waiter's ask changes no entry but its
@@ -491,7 +551,8 @@ IdleBut(i) == ~\E j \in Running \ {i} : "host" \in Res(j)
 
 \* It never starves the oldest: with nothing holding "host", the oldest
 \* entry in its line, asking for it alone, starts at once when it asks,
-\* whatever the reading (no line move past its bound waiting ahead of it):
+\* whatever the reading (no line move past its bound waiting ahead of it,
+\* nor, unless it is marked urgent, one marked so):
 \* a stale one ahead of it holds it up no more than one gone (factorium#241),
 \* nor does one waiting for a full resource (factorium#284). Told to wait,
 \* it is still in the line it read.
@@ -500,7 +561,8 @@ AtOnce ==
         ~(/\ AskedBy(i) /\ i \in Waiting
           /\ Res(i) = {"host"} /\ HostIdle /\ waiter[i].rules >= rules
           /\ i \in InLine("host", last.t) /\ i = OldestOf(InLine("host", last.t))
-          /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t))
+          /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t)
+          /\ ~\E j \in InLine("host", last.t) \ {i} : ask[j].urgent /\ ~ask[i].urgent)
 
 \* Before in a resource's line, in SPEC §1.9's words: one waiting past the
 \* starve bound (since it joined the line) before all that have not, oldest
@@ -516,13 +578,16 @@ Prior(a, b, t) ==
 \* In order: an entry starts only when, in the line of each resource it
 \* asks for (but those its worker's hold holds), every entry before it
 \* waits behind a worker's or a program's entry that a line move past its
-\* bound (this one) goes ahead of.
+\* bound (this one) goes ahead of, or, not past its bound itself, behind
+\* one not marked urgent that an urgent one (this one) goes ahead of.
 InOrder ==
     [][ Started =>
         \A r \in Res(Who) : Covered(Who, r) \/
             \A j \in InLine(r, At) \ {Who} :
                 \/ Prior(Who, j, At)
-                \/ Overdue(Who, At) /\ \E y \in InLine(r, At) : q[y].yields /\ (y = j \/ Prior(y, j, At)) ]_vars
+                \/ Overdue(Who, At) /\ \E y \in InLine(r, At) : q[y].yields /\ (y = j \/ Prior(y, j, At))
+                \/ /\ ask[Who].urgent /\ ~Overdue(j, At)
+                   /\ \E y \in InLine(r, At) : q[y].yields /\ ~ask[y].urgent /\ (y = j \/ Prior(y, j, At)) ]_vars
 
 \* A line move past its bound goes ahead of workers' and programs' waiting
 \* entries: none of those starts while one waits in its line. (A line move
@@ -531,6 +596,17 @@ LineAhead ==
     \A i \in Ids :
         (StartedBy(i) /\ q[i].yields) =>
             \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : Overdue(j, last.t)
+
+\* An urgent entry goes ahead of workers' and programs' waiting entries
+\* not marked so: none of those starts while one marked waits in its line.
+UrgentAhead ==
+    \A i \in Ids :
+        (StartedBy(i) /\ q[i].yields /\ ~ask[i].urgent) =>
+            \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : ask[j].urgent
+
+\* While urgent issues halt the queue, nothing but an urgent entry starts.
+HaltHolds ==
+    [][ Started /\ halt => UrgentOf(Who) ]_vars
 
 \* It starts one beside what holds "host" only when the host has room, on a
 \* reading taken heavy_settle after the last start of one holding it.
@@ -624,7 +700,7 @@ KeptPlace ==
 \* `read`, `since`), which View and StepView leave out: whether each holds
 \* tells states apart too. Where none fails it is View, state for state; a
 \* state that breaks one is never taken for one seen that does not.
-StartView == <<View, AtOnce, LineAhead, Settled>>
+StartView == <<View, AtOnce, LineAhead, UrgentAhead, Settled>>
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
@@ -648,6 +724,9 @@ BrokenVariants == [
     no_cover         |-> "InsideHold",   \* a worker's command waits for a slot beside its hold
     no_window        |-> "InWindow",     \* a hold's window is not waited for (#286)
     by_age           |-> "InOrder",      \* declared holds are not read: oldest first
-    no_starve        |-> "InOrder"       \* none goes ahead for waiting past the starve bound
+    no_starve        |-> "InOrder",      \* none goes ahead for waiting past the starve bound
+    no_halt          |-> "HaltHolds",    \* a halt passes none over (factorium#361)
+    no_urgent        |-> "UrgentAhead",  \* the urgent mark is not read in the line
+    urgent_first     |-> "LineAhead"     \* an urgent one goes ahead of a line move past its bound
 ]
 =============================================================================
