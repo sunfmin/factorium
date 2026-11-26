@@ -58,6 +58,10 @@ impl App {
         let Some(sight) = self.see(&live.session, past) else { return Ok(None) };
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
+        let window = match &sight {
+            Sight::Limit { window, .. } => window.clone(),
+            _ => None,
+        };
         let issue = self.issue(&live.started.checkout, live.started.number).await?;
         let blocked = self.blockers(&issue).await?.iter().any(|w| w.met.is_none());
         let seen = Observation { worker, sight, load, quiet, heavy, blocked, evidence, settings: s.clone() };
@@ -70,14 +74,14 @@ impl App {
                 Ok(Some(json!({ "worker": worker, "waits": why })))
             }
             Verdict::UsedUp { said, until } => {
-                let unbooked = self.rest(&live.started, until, false).await?;
+                let unbooked = self.rest(&live.started, until, false, None).await?;
                 self.end_worker(worker, End::because(format!("its account is used up: {said}"), true)).await?;
                 Ok(Some(unbooked_in(json!({ "worker": worker, "ended": "quota", "said": said }), unbooked)))
             }
             // Parked until the reset; its account, or its harness on the host's
             // own login, starts no worker before it.
             Verdict::Limited { said, until } => {
-                let unbooked = self.rest(&live.started, until, true).await?;
+                let unbooked = self.rest(&live.started, until, true, window.as_deref()).await?;
                 // What it took just before is no proof it read it: held again.
                 let submitted = live.since.max(self.now() - TAKEN_MS);
                 let terminal = live.session.terminal().to_string();
@@ -90,13 +94,13 @@ impl App {
 
     /// Worker `st`'s account met its limit: stablehand is told so
     /// (`stablehand limit`), until `until` (ms) where the screen said when it
-    /// `resets`, else until stablehand next reads the account; its harness
-    /// on the host's own login starts no worker before `until`. Answers why
-    /// stablehand could not be told, if it could not: the worker's end
-    /// does not wait on it.
-    async fn rest(&self, st: &Started, until: i64, resets: bool) -> Answer<Option<String>> {
+    /// `resets`, else until stablehand next reads the account, in its
+    /// `window` (`None`: the whole account); its harness on the host's own
+    /// login starts no worker before `until`. Answers why stablehand could
+    /// not be told, if it could not: the worker's end does not wait on it.
+    async fn rest(&self, st: &Started, until: i64, resets: bool, window: Option<&str>) -> Answer<Option<String>> {
         match &st.account {
-            Some(account) => Ok(self.report_limit(account, resets.then_some(until)).err()),
+            Some(account) => Ok(self.report_limit(account, resets.then_some(until), window).err()),
             None => {
                 self.submit::<LimitHarness>(HarnessNote { harness: st.harness.clone(), until }).await?;
                 Ok(None)

@@ -195,7 +195,10 @@ A worker whose screen says its engine is at its limit, with when it resets
 (agy's quota), is parked the same way until then: what is passed to it is
 held, not typed; it is no finding (doctor lists it as `limited`, with the
 reset); its account (stablehand told the reset, `stablehand limit
---resets-at`), or its harness on the host's own login, starts no
+--resets-at`, and `--window` where the screen says which of the account's
+windows ran out: agy's "Third-party quota" its Claude-and-GPT group's,
+`3p-5h` for a reset within five hours, else `3p-weekly`; else the whole
+account), or its harness on the host's own login, starts no
 worker before the reset; and the first tick past the reset sends it back,
 what was held typed first. Its quota still on its screen after that is no
 new limit. A worker waiting for the watch is read for these two as well
