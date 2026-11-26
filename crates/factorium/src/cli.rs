@@ -50,7 +50,7 @@ pub enum Top {
     /// The host's issues.
     #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Issue(IssueCmd),
-    /// Answers the live workers (`--all`: the ended ones too).
+    /// Answers the live workers (`--all`: the ended ones too), each with `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Workers {
         #[arg(long)]

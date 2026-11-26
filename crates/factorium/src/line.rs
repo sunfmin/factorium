@@ -169,11 +169,11 @@ impl App {
     async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
-        let mut workers = Vec::new();
-        let mut issues = std::collections::BTreeMap::new();
+        // Each live worker of the checkout, beside its issue as the tick names it.
+        let (mut workers, mut issues) = (Vec::new(), Vec::new());
         for w in self.live_workers().await?.into_iter().filter(|w| w.checkout == c.name) {
             let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
-            issues.insert(w.worker, format!("{}#{}", w.checkout, w.number));
+            issues.push(format!("{}#{}", w.checkout, w.number));
             workers.push(line::Seen { worker: w.worker, status: w.state.status, urgent });
         }
         let look = line::look(self.now(), &settings, &workers, by_hand);
@@ -194,16 +194,17 @@ impl App {
                 if first == Some(worker) {
                     return Ok(did);
                 }
-                let before = workers.iter().take_while(|w| w.worker != worker);
-                let ahead_of: Vec<_> = before.filter(|w| w.status == w::Status::Landing && !w.urgent).collect();
-                let ahead_of: Vec<_> = ahead_of.iter().filter_map(|w| issues.get(&w.worker)).collect();
+                let at = workers.iter().position(|w| w.worker == worker).unwrap_or_default();
+                let ahead = workers.iter().zip(&issues).take(at);
+                let ahead_of: Vec<_> =
+                    ahead.filter(|(w, _)| w.status == w::Status::Landing && !w.urgent).map(|(_, i)| i).collect();
                 let went = json!({ "ahead_of": ahead_of });
                 Ok(Ok(match did {
                     Ok(mut v) => {
                         v["urgent"] = went;
                         v
                     }
-                    Err(why) => json!({ "worker": worker, "lands": issues.get(&worker), "urgent": went, "then": why }),
+                    Err(why) => json!({ "worker": worker, "lands": issues[at], "urgent": went, "then": why }),
                 }))
             }
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,

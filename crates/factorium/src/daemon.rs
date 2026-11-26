@@ -155,9 +155,11 @@ impl App {
         // One start, if admission allows.
         if let Some(Next { checkout, number, urgent }) = self.next_issue().await? {
             let reading = load.admission();
-            let ordinary = admission::admit(&reading, &load.queue, self.now(), &settings);
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
-            let held = if urgent { admission::admit_urgent(&reading, &settings) } else { ordinary.clone() };
+            let held = match urgent {
+                true => admission::admit_urgent(&reading, &settings),
+                false => admission::admit(&reading, &load.queue, self.now(), &settings),
+            };
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
                     Ok(mut started) => {

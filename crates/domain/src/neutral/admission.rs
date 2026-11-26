@@ -31,29 +31,26 @@ pub fn room(r: &Reading, l: &Limits) -> Result<(), String> {
 /// Each way the host lacks room for one more start, the disk first: each
 /// reading beside its limit, in the limit's unit.
 pub fn short(r: &Reading, l: &Limits) -> Vec<String> {
-    [disk(r, l), cpu(r, l), memory(r, l)].into_iter().flatten().collect()
+    let mut why = Vec::new();
+    if disk_short(r, l) {
+        // In tenths cut, not rounded: a byte under the floor never reads as the floor.
+        let tenths = (r.disk_free as u128 * 10 / GIB as u128) as u64;
+        let free = format!("{}.{}", tenths / 10, tenths % 10);
+        why.push(format!("disk: {free} GiB free, under the floor of {} GiB", l.disk_floor_gib));
+    }
+    if r.cpu_busy > l.cpu_busy_max {
+        why.push(format!("cpu: {}% busy, over {}%", r.cpu_busy, l.cpu_busy_max));
+    }
+    if r.memory_free < l.memory_free_min {
+        why.push(format!("memory: {}% free, under {}%", r.memory_free, l.memory_free_min));
+    }
+    why
 }
 
 /// Each floor the host is under, the disk first: memory and disk, which a
 /// start past them would fail on, not only run slower.
 pub fn floors(r: &Reading, l: &Limits) -> Vec<String> {
-    [disk(r, l), memory(r, l)].into_iter().flatten().collect()
-}
-
-fn disk(r: &Reading, l: &Limits) -> Option<String> {
-    // In tenths cut, not rounded: a byte under the floor never reads as the floor.
-    let tenths = (r.disk_free as u128 * 10 / GIB as u128) as u64;
-    let free = format!("{}.{}", tenths / 10, tenths % 10);
-    disk_short(r, l).then(|| format!("disk: {free} GiB free, under the floor of {} GiB", l.disk_floor_gib))
-}
-
-fn cpu(r: &Reading, l: &Limits) -> Option<String> {
-    (r.cpu_busy > l.cpu_busy_max).then(|| format!("cpu: {}% busy, over {}%", r.cpu_busy, l.cpu_busy_max))
-}
-
-fn memory(r: &Reading, l: &Limits) -> Option<String> {
-    (r.memory_free < l.memory_free_min)
-        .then(|| format!("memory: {}% free, under {}%", r.memory_free, l.memory_free_min))
+    short(r, &Limits { cpu_busy_max: u64::MAX, ..*l })
 }
 
 /// Whether the disk is under its floor: the time to reclaim build output.

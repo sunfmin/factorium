@@ -5,9 +5,10 @@
 //! never cutting a running gate short. Blocks still hold it.
 
 use factorium_domain::admission::{self, Reading as Read};
-use factorium_domain::heavy::{Ask, Entry, Queue, Reading};
+use factorium_domain::heavy::{Ask, Entry, Heavy, HeavyEvent, Queue, Reading};
 use factorium_domain::neutral::queue::{self, Order};
 use factorium_domain::settings::Settings;
+use factum::Aggregate;
 use factum::Uuid;
 use serde_json::Value;
 
@@ -50,6 +51,7 @@ fn on_a_host_held_at_the_queue_wait_bound_only_an_urgent_start_goes_and_only_the
     assert_eq!(admission::admit_urgent(&room, &s), Ok(()), "the load holds no urgent start");
     let low = Read { memory_free: 5, ..room };
     assert!(admission::admit_urgent(&low, &s).unwrap_err().starts_with("memory"));
+    assert_eq!(admission::admit_urgent(&Read { memory_free: 15, ..room }, &s), Ok(()), "at the floor, it starts");
     let full = Read { disk_free: 1 << 30, ..room };
     assert!(admission::admit_urgent(&full, &s).unwrap_err().starts_with("disk"));
 }
@@ -75,6 +77,22 @@ fn an_urgent_entry_goes_ahead_of_workers_that_waited_longer_behind_a_line_move_p
     let v = workers(5, 3 * MIN, true);
     let q = Queue { entries: vec![a, b, u, late, v], ..Queue::default() };
     assert_eq!(ids(queue::line(&q.entries, 4 * MIN, ORDER)), [4, 3, 5, 1, 2]);
+}
+
+#[test]
+fn an_urgent_entry_goes_ahead_of_no_line_job_that_does_not_yield_and_a_mark_moves_only_its_own() {
+    let gate = Entry {
+        ask: Ask { id: Uuid::from_u128(1), what: "fast gate of web".into(), ..Ask::default() },
+        ..Entry::default()
+    };
+    let u = workers(2, MIN, true);
+    let mut q = Queue { entries: vec![gate, u, workers(3, 0, false)], ..Queue::default() };
+    assert_eq!(ids(queue::line(&q.entries, 2 * MIN, ORDER)), [1, 2, 3], "a line's gate queued first stays first");
+    // Its issue's mark taken away while it waits: that entry alone goes back to the ordinary order.
+    Heavy::evolve(&mut q, HeavyEvent::HeavyMarked { id: Uuid::from_u128(2), urgent: false });
+    assert_eq!(q.entries.iter().map(|e| e.ask.urgent).collect::<Vec<_>>(), [false, false, false]);
+    Heavy::evolve(&mut q, HeavyEvent::HeavyMarked { id: Uuid::from_u128(3), urgent: true });
+    assert_eq!(q.entries.iter().map(|e| e.ask.urgent).collect::<Vec<_>>(), [false, false, true]);
 }
 
 /// The tick's start of `web`#`n`, as it answered it.
