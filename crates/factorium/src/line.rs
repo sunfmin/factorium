@@ -13,6 +13,7 @@
 //! (factorium#307).
 
 mod cut;
+mod mutants;
 
 pub(crate) use cut::Proving;
 
@@ -384,6 +385,10 @@ impl App {
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
+        // Its mutants first, where slimfit holds them at the base; by hand, whatever they owe.
+        if !by_hand && let Some(did) = self.mutants_first(c, &here, &tip).await? {
+            return Ok(did);
+        }
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {

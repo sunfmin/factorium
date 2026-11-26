@@ -62,7 +62,7 @@ pub enum Top {
         #[arg(long)]
         worker: Option<Uuid>,
     },
-    /// Answers the findings, each with its fix; the reading; what the watch's reports leave to the owner (`human`); and `asks`: every issue that waits for a person, oldest first, with its title, its question (its body's first line after any "Based on …" line), when it started waiting and who left it so (`watch`, `session`, or `added` `--waiting-for-human`). Answer one with `issue ready` (do it), `issue close` (don't), or `issue comment` then `issue ready`; and `decided`: the Decided records made since `decided --read`.
+    /// Answers the findings, each with its fix; the reading; what the watch's reports leave to the owner (`human`); and `asks`: every issue that waits for a person, oldest first, with its title, its question (its body's first line after any "Based on …" line), when it started waiting and who left it so (`watch`, `session`, or `added` `--waiting-for-human`). Answer one with `issue ready` (do it), `issue close` (don't), or `issue comment` then `issue ready`; `decided`: the Decided records made since `decided --read`; and `mutants`: each promotion that waits for its mutants issue (where slimfit holds the record of mutants at the base), with the issue and when the wait ends (`until`, `utc`, `left_s`), `mutants_bound` after its filing.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Doctor,
     /// Answers the Decided records of the last 7 days, newest first, each with its number (`id`, D<n>), issue, who, what, options, chose, undo and when; `decided D17` (or `17`) answers that one record, whatever its age and whether it was read; `--read` marks every one made until now read, so doctor's `decided` leaves them out.
@@ -400,7 +400,11 @@ pub enum WorkerCmd {
     },
     /// Has a second agent, a fresh session factorium starts, pick your change's mutants from slimfit's candidates, given slimfit's goal (`slimfit help picker`) and your diff. Answers the picks, or why none, by whom, and the commands that run and record them.
     #[command(verbatim_doc_comment)]
-    PickMutants,
+    PickMutants {
+        /// Takes the change against this ref, as `slimfit check --target` does: everything your HEAD adds since its merge base with it, its diff and its candidates; the commands answered take it too. A promotion's mutants issue names it: the range's base.
+        #[arg(long, value_name = "REF", verbatim_doc_comment)]
+        target: Option<String>,
+    },
     /// Has a second agent, a fresh session factorium starts, judge whether your change could be smaller, given slimfit's goal (`slimfit help reviewer`) and your diff. Answers its verdict (`as_is` with why, or `cut`), by whom, and the command that writes the growth record.
     #[command(verbatim_doc_comment)]
     ReviewGrowth,
@@ -612,7 +616,7 @@ impl Top {
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
                 WorkerCmd::Done { no_landing } => app.worker_done(worker_id()?, no_landing.as_deref()).await,
-                WorkerCmd::PickMutants => app.worker_pick_mutants(worker_id()?).await,
+                WorkerCmd::PickMutants { target } => app.worker_pick_mutants(worker_id()?, target.as_deref()).await,
                 WorkerCmd::ReviewGrowth => app.worker_review_growth(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
                 WorkerCmd::Comment { text } => {
