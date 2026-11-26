@@ -99,7 +99,7 @@ impl App {
         Ok(self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.urgent))
     }
 
-    /// Records which urgent issues halt heavy commands not urgent now
+    /// Records which urgent issues halt the host now
     /// (docs/adr/0015-an-urgent-issue-halts-the-host.md), read from the open issues.
     pub(crate) async fn note_halt(&self) -> Answer<()> {
         let mut urgent = Vec::new();

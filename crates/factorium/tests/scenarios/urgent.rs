@@ -132,12 +132,12 @@ async fn an_urgent_ready_issue_starts_first_past_the_load_and_a_blocked_one_wait
     let started = starts(&w, 2).await;
     assert_eq!(started["urgent"]["ahead_of"], serde_json::json!(["web#1"]), "{started}");
     assert!(started["urgent"]["past"][0].as_str().unwrap().starts_with("cpu"), "{started}");
-    // #3 waits for #2. #2's worker halts heavy commands, not #1's start: the load holds it, with the load's why.
+    // #3 waits for #2. #2's worker holds no start of #1: the load holds it, with the load's why.
     let t = w.tick().await;
     assert!(t.started.is_none(), "#3 waits for #2, #1 for the load: {:?}", t.held);
     assert!(t.held.as_deref().unwrap().starts_with("cpu"), "the load holds it, not the halt: {:?}", t.held);
     let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    assert!(found.iter().any(|f| f.starts_with("urgent web#2 halts")), "the halt stands: {found:?}");
+    assert!(found.iter().any(|f| f.starts_with("urgent web#2 goes first")), "the halt stands: {found:?}");
     // The load allows it: #1 starts during the halt, in the ordinary order.
     w.host.reading.lock().unwrap().cpu_busy = 10;
     assert!(starts(&w, 1).await["urgent"].is_null());
@@ -242,14 +242,15 @@ async fn an_urgent_worker_s_gate_goes_ahead_of_an_entry_not_urgent_that_waited_l
     assert!(gated.is_ok(), "{gated:?}");
 }
 
-/// Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md): a worker's or a program's entry
-/// not urgent waits, past the starve bound too; one that runs is cut short
-/// once an urgent entry waits for what it holds, the urgent issue's
-/// worker's own is not, however it was queued. A line move is not halted:
-/// a landing's gate waits only behind the urgent entries, and a running
-/// cut is never cut short. Lifted, the rest start in their old order.
+/// Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md):
+/// no entry is passed over for it (ADR 0015, 2026-11-27). An urgent entry that
+/// waits starts next, ahead of a landing's gate and the workers' and
+/// programs' entries. With room for it nothing is cut short; with none, a
+/// worker's or a program's command not urgent that holds what it waits for
+/// is, but not the urgent issue's own, nor a line move. With no urgent
+/// entry waiting, the rest start by the ordinary order and room.
 #[test]
-fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_moves_go_on() {
+fn halted_an_urgent_entry_starts_next_and_cuts_short_only_with_no_room_for_it() {
     let gate = Entry {
         ask: Ask {
             id: Uuid::from_u128(2),
@@ -284,28 +285,41 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     let q = Queue { entries, halt, halt_for, ..Queue::default() };
     let now = 300 * MIN;
     let at = Reading { read_at: now, settle: 0, order: ORDER, ..Reading::default() };
-    // The urgent entry and the landing's gate wait together: the urgent one starts first.
-    assert_eq!(q.may_start(urgent.ask.id, Ok(()), at, now), Ok(()));
-    assert_eq!(q.may_start(gate.ask.id, Ok(()), at, now).unwrap_err(), "waits behind 3");
-    for e in [&exclusive, &program] {
-        assert_eq!(q.may_start(e.ask.id, Ok(()), at, now).unwrap_err(), "behind urgent web#3");
+    let (room, none): (Result<(), String>, _) = (Ok(()), Err("cpu: 95% busy".to_string()));
+    // The urgent entry starts next: the landing's gate and the rest wait behind it.
+    assert_eq!(q.may_start(urgent.ask.id, room.clone(), at, now), Ok(()));
+    for e in [&gate, &exclusive, &program] {
+        assert_eq!(q.may_start(e.ask.id, room.clone(), at, now).unwrap_err(), "waits behind 3");
     }
     let whys: Vec<_> = q.resources(now, ORDER)[0].waiting.iter().map(|h| h.why.clone()).collect();
-    let behind = Some("behind urgent web#3".to_string());
-    assert_eq!(whys, [None, Some("behind `3`, an urgent issue's".into()), behind.clone(), behind]);
-    assert_eq!(q.ends(running.ask.id, now, i64::MAX, false), Some(Ends::Halted), "cut short for it");
-    assert_eq!(q.ends(cut.ask.id, now, i64::MAX, false), None, "a line move is never cut short by the halt");
-    // Nothing urgent waiting for what it holds, it runs on: a device for the host, or no urgent ask.
+    let behind = Some("behind `3`, an urgent issue's".to_string());
+    assert_eq!(whys, [None, behind.clone(), behind.clone(), behind], "behind urgent only as the next ahead");
+    let ends = |q: &Queue, e: &Entry, room: &Result<(), String>| q.ends(e.ask.id, now, i64::MAX, false, room.clone());
+    assert_eq!(ends(&q, &running, &room), None, "room for the urgent entry: it starts, nothing is cut short");
+    assert_eq!(ends(&q, &running, &none), Some(Ends::Halted), "no room for it: cut short for it");
+    assert_eq!(ends(&q, &cut, &none), None, "a line move is never cut short by the halt");
+    assert_eq!(ends(&q, &own, &none), None, "the urgent issue's own runs on");
+    // A device the urgent entry does not ask for runs on; one it waits for, all slots held, is cut short.
     let device = Entry { started_at: Some(0), ..with_resources(workers(6, 0, false), &["FMGG"]) };
     let q2 = Queue { entries: [q.entries.clone(), vec![device.clone()]].concat(), ..q.clone() };
-    assert_eq!(q2.ends(device.ask.id, now, i64::MAX, false), None, "the urgent entry asks for the host alone");
+    assert_eq!(ends(&q2, &device, &none), None, "the urgent entry asks for the host alone");
+    let wants = with_resources(workers(9, MIN, true), &["FMGG"]);
+    let q3 = Queue { entries: vec![device.clone(), wants], ..q.clone() };
+    assert_eq!(ends(&q3, &device, &room), Some(Ends::Halted), "its slot is full for the urgent entry");
+    // No urgent entry waits: nothing is cut, and the rest start by the ordinary order and room.
     let quiet =
         Queue { entries: q.entries.iter().filter(|e| e.ask.id != urgent.ask.id).cloned().collect(), ..q.clone() };
-    assert_eq!(quiet.ends(running.ask.id, now, i64::MAX, false), None, "no urgent entry waits: it runs on");
-    assert_eq!(quiet.may_start(gate.ask.id, Ok(()), at, now), Ok(()), "no urgent entry waits: the gate starts");
-    assert_eq!(q.ends(own.ask.id, now, i64::MAX, false), None, "the urgent issue's own runs on");
+    assert_eq!(ends(&quiet, &running, &none), None, "no urgent entry waits: it runs on");
+    assert_eq!(quiet.may_start(gate.ask.id, room.clone(), at, now), Ok(()), "no urgent entry waits: the gate starts");
+    let idle = Queue { entries: quiet.entries.iter().filter(|e| e.ask.id != gate.ask.id).cloned().collect(), ..quiet };
+    assert_eq!(
+        idle.may_start(exclusive.ask.id, room.clone(), at, now),
+        Ok(()),
+        "a command not urgent starts with room"
+    );
+    assert!(idle.may_start(exclusive.ask.id, none.clone(), at, now).is_err(), "and waits for room as ever");
     let q = Queue { halt: Vec::new(), halt_for: Vec::new(), ..q };
-    assert_eq!(q.ends(running.ask.id, now, i64::MAX, false), None, "lifted, nothing is cut");
+    assert_eq!(ends(&q, &running, &none), None, "lifted, nothing is cut");
     assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [3, 2, 1, 7], "lifted: as before");
 }
 
@@ -331,7 +345,7 @@ async fn halted_workers_start_and_other_checkouts_land_promote_and_cut() {
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some("app#3".into()), "{:?}", t.held);
     let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    let halt = found.iter().find(|f| f.starts_with("urgent app#2 halts")).unwrap_or_else(|| panic!("{found:?}"));
+    let halt = found.iter().find(|f| f.starts_with("urgent app#2 goes first")).unwrap_or_else(|| panic!("{found:?}"));
     assert!(halt.contains("workers start as admission allows"), "{halt}");
     assert!(halt.contains("landings, promotions and cuts go on"), "{halt}");
     w.lands("api", 1, "a").await;
@@ -348,10 +362,10 @@ async fn halted_workers_start_and_other_checkouts_land_promote_and_cut() {
 }
 
 /// Halted by web#1, urgent: api#1, ready, starts on the next tick admission
-/// allows; its worker's heavy command waits `behind urgent web#1` until
-/// web#1 closes, then runs.
+/// allows, and its worker's heavy command runs at once on a host with room,
+/// no urgent command waiting (ADR 0015, 2026-11-27).
 #[tokio::test]
-async fn halted_another_checkout_s_worker_starts_and_its_heavy_command_waits_until_the_urgent_issue_closes() {
+async fn halted_another_checkout_s_worker_starts_and_its_heavy_command_runs_while_no_urgent_one_waits() {
     let w = World::new();
     for c in ["web", "api"] {
         w.checkout(c).await;
@@ -364,84 +378,53 @@ async fn halted_another_checkout_s_worker_starts_and_its_heavy_command_waits_unt
     assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1", "the urgent one first");
     let t = w.tick().await;
     assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some("api#1".into()), "{:?}", t.held);
+    let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
+    assert!(found.iter().any(|f| f.starts_with("urgent web#1 goes first")), "the halt stands: {found:?}");
     let api = id(&w.worker_on("api", 1).await);
-    let cli = w.run();
-    let mut next = std::pin::pin!(cli.worker_exclusive(Some(api), &w.dir, "echo next"));
-    let waits = async {
-        let host = |d: &Value| rows(&d["resources"]).iter().find(|r| r["name"] == "host").cloned().unwrap();
-        w.until(async || rows(&host(&w.doctor().await)["waiting"]).len() == 1).await;
-        let waiting = host(&w.doctor().await)["waiting"][0].clone();
-        assert_eq!(waiting["why"], "behind urgent web#1", "{waiting}");
-        // A tick on, still halted: it waits on.
-        w.clock.advance(POLL);
-        w.tick().await;
-        tokio::time::sleep(LOOK).await;
-    };
-    tokio::select! { _ = &mut next => panic!("it started during the halt"), () = waits => {} }
-    w.lands("web", 1, "a").await;
-    w.tick().await;
-    let polls = async {
-        loop {
-            tokio::time::sleep(LOOK).await;
-            w.clock.advance(POLL);
-        }
-    };
-    let ran = tokio::time::timeout(STUCK, async {
-        tokio::select! { r = next => r, () = polls => unreachable!() }
-    });
-    assert_eq!(ran.await.expect("lifted, it runs").unwrap()["ok"], true);
+    let ran = tokio::time::timeout(STUCK, w.run().worker_exclusive(Some(api), &w.dir, "echo next")).await;
+    assert_eq!(ran.expect("it runs during the halt").unwrap()["ok"], true);
 }
 
+/// Halted by web#2, urgent: #1's command that runs is not cut short while
+/// no urgent command waits; once #2's gate waits on a host with no room
+/// for it, #1's command is cut short and the gate starts.
 #[tokio::test]
-async fn halted_a_worker_s_command_waits_behind_the_urgent_gate_and_one_running_is_cut_short() {
+async fn halted_a_running_command_is_cut_short_only_once_the_urgent_gate_waits_with_no_room() {
     let w = World::new();
     w.two_at_work().await;
     let (one, two) = (id(&w.worker_on("web", 1).await), w.worker_on("web", 2).await);
     let dir = w.dir.join("running");
     let line = w.holds(&dir);
-    let (a, b) = (w.run(), w.run());
+    let a = w.run();
     let mut running = std::pin::pin!(a.worker_exclusive(Some(one), &w.dir, &line));
-    let mut next = std::pin::pin!(b.worker_exclusive(Some(one), &w.dir, "echo next"));
-    let body = async {
+    let halted = async {
         crate::fixture::until_file(&dir.join("started")).await;
-        // The halt begins while #1's command runs: it is cut short.
         w.app.issue_mark_urgent("web", 2, true).await.unwrap();
         w.tick_alone().await;
-        // Asked once the halt began, #1's next command waits behind it.
-        let halted = async {
-            let host = |d: &Value| rows(&d["resources"]).iter().find(|r| r["name"] == "host").cloned().unwrap();
-            w.until(async || rows(&host(&w.doctor().await)["waiting"]).len() == 1).await;
-            let waiting = host(&w.doctor().await)["waiting"][0].clone();
-            assert_eq!(waiting["why"], "behind urgent web#2", "{waiting}");
-            let polls = async {
-                loop {
-                    tokio::time::sleep(LOOK).await;
-                    w.clock.advance(POLL);
-                }
-            };
-            let cli = w.run();
-            let gate = cli.worker_gate(id(&two));
-            let gated = tokio::select! { g = gate => g.unwrap(), () = polls => unreachable!() };
-            assert!(!gated.is_null(), "the urgent gate ran beside the halt");
-        };
-        tokio::select! { _ = &mut next => panic!("it started during the halt"), () = halted => {} }
+        // A few polls on, with no urgent command waiting: it runs on.
+        for _ in 0..3 {
+            w.clock.advance(POLL);
+            tokio::time::sleep(LOOK).await;
+        }
     };
-    let (ran, ()) =
-        tokio::time::timeout(STUCK, async { tokio::join!(&mut running, body) }).await.expect("the running one ends");
-    let ran = ran.unwrap();
-    assert!(ran["ok"] == false && ran.to_string().contains("an urgent issue halts the host"), "{ran}");
-    w.lands("web", 2, "b").await;
-    w.tick().await;
+    tokio::select! { _ = &mut running => panic!("cut short with no urgent command waiting"), () = halted => {} }
+    w.host.reading.lock().unwrap().cpu_busy = 99;
     let polls = async {
         loop {
             tokio::time::sleep(LOOK).await;
             w.clock.advance(POLL);
         }
     };
-    let ran = tokio::time::timeout(STUCK, async {
-        tokio::select! { r = next => r, () = polls => unreachable!() }
-    });
-    assert_eq!(ran.await.expect("lifted, it runs").unwrap()["ok"], true);
+    let cli = w.run();
+    let both = async { tokio::join!(&mut running, cli.worker_gate(id(&two))) };
+    let (ran, gated) = tokio::time::timeout(STUCK, async {
+        tokio::select! { r = both => r, () = polls => unreachable!() }
+    })
+    .await
+    .expect("the running one ends and the gate runs");
+    let ran = ran.unwrap();
+    assert!(ran["ok"] == false && ran.to_string().contains("an urgent issue's command waits with no room"), "{ran}");
+    assert!(!gated.unwrap().is_null(), "the urgent gate ran");
 }
 
 #[tokio::test]
@@ -472,7 +455,7 @@ async fn admission_held_by_the_load_during_a_halt_is_the_load_s_finding_and_a_fu
     w.advance(31);
     w.tick().await;
     let f = found().await;
-    assert!(f.iter().any(|f| f.starts_with("urgent web#2 halts")), "{f:?}");
+    assert!(f.iter().any(|f| f.starts_with("urgent web#2 goes first")), "{f:?}");
     assert!(f.iter().any(|f| f.contains("admission held") && f.contains("cpu")), "the load's own finding: {f:?}");
     w.host.reading.lock().unwrap().cpu_busy = 10;
     starts(&w, 3).await;
@@ -485,6 +468,6 @@ async fn admission_held_by_the_load_during_a_halt_is_the_load_s_finding_and_a_fu
     w.advance(31);
     w.tick().await;
     let f = found().await;
-    assert!(f.iter().any(|f| f.starts_with("urgent web#2 halts")), "{f:?}");
+    assert!(f.iter().any(|f| f.starts_with("urgent web#2 goes first")), "{f:?}");
     assert!(f.iter().any(|f| f.contains("admission held") && f.contains("disk")), "{f:?}");
 }
