@@ -285,9 +285,6 @@
   "models/HeavyResources.cfg": {
     "local_refs": 1
   },
-  "models/Line.tla": {
-    "local_refs": 1
-  },
   "models/LineEnd.cfg": {
     "local_refs": 1
   },

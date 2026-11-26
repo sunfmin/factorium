@@ -1,13 +1,19 @@
 {
-  "commit": "b25b59444d9048a7d015a130963de9c0dcad1753",
+  "commit": "db34d46b2d497540cbfb675070537f381adc454c",
   "date": "2026-11-26",
-  "inputs": "b65b749cd96f4de7253a4760aac2b4dbcd317f69a20e63d2da3543f35b2d8ca9",
+  "inputs": "df32f9094d7ee45e3d955eb91a0fcc24065ad16b69355d94912f87d44c166de7",
   "result": "passes",
   "traces": {
     "accept": [
       {
         "breaks": null,
         "file": ".truefit/traces/line/accept/lost-answer-lands-again.jsonl",
+        "result": "allowed",
+        "step": null
+      },
+      {
+        "breaks": null,
+        "file": ".truefit/traces/line/accept/two-stacked-land-in-one-push.jsonl",
         "result": "allowed",
         "step": null
       }

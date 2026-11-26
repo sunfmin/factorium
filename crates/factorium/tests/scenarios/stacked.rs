@@ -11,9 +11,9 @@ use crate::fixture::{LOOK, STUCK, World};
 
 /// `web`, whose proving declares a fast gate that logs `start <files>` and `end <files>` (the
 /// `f<n>` files of the tree it runs on) to `dir/log`; is red at once on a tree that holds `RED`;
-/// and, on a tree of `k` such files (the `k`th of a stack), holds while [`hold`] holds it. Three workers, #1 to #3, each commit `f<n>` (and `extra[n-1]`, if any) and are
-/// done. Answers the log.
-async fn three_done(w: &World, dir: &Path, extra: [Option<&str>; 3]) -> PathBuf {
+/// and, on a tree of `k` such files (the `k`th of a stack), holds while [`hold`] holds it. A worker for each of `extra`, #1 up, each commits `f<n>` (and `extra[n-1]`, if any)
+/// and is done. Answers the log.
+async fn all_done(w: &World, dir: &Path, extra: &[Option<&str>]) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let (log, d) = (dir.join("log"), dir.display());
     let log = log.display();
@@ -27,13 +27,13 @@ async fn three_done(w: &World, dir: &Path, extra: [Option<&str>; 3]) -> PathBuf 
     w.kit().await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
     w.push_by_hand("web", "proving", "factorium.toml", &format!("[gate]\nfast = \"{gate}\"\n"));
-    for t in ["a", "b", "c"] {
-        w.app.issue_add("web", t, "", false, &[]).await.unwrap();
+    for n in 1..=extra.len() {
+        w.app.issue_add("web", &format!("t{n}"), "", false, &[]).await.unwrap();
     }
-    for _ in 0..3 {
+    for _ in 0..extra.len() {
         w.tick().await;
     }
-    for n in 1..=3u64 {
+    for n in 1..=extra.len() as u64 {
         let wk = w.worker_on("web", n).await;
         if let Some(file) = extra[n as usize - 1] {
             w.commit(&crate::fixture::worktree(&wk), file, "x");
@@ -106,7 +106,7 @@ async fn three_landings_all_green_gate_at_once_and_proving_moves_once_to_the_thi
     let w = World::new();
     let dir = w.dir.join("gates");
     (1..=3).for_each(|k| hold(&dir, k, true));
-    let log = three_done(&w, &dir, [None, None, None]).await;
+    let log = all_done(&w, &dir, &[None, None, None]).await;
     until_started(&w, &log, 3).await;
     let mut starts: Vec<_> = logged(&log).into_iter().filter(|l| l.starts_with("start")).collect();
     starts.sort();
@@ -135,7 +135,7 @@ async fn the_second_of_three_red_the_first_lands_and_the_third_is_gated_again_wi
     let w = World::new();
     let dir = w.dir.join("gates");
     hold(&dir, 1, true);
-    let log = three_done(&w, &dir, [None, Some("RED"), None]).await;
+    let log = all_done(&w, &dir, &[None, Some("RED"), None]).await;
     until_started(&w, &log, 3).await;
     // #2's gate is red at once, and #3's, stacked on it: neither is told while #1's runs.
     for _ in 0..3 {
@@ -180,7 +180,7 @@ async fn a_merge_green_before_the_one_below_it_waits_and_lands_with_it() {
     let w = World::new();
     let dir = w.dir.join("gates");
     hold(&dir, 1, true);
-    let log = three_done(&w, &dir, [None, None, None]).await;
+    let log = all_done(&w, &dir, &[None, None, None]).await;
     until_started(&w, &log, 3).await;
     tokio::time::timeout(STUCK, async {
         while !logged(&log).contains(&"end f1 f2 f3 ".to_string()) {
@@ -204,11 +204,37 @@ async fn a_merge_green_before_the_one_below_it_waits_and_lands_with_it() {
     assert_eq!(issues(&ticks[0]), ["web#1", "web#2", "web#3"]);
 }
 
+/// Two stacked, the upper green first: one push lands both. Its run is the line's kept trace
+/// (`models/line.sh trace`).
+#[tokio::test]
+async fn two_stacked_the_upper_green_first_land_in_one_push() {
+    let w = World::new();
+    let dir = w.dir.join("gates");
+    hold(&dir, 1, true);
+    let log = all_done(&w, &dir, &[None, None]).await;
+    until_started(&w, &log, 2).await;
+    tokio::time::timeout(STUCK, async {
+        while !logged(&log).contains(&"end f1 f2 ".to_string()) {
+            tokio::time::sleep(LOOK).await;
+        }
+    })
+    .await
+    .expect("#2's gate ends green");
+    w.advance(1);
+    assert!(w.tick_alone().await.landed.is_empty(), "#2 waits for #1's gate");
+    hold(&dir, 1, false);
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("#1's gate ends");
+    let ticks = ticks_until(&w, 2).await;
+    assert_eq!(ticks.len(), 1, "one push: {ticks:?}");
+    assert_eq!(issues(&ticks[0]), ["web#1", "web#2"]);
+    assert_eq!(w.remote_tip("web", "proving"), ticks[0][1]["commit"].as_str().unwrap());
+}
+
 #[tokio::test]
 async fn a_host_with_room_for_one_gate_runs_one_stacked_gate_at_a_time_and_lands_them_in_order() {
     let w = World::new();
     let dir = w.dir.join("gates");
-    let log = three_done(&w, &dir, [None, None, None]).await;
+    let log = all_done(&w, &dir, &[None, None, None]).await;
     // No room beside what runs: one start at a time, each once nothing runs.
     w.host.reading.lock().unwrap().cpu_busy = 99;
     let landed: Vec<Value> = ticks_until(&w, 3).await.concat();
