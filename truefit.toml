@@ -1173,19 +1173,19 @@ check = ["test"]
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:11"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:30"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:16"
+source = "docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md:17"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:18"
+source = "docs/adr/0036-a-landing-waits-for-no-review.md:13"
 check = ["model line"]
 
 [[promise]]

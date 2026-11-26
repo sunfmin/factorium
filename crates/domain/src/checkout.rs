@@ -1,5 +1,5 @@
 //! A checkout: a repo on the host's list, with the branches factorium works
-//! between. Every checkout has a proving branch (SPEC.md §9).
+//! between. Every checkout has a proving branch (ADR 0034).
 
 use factum_core::Aggregate;
 use serde::{Deserialize, Serialize};

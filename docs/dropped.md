@@ -16,7 +16,7 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 | The panel | `doctor` is the owner's view. |
 | The asking session (human decisions asked in a resident session) | Everything goes to the watch; only spending money goes to the owner, in the report's `human` part. |
 | Batched rounds and the pairing tree | One landing at a time per checkout onto the proving branch; the fast gate runs on each merge. |
-| A PR red twice is handed to a new worker in a new worktree | Red twice goes to the watch (SPEC §9). |
+| A PR red twice is handed to a new worker in a new worktree | Red twice goes to the watch (ADR 0022). |
 | Remote refs and cache directories as state | One SQLite database (ADR 0025). |
 | The object store the fleet owned | Nothing factorium keeps needs one. |
 | A private repo's release cut on a Mac / several cut hosts | One host cuts. |
@@ -24,7 +24,7 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 | Model research and holding a model by its listed id | The kit names the model; the session is started on it. |
 | afkconvoy-harness's interface factorium never called: token and step counting, status hooks read back, model, flag and login probes, notes, resumed sessions, goal rows, first-run and limits files, background-work reads, pi's status extension and DSH's profile files | Nothing called them (factorium#8). The harness crate offers what factorium uses and no more; a scenario lists it. Each comes back from git history with its caller. |
 | Worker health judged by an external judge | Health is the session file, the terminal, and the readings. |
-| Flux refinement types | Scenarios and mutation hold the rules (SPEC §9). |
+| Flux refinement types | Scenarios and mutation hold the rules (ADR 0035). |
 
 ## Not yet carried over
 
