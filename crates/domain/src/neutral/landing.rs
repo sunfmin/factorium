@@ -24,6 +24,10 @@ pub struct Line {
     /// promotions recorded before it was kept).
     #[serde(default)]
     pub gated: Option<String>,
+    /// The last promotion was asked for by hand: its cut is left to one by hand until the cut
+    /// bound less the lead, so the daemon starts none in the gap between the two.
+    #[serde(default)]
+    pub promoted_by_hand: bool,
     /// The proving tip whose slow gate went red, while it is the tip.
     pub red: Option<(String, String)>,
     pub version: Option<String>,
@@ -58,7 +62,7 @@ pub struct CutFailure {
 
 /// What happened on a line. A cut's `at` is none in cuts recorded before
 /// factorium#222, a failed cut's `commit` (the base it was cut from) in those
-/// before factorium#251, a promotion's `gated` in those before it was kept; a
+/// before factorium#251, a promotion's `gated` and `by_hand` in those before each was kept; a
 /// cut's `base` (the base commit it was cut from) in those before it was
 /// kept, and in one read back.
 #[derive(Serialize, Deserialize)]
@@ -66,7 +70,7 @@ pub struct CutFailure {
 pub enum LineEvent {
     Landed { number: u64, commit: String, at: i64 },
     PromotionRed { tip: String, why: String },
-    Promoted { tip: String, at: i64, gated: Option<String> },
+    Promoted { tip: String, at: i64, gated: Option<String>, by_hand: Option<bool> },
     CutMade { version: String, commit: String, at: Option<i64>, base: Option<String> },
     CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
@@ -84,7 +88,7 @@ impl Line {
                 s.moved = Some(at);
             }
             LineEvent::PromotionRed { tip, why } => s.red = Some((tip, why)),
-            LineEvent::Promoted { tip, at, gated } => {
+            LineEvent::Promoted { tip, at, gated, by_hand } => {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
                 s.uncut.extend(s.unpromoted.drain(..n));
@@ -93,6 +97,7 @@ impl Line {
                     s.cut_failed = None;
                 }
                 (s.promoted, s.red, s.moved, s.gated) = (Some(tip), None, Some(at), gated);
+                s.promoted_by_hand = by_hand == Some(true);
             }
             LineEvent::CutMade { version, at, base, .. } => {
                 // The promotions up to the base it was cut from are cut; one made while it ran
@@ -278,7 +283,7 @@ impl Line {
         if let Some(f) = self.cut_failed.as_ref().filter(|_| !look.by_hand) {
             return Err(NotDue::CutFailed { version: f.version.clone(), why: f.why.clone() });
         }
-        let settled = look.idle && self.unpromoted.is_empty();
+        let settled = look.idle && self.unpromoted.is_empty() && !self.promoted_by_hand;
         if !(look.by_hand || settled || owed.due()) {
             return Err(NotDue::Unsettled);
         }

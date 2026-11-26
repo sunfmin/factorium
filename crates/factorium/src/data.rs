@@ -102,6 +102,12 @@ impl Data {
         self.line(LineDir::Promotion).join(format!("{checkout}.lock"))
     }
 
+    /// The lock a cut of `checkout` holds from before it reads its line until it is recorded:
+    /// it names who holds it.
+    pub fn cut_lock(&self, checkout: &str) -> PathBuf {
+        self.line(LineDir::Cut).join(format!("{checkout}.lock"))
+    }
+
     /// What the idle work of `checkout`'s tasks line printed, last run.
     pub fn idle_tasks(&self, checkout: &str) -> PathBuf {
         self.line(LineDir::Idle).join(format!("{checkout}.tasks"))

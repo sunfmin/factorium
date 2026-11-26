@@ -77,7 +77,7 @@ pub fn why(not: NotDue) -> String {
         NotDue::NothingToCut => "nothing promoted since the last cut".into(),
         NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand, or the next promotion of a newer commit, tries again: {why}"),
         NotDue::Unsettled => {
-            "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound less the hold bound"
+            "the checkout is busy or unpromoted, or its last promotion was by hand and leaves its cut to one by hand, and its oldest promotion waits within the cut bound less the hold bound"
                 .into()
         }
     }
@@ -113,6 +113,9 @@ pub struct Promotion {
     pub behind: bool,
     /// How its gate ran on the tip ([`crate::declared::Promoting::said`]).
     pub gated: String,
+    /// Asked for by hand.
+    #[serde(default)]
+    pub by_hand: bool,
 }
 
 command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s, p, now| {
@@ -121,7 +124,12 @@ command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s
     }
     Ok(vec![match p.red() {
         Some(why) => LineEvent::PromotionRed { tip: p.tip.clone(), why },
-        None => LineEvent::Promoted { tip: p.tip.clone(), at: now.0, gated: Some(p.gated.clone()) },
+        None => LineEvent::Promoted {
+            tip: p.tip.clone(),
+            at: now.0,
+            gated: Some(p.gated.clone()),
+            by_hand: Some(p.by_hand),
+        },
     }])
 });
 

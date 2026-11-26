@@ -28,7 +28,12 @@ slow gate cannot run on every landing.
 - Cut: a version made from the base, when the checkout is idle or its
   oldest uncut landing is past the cut bound less the hold bound: set,
   push its own branch, gate, tag, publish, install, then the installed
-  binary's proof. A failed cut holds every later cut of its checkout until one of three: its tag and install are read back as holding, a cut by hand, or a promotion moves the base to another commit.
+  binary's proof. A promotion by hand is left to a cut by hand until the
+  bound: the daemon cuts none in the gap. A failed cut holds every later cut of its checkout until one of three: its tag and install are read back as holding, a cut by hand, or a promotion moves the base to another commit.
+- One cut of a checkout runs at a time, across processes: it holds the
+  checkout's cut lock from before it reads its line until it is recorded;
+  a cut finding it held does not start, and says who holds it. Two cuts
+  at once in one clone tagged the tip without its version commit.
 
 ## Consequences
 
