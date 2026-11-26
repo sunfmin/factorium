@@ -119,8 +119,9 @@ impl App {
     }
 
     /// Each checkout at its cap (`workers_per_checkout`) that holds ready
-    /// issues: its live workers, the cap, and those issues (none urgent, none
-    /// waiting for a blocker, its time or a claim), in the order they start.
+    /// issues: its live workers, the cap, and those issues (none urgent or
+    /// starting ahead, none waiting for a blocker, its time or a claim), in
+    /// the order they start.
     async fn capped(&self, ready: &[doctor::ReadySeen], cap: u64) -> Answer<Vec<Value>> {
         let workers = self.live_workers().await?;
         let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
@@ -128,7 +129,7 @@ impl App {
         for r in next::order(self.rows(tracker::untaken()).await?, std::iter::empty()) {
             let issue = format!("{}#{}", r.checkout, r.number);
             let waits = ready.iter().find(|s| s.issue == issue).is_none_or(|s| s.waits);
-            if !waits && next::capped(&live, &r.checkout, r.urgent, cap) {
+            if !waits && next::capped(&live, &r, cap) {
                 held.entry(r.checkout).or_default().push(issue);
             }
         }

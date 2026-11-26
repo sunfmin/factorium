@@ -157,3 +157,50 @@ async fn the_mutants_issue_starts_ahead_of_an_ordinary_one_filed_before_it() {
     let t = w.tick().await;
     assert_eq!(t.started.expect("one start")["issue"], "web#3", "ahead of web#2");
 }
+
+/// `web` at its cap of 2 with #2 and #3 live, #4 ready and ordinary, while
+/// #1 lands with the CPU busy and its promotion, due by its bound, files
+/// the mutants issue #5.
+async fn at_its_cap(w: &World) {
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    w.app.settings_set(Some("workers_per_checkout"), Some(3)).await.unwrap();
+    let wk = w.working(CLAUDE, "a").await;
+    for title in ["b", "c"] {
+        w.app.issue_add("web", title, "", false, &[]).await.unwrap();
+        w.tick().await;
+    }
+    w.app.settings_set(Some("workers_per_checkout"), Some(2)).await.unwrap();
+    w.app.issue_add("web", "ordinary", "", false, &[]).await.unwrap();
+    w.host.slimfit.lock().unwrap().insert("check".into(), listing(&w.remote_tip("web", "main"), 3, &[]));
+    w.done(&wk, "slimfit.toml", HELD).await;
+    w.host.reading.lock().unwrap().cpu_busy = 90;
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
+    // Its workers keep the checkout busy: the promotion falls due by its bound.
+    w.advance(60);
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["mutants"] == "web#5") && t.started.is_none(), "{t:?}");
+}
+
+#[tokio::test]
+async fn on_a_checkout_at_its_cap_the_mutants_issue_starts_and_an_ordinary_one_still_waits() {
+    let w = World::new();
+    at_its_cap(&w).await;
+    let capped = w.doctor().await["capped"].clone();
+    assert_eq!(capped, json!([{ "checkout": "web", "live": 2, "cap": 2, "waiting": ["web#4"] }]), "not web#5");
+    w.host.reading.lock().unwrap().cpu_busy = 10;
+    let t = w.tick().await;
+    assert_eq!(t.started.expect("a start")["issue"], "web#5", "the cap does not hold it: {:?}", t.held);
+    // Its worker counts as live: #4 waits for one more to end.
+    assert_eq!(w.tick().await.started, None);
+    assert_eq!(w.doctor().await["capped"][0]["live"], 3);
+}
+
+#[tokio::test]
+async fn with_the_cpu_busy_the_mutants_issue_waits_as_an_ordinary_one_does() {
+    let w = World::new();
+    at_its_cap(&w).await;
+    let t = w.tick().await;
+    assert!(t.started.is_none() && t.held.as_deref().unwrap_or("").starts_with("cpu"), "{t:?}");
+    w.host.reading.lock().unwrap().cpu_busy = 10;
+    assert_eq!(w.tick().await.started.expect("a start")["issue"], "web#5");
+}

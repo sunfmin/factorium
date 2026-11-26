@@ -31,11 +31,14 @@ pub const POLL: i64 = 500;
 /// loaded host leaves the scenario waiting (factorium#155).
 pub const LOOK: Duration = Duration::from_millis(10);
 
-/// Until `path` is there.
+/// Until `path` is there; past [`STUCK`], a hang, it fails.
 pub async fn until_file(path: &Path) {
-    while !path.exists() {
-        tokio::time::sleep(LOOK).await;
-    }
+    let there = async {
+        while !path.exists() {
+            tokio::time::sleep(LOOK).await;
+        }
+    };
+    tokio::time::timeout(STUCK, there).await.unwrap_or_else(|_| panic!("{} never came", path.display()));
 }
 
 impl World {

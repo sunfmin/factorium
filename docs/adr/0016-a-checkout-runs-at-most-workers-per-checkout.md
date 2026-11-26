@@ -18,6 +18,10 @@ their commands ran. More workers on one checkout did not land more.
   next ready issue of another checkout starts in its place.
 - It holds no urgent issue ([ADR 0015](0015-an-urgent-issue-halts-the-host.md)),
   as the load does not.
+- It holds no promotion's mutants issue
+  ([ADR 0006](0006-mutants-are-owed-at-promotion.md)), which the promotion
+  waits for only `mutants_bound` (the owner, 2026-11-26: 「开吧」).
+  Admission's load still holds it; its worker counts as live.
 - It is no part of admission: admission still reads the host alone, and
   the cap decides which ready issue may start, beside the order of SPEC §2 step 2.
 - Its default is 6, from the measurement below.
@@ -52,6 +56,6 @@ the default sits at the start of the best band: 6.
 - Workers past the cap wait as ready issues, not as sessions: no
   worktree, no heavy entry, no branch going stale behind proving.
 - doctor's `capped` names each checkout at its cap and the ready issues
-  waiting for it.
+  waiting for it, never an urgent one or one that starts ahead.
 - The number is the host's: `factorium settings workers_per_checkout <n>`.
   Measuring it again after the cap ran shows whether 6 holds.
