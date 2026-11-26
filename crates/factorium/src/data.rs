@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
 pub struct Data(PathBuf);
 
-/// The clones the line and idle work run in, one of each per checkout (SPEC §1.12–14, §1.16).
+/// The clones the line and idle work run in, one of each per checkout (docs/adr/0011-the-line-gate-landing-promotion-cut.md, docs/adr/0013-idle-work.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineClone {
     Landing,

@@ -1,6 +1,6 @@
 ----------------------------- MODULE HeavyQueue -----------------------------
 (***************************************************************************)
-(* The host-wide heavy queue (SPEC.md §1 row 9), as factorium runs it.     *)
+(* The host-wide heavy queue (ADR 0009, ADR 0010), as factorium runs it.   *)
 (*                                                                         *)
 (* The queue is the `heavy` stream (crates/domain/src/heavy.rs): entries,  *)
 (* the last start, and the rules of the daemon that runs. Each command on  *)
@@ -461,7 +461,7 @@ CONSTANT Depth
 Shallow == TLCGet("level") < Depth
 
 -----------------------------------------------------------------------------
-(* The properties, in SPEC §1 row 9's words. An action property reads,   *)
+(* The properties, in ADR 0009's words. An action property reads,          *)
 (* of every step, `last'` as that step and the unprimed state as before;   *)
 (* an invariant reads `last` as the step that reached the state.           *)
 
@@ -502,7 +502,7 @@ AtOnce ==
           /\ i \in InLine("host", last.t) /\ i = OldestOf(InLine("host", last.t))
           /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t))
 
-\* Before in a resource's line, in SPEC §1.9's words: one waiting past the
+\* Before in a resource's line, in ADR 0010's words: one waiting past the
 \* starve bound (since it joined the line) before all that have not, oldest
 \* first; then the shortest declared hold (a command's, the default),
 \* oldest first.

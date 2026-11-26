@@ -1,6 +1,6 @@
 -------------------------------- MODULE Line --------------------------------
 (***************************************************************************)
-(* One checkout's line (SPEC.md §1.12-1.14, §2), as factorium moves it.    *)
+(* One checkout's line (ADR 0011, SPEC.md §2), as factorium moves it.      *)
 (*                                                                         *)
 (* The remote (GitHub) holds `proving` and `base`. A commit is named by    *)
 (* what it holds: the workers' branches merged onto the start tip, in      *)
@@ -359,7 +359,7 @@ Fairness == /\ \A d \in Daemons : WF_vars(Daemon(d))
 Spec == Init /\ [][Next]_vars /\ Fairness
 
 -----------------------------------------------------------------------------
-(* The properties, in SPEC §1.12-1.14's words.                             *)
+(* The properties, in ADR 0011's words.                                    *)
 
 OnProving(w) == w \in Range(proving)
 

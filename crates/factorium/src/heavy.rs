@@ -28,7 +28,7 @@ const POLL: u64 = 500;
 
 /// A heavy command: its steps run in `dir` one after another, each under `limit`, until one fails.
 /// Idle work's `limit` is the whole run's, on the app's clock. Its kind's constructor picks
-/// its priority (SPEC §1.9), limit and env.
+/// its priority (docs/adr/0009-admission-and-the-heavy-queue.md), limit and env.
 pub(crate) struct Job<'a> {
     what: String,
     worker: Option<Uuid>,
