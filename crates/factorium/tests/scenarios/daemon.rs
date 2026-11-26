@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use factorium_domain::daemon::{Daemon, DaemonEvent, Daemons, Probe, Refused, SlowTick, Step, Steps, down, slow};
 use factum::Aggregate;
 
-use crate::fixture::{CLAUDE, OPENS, OPENS_ONCE, World, program};
+use crate::fixture::{CLAUDE, LOOK, OPENS, OPENS_ONCE, World, bounded, program};
 
 #[tokio::test]
 async fn ticks_failing_in_a_row_past_the_bound_are_a_finding_and_a_round() {
@@ -191,9 +191,18 @@ async fn a_daemon_that_restarted_as_its_own_pid_is_no_other_daemon() {
 }
 
 /// The pid file, locked as a daemon locks it while it runs, saying `said`.
-fn held_saying(pid: &std::path::Path, said: &str) -> std::fs::File {
+/// A scenario beside this one forks the test process to start a step, and
+/// until that child execs it holds a copy of each open file, with the lock
+/// of one just dropped: the lock is taken once that copy is gone.
+async fn held_saying(pid: &std::path::Path, said: &str) -> std::fs::File {
     let f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(pid).unwrap();
-    f.try_lock().unwrap();
+    let taken = async {
+        while let Err(e) = f.try_lock() {
+            assert!(matches!(e, std::fs::TryLockError::WouldBlock), "{e}");
+            tokio::time::sleep(LOOK).await;
+        }
+    };
+    bounded("the pid file's lock", taken).await;
     std::fs::write(pid, said).unwrap();
     f
 }
@@ -204,15 +213,24 @@ async fn a_second_daemon_is_refused_while_the_first_holds_the_lock_whatever_its_
     let pid = w.data().pid();
     // Its pid not yet written, or a pid no process has (macOS gives at most 99998).
     for said in ["", "999999"] {
-        let held = held_saying(&pid, said);
+        let held = held_saying(&pid, said).await;
         let e = w.app.run(&AtomicBool::new(true), None).await.unwrap_err();
         assert_eq!(e.code, "running", "{said:?}: {e}");
         assert!(e.message.starts_with("a daemon runs already, a daemon holds "), "{said:?}: {e}");
         assert_eq!(std::fs::read_to_string(&pid).unwrap(), said, "the refused one leaves its file");
         drop(held);
     }
-    // Once the holder ends, however it ends, the next one runs.
-    assert_eq!(w.app.run(&AtomicBool::new(true), None).await.unwrap(), json!({ "stopped": true, "ticks": 0 }));
+    // Once the holder ends, however it ends, the next one runs: refused only
+    // while a fork beside it holds the dropped lock (see `held_saying`).
+    let runs = async {
+        loop {
+            match w.app.run(&AtomicBool::new(true), None).await {
+                Err(e) if e.code == "running" => tokio::time::sleep(LOOK).await,
+                ran => return ran,
+            }
+        }
+    };
+    assert_eq!(bounded("a run once the holder ended", runs).await.unwrap(), json!({ "stopped": true, "ticks": 0 }));
     assert!(!pid.exists());
 }
 
@@ -488,7 +506,7 @@ async fn a_pid_file_that_does_not_open_refuses_the_run_as_io() {
 async fn stop_leaves_the_file_of_a_daemon_that_holds_its_lock_and_has_not_written_its_pid() {
     let w = World::new();
     let pid = w.data().pid();
-    let held = held_saying(&pid, "");
+    let held = held_saying(&pid, "").await;
     assert_eq!(w.app.stop().await.unwrap()["why"], "no daemon runs");
     assert!(pid.exists(), "its holder keeps it");
     drop(held);

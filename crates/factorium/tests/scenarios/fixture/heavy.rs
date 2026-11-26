@@ -32,8 +32,10 @@ pub const POLL: i64 = 500;
 pub const LOOK: Duration = Duration::from_millis(10);
 
 /// What `comes` answers; past [`STUCK`], a hang, it fails, as `what` never came.
+/// Boxed: a scenario's future, nesting several of these, is kept on its
+/// test thread's stack, and overflowed it unboxed.
 pub async fn bounded<T>(what: &str, comes: impl Future<Output = T>) -> T {
-    tokio::time::timeout(STUCK, comes).await.unwrap_or_else(|_| panic!("{what} never came"))
+    tokio::time::timeout(STUCK, Box::pin(comes)).await.unwrap_or_else(|_| panic!("{what} never came"))
 }
 
 /// Until `path` is there; past [`STUCK`], a hang, it fails.
