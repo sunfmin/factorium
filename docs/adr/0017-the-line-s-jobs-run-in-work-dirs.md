@@ -21,9 +21,10 @@ unnamed "Detached HEAD" workspaces.
   `cut <checkout> <version>` or `idle <checkout>`, with a comment saying
   what runs there, that factorium removes it, and its maker's pid.
 - The build cache is kept outside it, per checkout and kind under the
-  data directory: `CARGO_TARGET_DIR`, and the dirs `factorium.toml`
-  declares `cache`, moved in and out. A script reads builds from
-  `${CARGO_TARGET_DIR:-target}`.
+  data directory: its `target`, and the dirs `factorium.toml` declares
+  `cache`, moved into the work dir at the job's start and out at its end.
+  No `CARGO_TARGET_DIR` is set: a job builds where a worker's own run does,
+  and scripts that read `target/` need no change.
 - So the cache is as fresh as a reused clone's: the worktree is made at
   one path per checkout and kind (made as `<kind> <checkout>`, then shown
   as its job's), as rustc's incremental cache holds absolute paths; and a

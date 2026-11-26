@@ -2,7 +2,7 @@
 //! gate, its cut and its heavy commands.
 //!
 //! ```toml
-//! cache = ["node_modules"]  # build caches no environment variable moves out of the tree
+//! cache = ["node_modules"]  # build caches kept across work dirs, as `target` always is
 //!
 //! [gate]
 //! fast = "cargo test"     # run on every landing and by `factorium worker gate`
@@ -29,10 +29,9 @@ pub const FILE: &str = "factorium.toml";
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Declared {
-    /// The dirs of the tree, relative to its root, that hold a build cache
-    /// no environment variable moves out of it (`CARGO_TARGET_DIR` moves
-    /// cargo's): kept across the line's jobs, each of which runs in a work
-    /// dir of its own.
+    /// The dirs of the tree, relative to its root, besides `target` that
+    /// hold a build cache: kept across the line's jobs, each of which runs
+    /// in a work dir of its own.
     #[serde(default)]
     pub cache: Vec<String>,
     #[serde(default)]

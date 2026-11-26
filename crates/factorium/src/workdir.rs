@@ -6,9 +6,10 @@
 //! the checkout sees its tags and `origin/*` refs as the checkout has them.
 //!
 //! The build cache is the one thing kept across jobs, outside the worktree:
-//! one per checkout and kind under the data directory, given to the job's
-//! steps as `CARGO_TARGET_DIR`, and the dirs `factorium.toml` declares
-//! `cache` moved in at the start and out at the end. The build reads its
+//! one per checkout and kind under the data directory, its `target` and the
+//! dirs `factorium.toml` declares `cache` moved into the work dir at the
+//! job's start and out at its end, so a job builds where a worker's own run
+//! does and no repo's scripts change. The build reads its
 //! cache as one reused clone's would: the work dir is made at one path per
 //! checkout and kind (Orca's path follows the name it is made with; it is
 //! then shown as its job's), as rustc's incremental cache holds absolute
@@ -114,8 +115,8 @@ impl App {
         here.detached(rev).map_err(fail("git"))?;
         let cache = self.data().cache(kind, &c.name);
         restore_mtimes(&here, &cache);
-        for dir in declared_caches(&path) {
-            let (kept, there) = (cache.join("dirs").join(&dir), path.join(&dir));
+        for dir in cached(&path) {
+            let (kept, there) = (cache.join(&dir), path.join(&dir));
             if kept.exists() && !there.exists() {
                 let _ = std::fs::create_dir_all(there.parent().unwrap_or(&path));
                 let _ = std::fs::rename(&kept, &there);
@@ -130,22 +131,15 @@ impl App {
         Ok(here)
     }
 
-    /// The environment the steps of `checkout`'s job of `kind` run with: its
-    /// build cache, kept across its work dirs.
-    pub(crate) fn cache_env(&self, kind: LineDir, checkout: &str) -> Vec<(String, String)> {
-        let target = self.data().cache(kind, checkout).join("target");
-        vec![("CARGO_TARGET_DIR".into(), target.to_string_lossy().into_owned())]
-    }
-
-    /// Ends the work dir at `dir` of `checkout`'s job of `kind`: the declared
-    /// caches moved back out, the worktree removed through Orca. Answers why
+    /// Ends the work dir at `dir` of `checkout`'s job of `kind`: its caches
+    /// moved back out, the worktree removed through Orca. Answers why
     /// it is not removed, if it is not.
     pub(crate) fn work_dir_done(&self, kind: LineDir, checkout: &str, dir: &Path) -> Result<(), String> {
         self.memory.lock().unwrap().work_dirs.remove(dir);
         HELD.lock().unwrap().remove(dir);
         keep_mtimes(&self.host.git(dir), &self.data().cache(kind, checkout));
-        let cache = self.data().cache(kind, checkout).join("dirs");
-        for d in declared_caches(dir) {
+        let cache = self.data().cache(kind, checkout);
+        for d in cached(dir) {
             let (there, kept) = (dir.join(&d), cache.join(&d));
             if there.exists() {
                 let _ = std::fs::remove_dir_all(&kept);
@@ -288,9 +282,11 @@ fn restore_mtimes(here: &Git, cache: &Path) {
     }
 }
 
-/// The dirs the `factorium.toml` in `dir` declares `cache`; none unread.
-fn declared_caches(dir: &Path) -> Vec<String> {
+/// The dirs of the work dir `dir` its cache keeps: `target`, and those its
+/// `factorium.toml` declares `cache`.
+fn cached(dir: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(dir.join(declared::FILE)).ok();
     let cache = declared::read(text.as_deref()).map(|d| d.cache).unwrap_or_default();
-    cache.into_iter().filter(|d| !d.is_empty() && !Path::new(d).is_absolute() && !d.contains("..")).collect()
+    let declared = cache.into_iter().filter(|d| !d.is_empty() && !Path::new(d).is_absolute() && !d.contains(".."));
+    std::iter::once("target".to_string()).chain(declared.filter(|d| d != "target")).collect()
 }

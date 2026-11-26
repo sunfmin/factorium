@@ -12,7 +12,7 @@ use factum::Uuid;
 use std::path::PathBuf;
 
 use crate::heavy::{For, Job, Turn};
-use crate::{Answer, App, LineDir, fail};
+use crate::{Answer, App, fail};
 
 /// What a gate is run on.
 pub(crate) enum At<'a> {
@@ -69,18 +69,15 @@ impl App {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: String::new() }));
         };
         let steps = [cmd];
-        // A commit is gated in a line's work dir, with its build cache; a worktree, as it is.
-        let cache = self.cache_env(if kind == Kind::Fast { LineDir::Landing } else { LineDir::Promotion }, checkout);
         let job = |what| Job::gate(what, &here.dir, &steps, limit);
-        let cached = |what| job(what).with_env(cache.clone());
         let (job, turn) = match at {
             At::Commit { bound_at, .. } => {
-                (cached(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), Turn::Wait)
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), Turn::Wait)
             }
             At::Beside { bound_at, moving, .. } => {
                 let (key, lands) = (Some(record_key(checkout, &tree, kind)), moving.lands());
                 let turn = Turn::Beside { key, yields: false, of: For::Line(moving) };
-                (cached(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at).landing(lands), turn)
+                (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at).landing(lands), turn)
             }
             At::Worktree { worker, number } => {
                 (job(heavy::LineJob::Gate(kind).of(&format!("{checkout}#{number}"))).of(Some(worker), None), Turn::Wait)

@@ -90,8 +90,8 @@ impl Data {
         self.0.join("cache")
     }
 
-    /// The build cache of `checkout`'s jobs of `kind`: `CARGO_TARGET_DIR`,
-    /// and the dirs its `factorium.toml` declares `cache`, under `dirs/`.
+    /// The build cache of `checkout`'s jobs of `kind`: its `target`, and the
+    /// dirs its `factorium.toml` declares `cache`, each at its own path.
     pub fn cache(&self, kind: LineDir, checkout: &str) -> PathBuf {
         self.caches().join(kind.name()).join(checkout)
     }

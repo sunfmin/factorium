@@ -147,8 +147,7 @@ impl App {
         let Some(idle) = self.idle_ready(c, overdue).await? else { return Ok(None) };
         let (checkout, tip, dir, steps) =
             (idle.checkout.clone(), idle.tip.clone(), idle.dir.clone(), idle.steps.clone());
-        let job = Job::idle(idle::job(&checkout), &dir, &steps, idle.limit)
-            .with_env(self.cache_env(LineDir::Idle, &checkout));
+        let job = Job::idle(idle::job(&checkout), &dir, &steps, idle.limit);
         let turn = Turn::Beside { key: None, yields: !overdue, of: For::Idle(Box::new(idle)) };
         if self.heavy(job, turn).await?.is_none() {
             let _ = self.work_dir_done(LineDir::Idle, &checkout, &dir);
@@ -202,8 +201,7 @@ impl App {
             );
             return Err(Refusal::new("no_idle", why));
         };
-        let job = Job::idle(idle::job(&c.name), &idle.dir, &idle.steps, idle.limit)
-            .with_env(self.cache_env(LineDir::Idle, &c.name));
+        let job = Job::idle(idle::job(&c.name), &idle.dir, &idle.steps, idle.limit);
         let rans = self.heavy(job, Turn::Wait).await?.expect("a waited turn");
         self.idle_ran(idle, rans).await
     }

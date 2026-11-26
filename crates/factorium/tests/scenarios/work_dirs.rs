@@ -188,3 +188,27 @@ async fn a_file_unchanged_since_the_last_landing_keeps_its_mtime_in_the_next_one
     let landings: Vec<_> = removed.iter().filter(|p| p.ends_with("landing-web")).collect();
     assert_eq!(landings.len(), 2, "{removed:?}");
 }
+
+#[tokio::test]
+async fn a_step_that_reads_target_release_after_cargo_build_release_passes_in_a_landings_work_dir() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    let manifest = "[package]\nname = \"web\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[[bin]]\nname = \"web\"\npath = \"main.rs\"\n";
+    w.push_by_hand("web", "proving", "Cargo.toml", manifest);
+    w.push_by_hand("web", "proving", "main.rs", "fn main() { println!(\"built\"); }\n");
+    w.push_by_hand("web", "proving", ".gitignore", "/target\n");
+    // As slimfit's and the release scripts' gates read a build: at `target/`, no CARGO_TARGET_DIR.
+    let gate = r#"test -z "$CARGO_TARGET_DIR" && cargo build --release -q && ./target/release/web | grep -q built"#;
+    w.push_by_hand("web", "proving", "factorium.toml", &format!("[gate]\nfast = '{gate}'\nfast_limit = 300\n"));
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick_alone().await;
+    w.lands("web", 1, "a").await;
+    let kept = w.data().cache(factorium::LineDir::Landing, "web").join("target/release/web");
+    assert!(kept.is_file(), "the build is kept in the cache once the work dir goes");
+    // The next landing's work dir has it back as its `target`.
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick_alone().await;
+    w.lands("web", 2, "b").await;
+    assert!(kept.is_file());
+}

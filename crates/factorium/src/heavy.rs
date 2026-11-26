@@ -99,11 +99,6 @@ impl<'a> Job<'a> {
     pub(crate) fn landing(self, worker: Option<Uuid>) -> Self {
         Job { lands: worker, ..self }
     }
-    /// The job, its steps run with `env` besides.
-    pub(crate) fn with_env(mut self, env: Vec<(String, String)>) -> Self {
-        self.env.extend(env);
-        self
-    }
     /// The job for `worker`, or for a line move due by `bound_at`.
     pub(crate) fn of(self, worker: Option<Uuid>, bound_at: Option<i64>) -> Self {
         Job { worker, bound_at, ..self }
