@@ -15,7 +15,7 @@ slow gate cannot run on every landing.
 - A gate is the repo's own fast and slow commands, each with its limit. A green run is recorded against the tree it ran on, so the same tree is never gated twice.
 - Landing: a worker's `done` merges its branch onto the proving tip, runs
   the fast gate on the merge, and moves proving by a push that requires the
-  tip it read; one per checkout at a time. A merge whose only conflicts are records the gate regenerates (`[gate] regenerated` in `factorium.toml`) is not red: it takes proving's copy of each.
+  tip it read; a checkout's landings are stacked, their gates at once ([ADR 0019](0019-stacked-landing-gates.md)). A merge whose only conflicts are records the gate regenerates (`[gate] regenerated` in `factorium.toml`) is not red: it takes proving's copy of each.
   Any other conflict is red, naming every conflicting file.
 - Each tick checks the merge of every branch waiting in line onto the
   proving tip (`git merge-tree`). One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since), and leaves the line; one that merges keeps its place.
@@ -32,6 +32,6 @@ slow gate cannot run on every landing.
 
 ## Consequences
 
-- While a move of a checkout runs beside the ticks, no other move of its
-  kind is carried (the other kinds go on: [ADR 0018](0018-a-checkout-s-moves-run-apart.md)),
+- While a promotion or a cut of a checkout runs beside the ticks, no other of its
+  kind is carried (the other kinds go on: [ADR 0018](0018-a-checkout-s-moves-run-apart.md); landings stack: ADR 0019),
   and the daemon does not restart onto a new binary.

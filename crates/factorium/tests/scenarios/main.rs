@@ -67,6 +67,7 @@ mod queue;
 mod resource;
 mod review;
 mod spent;
+mod stacked;
 mod stale;
 mod stall;
 mod state;

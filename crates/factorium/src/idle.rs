@@ -165,7 +165,7 @@ impl App {
         let Some(mut work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
         let short = &tip[..tip.len().min(7)];
         let about = format!("factorium's idle work of {} on its base {short}: its steps and tasks line.", c.name);
-        let here = self.work_dir(c, LineDir::Idle, &c.name, &about, &tip)?;
+        let here = self.work_dir(c, LineDir::Idle, 0, &c.name, &about, &tip)?;
         work.steps.retain(|_| !overdue); // overdue: the tasks alone
         let tasks = work.tasks.as_ref().map(|line| {
             let out = self.data().idle_tasks(&c.name);

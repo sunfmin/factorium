@@ -204,7 +204,7 @@ async fn a_step_that_reads_target_release_after_cargo_build_release_passes_in_a_
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick_alone().await;
     w.lands("web", 1, "a").await;
-    let kept = w.data().cache(factorium::LineDir::Landing, "web").join("target/release/web");
+    let kept = w.data().cache(factorium::LineDir::Landing, "web", 0).join("target/release/web");
     assert!(kept.is_file(), "the build is kept in the cache once the work dir goes");
     // The next landing's work dir has it back as its `target`.
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();

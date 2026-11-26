@@ -114,7 +114,7 @@ pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// command is registered here, beside the engine (docs/adr/0001).
 fn model() -> Model {
     use factorium_domain::{
-        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, tracker, watch,
+        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, stack, tracker, watch,
         worker,
     };
     Model::new()
@@ -166,6 +166,13 @@ fn model() -> Model {
         .command::<line::RecordCut>()
         .command::<line::HoldLandings>()
         .command::<line::AwaitMutants>()
+        .aggregate::<stack::Stacks>()
+        .command::<stack::StackLanding>()
+        .command::<stack::GreenLayer>()
+        .command::<stack::RedLayer>()
+        .command::<stack::Unstack>()
+        .command::<stack::LandStack>()
+        .command::<stack::ClearStack>()
         .aggregate::<kit::Kits>()
         .command::<kit::MoveCommands>()
         .command::<kit::PinCheckout>()

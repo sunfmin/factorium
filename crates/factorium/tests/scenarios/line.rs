@@ -521,7 +521,7 @@ async fn the_clones_the_line_ran_in_before_are_retired_as_the_daemon_starts_thei
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     std::fs::write(&lock, "").unwrap();
     w.app.daemon_start().await.unwrap();
-    let cache = w.data().cache(LineDir::Landing, "web").join("target");
+    let cache = w.data().cache(LineDir::Landing, "web", 0).join("target");
     assert_eq!(std::fs::read_to_string(cache.join("debug/built")).unwrap(), "x", "its build is the cache now");
     assert!(!clone.exists(), "the clone is gone");
     assert!(lock.exists());
@@ -700,6 +700,6 @@ fn a_failed_cut_waits_for_a_newer_promotion() {
     l.apply(LineEvent::Promoted { tip: "b".into(), at: 3, gated: None });
     assert!(l.cut_failed.is_none());
     let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
-    let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
+    let look = Look { now: 4, idle: true, asks: Vec::new(), bounds, by_hand: false };
     assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
 }

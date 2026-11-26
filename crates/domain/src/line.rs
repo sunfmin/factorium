@@ -44,13 +44,15 @@ pub struct Seen {
 
 /// What the app sees of the checkout now, for the line to judge: its live
 /// workers and their status, oldest status first. Those waiting for the
-/// watch do not keep it busy; of those asking to land, the first urgent
-/// one lands, else the first.
+/// watch do not keep it busy; those asking to land stack the urgent first,
+/// then each as it asked.
 pub fn look(now: i64, settings: &Settings, workers: &[Seen], by_hand: bool) -> crate::neutral::landing::Look {
+    let mut asks: Vec<&Seen> = workers.iter().filter(|w| w.status == Status::Landing).collect();
+    crate::issue::urgent_first(&mut asks, |w| w.urgent);
     crate::neutral::landing::Look {
         now,
         idle: workers.iter().all(|w| w.status == Status::Waiting),
-        asks: workers.iter().filter(|w| w.status == Status::Landing).min_by_key(|w| !w.urgent).map(|w| w.worker),
+        asks: asks.into_iter().map(|w| w.worker).collect(),
         bounds: bounds(settings),
         by_hand,
     }

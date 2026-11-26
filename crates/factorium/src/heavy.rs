@@ -440,6 +440,16 @@ impl App {
         failed.map_or(Ok(ended), Err)
     }
 
+    /// Takes the jobs beside the ticks that `pick` picks off the queue, as an unqueue does: the
+    /// next tick's [`App::beside`] ends each, every process it started with it.
+    pub(crate) async fn unqueue_beside(&self, pick: impl Fn(&For) -> bool) -> Answer<()> {
+        let ids: Vec<Uuid> = self.memory.lock().unwrap().beside.iter().filter(|b| pick(&b.1)).map(|b| b.0.id).collect();
+        for id in ids {
+            self.submit::<EndHeavy>(End { id, keeps: false, gone: None, outcome: None }).await?;
+        }
+        Ok(())
+    }
+
     /// Whether a job that `pick` picks runs beside the ticks.
     pub(crate) fn beside_runs(&self, pick: impl Fn(&For) -> bool) -> bool {
         self.memory.lock().unwrap().beside.iter().any(|b| pick(&b.1))

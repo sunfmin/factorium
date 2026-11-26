@@ -118,11 +118,11 @@ pub enum Move {
     Cut,
 }
 
-/// What is due: the move, for a landing the one it lands, and for a
-/// promotion the proving tip it was judged on.
+/// What is due: the move, for landings those that ask, in the order they
+/// stack, and for a promotion the proving tip it was judged on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Due {
-    Land(Uuid),
+    Land(Vec<Uuid>),
     Promote(String),
     Cut,
 }
@@ -159,8 +159,9 @@ pub struct Look {
     pub now: i64,
     /// Nothing works on the repo or lands on it.
     pub idle: bool,
-    /// Of those asking to land, the one that asked first.
-    pub asks: Option<Uuid>,
+    /// Those asking to land, in the order they stack: the urgent first, then
+    /// each as it asked.
+    pub asks: Vec<Uuid>,
     pub bounds: Bounds,
     /// Asked for by hand: the bounds and a red tip or failed cut do not hold it.
     pub by_hand: bool,
@@ -248,8 +249,11 @@ impl Line {
         if let Some(why) = &self.held {
             return Err(NotDue::Held(why.clone()));
         }
-        // One landing at a time: the one that asked first.
-        look.asks.map(Due::Land).ok_or(NotDue::NoAsk)
+        // Every one that asks, each stacked on the one before (docs/adr/0019-stacked-landing-gates.md).
+        if look.asks.is_empty() {
+            return Err(NotDue::NoAsk);
+        }
+        Ok(Due::Land(look.asks.clone()))
     }
 
     /// Whether a promotion is due on everything but the proving tip.

@@ -30,6 +30,7 @@ pub mod pick;
 pub mod review;
 pub mod settings;
 pub mod spent;
+pub mod stack;
 pub mod steps;
 pub mod tracker;
 pub mod watch;
