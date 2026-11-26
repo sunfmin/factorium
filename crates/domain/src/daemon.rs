@@ -79,13 +79,27 @@ impl Steps {
     }
 }
 
+/// How many quick ticks in a row after a slow one resolve it: ticks are
+/// slow no longer.
+pub const QUICK_TICKS_RESOLVE: u32 = 5;
+
 /// A tick that took past half the hang bound: when it ended, how long it
-/// took, ms, and the step it spent most in.
+/// took, ms, the step it spent most in, and the quick ticks in a row since,
+/// counted up to [`QUICK_TICKS_RESOLVE`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SlowTick {
     pub at: i64,
     pub took_ms: i64,
     pub longest: Step,
+    #[serde(default)]
+    pub quick_since: u32,
+}
+
+impl SlowTick {
+    /// Whether ticks are still slow: fewer than [`QUICK_TICKS_RESOLVE`] quick ones since.
+    pub fn stands(&self) -> bool {
+        self.quick_since < QUICK_TICKS_RESOLVE
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -134,6 +148,8 @@ pub enum DaemonEvent {
     },
     RollbackOver,
     TickSlow(SlowTick),
+    /// A tick under half the hang bound, after a slow one that still stands.
+    TickQuick,
     SwapRefused(Option<Refused>),
     UpgradeTried(Upgrade),
     /// A role directory was checked.
@@ -161,6 +177,7 @@ impl Aggregate for Daemons {
             DaemonEvent::RolledBack { rolled_back, .. } => s.rolled_back = Some(rolled_back),
             DaemonEvent::RollbackOver => s.rolled_back = None,
             DaemonEvent::TickSlow(slow) => s.slow = Some(slow),
+            DaemonEvent::TickQuick => s.slow.iter_mut().for_each(|t| t.quick_since += 1),
             DaemonEvent::SwapRefused(r) => s.refused = r,
             DaemonEvent::UpgradeTried(u) => s.upgrade = Some(u),
             DaemonEvent::RoleChecked(RoleChecked { dir, lacking: Some(l) }) => _ = s.roles.insert(dir, l),
@@ -188,15 +205,23 @@ pub struct Ticked {
     pub slow: Option<(i64, Step)>,
 }
 
-// A tick's outcome: a failure adds to the run; a success ends it. A slow one is kept.
+// A tick's outcome: a failure adds to the run; a success ends it. A slow one is kept;
+// a quick one counts toward resolving the last slow one, until it does.
 command!(NoteTick, "daemon.tick", Daemons, Ticked, |_p| daemon_id(), |s, p, now| {
     let mut events = match (&p.error, &s.failing) {
         (Some(e), _) => vec![DaemonEvent::TickFailed { at: now.0, error: e.clone() }],
         (None, Some(_)) => vec![DaemonEvent::TickDone],
         (None, None) => Vec::new(),
     };
-    if let Some((took_ms, longest)) = &p.slow {
-        events.push(DaemonEvent::TickSlow(SlowTick { at: now.0, took_ms: *took_ms, longest: longest.clone() }));
+    match &p.slow {
+        Some((took_ms, longest)) => events.push(DaemonEvent::TickSlow(SlowTick {
+            at: now.0,
+            took_ms: *took_ms,
+            longest: longest.clone(),
+            quick_since: 0,
+        })),
+        None if s.slow.as_ref().is_some_and(SlowTick::stands) => events.push(DaemonEvent::TickQuick),
+        None => {}
     }
     Ok(events)
 });
