@@ -256,8 +256,24 @@ impl App {
 
     /// Closes an issue; a worker on it ends. The attempt whose worktree its
     /// last attempt left on disk is abandoned ([`App::abandon`]). Claimed
-    /// ([`App::claimed`]): refused while a start is under way.
+    /// ([`App::claimed`]), but never refused for a start under way: the
+    /// owner's stop wins. It closes, abandoning nothing, and the start ends
+    /// its worker, its worktree kept ([`App::start_worker`]).
     pub async fn issue_close(&self, checkout: &str, number: u64, reason: &str) -> Answer {
+        let closed = self.claimed_close(checkout, number, reason).await;
+        match closed {
+            Err(r) if r.code == "claimed" => {
+                // A start's, or one gone since: only another command's refuses.
+                match self.issue(checkout, number).await?.claim {
+                    Some(c) if c.by != Claimant::Start => Err(r),
+                    _ => self.close(checkout, number, reason, true).await,
+                }
+            }
+            closed => closed,
+        }
+    }
+
+    async fn claimed_close(&self, checkout: &str, number: u64, reason: &str) -> Answer {
         self.claimed(checkout, number, Claimant::Close, async {
             let issue = self.issue(checkout, number).await?;
             // A checkout off the list has no worktrees factorium removes.
@@ -274,24 +290,30 @@ impl App {
 
     /// Closes an issue for `reason`; a worker on it ends, keeping its worktree if `keep`.
     pub(crate) async fn close(&self, checkout: &str, number: u64, reason: &str, keep: bool) -> Answer {
-        let why = format!("its issue closed: {reason}");
-        self.leave::<CloseIssue>(checkout, number, reason, End::because(why, keep)).await
+        self.leave::<CloseIssue>(checkout, number, reason, keep).await
     }
 
     /// Leaves an issue to a person: only `issue ready` moves it again. A
-    /// worker on it ends, keeping its worktree.
+    /// worker on it ends, keeping its worktree; one still starting, its
+    /// start ends ([`App::start_worker`]).
     pub async fn issue_wait_for_human(&self, checkout: &str, number: u64, reason: &str) -> Answer {
-        let why = format!("its issue waits for a person: {reason}");
-        self.leave::<WaitForHuman>(checkout, number, reason, End::because(why, true)).await
+        self.leave::<WaitForHuman>(checkout, number, reason, true).await
     }
 
     /// The issue leaves its worker: command `C` moves it, for `reason`, and
-    /// the worker on it, if one is, ends as `end` says.
-    async fn leave<C: Command<Params = Because>>(&self, checkout: &str, number: u64, reason: &str, end: End) -> Answer {
+    /// the worker on it, if one is, ends as [`Issue::left_why`] says,
+    /// keeping its worktree if `keep`.
+    async fn leave<C: Command<Params = Because>>(
+        &self,
+        checkout: &str,
+        number: u64,
+        reason: &str,
+        keep: bool,
+    ) -> Answer {
         let worker = self.issue(checkout, number).await?.worker;
         self.submit::<C>(Because { checkout: checkout.into(), number, reason: reason.into() }).await?;
-        if let Some(w) = worker {
-            self.end_worker(w, end).await?;
+        if let (Some(w), Some(why)) = (worker, self.issue(checkout, number).await?.left_why()) {
+            self.end_worker(w, End::because(why, keep)).await?;
         }
         self.issue_show(checkout, number).await
     }

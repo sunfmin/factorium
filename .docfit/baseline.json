@@ -1,7 +1,7 @@
 {
   "SPEC.md": {
-    "local_refs": 38,
-    "rehome": 47936
+    "local_refs": 25,
+    "rehome": 47926
   },
   "checks.sh": {
     "local_refs": 2
@@ -124,7 +124,7 @@
     "local_refs": 1
   },
   "crates/factorium/tests/scenarios/kept.rs": {
-    "local_refs": 3
+    "local_refs": 2
   },
   "crates/factorium/tests/scenarios/kit.rs": {
     "local_refs": 1

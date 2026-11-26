@@ -40,7 +40,8 @@ impl End {
 impl App {
     /// Starts a worker on issue `number` of `checkout`. Its take claims the
     /// issue ([`TakeIssue`]) until the start is recorded or undone, so no
-    /// command that abandons a worktree acts on it meanwhile (factorium#189).
+    /// command that abandons a worktree acts on it meanwhile (factorium#189);
+    /// a person's stop meanwhile ends its worker at its end ([`App::stopped_meanwhile`]).
     pub(crate) async fn start_worker(&self, checkout: &str, number: u64) -> Answer {
         let c = self.checkout(checkout).await?;
         let issue = self.issue(checkout, number).await?;
@@ -61,7 +62,7 @@ impl App {
             };
             let shown = json!({ "worker": worker, "issue": format!("{checkout}#{number}"), "harness": st.harness, "account": st.account, "worktree": st.worktree });
             match self.begin(worker, &st, typed).await {
-                Ok(()) => Ok(shown),
+                Ok(()) => self.stopped_meanwhile(checkout, number, worker, shown).await,
                 Err((why, r)) => Err(self.undo_start(worker, &st, why, r).await),
             }
         }
@@ -106,6 +107,23 @@ impl App {
             );
         }
         Ok(freed)
+    }
+
+    /// A start's last look, once its worker is recorded started (SPEC §2):
+    /// an issue that a person's stop (`wait-for-human`, `close`) moved
+    /// meanwhile, found no started worker to end, so its start ends it, as
+    /// the stop would have, its worktree kept. `ended` in its answer says why.
+    async fn stopped_meanwhile(
+        &self,
+        checkout: &str,
+        number: u64,
+        worker: Uuid,
+        mut shown: serde_json::Value,
+    ) -> Answer {
+        let Some(why) = self.issue(checkout, number).await?.left_why() else { return Ok(shown) };
+        self.end_worker(worker, End::because(why.clone(), true)).await?;
+        shown["ended"] = json!(why);
+        Ok(shown)
     }
 
     /// Records a worker whose session opened as started, and hands it its
