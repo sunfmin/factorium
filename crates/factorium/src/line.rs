@@ -23,7 +23,7 @@ use std::path::Path;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::doctor::Stuck;
-use factorium_domain::heavy::{Ends, Heavy, queue_id};
+use factorium_domain::heavy::Ends;
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;

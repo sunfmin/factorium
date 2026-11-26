@@ -260,7 +260,8 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     };
     let running = Entry { started_at: Some(0), ..workers(4, 0, false) };
     let (exclusive, urgent) = (workers(1, 0, false), workers(3, 2 * MIN, true));
-    let program = Entry { ask: Ask { program: true, worker: None, ..workers(7, 0, false).ask }, ..workers(7, 0, false) };
+    let program =
+        Entry { ask: Ask { program: true, worker: None, ..workers(7, 0, false).ask }, ..workers(7, 0, false) };
     // Its worker's command, queued before its issue was marked.
     let own = Entry { started_at: Some(0), ..workers(5, 0, false) };
     let cut = Entry {
@@ -306,39 +307,46 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [3, 2, 1, 7], "lifted: as before");
 }
 
-/// Halted by web#2, urgent: no other worker starts, but another
+/// Halted by app#2, urgent: no other worker starts, but another
 /// checkout's done worker lands, and a third checkout's landing is
 /// promoted and cut, all during the halt.
 #[tokio::test]
 async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_starts() {
     let w = World::new();
-    for c in ["web", "api", "lib"] {
+    for c in ["app", "api", "web"] {
         w.checkout(c).await;
     }
     w.kit().await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
-    for (c, title) in [("web", "a"), ("web", "b"), ("api", "a"), ("lib", "a")] {
+    for (c, title) in [("app", "a"), ("app", "b"), ("api", "a"), ("web", "a")] {
         w.app.issue_add(c, title, "", false, &[]).await.unwrap();
     }
     for _ in 0..4 {
         w.tick().await;
     }
-    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
-    w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
+    w.app.issue_mark_urgent("app", 2, true).await.unwrap();
+    w.app.issue_add("app", "c", "", false, &[]).await.unwrap();
     let t = w.tick().await;
-    assert!(t.started.is_none() && t.held.as_deref() == Some("halt: behind urgent web#2"), "{:?}", t.held);
+    assert!(t.started.is_none() && t.held.as_deref() == Some("halt: behind urgent app#2"), "{:?}", t.held);
     let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    assert!(found.iter().any(|f| f.starts_with("urgent web#2 halts") && f.contains("landings, promotions and cuts go on")), "{found:?}");
+    assert!(
+        found.iter().any(|f| f.starts_with("urgent app#2 halts") && f.contains("landings, promotions and cuts go on")),
+        "{found:?}"
+    );
     let api = w.lands("api", 1, "a").await;
-    assert_eq!(api.tick.held.as_deref(), Some("halt: behind urgent web#2"), "still halted");
-    let lib = w.lands("lib", 1, "a").await.tick;
-    assert!(lib.lines.iter().any(|l| l["promoted"] == "lib"), "promoted during the halt: {:?}", lib.lines);
-    let cut = lib.lines.iter().find(|l| l["cut"] == "lib").unwrap_or_else(|| panic!("cut during the halt: {:?}", lib.lines));
+    assert_eq!(api.tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
+    let cut_tick = w.lands("web", 1, "a").await.tick;
+    assert!(cut_tick.lines.iter().any(|l| l["promoted"] == "web"), "promoted during the halt: {:?}", cut_tick.lines);
+    let cut = cut_tick
+        .lines
+        .iter()
+        .find(|l| l["cut"] == "web")
+        .unwrap_or_else(|| panic!("cut during the halt: {:?}", cut_tick.lines));
     assert_eq!(cut["failed"], Value::Null, "{cut}");
-    assert_eq!(lib.held.as_deref(), Some("halt: behind urgent web#2"), "still halted");
-    // web#1, of the urgent issue's own checkout, lands too.
-    let web = w.lands("web", 1, "a").await.tick;
-    assert!(web.started.is_none(), "{:?}", web.started);
+    assert_eq!(cut_tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
+    // app#1, of the urgent issue's own checkout, lands too.
+    let own = w.lands("app", 1, "a").await.tick;
+    assert!(own.started.is_none(), "{:?}", own.started);
 }
 
 #[tokio::test]
