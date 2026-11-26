@@ -1,7 +1,9 @@
 //! Which ready issue starts next (SPEC §2 step 2): the one whose checkout
 //! has the fewest live workers; among those, the one ready longest; then
 //! by checkout and number, so the order is total. A checkout with
-//! `workers_per_checkout` live workers starts none but an urgent issue's.
+//! `workers_per_checkout` live workers starts none but an urgent issue's or
+//! one that starts ahead (a promotion's mutants issue, which admission's
+//! load rules still hold); that worker still counts as live.
 
 use std::collections::BTreeMap;
 
@@ -24,8 +26,9 @@ pub fn order<'a>(mut ready: Vec<IssueRow>, workers: impl IntoIterator<Item = &'a
     ready
 }
 
-/// Whether `checkout`'s cap holds the start of an issue: not urgent, and
-/// the checkout runs `cap` live workers or more, those in landing among them.
-pub fn capped(live: &BTreeMap<&str, usize>, checkout: &str, urgent: bool, cap: u64) -> bool {
-    !urgent && live.get(checkout).copied().unwrap_or(0) as u64 >= cap
+/// Whether its checkout's cap holds the start of `issue`: neither urgent nor
+/// starting ahead, and its checkout runs `cap` live workers or more, those
+/// in landing among them.
+pub fn capped(live: &BTreeMap<&str, usize>, issue: &IssueRow, cap: u64) -> bool {
+    !issue.urgent && !issue.ahead && live.get(issue.checkout.as_str()).copied().unwrap_or(0) as u64 >= cap
 }

@@ -296,7 +296,7 @@ impl App {
     /// urgent ones first, then those that start ahead (a promotion's mutants
     /// issue), then in the ordinary order ([`App::ready`]);
     /// whose checkout is under its cap (`workers_per_checkout`), unless it is
-    /// urgent; whose account, if it names one, can start now, and whose role
+    /// urgent or starts ahead; whose account, if it names one, can start now, and whose role
     /// has what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
         let workers = self.live_workers().await?;
@@ -312,7 +312,7 @@ impl App {
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
             // Its checkout at its cap, it waits for one of its workers to end: doctor's `capped`.
-            if next::capped(&live, &r.checkout, r.urgent, cap) {
+            if next::capped(&live, &r, cap) {
                 continue;
             }
             let (checkout, number) = (r.checkout.clone(), r.number);
