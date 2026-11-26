@@ -99,7 +99,7 @@ impl App {
         Ok(self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.urgent))
     }
 
-    /// Records which urgent issues halt every other start now (SPEC §1.17),
+    /// Records which urgent issues halt every other start now (docs/adr/0015-an-urgent-issue-halts-the-host.md),
     /// read from the open issues; answers them.
     pub(crate) async fn note_halt(&self) -> Answer<Vec<String>> {
         let mut urgent = Vec::new();
@@ -114,7 +114,7 @@ impl App {
     }
 
     /// `issue edit --urgent`/`--no-urgent`: the owner's mark, which puts its
-    /// start, its worker's heavy commands and its landing ahead (SPEC §1).
+    /// start, its worker's heavy commands and its landing ahead (docs/adr/0015-an-urgent-issue-halts-the-host.md).
     pub async fn issue_mark_urgent(&self, checkout: &str, number: u64, urgent: bool) -> Answer {
         self.issue(checkout, number).await?;
         self.submit::<MarkUrgent>(Urgency { checkout: checkout.into(), number, urgent }).await?;

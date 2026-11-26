@@ -126,7 +126,7 @@ pub enum Kind {
 }
 
 /// What a gate runs: the fast gate, on a tree a landing or a worker gates, or
-/// a promotion's on the proving tip (SPEC §1.13). Proving moves only by
+/// a promotion's on the proving tip (docs/adr/0012-the-line-gate-landing-promotion-cut.md). Proving moves only by
 /// landings, each fast-gated on the commit it pushes, so a tip a landing
 /// gated green needs only what the fast gate lacks.
 #[derive(Clone, Debug, PartialEq, Eq)]

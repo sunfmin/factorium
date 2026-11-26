@@ -15,9 +15,9 @@ pub struct Checkout {
     /// On the list now: added, and not removed since.
     pub listed: bool,
     /// The role directory a worker of an issue that names none starts with
-    /// (SPEC.md §1.2); an issue's own role wins.
+    /// (docs/adr/0008-roles-and-waiting-issues.md); an issue's own role wins.
     pub role: Option<String>,
-    /// Its idle work is off on this host (SPEC.md §1.16): no idle run
+    /// Its idle work is off on this host (docs/adr/0014-idle-work.md): no idle run
     /// starts for it here and none files its tasks; a run by hand still does.
     #[serde(default)]
     pub idle_off: bool,
