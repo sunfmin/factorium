@@ -1,0 +1,323 @@
+{
+  "Cargo.toml": {
+    "local_refs": 1
+  },
+  "README.md": {
+    "bytes": 4107,
+    "local_refs": 1
+  },
+  "SPEC.md": {
+    "local_refs": 59,
+    "rehome": 73711
+  },
+  "checks.sh": {
+    "local_refs": 2
+  },
+  "crates/domain/src/admission.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/bump.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/daemon.rs": {
+    "local_refs": 2
+  },
+  "crates/domain/src/declared.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/doctor.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/health.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/heavy.rs": {
+    "local_refs": 7
+  },
+  "crates/domain/src/idle.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/issue.rs": {
+    "local_refs": 8
+  },
+  "crates/domain/src/kit.rs": {
+    "local_refs": 5
+  },
+  "crates/domain/src/line.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/needs.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/neutral/landing.rs": {
+    "local_refs": 4
+  },
+  "crates/domain/src/outbox.rs": {
+    "local_refs": 2
+  },
+  "crates/domain/src/pick.rs": {
+    "local_refs": 2
+  },
+  "crates/domain/src/settings.rs": {
+    "local_refs": 1
+  },
+  "crates/domain/src/steps.rs": {
+    "local_refs": 2
+  },
+  "crates/domain/src/tracker.rs": {
+    "local_refs": 3
+  },
+  "crates/domain/src/worker.rs": {
+    "local_refs": 7
+  },
+  "crates/factorium/tests/scenarios/accounts.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/across.rs": {
+    "local_refs": 13
+  },
+  "crates/factorium/tests/scenarios/admission.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/answers.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/beside.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/binary.rs": {
+    "local_refs": 6
+  },
+  "crates/factorium/tests/scenarios/body.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/bump.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/comment.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/daemon.rs": {
+    "local_refs": 4
+  },
+  "crates/factorium/tests/scenarios/decided.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/fixture/db.rs": {
+    "local_refs": 8
+  },
+  "crates/factorium/tests/scenarios/fixture/fakes.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/fixture/heavy.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/fixture/world.rs": {
+    "local_refs": 5
+  },
+  "crates/factorium/tests/scenarios/fixtures.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/heavy.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/idle.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/in_line.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/issue.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/kept.rs": {
+    "local_refs": 3
+  },
+  "crates/factorium/tests/scenarios/kit.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/limit.rs": {
+    "local_refs": 4
+  },
+  "crates/factorium/tests/scenarios/line.rs": {
+    "local_refs": 7
+  },
+  "crates/factorium/tests/scenarios/lines.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/needs.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/not_before.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/on.rs": {
+    "local_refs": 8
+  },
+  "crates/factorium/tests/scenarios/one_harness.rs": {
+    "local_refs": 3
+  },
+  "crates/factorium/tests/scenarios/order.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/outbox.rs": {
+    "local_refs": 4
+  },
+  "crates/factorium/tests/scenarios/parked.rs": {
+    "local_refs": 4
+  },
+  "crates/factorium/tests/scenarios/pick.rs": {
+    "local_refs": 3
+  },
+  "crates/factorium/tests/scenarios/picked.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/place.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/priority.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/program.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/proof.rs": {
+    "local_refs": 5
+  },
+  "crates/factorium/tests/scenarios/queue.rs": {
+    "local_refs": 5
+  },
+  "crates/factorium/tests/scenarios/resource.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/review.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/stale.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/stall.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/steps.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/terminals.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/tracker.rs": {
+    "local_refs": 4
+  },
+  "crates/factorium/tests/scenarios/unqueue.rs": {
+    "local_refs": 2
+  },
+  "crates/factorium/tests/scenarios/upgrade.rs": {
+    "local_refs": 1
+  },
+  "crates/factorium/tests/scenarios/watch.rs": {
+    "local_refs": 5
+  },
+  "crates/harness/src/harness/claude_code.rs": {
+    "local_refs": 2
+  },
+  "crates/harness/src/harness/seen.rs": {
+    "local_refs": 1
+  },
+  "crates/harness/tests/session.rs": {
+    "local_refs": 1
+  },
+  "crates/host/src/brew.rs": {
+    "local_refs": 2
+  },
+  "crates/host/src/git.rs": {
+    "local_refs": 4
+  },
+  "crates/host/src/procs.rs": {
+    "local_refs": 1
+  },
+  "crates/host/src/proof.rs": {
+    "local_refs": 2
+  },
+  "crates/host/tests/brew.rs": {
+    "local_refs": 2
+  },
+  "crates/host/tests/clock.rs": {
+    "local_refs": 1
+  },
+  "crates/host/tests/orca.rs": {
+    "local_refs": 1
+  },
+  "docs/adr/0001-owner-commands-by-concept.md": {
+    "local_refs": 1,
+    "pointers": [
+      "doctor.rs",
+      "issues.rs",
+      "lib.rs",
+      "owner.rs"
+    ]
+  },
+  "docs/adr/0002-binary-is-the-process-edge.md": {
+    "local_refs": 2,
+    "pointers": [
+      "cli.rs",
+      "main.rs",
+      "session/launch.rs",
+      "tests/scenarios/binary.rs"
+    ]
+  },
+  "docs/adr/0003-the-line-is-one-pass-and-its-moves.md": {
+    "local_refs": 1,
+    "pointers": [
+      "daemon.rs",
+      "doctor.rs",
+      "idle.rs",
+      "line.rs",
+      "line/cut.rs"
+    ]
+  },
+  "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md": {
+    "bytes": 3213,
+    "local_refs": 4,
+    "pointers": [
+      ".github/workflows/README.md",
+      "ADR 0013"
+    ]
+  },
+  "docs/adr/0005-the-tick-and-the-process-that-ticks.md": {
+    "pointers": [
+      "daemon.rs",
+      "daemon/process.rs"
+    ]
+  },
+  "docs/dropped.md": {
+    "local_refs": 2,
+    "rehome": 3272
+  },
+  "lines.sh": {
+    "local_refs": 1
+  },
+  "models/HeavyQueue.tla": {
+    "local_refs": 8
+  },
+  "models/HeavyResources.cfg": {
+    "local_refs": 1
+  },
+  "models/Line.tla": {
+    "local_refs": 1
+  },
+  "models/LineEnd.cfg": {
+    "local_refs": 1
+  },
+  "models/Worktrees.cfg": {
+    "local_refs": 1
+  },
+  "models/Worktrees.tla": {
+    "local_refs": 1
+  },
+  "rust-toolchain.toml": {
+    "local_refs": 1
+  },
+  "truefit.toml": {
+    "local_refs": 10
+  }
+}
