@@ -62,7 +62,7 @@ pub enum Top {
         #[arg(long)]
         worker: Option<Uuid>,
     },
-    /// Answers the findings, each with its fix; the reading; what the watch's reports leave to the owner (`human`); and `asks`: every issue that waits for a person, oldest first, with its title, its question (its body's first line after any "Based on …" line), when it started waiting and who left it so (`watch`, `session`, or `added` `--waiting-for-human`). Answer one with `issue ready` (do it), `issue close` (don't), or `issue comment` then `issue ready`; and `decided`: the Decided records made since `decided --read`.
+    /// Answers the findings, each with its fix; the reading; what the watch's reports leave to the owner (`human`); and `asks`: every issue that waits for a person, oldest first, with its title, its question (its body's first line after any "Based on …" line), when it started waiting and who left it so (`watch`, `session`, or `added` `--waiting-for-human`). Answer one with `issue ready` (do it), `issue close` (don't), or `issue comment` then `issue ready`; `decided`: the Decided records made since `decided --read`; and `mutants`: each promotion that waits for its mutants issue (where slimfit holds the record of mutants at the base), with the issue and when the wait ends (`until`, `utc`, `left_s`), `mutants_bound` after its filing.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Doctor,
     /// Answers the Decided records of the last 7 days, newest first, each with its number (`id`, D<n>), issue, who, what, options, chose, undo and when; `decided D17` (or `17`) answers that one record, whatever its age and whether it was read; `--read` marks every one made until now read, so doctor's `decided` leaves them out.
@@ -88,13 +88,13 @@ pub enum Top {
     /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Discard { worktree: PathBuf },
-    /// Promotes a checkout's proving branch to its base now: slow gate, then a fast-forward.
+    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Cut { checkout: String },
-    /// Runs a checkout's idle work now (SPEC §1.16), as `promote` and `cut` move the line now: its steps, then its tasks line, in its own clone at the base's tip, without waiting for an idle host or `every`. Through the heavy queue at background priority, it yields to nothing but the hold bound; `unqueue` ends it whole. Recorded as any run is (its start begins `every` again), its tasks filed by the same rule. Waits for it and answers its record: tip, at, green, took_ms, tail, filed. Refused when the base declares no `[idle]`, or while idle work of any checkout runs or waits on the host (one at a time), naming it and its `unqueue`.
+    /// Runs a checkout's idle work now (docs/adr/0014-idle-work.md), as `promote` and `cut` move the line now: its steps, then its tasks line, in its own clone at the base's tip, without waiting for an idle host or `every`. Through the heavy queue at background priority, it yields to nothing but the hold bound; `unqueue` ends it whole. Recorded as any run is (its start begins `every` again), its tasks filed by the same rule. Waits for it and answers its record: tip, at, green, took_ms, tail, filed. Refused when the base declares no `[idle]`, or while idle work of any checkout runs or waits on the host (one at a time), naming it and its `unqueue`.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Idle { checkout: String },
     /// Takes an entry (its id, as doctor's `heavy` lists it) off the heavy queue, waiting or running: one that does not move and holds the rest up. A running one is ended with every process it started. Its owner, if it still asks, queues again behind the rest.
@@ -400,7 +400,11 @@ pub enum WorkerCmd {
     },
     /// Has a second agent, a fresh session factorium starts, pick your change's mutants from slimfit's candidates, given slimfit's goal (`slimfit help picker`) and your diff. Answers the picks, or why none, by whom, and the commands that run and record them.
     #[command(verbatim_doc_comment)]
-    PickMutants,
+    PickMutants {
+        /// Takes the change against this ref, as `slimfit check --target` does: everything your HEAD adds since its merge base with it, its diff and its candidates; the commands answered take it too. A promotion's mutants issue names it: the range's base.
+        #[arg(long, value_name = "REF", verbatim_doc_comment)]
+        target: Option<String>,
+    },
     /// Has a second agent, a fresh session factorium starts, judge whether your change could be smaller, given slimfit's goal (`slimfit help reviewer`) and your diff. Answers its verdict (`as_is` with why, or `cut`), by whom, and the command that writes the growth record.
     #[command(verbatim_doc_comment)]
     ReviewGrowth,
@@ -441,7 +445,7 @@ pub enum WorkerCmd {
 
 #[derive(Subcommand)]
 pub enum HeavyCmd {
-    /// Runs a heavy command once the machine has room, by the queue's rule, beside workers' and gates' (a line move past its bound goes ahead of it, as of a worker's), at a gate's priority. Exits with its exit code. With `--resource`, it holds those resources instead, all at once, as `worker exclusive --resource` does.
+    /// Runs a heavy command once the machine has room, by the queue's rule, beside workers' and gates' (a line move past its bound, and a landing's fast gate, go ahead of it, as of a worker's), at a gate's priority. Exits with its exit code. With `--resource`, it holds those resources instead, all at once, as `worker exclusive --resource` does.
     #[command(verbatim_doc_comment)]
     Run {
         /// Runs it at background priority instead: gates get the CPU first.
@@ -612,7 +616,7 @@ impl Top {
             Top::Worker(w) => match w {
                 WorkerCmd::Gate => app.worker_gate(worker_id()?).await,
                 WorkerCmd::Done { no_landing } => app.worker_done(worker_id()?, no_landing.as_deref()).await,
-                WorkerCmd::PickMutants => app.worker_pick_mutants(worker_id()?).await,
+                WorkerCmd::PickMutants { target } => app.worker_pick_mutants(worker_id()?, target.as_deref()).await,
                 WorkerCmd::ReviewGrowth => app.worker_review_growth(worker_id()?).await,
                 WorkerCmd::Escalate { why } => app.worker_escalate(worker_id()?, &why).await,
                 WorkerCmd::Comment { text } => {

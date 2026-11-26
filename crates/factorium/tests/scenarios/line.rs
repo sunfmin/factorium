@@ -68,6 +68,71 @@ async fn a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones
     assert!(!old[6].exists() && old[7].exists(), "the oldest go first");
 }
 
+/// Gates that write which of them ran, and on what, to `ran` in the world's
+/// directory: the fast gate `fast`, the slow steps `slow` (`same`: the fast gate's command).
+fn logging(w: &World, same: bool) -> (String, std::path::PathBuf) {
+    let log = w.dir.join("ran");
+    let say = |what: &str| format!("echo {what} >> {}", log.display());
+    let slow = if same { say("fast") } else { say("slow") };
+    (format!("[gate]\nfast = \"{}\"\nslow = \"{slow}\"\n", say("fast")), log)
+}
+
+fn ran(log: &std::path::Path) -> String {
+    std::fs::read_to_string(log).unwrap_or_default()
+}
+
+/// Proving moves only by landings, each fast-gated on the commit it pushes:
+/// a tip a green landing pushed is promoted on the slow steps alone.
+#[tokio::test]
+async fn a_promotion_of_a_tip_a_green_landing_pushed_runs_only_the_slow_steps() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    let (toml, log) = logging(&w, false);
+    w.done(&worker(&w.app).await, "factorium.toml", &toml).await;
+    let t = w.tick().await;
+    let commit = t.landed[0]["commit"].clone();
+    let promoted = t.lines.iter().find(|l| l["promoted"] == "web").expect("promoted");
+    assert_eq!(ran(&log), "fast\nslow\n", "the landing's fast gate, then the slow steps alone");
+    assert_eq!(promoted["gated"], "slow steps only, tip gated green by web#1's landing");
+    assert_eq!(json!(w.remote_tip("web", "main")), commit, "then the fast-forward");
+    let doctor = w.app.doctor().await.unwrap();
+    let seen = json!([{ "checkout": "web", "tip": commit, "gated": promoted["gated"] }]);
+    assert_eq!(doctor["promoted"], seen, "doctor says which case ran");
+}
+
+/// A `slow` that is the fast gate's command holds nothing the fast gate
+/// lacks: a tip a green landing pushed is promoted with no gate at all.
+#[tokio::test]
+async fn a_slow_gate_that_is_the_fast_one_runs_no_gate_on_a_tip_a_green_landing_pushed() {
+    let w = World::new();
+    w.working(CLAUDE, "a").await;
+    let (toml, log) = logging(&w, true);
+    w.done(&worker(&w.app).await, "factorium.toml", &toml).await;
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
+    assert_eq!(ran(&log), "fast\n", "the landing's gate alone");
+    assert_eq!(json!(w.remote_tip("web", "main")), t.landed[0]["commit"]);
+}
+
+/// The shortcut is taken only on evidence: a tip no green landing pushed
+/// (here, one pushed by hand) runs the fast gate, then the slow steps.
+#[tokio::test]
+async fn a_promotion_of_a_tip_no_green_landing_pushed_runs_the_fast_gate_then_the_slow_steps() {
+    let w = World::new();
+    w.two_at_work().await;
+    let (toml, log) = logging(&w, false);
+    w.push_by_hand("web", "proving", "factorium.toml", &toml);
+    // #2 works on: #1's landing is not promoted on its own tick.
+    w.lands("web", 1, "a").await;
+    assert_eq!(ran(&log), "fast\n");
+    w.push_by_hand("web", "proving", "by-hand", "x");
+    let tip = w.remote_tip("web", "proving");
+    let promoted = w.app.promote("web").await.unwrap();
+    assert_eq!(promoted["gated"], "fast gate and slow steps", "{promoted}");
+    assert_eq!(ran(&log), "fast\nfast\nslow\n");
+    assert_eq!(w.remote_tip("web", "main"), tip);
+}
+
 #[tokio::test]
 async fn promote_and_cut_by_hand_run_now_and_factorium_commits_as_the_hosts_identity_or_its_own() {
     let w = World::new();
@@ -661,13 +726,13 @@ async fn a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now() 
 fn a_failed_cut_waits_for_a_newer_promotion() {
     let mut l = Line::default();
     l.apply(LineEvent::Landed { number: 1, commit: "a".into(), at: 0 });
-    l.apply(LineEvent::Promoted { tip: "a".into(), at: 0 });
+    l.apply(LineEvent::Promoted { tip: "a".into(), at: 0, gated: None });
     let (version, why, commit) = ("v0.1.0".to_string(), "x".to_string(), Some("a".to_string()));
     l.apply(LineEvent::CutFailed { version, why, commit });
-    l.apply(LineEvent::Promoted { tip: "a".into(), at: 1 });
+    l.apply(LineEvent::Promoted { tip: "a".into(), at: 1, gated: None });
     assert!(l.cut_failed.is_some(), "the same commit holds no fix");
     l.apply(LineEvent::Landed { number: 2, commit: "b".into(), at: 2 });
-    l.apply(LineEvent::Promoted { tip: "b".into(), at: 3 });
+    l.apply(LineEvent::Promoted { tip: "b".into(), at: 3, gated: None });
     assert!(l.cut_failed.is_none());
     let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
     let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
