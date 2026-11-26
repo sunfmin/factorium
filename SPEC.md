@@ -76,7 +76,7 @@ and factorium does not is in `docs/dropped.md`.
    It changes no other issue.
 5. Landing (§1.12), the urgent first (§1.17). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. Its merge is checked from `done` on, not only
-   at its turn (§1.12). A branch that does not merge onto the proving
+   at its turn (§1.12, factorium#307). A branch that does not merge onto the proving
    tip is not the second red when the red before was one onto an older
    tip, which the branch now holds: proving moved since the worker merged
    what it was told. It is told as for a first red, with
@@ -99,13 +99,14 @@ and factorium does not is in `docs/dropped.md`.
    worktree goes, so the next start is branched from the proving tip. The
    issue stays ready or waiting for a human as it was.
    A start and the commands that abandon a worktree (start-over, close,
-   discard) each claim the issue, one at a time: a start from its take to
-   its worker recorded (or undone), a command from its read to its
+   discard) each claim the issue, one at a time: a start from taking it to
+   its worker recorded started (or undone), a command from its read to its
    act's end. A start skips a claimed issue, and a command is refused while
    one is under way, so none acts on what it read while another changed
-   it; a dead process's claim is cleared by the next tick or claim. The
-   owner's stop wins: a start refuses no `close` (abandoning nothing) or
-   `wait-for-human`; its worker recorded, a start whose issue is not
+   it; a claim whose process is gone is cleared by the next tick (or the
+   next command's claim).
+   The owner's stop wins: a start refuses no `close` (abandoning nothing)
+   or `wait-for-human`; its worker recorded, a start whose issue is not
    ready ends it, worktree kept; `ended` says why.
    Closing an issue unlanded (`issue close`, by the owner or the watch)
    removes the worktree its last attempt left on disk the same way: its
@@ -137,7 +138,7 @@ and factorium does not is in `docs/dropped.md`.
 Off the path, everything goes to the watch: `worker escalate`, a worker
 whose session died, never came up (five minutes after it started, a fixed bound), went
 silent past its bound (not while its issue waits for anything unmet, its
-silence counted from when all of it is met; nor within a wait it declared on a long command of
+silence counted from when all of it is met, factorium#283; nor within a wait it declared on a long command of
 its own, `worker waiting --why … --until …`, held to two hours, which doctor
 shows; past it, the finding names what it said), or hung past it (its turn open, its processes next
 to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut (until the next promotion of a newer commit owes it again, §1.14), admission held
@@ -230,7 +231,7 @@ a factum submission or a query, so the CLI needs no socket to the daemon.
 
 A store written by an older binary is read by a newer one as it is: no
 script is run by hand, so the swap's proof (§4) passes on it and the
-daemon moves to the newer binary by itself (factorium#270). The log is
+daemon moves to the newer binary by itself. The log is
 never rewritten; a change to what is kept is carried by the code that reads
 it. A renamed event, field or value keeps its old name as a serde alias
 wherever it is read (an event's kind, its data, an aggregate's state in a
@@ -277,7 +278,7 @@ its role changed changes nothing in the worker's task: missed, it sends its
 worker to no one and holds up nothing after it, and is looked for again on
 each next look: found taken in its session file since, it arrived; not
 found, it is typed again. So no look waits on it past Orca's window: it is
-given no grace after it, as other messages are (factorium#281). And no
+given no grace after it, as other messages are. And no
 tick waits for its typing at all: the tick gives it to the outboxes of every
 worker it is owed and goes on, and it is typed at them at once beside the
 ticks, on a store connection of its own; the tick's `roles` answers each
@@ -301,7 +302,7 @@ Comments factorium writes itself (start-over's) are typed at no one.
 
 An issue's comments are the one record of what is said about it, each
 with who wrote it (`owner`, `worker <id>`, `watch`, `factorium`) and when;
-`issue show` answers them, and `spent`, what the issue took, for whoever settles its cost (Guild): each attempt's time from its start to its end (a live one's, to now), in ms, and the tokens its session spent, given (cached ones counted) and written, read from the session files that record its turn: as it ends, and kept, since its harness may clear them (a live one's, as they say now); with their sums. Claude Code's files say (each assistant message's `usage` once, by its id), Codex's (its last `token_count`), pi's (each assistant message's `usage`) and agy's (each `PLANNER_RESPONSE` of its `transcript.jsonl`: `input_tokens` and `cache_read_tokens` given, `output_tokens` written); DSH's, Kimi Code's and Grok's are not read, their tokens `null`. Each attempt also answers the role it started with, as `role` (`dir`, its directory, and `from`, `issue` or `checkout`, as `role_from` says, §3), and as `role_hash` a hash of what that role gave it, taken at its start: its rules and every file under its skills, read through the link, each file by its path under the skills and its bytes. A role directory is linked live, so a role changed while a worker runs changes what that worker reads; the hash says which content an attempt started with. On each tick, a live worker whose role directory now holds other content than it last knew of (as it started, or as it was last told) is told so once, through its outbox as a comment is: one line, `factorium (your role changed): …`, naming each file by its path under the role's directory (`CLAUDE.md`, `.claude/skills/…`) that changed, was added or went, and asking it to re-read the role's core skill and those files before its next step; where the role's rules changed, its session's rules are written again with them. What it was told is recorded on its worker, so one change is told once; `role_hash` stays the hash at its start. One waiting for the watch, unless parked on its engine's limit, is told once it works again; a worker with no role, or whose role did not change, is told nothing (factorium#273). It is of the content alone and the same from one build to the next: factorium reads nothing else of the role (no rolesmith file, no rev). An attempt with no role answers `null` for both (factorium#250). A picker's (`worker pick-mutants`) is not among them: its cost is its own comment (§6). A worker's `escalate` text, and the text of
+`issue show` answers them, and `spent`, what the issue took, for whoever settles its cost (Guild): each attempt's time from its start to its end (a live one's, to now), in ms, and the tokens its session spent, given (cached ones counted) and written, read from the session files that record its turn: as it ends, and kept, since its harness may clear them (a live one's, as they say now); with their sums. Claude Code's files say (each assistant message's `usage` once, by its id), Codex's (its last `token_count`), pi's (each assistant message's `usage`) and agy's (each `PLANNER_RESPONSE` of its `transcript.jsonl`: `input_tokens` and `cache_read_tokens` given, `output_tokens` written); DSH's, Kimi Code's and Grok's are not read, their tokens `null`. Each attempt also answers the role it started with, as `role` (`dir`, its directory, and `from`, `issue` or `checkout`, as `role_from` says, §3), and as `role_hash` a hash of what that role gave it, taken at its start: its rules and every file under its skills, read through the link, each file by its path under the skills and its bytes. A role directory is linked live, so a role changed while a worker runs changes what that worker reads; the hash says which content an attempt started with. On each tick, a live worker whose role directory now holds other content than it last knew of (as it started, or as it was last told) is told so once, through its outbox as a comment is: one line, `factorium (your role changed): …`, naming each file by its path under the role's directory (`CLAUDE.md`, `.claude/skills/…`) that changed, was added or went, and asking it to re-read the role's core skill and those files before its next step; where the role's rules changed, its session's rules are written again with them. What it was told is recorded on its worker, so one change is told once; `role_hash` stays the hash at its start. One waiting for the watch, unless parked on its engine's limit, is told once it works again; a worker with no role, or whose role did not change, is told nothing. It is of the content alone and the same from one build to the next: factorium reads nothing else of the role (no rolesmith file, no rev). An attempt with no role answers `null` for both. A picker's (`worker pick-mutants`) is not among them: its cost is its own comment (§6). A worker's `escalate` text, and the text of
 `watch tell` and `watch restart`, become comments when they are typed,
 delivered or not. Each reaches the worker at most once: the line `tell` or
 `restart` types is its delivery, nothing types it again, and a worker's
@@ -309,7 +310,7 @@ own escalation is typed back at no one. Comments made before authors and
 times were kept read as the owner's (start-over's as factorium's), with no
 time.
 
-**Where an attempt's time went** (factorium#308): `issue show --steps`
+**Where an attempt's time went**: `issue show --steps`
 answers in each attempt of `spent` its `steps`, read from what the database keeps of it and
 written nowhere twice, each step with its start and end in ms. Its
 `heavy`: each heavy command of its own (`worker gate`, `worker
@@ -369,11 +370,11 @@ daemon of an older version whose store cannot read it fails its ticks,
 and a failed tick still starts that proof and swaps once it passed (not
 while a line move runs beside the ticks), since the newer binary alone
 reads the store; a rollback's kept binary is gone back to only when no
-link to swap to is proven (factorium#252). A cut of the formula proves
+link to swap to is proven. A cut of the formula proves
 it right after the install (the daemon's cut beside its ticks, recorded on
 the tick after the proof ended); one that fails is a failed cut, its why the
 error and the copy's path (kept for a look), and the old binary runs on.
-Which host installs factorium, and when (factorium#269): a host one of
+Which host installs factorium, and when: a host one of
 whose checkouts declares the cut of the daemon's own formula (its base,
 as last fetched, names it in `[cut]`) installs it at that cut, and only
 then; every other host's daemon, Homebrew's, upgrades its formula from
