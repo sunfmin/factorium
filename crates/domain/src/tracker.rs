@@ -150,26 +150,26 @@ pub fn issues(checkout: Option<&str>, closed: bool) -> Rows<IssueRow> {
         q = q.filter("checkout", Op::Eq, c);
     }
     if !closed {
-        q = q.filter("status", Op::Ne, IssueStatus::Closed);
+        q = q.filter("status", Op::Ne, json!(IssueStatus::Closed));
     }
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
 /// The open issues a worker holds, by checkout and number.
 pub fn held() -> Rows<IssueRow> {
-    let q = Query::table(ISSUES).filter("status", Op::Ne, IssueStatus::Closed).filter("taken", Op::Eq, true);
+    let q = Query::table(ISSUES).filter("status", Op::Ne, json!(IssueStatus::Closed)).filter("taken", Op::Eq, true);
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
 /// The ready issues no worker holds, by checkout and number.
 pub fn untaken() -> Rows<IssueRow> {
-    let q = Query::table(ISSUES).filter("status", Op::Eq, IssueStatus::Ready).filter("taken", Op::Eq, false);
+    let q = Query::table(ISSUES).filter("status", Op::Eq, json!(IssueStatus::Ready)).filter("taken", Op::Eq, false);
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
 /// The issues of every checkout that wait for a person.
 pub fn asking() -> Rows<IssueRow> {
-    Rows::of(Query::table(ISSUES).filter("status", Op::Eq, IssueStatus::WaitingForHuman))
+    Rows::of(Query::table(ISSUES).filter("status", Op::Eq, json!(IssueStatus::WaitingForHuman)))
 }
 
 /// The last-numbered issue of `checkout`.
@@ -181,9 +181,9 @@ pub fn last_issue(checkout: &str) -> Rows<IssueRow> {
 /// oldest status first.
 pub fn workers(status: Option<WorkerStatus>, all: bool) -> Rows<WorkerRow> {
     let q = match status {
-        Some(s) => Query::table(WORKERS).filter("status", Op::Eq, s),
+        Some(s) => Query::table(WORKERS).filter("status", Op::Eq, json!(s)),
         None if all => Query::table(WORKERS),
-        None => Query::table(WORKERS).filter("status", Op::Ne, WorkerStatus::Ended),
+        None => Query::table(WORKERS).filter("status", Op::Ne, json!(WorkerStatus::Ended)),
     };
     Rows::of(q.order_by("since", false))
 }

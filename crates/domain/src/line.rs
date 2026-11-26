@@ -100,7 +100,7 @@ command!(RecordLanding, "line.landed", Lines, Landed, |p| line_id(&p.checkout), 
     Ok(vec![LineEvent::Landed { number: p.number, commit: p.commit.clone(), at: now.0 }])
 });
 
-/// What a promotion found: the slow gate on `tip`, and whether the base
+/// What a promotion found: its gate on `tip`, and whether the base
 /// it read is an ancestor of the tip.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Promotion {
@@ -111,6 +111,8 @@ pub struct Promotion {
     pub red: Option<String>,
     /// The base it read is an ancestor of the tip.
     pub behind: bool,
+    /// How its gate ran on the tip ([`crate::declared::Promoting::said`]).
+    pub gated: String,
 }
 
 command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s, p, now| {
@@ -119,7 +121,7 @@ command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s
     }
     Ok(vec![match p.red() {
         Some(why) => LineEvent::PromotionRed { tip: p.tip.clone(), why },
-        None => LineEvent::Promoted { tip: p.tip.clone(), at: now.0 },
+        None => LineEvent::Promoted { tip: p.tip.clone(), at: now.0, gated: Some(p.gated.clone()) },
     }])
 });
 

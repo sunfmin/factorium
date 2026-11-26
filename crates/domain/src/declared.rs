@@ -5,7 +5,7 @@
 //! [gate]
 //! fast = "cargo test"     # run on every landing and by `factorium worker gate`
 //! fast_limit = 600        # seconds
-//! slow = "./slow.sh"      # run on the proving tip before a promotion
+//! slow = "./slow.sh"      # what the fast gate lacks, on the proving tip before a promotion
 //! slow_limit = 3600
 //! regenerated = [".truefit/models/*.json"]  # records the gate rewrites (git globs)
 //!
@@ -125,12 +125,49 @@ pub enum Kind {
     Slow,
 }
 
+/// What a gate runs: the fast gate, on a tree a landing or a worker gates, or
+/// a promotion's on the proving tip (docs/adr/0011-the-line-gate-landing-promotion-cut.md). Proving moves only by
+/// landings, each fast-gated on the commit it pushes, so a tip a landing
+/// gated green needs only what the fast gate lacks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Gating {
+    Fast,
+    /// The tip is the commit of `by`'s green landing: the slow steps alone.
+    SlowOnly {
+        by: String,
+    },
+    /// No green landing's record of the tip: the fast gate, then the slow steps.
+    Full,
+}
+
+impl Gating {
+    /// The gate whose record it is.
+    pub fn kind(&self) -> Kind {
+        if *self == Gating::Fast { Kind::Fast } else { Kind::Slow }
+    }
+
+    /// Which case a promotion ran, in the words doctor and its record use.
+    pub fn said(&self) -> String {
+        match self {
+            Gating::SlowOnly { by } => format!("slow steps only, tip gated green by {by}'s landing"),
+            _ => "fast gate and slow steps".into(),
+        }
+    }
+}
+
 impl Gate {
-    /// The command and limit of one gate; `None` for a slow gate not declared.
-    pub fn of(&self, kind: Kind) -> Option<(&str, u64)> {
-        match kind {
-            Kind::Fast => Some((&self.fast, self.fast_limit)),
-            Kind::Slow => self.slow.as_deref().map(|s| (s, self.slow_limit)),
+    /// The command and limit `gating` runs. The slow steps are what `slow`
+    /// holds the fast gate lacks: none when it is absent or `fast`'s command,
+    /// and then the slow steps alone are nothing: `None`. A promotion's
+    /// gate with slow steps runs within `slow_limit`, the fast gate's too.
+    pub fn of(&self, gating: &Gating) -> Option<(String, u64)> {
+        let slow = self.slow.as_deref().filter(|s| s.trim() != self.fast.trim());
+        match (gating, slow) {
+            (Gating::Fast, _) | (Gating::Full, None) => Some((self.fast.clone(), self.fast_limit)),
+            (Gating::SlowOnly { .. }, slow) => slow.map(|s| (s.to_string(), self.slow_limit)),
+            // Each in braces of its own, ended by a newline: either may end in
+            // a comment, or join its commands by `;` or `||`.
+            (Gating::Full, Some(s)) => Some((format!("{{ {}\n}} && {{ {s}\n}}", self.fast), self.slow_limit)),
         }
     }
 }

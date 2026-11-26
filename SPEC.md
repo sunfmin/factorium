@@ -449,7 +449,7 @@ table may be left out:
 [gate]
 fast = "./gate.sh"      # what every landing needs, on its merge
 fast_limit = 600        # seconds
-slow = "./slow.sh"      # the proving tip, before the base moves
+slow = "./slow.sh"      # what fast lacks (§1.13)
 slow_limit = 3600
 regenerated = [".truefit/models/*.json"]  # git globs: records the gate rewrites (§1.12)
 
@@ -528,8 +528,8 @@ depend on nothing else of factorium.
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
   `./checks.sh` (lines, §5; fmt, clippy) then `slimfit check`
   against the committed `.slimfit/`, in place of a plain `cargo test`, holding
-  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`,
-  the tip a promotion moves) is `./gate.sh`, the release build and the models. What
+  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`)
+  is the release build and the models. What
   `slimfit check` holds, a change's record of its mutants among it, is
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
   its own gate, before it reaches proving. The worker follows
@@ -612,7 +612,7 @@ here or dropped on purpose, listed in `docs/dropped.md` with why.
 1. **Repo declarations live in the repo** (`factorium.toml`): they change
    with the code and are reviewed with it.
 2. **Every checkout has a proving branch**: one path. A repo with no slow
-   gate promotes as soon as it lands.
+   steps promotes as soon as it lands.
 3. **A landing red twice in a row goes to the watch**; no second worker in
    a new worktree. A merge red on a proving tip that moved since the last
    red's tip, which the branch holds, is not the second: the worker did

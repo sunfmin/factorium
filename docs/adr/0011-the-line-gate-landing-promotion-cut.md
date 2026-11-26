@@ -18,7 +18,7 @@ slow gate cannot run on every landing.
   Any other conflict is red, naming every conflicting file.
 - Each tick checks the merge of every branch waiting in line onto the
   proving tip (`git merge-tree`). One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since), and leaves the line; one that merges keeps its place.
-- Promotion: its gate on the proving tip (the slow steps alone on a green landing's commit, none when `slow` is absent or `fast`'s; else the fast gate first), then the base
+- Promotion: its gate on the proving tip (the slow steps alone on a green landing's commit, else the fast gate first), then the base
   fast-forwarded to it. It starts when the host is idle, or once the
   oldest unpromoted landing has waited the promotion bound less the hold
   bound, ahead of waiting heavy commands, so a heavy command running then does not push the promotion past its bound.

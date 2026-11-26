@@ -310,7 +310,7 @@ impl App {
 
     /// Submits command `C`; answers the events it recorded.
     async fn decide<C: Command>(&self, params: impl Serialize) -> Answer<Vec<factum::Event>> {
-        let submission = Submission::new(C::NAME, params, Uuid::now_v7(), self.by.clone());
+        let submission = Submission::new(C::NAME, params, Uuid::now_v7(), self.by.clone())?;
         Ok(self.engine.submit(submission).await?.events)
     }
 
