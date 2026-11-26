@@ -31,9 +31,13 @@ builds, about 20 GB each for factorium's landing and promotion.
 - The build cache is the one thing kept across jobs, outside the worktree:
   one per checkout and kind under the data directory
   (`cache/<kind>/<checkout>`), given to the job's steps as
-  `CARGO_TARGET_DIR`, cargo's freshness read from content rather than
-  mtimes (`CARGO_UNSTABLE_CHECKSUM_FRESHNESS`, which a stable cargo
-  ignores). A cache no variable moves is declared in `factorium.toml`
+  `CARGO_TARGET_DIR`. A build tool reads a file as changed by its mtime,
+  and a new worktree's are all new: as a job ends, each tracked file's
+  content id and mtime are kept beside its cache, and the next job's work
+  dir gives each file whose content is the same that mtime back, so the
+  build finds fresh what a work dir reused across jobs would have. (Cargo's
+  `-Zchecksum-freshness`, on the pinned nightly of 2026-10-22, still read
+  a touched file as changed by its mtime.) A cache no variable moves is declared in `factorium.toml`
   (`cache = ["node_modules"]`), moved in at the job's start and out at its
   end. A script that reads a build from `target/` reads it from
   `${CARGO_TARGET_DIR:-target}`.
@@ -53,7 +57,7 @@ builds, about 20 GB each for factorium's landing and promotion.
 
 ## Consequences
 
-- Every job's worktree is checked out anew, so a gate rebuilds what its
-  build tool cannot find fresh in the kept cache.
+- A gate rebuilds what changed since the last job of its kind, as it did
+  in a reused clone.
 - A process that dies mid-job leaves its work dir until the daemon's next
   tick.

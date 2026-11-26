@@ -222,6 +222,36 @@ impl Git {
         }
     }
 
+    /// Each file tracked here as it stands in the work tree: its path and
+    /// the id git gives its content (a file changed since checkout hashed
+    /// anew; one deleted left out).
+    pub fn contents(&self) -> Result<Vec<(String, String)>, String> {
+        let staged = self.run(&["ls-files", "-s", "-z"])?;
+        // `<mode> <id> <stage>\t<path>`, each ended by NUL.
+        let mut ids: std::collections::BTreeMap<String, String> = staged
+            .split('\0')
+            .filter_map(|e| {
+                let (meta, path) = e.split_once('\t')?;
+                Some((path.to_string(), meta.split(' ').nth(1)?.to_string()))
+            })
+            .collect();
+        let changed = self.run(&["diff", "--name-only", "-z"])?;
+        let changed: Vec<&str> = changed.split('\0').filter(|p| !p.is_empty()).collect();
+        let (here, gone): (Vec<&str>, Vec<&str>) = changed.into_iter().partition(|p| self.dir.join(p).is_file());
+        for path in gone {
+            ids.remove(path);
+        }
+        if !here.is_empty() {
+            let mut args = vec!["hash-object", "--"];
+            args.extend(&here);
+            let hashed = self.run(&args)?;
+            for (path, id) in here.into_iter().zip(hashed.lines()) {
+                ids.insert(path.to_string(), id.to_string());
+            }
+        }
+        Ok(ids.into_iter().collect())
+    }
+
     /// The commits `HEAD` holds that no branch, tag or remote-tracking ref
     /// holds, newest first, as `<sha> <subject>`.
     pub fn own_commits(&self) -> Result<Vec<String>, String> {

@@ -8,7 +8,10 @@
 //! The build cache is the one thing kept across jobs, outside the worktree:
 //! one per checkout and kind under the data directory, given to the job's
 //! steps as `CARGO_TARGET_DIR`, and the dirs `factorium.toml` declares
-//! `cache` moved in at the start and out at the end.
+//! `cache` moved in at the start and out at the end. A build tool reads a
+//! file as changed by its mtime, and a new worktree's are all new: each file
+//! whose content is as the last job of its kind left it gets back the mtime
+//! it had then, as a work dir reused across jobs would have kept it.
 //!
 //! A work dir whose job no longer runs (its process gone, or the daemon's
 //! own that no tick asks for) is removed by the daemon's next tick; one that
@@ -37,6 +40,10 @@ const KEPT: &str = "Its job is gone; factorium kept it, as it holds commits foun
 /// (a command by hand, waiting for its job), until each job ends: no sweep
 /// of a daemon in the same process removes them.
 static HELD: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+
+/// The file in a cache that keeps each tracked file's content id and mtime,
+/// as the last job of its kind left them: `<id>\t<mtime ns>\t<path>`.
+const MTIMES: &str = "mtimes.tsv";
 
 /// The subject of a landing's merge, the one commit a work dir holds that
 /// is factorium's own.
@@ -97,6 +104,7 @@ impl App {
         let here = self.host.git(&c.path).at(&path);
         here.detached(rev).map_err(fail("git"))?;
         let cache = self.data().cache(kind, &c.name);
+        restore_mtimes(&here, &cache);
         for dir in declared_caches(&path) {
             let (kept, there) = (cache.join("dirs").join(&dir), path.join(&dir));
             if kept.exists() && !there.exists() {
@@ -114,15 +122,10 @@ impl App {
     }
 
     /// The environment the steps of `checkout`'s job of `kind` run with: its
-    /// build cache, kept across its work dirs. Cargo's freshness by content,
-    /// not by mtime, as every work dir is checked out anew (`[unstable]`,
-    /// which a stable cargo ignores).
+    /// build cache, kept across its work dirs.
     pub(crate) fn cache_env(&self, kind: LineDir, checkout: &str) -> Vec<(String, String)> {
         let target = self.data().cache(kind, checkout).join("target");
-        vec![
-            ("CARGO_TARGET_DIR".into(), target.to_string_lossy().into_owned()),
-            ("CARGO_UNSTABLE_CHECKSUM_FRESHNESS".into(), "true".into()),
-        ]
+        vec![("CARGO_TARGET_DIR".into(), target.to_string_lossy().into_owned())]
     }
 
     /// Ends the work dir at `dir` of `checkout`'s job of `kind`: the declared
@@ -131,6 +134,7 @@ impl App {
     pub(crate) fn work_dir_done(&self, kind: LineDir, checkout: &str, dir: &Path) -> Result<(), String> {
         self.memory.lock().unwrap().work_dirs.remove(dir);
         HELD.lock().unwrap().remove(dir);
+        keep_mtimes(&self.host.git(dir), &self.data().cache(kind, checkout));
         let cache = self.data().cache(kind, checkout).join("dirs");
         for d in declared_caches(dir) {
             let (there, kept) = (dir.join(&d), cache.join(&d));
@@ -239,6 +243,51 @@ impl App {
             std::thread::spawn(move || std::fs::remove_dir_all(trash));
         }
         Ok(())
+    }
+}
+
+/// Keeps in `cache` each file tracked in the work dir `here`, its content id
+/// and its mtime as they stand. Unread, it keeps none: the next job's files
+/// stay new.
+fn keep_mtimes(here: &Git, cache: &Path) {
+    let file = cache.join(MTIMES);
+    let _ = std::fs::remove_file(&file);
+    let Ok(contents) = here.contents() else { return };
+    let mut kept = String::new();
+    for (path, id) in contents {
+        let Ok(meta) = std::fs::symlink_metadata(here.dir.join(&path)) else { continue };
+        let Some(ns) = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()) else {
+            continue;
+        };
+        if meta.is_file() {
+            kept.push_str(&format!("{id}\t{}\t{path}\n", ns.as_nanos()));
+        }
+    }
+    let _ = std::fs::create_dir_all(cache).and_then(|()| std::fs::write(&file, kept));
+}
+
+/// Gives each file tracked in the new work dir `here` whose content is as
+/// `cache` kept it the mtime it had then; every other file stays new.
+fn restore_mtimes(here: &Git, cache: &Path) {
+    let Ok(kept) = std::fs::read_to_string(cache.join(MTIMES)) else { return };
+    let kept: std::collections::BTreeMap<&str, (&str, &str)> = kept
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let (id, ns, path) = (f.next()?, f.next()?, f.next()?);
+            Some((path, (id, ns)))
+        })
+        .collect();
+    for (path, id) in here.contents().unwrap_or_default() {
+        let Some(ns) = kept.get(path.as_str()).filter(|(was, _)| *was == id).and_then(|(_, ns)| ns.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let at = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(ns);
+        let file = here.dir.join(&path);
+        if std::fs::symlink_metadata(&file).is_ok_and(|m| m.is_file()) {
+            let _ = std::fs::File::open(&file).and_then(|f| f.set_modified(at));
+        }
     }
 }
 

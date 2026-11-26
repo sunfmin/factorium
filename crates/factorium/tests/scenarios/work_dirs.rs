@@ -87,8 +87,7 @@ async fn a_promotion_runs_in_a_work_dir_named_for_its_tip_removed_once_it_promot
     let t = w.tick_alone().await;
     let landed = t.landed[0]["commit"].as_str().expect("#1 lands").to_string();
     let name = format!("promotion web {}", &landed[..7]);
-    runs_in_one(&w, &dir, &name, &format!("promotion of web: its slow gate run on the proving tip {}", &landed[..7]))
-        .await;
+    runs_in_one(&w, &dir, &name, &format!("promotion of web: its gate run on the proving tip {}", &landed[..7])).await;
     let did = ends_with_none(&w, &dir).await;
     assert!(did.iter().any(|d| d["promoted"] == "web"), "{did:?}");
 }
@@ -158,4 +157,30 @@ async fn a_work_dir_whose_job_is_gone_is_removed_at_the_next_tick_and_one_holdin
     // The next tick leaves it be.
     assert_eq!(w.tick_alone().await.work_dirs, Vec::<Value>::new());
     assert!(holding.exists());
+}
+
+#[tokio::test]
+async fn a_file_unchanged_since_the_last_landing_keeps_its_mtime_in_the_next_ones_work_dir_a_changed_one_is_new() {
+    let w = World::new();
+    let seen = w.dir.join("seen");
+    w.checkout("web").await;
+    w.kit().await;
+    // The fast gate notes the mtimes of the declaration (unchanged) and of what #2 changes.
+    let gate = format!("stat -f '%Fm' factorium.toml >> {0}; stat -f '%Fm' a 2>/dev/null >> {0}; true", seen.display());
+    w.push_by_hand("web", "proving", "factorium.toml", &format!("[gate]\nfast = {gate:?}\n"));
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick_alone().await;
+    w.lands("web", 1, "a").await;
+    let first: Vec<String> = std::fs::read_to_string(&seen).unwrap().lines().map(str::to_string).collect();
+    std::fs::remove_file(&seen).unwrap();
+    // Past the mtimes' resolution: a file checked out anew would read as newer.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick_alone().await;
+    w.done(&w.worker_on("web", 2).await, "a", "changed").await;
+    assert_eq!(w.tick().await.landed[0]["landed"], "web#2");
+    let second: Vec<String> = std::fs::read_to_string(&seen).unwrap().lines().map(str::to_string).collect();
+    assert_eq!(first[0], second[0], "unchanged: its mtime as the last landing left it");
+    let mtime = |s: &str| s.parse::<f64>().unwrap();
+    assert!(mtime(&second[1]) > mtime(&first[1]) + 1.0, "changed: new ({first:?} then {second:?})");
 }

@@ -51,11 +51,7 @@ and factorium does not is in `docs/dropped.md`.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its
-   worktree is branched from the proving tip, made through Orca, named
-   `<checkout>-<n>-<attempt>` and commented with its issue and title and
-   that factorium removes it when the issue lands or closes. Any other tree
-   a worker wants is made through Orca too
-   ([ADR 0016](docs/adr/0016-the-line-s-jobs-run-in-work-dirs.md)). Its harness and
+   worktree is branched from the proving tip. Its harness and
    engine, model and account are stablehand's pick, started by the command stablehand keeps for that engine (§1.6, §1.7),
    and its account's login read (`stablehand credential`); the guard is installed; its brief is sent; the
    session file says when its turn starts and ends. Text is typed at a
@@ -450,8 +446,6 @@ changes it. fmt and clippy stay bounds.
 table may be left out:
 
 ```toml
-cache = ["node_modules"] # build caches no variable moves out of a work dir (ADR 0016)
-
 [gate]
 fast = "./gate.sh"      # what every landing needs, on its merge
 fast_limit = 600        # seconds
