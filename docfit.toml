@@ -1,6 +1,6 @@
 # How docfit keeps factorium's documents (`docfit --help`). not_issue_refs: the checkout
 # names the tests and examples make up (`web#1`), which cite no tracker.
-not_issue_refs = ["api", "nope", "web"]
+not_issue_refs = ["api", "app", "nope", "web"]
 
 ignore = ["crates/factorium/src/**"]
 
