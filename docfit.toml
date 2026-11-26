@@ -30,4 +30,5 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0022-a-worker-hands-in-through-done.md" = "adr"
 "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md" = "adr"
 "docs/adr/0024-decisions-are-decided-records.md" = "adr"
+"docs/adr/0025-everything-lives-in-one-database.md" = "adr"
 "GLOSSARY.md" = "glossary"
