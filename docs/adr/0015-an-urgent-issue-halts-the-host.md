@@ -43,6 +43,9 @@ none knowing this one matters more.
   faster, since its own heavy commands already go ahead of a landing's
   waiting gate, while finished workers waited (2026-11-26: 15 done
   workers waited 20 min to land). The owner: 「都开吧，也加急」.
+- The hold bound ends its heavy commands too, as any other (ADR 0010):
+  one hung urgent gate held 13 waiting workers 34 min until killed by
+  hand (2026-11-27 00:13). The owner: 「然后 30 也开票」.
 
 ## Consequences
 
