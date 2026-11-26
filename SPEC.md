@@ -80,10 +80,10 @@ leaves it out: the daemon runs the look.
    the first tick at or after that time, as a met block is; `issue show`
    answers it (`not_before`, in ms and UTC), and doctor lists a ready issue
    waiting for its time under `not_before`, with the time.
-2. A tick (the daemon's loop) finds the ready issues nothing blocks and
-   no worker holds; admission admits one start per reading. Urgent ones
-   (§1.17) first; only the memory and disk floors hold one, never the load.
-   Then by fewest live workers in its checkout, ready longest, checkout, number.
+2. A tick admits one start per reading, of the ready issues unblocked
+   and untaken: urgent (§1.17) first, held only by the memory and disk
+   floors; then fewest live workers in its checkout, ready longest,
+   checkout, number.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its
