@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 15594,
-      "test_lines": 15676,
-      "tests": 516,
+      "prod_lines": 15902,
+      "test_lines": 16108,
+      "tests": 531,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 9364,
+      "covered_lines": 9567,
       "uncovered_lines": 107
     }
   },
@@ -38,6 +38,13 @@
       "from": 177.366,
       "to": 204.103,
       "reason": "the fast gate now runs slimfit check on every landing (factorium#121), and the same tree measured 204.1s, 206.1s, 208.9s, 216.8s at 1-min load 25-50 on 18 cores, load-corrected (slimfit 0.1.15), against a 213.8s limit: one landing in four would go red on the host's load, not its code. gate.sh's CPU bound (231-233s of 310s) is the time guard (SPEC 6). factorium#121"
+    },
+    {
+      "suite": "rust",
+      "metric": "survived_mutants",
+      "from": 0.0,
+      "to": 1.0,
+      "reason": "replace < with <= in System::run_within's poll: the two differ only when elapsed equals limit to the nanosecond, after which one more 5 ms poll runs; no test or caller can observe that"
     }
   ],
   "kept": [
@@ -120,8 +127,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 191,
-      "test_seconds": 397.847
+      "uncovered_lines": 196,
+      "test_seconds": 415.95
     }
   }
 }
