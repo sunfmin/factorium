@@ -30,7 +30,7 @@ factorium holds no signing secret and no release workflow.
   `depends_on arch`) in `<outdir>`. Unlike slimfit, factorium's version is
   Cargo.toml's: the cut commits it (`factorium X.Y.Z`) and the tag goes on
   that commit, so `build` at the tag only checks Cargo.toml says the tag's
-  version. `dry` (in the gate) runs the same `build` at Cargo.toml's version.
+  version. `dry` (slow gate) runs the same `build` at Cargo.toml's version.
 - **The cut waits.** `cut` commits the version, builds here first, pushes
   the tag, runs `gh workflow run release.yml -R sunfmin/homebrew-tap -f
   repo=factorium -f tag=<tag>`, finds that run and waits for it, bounded by
@@ -49,7 +49,7 @@ factorium holds no signing secret and no release workflow.
 
 ## Consequences
 
-- The gate builds two release targets more (`dry`).
+- The slow gate builds both release targets (`dry`).
 - A cut takes the CI run's minutes, and holds the cut's heavy turn while it
   waits.
 - A cut no longer needs a tap token on the host: only `gh` logged in as a
