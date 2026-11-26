@@ -236,6 +236,9 @@ impl App {
                 Some(json!({ "checkout": l.checkout, "issue": issue, "until": until, "utc": utc, "left_s": (until - now) / 1000 }))
             })
             .collect();
+        let promoted: Vec<Value> = (seen.lines.iter().filter(|l| l.line.promoted.is_some()))
+            .map(|l| json!({ "checkout": l.checkout, "tip": l.line.promoted, "gated": l.line.gated }))
+            .collect();
         let mut view = json!({
             "heavy": seen.queue.entries,
             // Each resource a heavy entry holds or waits for: its holder (since, until it
@@ -244,6 +247,9 @@ impl App {
             "resources": seen.queue.resources(self.now(), settings.order()),
             // Each checkout's last idle run that ended green or red.
             "idle": idle,
+            // Each checkout's last promotion: its tip, and how its gate ran ("slow steps only, tip
+            // gated green by <issue>'s landing", or "fast gate and slow steps").
+            "promoted": promoted,
             "findings": findings,
             // Findings the watch's rounds did not end, each with its last report.
             "unresolved": unresolved,

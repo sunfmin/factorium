@@ -88,7 +88,7 @@ pub enum Top {
     /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Discard { worktree: PathBuf },
-    /// Promotes a checkout's proving branch to its base now: slow gate, then a fast-forward.
+    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.

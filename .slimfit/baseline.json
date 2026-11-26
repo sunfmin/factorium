@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 16081,
-      "test_lines": 16434,
-      "tests": 539,
+      "prod_lines": 15962,
+      "test_lines": 16345,
+      "tests": 537,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 9671,
+      "covered_lines": 9601,
       "uncovered_lines": 107
     }
   },
@@ -184,12 +184,6 @@
       "test": "factorium::scenarios::line::a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones_go",
       "hash": "1f4320864cc78ed9",
       "reason": "the long-gate test asserts no stall; this asserts the red tail, the whole-output file named and the newest 20 outputs kept"
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_failed_cut_waits_for_a_newer_promotion",
-      "hash": "75efed24f4d7c89b",
-      "reason": "a pure unit test (7 ms) of the Line fold: the same commit promoted again keeps cut_failed and due is Cut; the scenario never promotes the same commit again"
     }
   ],
   "kept_files": [
@@ -264,8 +258,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 200,
-      "test_seconds": 305.872
+      "uncovered_lines": 198,
+      "test_seconds": 300.047
     }
   }
 }
