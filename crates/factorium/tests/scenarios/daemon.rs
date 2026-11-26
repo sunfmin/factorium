@@ -4,7 +4,7 @@
 
 use std::sync::atomic::AtomicBool;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use factorium_domain::daemon::{Daemon, DaemonEvent, Daemons, Probe, Refused, SlowTick, Step, Steps, down, slow};
 use factum::Aggregate;
@@ -495,33 +495,60 @@ async fn stop_leaves_the_file_of_a_daemon_that_holds_its_lock_and_has_not_writte
 }
 
 /// factorium#231: each tick is timed by its steps. One past half the hang
-/// bound is a finding naming the step it spent most in, kept past the fast
-/// ticks after it, for an hour.
+/// bound is a finding naming the step it spent most in. It
+/// stands while ticks are slow, resolved by five quick ones in a row and
+/// raised afresh by the next slow one; doctor's `slow_tick` keeps it as history.
 #[tokio::test]
 async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() {
     let w = World::new();
     let wk = w.working(CLAUDE, "t").await;
     let quick = w.tick_alone().await;
     assert!(quick.took_ms < 60_000 && !quick.longest.step.is_empty(), "{quick:?}");
-    // The landing's tick ends the worker: its terminal's close takes 70 s.
-    let clock = w.clock.clone();
-    *w.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| clock.advance(70_000)));
-    w.done(&wk, "a.txt", "a\n").await;
-    let t = w.tick().await;
-    assert_eq!(t.landed[0]["landed"], "web#1", "{t:?}");
-    *w.host.orca.while_closing.lock().unwrap() = None;
-    w.tick_alone().await;
+    let slow_tick = |wk: Value, file: &'static str| {
+        let w = &w;
+        async move {
+            // The landing's tick ends the worker: its terminal's close takes 70 s.
+            let clock = w.clock.clone();
+            *w.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| clock.advance(70_000)));
+            w.done(&wk, file, "a\n").await;
+            let t = w.tick().await;
+            assert!(!t.landed.is_empty(), "{t:?}");
+            *w.host.orca.while_closing.lock().unwrap() = None;
+        }
+    };
+    slow_tick(wk, "a.txt").await;
     let doctor = w.app.doctor().await.unwrap();
     let found: Vec<&str> = crate::fixture::findings(&doctor).iter().filter_map(|f| f["key"].as_str()).collect();
     assert!(found.contains(&"daemon:slow-tick:the lines' moves"), "{found:?}");
     assert!(doctor["slow_tick"]["took_ms"].as_i64().unwrap() >= 70_000, "{}", doctor["slow_tick"]);
-    let slow = |doctor: &serde_json::Value| {
+    let slow = |doctor: &Value| {
         crate::fixture::findings(doctor).iter().any(|f| f["key"].as_str().unwrap().starts_with("daemon:slow"))
     };
-    w.clock.advance(60 * 60_000 - 1);
-    assert!(slow(&w.app.doctor().await.unwrap()), "within the hour");
-    w.clock.advance(1);
-    assert!(!slow(&w.app.doctor().await.unwrap()), "an hour on, gone");
+    // The landing's ticks after the slow one may be quick already: count from the record.
+    let quick_since = |doctor: &Value| doctor["slow_tick"]["quick_since"].as_u64().unwrap();
+    let mut doctor = doctor;
+    while quick_since(&doctor) < 4 {
+        assert!(slow(&doctor), "after {} quick ticks, it stands", quick_since(&doctor));
+        assert!(!w.tick_alone().await.slow);
+        doctor = w.app.doctor().await.unwrap();
+    }
+    assert!(slow(&doctor), "after four quick ticks, it stands");
+    assert!(!w.tick_alone().await.slow);
+    let doctor = w.app.doctor().await.unwrap();
+    assert_eq!(quick_since(&doctor), 5, "{}", doctor["slow_tick"]);
+    assert!(!slow(&doctor), "five quick ticks in a row resolve it");
+    assert!(doctor["slow_tick"]["took_ms"].as_i64().unwrap() >= 70_000, "kept as history: {}", doctor["slow_tick"]);
+    let first = doctor["slow_tick"]["at"].as_i64().unwrap();
+    w.clock.advance(2 * 60 * 60_000);
+    w.tick_alone().await;
+    assert!(!slow(&w.app.doctor().await.unwrap()), "it is not raised again");
+
+    w.app.issue_add("web", "u", "", false, &[]).await.unwrap();
+    w.tick().await;
+    slow_tick(w.worker_on("web", 2).await, "b.txt").await;
+    let doctor = w.app.doctor().await.unwrap();
+    assert!(slow(&doctor), "a new slow tick raises it afresh");
+    assert!(doctor["slow_tick"]["at"].as_i64() > Some(first), "a newer slow tick: {}", doctor["slow_tick"]);
 }
 
 /// daemon.log has each tick that did something, and each slow one, with its
@@ -591,7 +618,7 @@ fn a_tick_past_half_the_hang_bound_is_slow_and_kept_until_a_slower_one() {
     assert!(!slow(150_000, 60_000) && slow(150_001, 60_000), "half of five ticks");
     let mut s = Daemon::default();
     let step = Step { step: "lines".into(), ms: 90_000 };
-    let slow = SlowTick { at: 5, took_ms: 95_000, longest: step.clone() };
+    let slow = SlowTick { at: 5, took_ms: 95_000, longest: step.clone(), quick_since: 0 };
     Daemons::evolve(&mut s, DaemonEvent::TickSlow(slow.clone()));
     Daemons::evolve(&mut s, DaemonEvent::TickDone);
     assert_eq!(s.slow, Some(slow), "a later tick does not clear it");

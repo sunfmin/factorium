@@ -249,7 +249,8 @@ impl App {
             // Waiting workers parked until their engine's limit resets, until when (ms).
             "limited": limited,
             "reading": seen.reading,
-            // The daemon's last tick past half the hang bound: when, how long, its longest step.
+            // The daemon's last tick past half the hang bound: when, how long, its longest step, and the
+            // quick ticks in a row since (a finding until five).
             "slow_tick": seen.daemon.slow,
             // Working workers waiting on a long command of their own, as they declared, until when (ms).
             "waiting": declared,
