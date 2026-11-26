@@ -1,6 +1,6 @@
 ----------------------------- MODULE HeavyQueue -----------------------------
 (***************************************************************************)
-(* The host-wide heavy queue (SPEC.md §1 row 9), as factorium runs it.     *)
+(* The host-wide heavy queue (ADR 0010, ADR 0011), as factorium runs it.   *)
 (*                                                                         *)
 (* The queue is the `heavy` stream (crates/domain/src/heavy.rs): entries,  *)
 (* the last start, and the rules of the daemon that runs. Each command on  *)
@@ -35,6 +35,8 @@
 (* queue, every entry not urgent (marked, or of one of their live workers) *)
 (* is passed over in every queue, and a command not urgent holding what an *)
 (* urgent one waits for is ended.                                          *)
+(* A landing's fast gate goes ahead of workers' and programs' entries not  *)
+(* marked, behind those marked (factorium#372).                            *)
 (*                                                                         *)
 (* Time: `now` is the time of the last step, in the config's units. A     *)
 (* step happens at any time from `now` to `now + MaxStep`, up to Horizon.  *)
@@ -65,7 +67,8 @@ CONSTANTS
     Opens,      \* when a hold's window may open (`--between`); it stays open
     Starve,     \* starve_bound
     Default,    \* hold_default: what a command, which declares none, is read to hold
-    Urgent,     \* whether issues are marked urgent, and halt the queue
+    Urgent,     \* whether issues are marked urgent, and halt the queue, and a
+                \* landing's gate is told from other line moves
     Bug         \* "none", or a broken variant
 
 None == -1
@@ -79,9 +82,11 @@ Absent == [in |-> FALSE, queued_at |-> None, started_at |-> None,
 
 \* What entry i asks for, as heavy::Entry holds it besides: its resources,
 \* its declared hold (None: a command), its window's opening (None: any
-\* time), its worker (NoWorker: none), and its urgent mark.
+\* time), its worker (NoWorker: none), its urgent mark, and whether it is a
+\* landing's gate (`lands`).
 NoWorker == ""
-NoAsk == [res |-> {"host"}, hold |-> None, win |-> None, worker |-> NoWorker, urgent |-> FALSE]
+NoAsk == [res |-> {"host"}, hold |-> None, win |-> None, worker |-> NoWorker, urgent |-> FALSE,
+          lands |-> FALSE]
 
 VARIABLES
     q,           \* q[i]: entry i (Absent when the queue holds none)
@@ -203,18 +208,24 @@ KeyLt(a, b) == \/ a[1] < b[1]
 FirstKey(S, t) == Key(CHOOSE a \in S : \A b \in S \ {a} : KeyLt(Key(a, t), Key(b, t)), t)
 
 \* `line`, `next`: by key, but one past its bound goes ahead of every entry
-\* that yields, just before the first of them; and one marked urgent ahead
-\* of every entry that yields and is not, just before the first of them,
-\* behind those past their bound. Broken (`no_urgent`), the mark is not
-\* read; (`urgent_first`) a marked one goes ahead of those past their bound.
+\* that gives way (`gives`: one that yields, or a landing's gate), just
+\* before the first of them; one marked urgent ahead of every entry that
+\* gives way and is not marked, just before the first of them, behind those
+\* past their bound; and a landing's gate there too, behind the marked
+\* ones. Broken (`no_urgent`), the mark is not read; (`urgent_first`) a
+\* marked one goes ahead of those past their bound; (`no_lands`) a
+\* landing's gate is not told from another line move.
 MarkedC(i) == ask[i].urgent /\ Bug # "no_urgent"
-\* Its rank: past its bound 0, marked 1, else 2.
+LandsC(i) == ask[i].lands /\ Bug # "no_lands"
+Gives(i) == q[i].yields \/ LandsC(i)
+\* Its rank: past its bound 0, marked 1, a landing's gate 2, else 3.
 Rank(i, t) == IF Overdue(i, t) THEN IF MarkedC(i) /\ Bug = "urgent_first" THEN 1 ELSE 0
               ELSE IF MarkedC(i) THEN IF Bug = "urgent_first" THEN 0 ELSE 1
-              ELSE 2
+              ELSE IF LandsC(i) THEN 2
+              ELSE 3
 PlaceOf(i, L, t) ==
-    LET y == IF Rank(i, t) = 0 THEN {j \in L : q[j].yields}
-             ELSE IF Rank(i, t) = 1 THEN {j \in L : q[j].yields /\ ~MarkedC(j)}
+    LET y == IF Rank(i, t) = 0 THEN {j \in L : Gives(j)}
+             ELSE IF Rank(i, t) \in {1, 2} THEN {j \in L : Gives(j) /\ ~MarkedC(j)}
              ELSE {} IN
     IF y # {} /\ KeyLt(FirstKey(y, t), Key(i, t)) THEN FirstKey(y, t) ELSE Key(i, t)
 KeyLess(i, j, L, t) ==
@@ -288,8 +299,9 @@ Entry(t, yields, bound) == [Absent EXCEPT !.in = TRUE, !.queued_at = t,
 \* a cut) has a bound or none. It asks for `a`: its resources, all at once
 \* (idle work and a line move ask for "host"); a worker's hold (`worker
 \* hold`) declares how long it holds, asks for named ones alone, and may
-\* name its window. A worker's entry (one that yields) or a landing's gate
-\* (a line move) is marked urgent if its issue is.
+\* name its window. A line move may be a landing's gate (`lands`). A
+\* worker's entry (one that yields) or a landing's gate is marked urgent
+\* if its issue is.
 Arrive(i, kind, r, yields, bound, a) ==
     /\ waiter[i].phase = "none"
     /\ kind = "beside" => ~yields /\ bound = None
@@ -298,7 +310,8 @@ Arrive(i, kind, r, yields, bound, a) ==
     /\ (kind = "beside" \/ bound # None) => a.res = {"host"}
     /\ a.hold # None => a.worker # NoWorker /\ "host" \notin a.res
     /\ a.win # None => a.hold # None
-    /\ a.urgent => Urgent /\ (yields \/ bound # None)
+    /\ a.lands => Urgent /\ kind = "wait" /\ ~yields
+    /\ a.urgent => Urgent /\ (yields \/ a.lands)
     /\ \E t \in Times :
         /\ now' = t
         /\ q' = [q EXCEPT ![i] = Entry(t, yields, bound)]
@@ -324,7 +337,7 @@ NoteRules ==
 Marks(i) ==
     /\ Urgent
     /\ waiter[i].phase = "waits" /\ q[i].in /\ q[i].started_at = None
-    /\ q[i].yields \/ q[i].bound_at # None
+    /\ q[i].yields \/ ask[i].lands
     /\ \E t \in Times :
         /\ now' = t /\ Did("mark", i, t)
         /\ ask' = [ask EXCEPT ![i].urgent = ~ask[i].urgent]
@@ -479,9 +492,10 @@ Release(i) ==
     /\ Off(i)
     /\ UNCHANGED <<last_start, rules, waiter, ask, halt, halt_for>>
 
-\* What an entry may ask for.
+\* What an entry may ask for; marked urgent, or a landing's gate, only under Urgent.
+Flags == IF Urgent THEN BOOLEAN ELSE {FALSE}
 AskOf == [res : Asks, hold : {None} \cup Holds, win : {None} \cup Opens,
-          worker : {NoWorker} \cup Workers, urgent : BOOLEAN]
+          worker : {NoWorker} \cup Workers, urgent : Flags, lands : Flags]
 
 \* Any process, of any kind and rules, asking for anything, for any free id.
 Arrives ==
@@ -521,7 +535,7 @@ CONSTANT Depth
 Shallow == TLCGet("level") < Depth
 
 -----------------------------------------------------------------------------
-(* The properties, in SPEC §1 row 9's words. An action property reads,   *)
+(* The properties, in ADR 0010's words. An action property reads,          *)
 (* of every step, `last'` as that step and the unprimed state as before;   *)
 (* an invariant reads `last` as the step that reached the state.           *)
 
@@ -552,7 +566,8 @@ IdleBut(i) == ~\E j \in Running \ {i} : "host" \in Res(j)
 \* It never starves the oldest: with nothing holding "host", the oldest
 \* entry in its line, asking for it alone, starts at once when it asks,
 \* whatever the reading (no line move past its bound waiting ahead of it,
-\* nor, unless it is marked urgent, one marked so):
+\* nor, unless it is marked urgent, one marked so, nor, unless it is
+\* marked or a landing's gate, a landing's gate):
 \* a stale one ahead of it holds it up no more than one gone (factorium#241),
 \* nor does one waiting for a full resource (factorium#284). Told to wait,
 \* it is still in the line it read.
@@ -562,9 +577,10 @@ AtOnce ==
           /\ Res(i) = {"host"} /\ HostIdle /\ waiter[i].rules >= rules
           /\ i \in InLine("host", last.t) /\ i = OldestOf(InLine("host", last.t))
           /\ ~\E j \in InLine("host", last.t) : Overdue(j, last.t)
-          /\ ~\E j \in InLine("host", last.t) \ {i} : ask[j].urgent /\ ~ask[i].urgent)
+          /\ ~\E j \in InLine("host", last.t) \ {i} : ask[j].urgent /\ ~ask[i].urgent
+          /\ ~\E j \in InLine("host", last.t) \ {i} : ask[j].lands /\ ~ask[i].urgent /\ ~ask[i].lands)
 
-\* Before in a resource's line, in SPEC §1.9's words: one waiting past the
+\* Before in a resource's line, in ADR 0011's words: one waiting past the
 \* starve bound (since it joined the line) before all that have not, oldest
 \* first; then the shortest declared hold (a command's, the default),
 \* oldest first.
@@ -577,32 +593,47 @@ Prior(a, b, t) ==
 
 \* In order: an entry starts only when, in the line of each resource it
 \* asks for (but those its worker's hold holds), every entry before it
-\* waits behind a worker's or a program's entry that a line move past its
-\* bound (this one) goes ahead of, or, not past its bound itself, behind
-\* one not marked urgent that an urgent one (this one) goes ahead of.
+\* waits behind an entry that gives way (a worker's or a program's, or a
+\* landing's gate) that a line move past its bound (this one) goes ahead
+\* of; or, not past its bound itself, behind one giving way and not marked
+\* urgent that an urgent one (this one) goes ahead of; or, neither past its
+\* bound nor marked itself, behind one giving way and not marked that a
+\* landing's gate (this one) goes ahead of.
+GivesWay(i) == q[i].yields \/ ask[i].lands
 InOrder ==
     [][ Started =>
         \A r \in Res(Who) : Covered(Who, r) \/
             \A j \in InLine(r, At) \ {Who} :
                 \/ Prior(Who, j, At)
-                \/ Overdue(Who, At) /\ \E y \in InLine(r, At) : q[y].yields /\ (y = j \/ Prior(y, j, At))
+                \/ Overdue(Who, At) /\ \E y \in InLine(r, At) : GivesWay(y) /\ (y = j \/ Prior(y, j, At))
                 \/ /\ ask[Who].urgent /\ ~Overdue(j, At)
-                   /\ \E y \in InLine(r, At) : q[y].yields /\ ~ask[y].urgent /\ (y = j \/ Prior(y, j, At)) ]_vars
+                   /\ \E y \in InLine(r, At) : GivesWay(y) /\ ~ask[y].urgent /\ (y = j \/ Prior(y, j, At))
+                \/ /\ ask[Who].lands /\ ~Overdue(j, At) /\ ~ask[j].urgent
+                   /\ \E y \in InLine(r, At) : GivesWay(y) /\ ~ask[y].urgent /\ (y = j \/ Prior(y, j, At)) ]_vars
 
 \* A line move past its bound goes ahead of workers' and programs' waiting
-\* entries: none of those starts while one waits in its line. (A line move
-\* asks for "host" alone, so the start beside it leaves it in the line.)
+\* entries and landings' gates: none of those starts while one waits in
+\* its line. (A line move asks for "host" alone, so the start beside it
+\* leaves it in the line.)
 LineAhead ==
     \A i \in Ids :
-        (StartedBy(i) /\ q[i].yields) =>
+        (StartedBy(i) /\ GivesWay(i) /\ ~Overdue(i, last.t)) =>
             \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : Overdue(j, last.t)
 
 \* An urgent entry goes ahead of workers' and programs' waiting entries
-\* not marked so: none of those starts while one marked waits in its line.
+\* and landings' gates not marked so: none of those starts while one
+\* marked waits in its line.
 UrgentAhead ==
     \A i \in Ids :
-        (StartedBy(i) /\ q[i].yields /\ ~ask[i].urgent) =>
+        (StartedBy(i) /\ GivesWay(i) /\ ~ask[i].urgent /\ ~Overdue(i, last.t)) =>
             \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : ask[j].urgent
+
+\* A landing's gate goes ahead of workers' and programs' waiting entries
+\* not marked urgent: none of those starts while one waits in its line.
+LandsAhead ==
+    \A i \in Ids :
+        (StartedBy(i) /\ q[i].yields /\ ~ask[i].urgent) =>
+            \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : ask[j].lands
 
 \* While urgent issues halt the queue, nothing but an urgent entry starts.
 HaltHolds ==
@@ -700,7 +731,7 @@ KeptPlace ==
 \* `read`, `since`), which View and StepView leave out: whether each holds
 \* tells states apart too. Where none fails it is View, state for state; a
 \* state that breaks one is never taken for one seen that does not.
-StartView == <<View, AtOnce, LineAhead, UrgentAhead, Settled>>
+StartView == <<View, AtOnce, LineAhead, UrgentAhead, LandsAhead, Settled>>
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
@@ -727,6 +758,7 @@ BrokenVariants == [
     no_starve        |-> "InOrder",      \* none goes ahead for waiting past the starve bound
     no_halt          |-> "HaltHolds",    \* a halt passes none over (factorium#361)
     no_urgent        |-> "UrgentAhead",  \* the urgent mark is not read in the line
-    urgent_first     |-> "LineAhead"     \* an urgent one goes ahead of a line move past its bound
+    urgent_first     |-> "LineAhead",    \* an urgent one goes ahead of a line move past its bound
+    no_lands         |-> "LandsAhead"    \* a landing's gate is ranked as another line move (#372)
 ]
 =============================================================================

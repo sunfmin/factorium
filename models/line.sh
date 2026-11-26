@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 
 case "${1:-}" in
   trace)
-    scenario=${2:-line::a_landing_whose_push_answer_is_lost_lands_again_and_closes_its_issue}
+    scenario=${2:-answers::a_landing_whose_push_answer_is_lost_lands_again_and_closes_its_issue}
     file=${3:-models/line-run.jsonl}
     FACTORIUM_LINE_TRACE="$PWD/$file" cargo test -q -p factorium --test scenarios -- --exact "$scenario" >&2 || true
     truefit model line-run --trace "$file" | jq '.trace | del(.output)'
