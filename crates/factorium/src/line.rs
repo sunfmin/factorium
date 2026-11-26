@@ -7,12 +7,16 @@
 //! when it ends ([`crate::workdir`]). The daemon runs every heavy step of a move — a
 //! landing's fast gate, a promotion's slow gate, a cut's steps — beside its
 //! ticks ([`Moving`]), so no tick waits for one (factorium#231): the next
-//! tick finds how they ended and finishes the move. A checkout's moves go one at a time: none
-//! of its moves is carried while one of them runs beside the ticks. A landing waiting its turn
+//! tick finds how they ended and finishes the move. A checkout's moves run apart, each kind
+//! one at a time: no landing of it is carried while one of its landings runs beside the ticks,
+//! no promotion while a promotion does, no cut while a cut runs or its binary is proven; a
+//! landing goes on while a promotion's gate or a cut's steps run. They write different refs
+//! (proving, the base, a tag) from work dirs of their own, and each push requires the tip it
+//! read, so none needs another held; a landing line held behind them was most of the wait
+//! between landings (docs/adr/0018-a-checkout-s-moves-run-apart.md). A landing waiting its turn
 //! is checked for its merge onto the proving tip on the tick after `done`, and again each time
 //! its branch or the tip moves: one that does not merge is red then, not at its turn
 //! (factorium#307).
-
 mod cut;
 mod mutants;
 
@@ -73,7 +77,7 @@ pub(crate) struct Moving {
 
 impl Moving {
     /// The kind of job it is.
-    fn kind(&self) -> LineDir {
+    pub(crate) fn kind(&self) -> LineDir {
         match &self.then {
             Then::Land { .. } => LineDir::Landing,
             Then::Promote { .. } => LineDir::Promotion,
@@ -117,8 +121,8 @@ struct Landing {
 impl App {
     /// The tick's pass over the lines: each move that ran beside the ticks
     /// and ended, finished; each checkout's landing, then each one's
-    /// promotion and cut as its line says each is due, but none of a
-    /// checkout whose move runs on; then its local base following origin's
+    /// promotion and cut as its line says each is due, but none of a kind
+    /// whose move of that checkout runs on ([`App::runs`]); then its local base following origin's
     /// as last fetched, whatever left it behind. Answers what landed, and
     /// what else moved.
     pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<(Vec<Value>, Vec<Value>)> {
@@ -138,19 +142,29 @@ impl App {
         lines.extend(self.cuts_proven().await?);
         // After a landing pushed, before the next lands: one that no longer merges leaves the line.
         landed.extend(self.check_waiting(checkouts).await?);
-        let free = |c: &&Checkout| !self.beside_runs(|f| f.moves(&c.name)) && !self.cut_proving(&c.name);
-        for c in checkouts.iter().filter(free).filter(|c| !landing_ended.contains(&c.name)) {
+        for c in checkouts.iter().filter(|c| !self.runs(c, Move::Land) && !landing_ended.contains(&c.name)) {
             landed.extend(self.carry(c, Move::Land, false).await?.ok());
         }
         for c in checkouts {
             for mv in [Move::Promote, Move::Cut] {
-                if free(&c) {
+                if !self.runs(c, mv) {
                     lines.extend(self.carry(c, mv, false).await?.ok());
                 }
             }
             lines.extend(follow_base(c, &self.host.git(&c.path), &c.fetched_base()));
         }
         Ok((landed, lines))
+    }
+
+    /// Whether a move of `c` of the kind `mv` runs on: its steps beside the ticks, or for a cut,
+    /// its binary's proof. Moves of other kinds go on beside it.
+    fn runs(&self, c: &Checkout, mv: Move) -> bool {
+        let kind = match mv {
+            Move::Land => LineDir::Landing,
+            Move::Promote => LineDir::Promotion,
+            Move::Cut => LineDir::Cut,
+        };
+        self.beside_runs(|f| f.moves(&c.name, kind)) || (mv == Move::Cut && self.cut_proving(&c.name))
     }
 
     /// Finishes `moving`, whose steps ran beside the ticks and `ended` so: unqueued while they

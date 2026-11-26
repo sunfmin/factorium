@@ -702,6 +702,7 @@ covers = [
   { action = "PromPush", file = "crates/domain/src/line.rs", function = "Promotion::red" },
   { action = "PromRecord", file = "crates/domain/src/line.rs", function = "Promote" },
   { action = "PromRecord", file = "crates/domain/src/neutral/landing.rs", function = "Line::apply (Promoted)" },
+  { action = "CutRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::runs" },
   { action = "CutRead", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base (fetch base)" },
   { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
   { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
@@ -736,6 +737,7 @@ covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
   { action = "LandedCloses", file = "crates/domain/src/line.rs", function = "RecordLanding" },
+  { action = "PromotedCut", file = "crates/domain/src/neutral/landing.rs", function = "Line::apply (CutMade)" },
 ]
 
 # The code's two steps for a worker's end, between which a daemon may die:

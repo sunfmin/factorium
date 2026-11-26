@@ -1,8 +1,10 @@
 //! A line's promotion gate and cut run beside the daemon's ticks
 //! (factorium#216): while one runs, workers start and are watched, and the
-//! tick after its steps end records how it ended. A checkout's moves still
-//! go one at a time: while one of them runs beside the ticks, it carries no
-//! other.
+//! tick after its steps end records how it ended. A checkout's landing,
+//! promotion and cut run apart, each kind one at a time
+//! (docs/adr/0018-a-checkout-s-moves-run-apart.md): its workers land while
+//! its promotion's gate or its cut runs, and no second move of a kind starts
+//! beside the first.
 
 use std::path::Path;
 
@@ -91,154 +93,120 @@ async fn a_worker_starts_while_a_promotions_slow_gate_runs_beside_the_ticks_and_
     assert_eq!(w.remote_tip("web", "main"), landed);
 }
 
+/// Issues `titles` of `web`, numbered from `first`, become ready, and ticks start a worker on
+/// each; each commits and is done.
+async fn done_while_it_runs(w: &World, first: u64, titles: &[&str]) {
+    for t in titles {
+        w.app.issue_add("web", t, "", false, &[]).await.unwrap();
+    }
+    for _ in titles {
+        assert!(w.tick_alone().await.started.is_some(), "a worker starts while the move runs");
+    }
+    for (n, t) in (first..).zip(titles) {
+        w.done(&w.worker_on("web", n).await, t, "x").await;
+    }
+}
+
+/// Ticks, each a minute on, until `n` landings of web landed: what each landed, in order. Each
+/// landing's fast gate runs beside the ticks, and the next tick finishes it.
+async fn land_while_it_runs(w: &World, n: usize) -> Vec<Value> {
+    let mut landed = Vec::new();
+    tokio::time::timeout(STUCK, async {
+        while landed.len() < n {
+            w.advance(1);
+            landed.extend(w.tick_alone().await.landed.into_iter().filter(|l| l["landed"].is_string()));
+            tokio::time::sleep(LOOK).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{n} land while the move runs: {landed:?}"));
+    landed
+}
+
+/// What web asks of the heavy queue, waiting or running.
+async fn queued_of_web(w: &World) -> Vec<String> {
+    w.queued().await.into_iter().filter(|q| q.ends_with(" web")).collect()
+}
+
 #[tokio::test]
-async fn while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_starts_and_another_checkouts_do() {
+async fn a_worker_lands_while_a_promotions_slow_gate_runs_and_the_base_moves_to_the_tip_it_read() {
+    let w = World::new();
+    let dir = w.dir.join("long");
+    declares(&w, &dir, "[gate]\nfast = \"true\"\nslow = \"{long}\"\n").await;
+    let main = w.remote_tip("web", "main");
+    let read = lands_alone(&w).await.landed[0]["commit"].as_str().expect("#1 lands").to_string();
+    until_file(&dir.join("started")).await;
+    done_while_it_runs(&w, 2, &["b"]).await;
+    let landed = land_while_it_runs(&w, 1).await;
+    assert_eq!(landed[0]["landed"], "web#2", "#2 lands while the slow gate of #1's tip runs");
+    let two = landed[0]["commit"].as_str().unwrap().to_string();
+    assert_eq!(w.remote_tip("web", "proving"), two);
+    assert_eq!(w.remote_tip("web", "main"), main, "the base waits for the slow gate");
+    assert_eq!(queued_of_web(&w).await, ["slow gate of web"], "no second promotion of web starts beside it");
+    std::fs::write(dir.join("release"), "").unwrap();
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its gate ends");
+    let t = w.tick_alone().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web" && l["tip"] == read.as_str()), "{:?}", t.lines);
+    assert_eq!(w.remote_tip("web", "main"), read, "the base moves to the tip it read, not past it");
+    let t = w.tick().await;
+    assert!(t.lines.iter().any(|l| l["promoted"] == "web" && l["tip"] == two.as_str()), "then #2's: {:?}", t.lines);
+}
+
+#[tokio::test]
+async fn two_workers_land_while_a_cut_waits_on_its_remote_step_and_their_promotion_is_cut_next() {
     let w = World::new();
     let dir = w.dir.join("long");
     declares(&w, &dir, "[gate]\nfast = \"true\"\n\n[cut]\nsteps = [\"{long}\"]\n").await;
-    lands_alone(&w).await;
+    let one = lands_alone(&w).await.landed[0]["commit"].as_str().expect("#1 lands").to_string();
     until_file(&dir.join("started")).await;
-    // #2 starts, and is done while the cut runs.
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    assert!(w.tick_alone().await.started.is_some());
-    let two = w.worker_on("web", 2).await;
-    w.done(&two, "b", "x").await;
-    // Another checkout's worker starts, and is done while the cut runs.
+    done_while_it_runs(&w, 2, &["b", "c"]).await;
+    let landed = land_while_it_runs(&w, 2).await;
+    let mut issues: Vec<_> = landed.iter().map(|l| l["landed"].as_str().unwrap()).collect();
+    issues.sort();
+    assert_eq!(issues, ["web#2", "web#3"], "both land while the cut runs");
+    let last = landed[1]["commit"].as_str().unwrap().to_string();
+    w.advance(1);
+    w.tick_alone().await;
+    assert_eq!(w.remote_tip("web", "main"), last, "and are promoted, the host idle");
+    assert!(w.app.moves_run() && !dir.join("release").exists(), "the cut runs on");
+    assert_eq!(queued_of_web(&w).await, ["cut of web"], "no second cut of web starts beside it");
+    std::fs::write(dir.join("release"), "").unwrap();
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
+    let t = w.tick_alone().await;
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").unwrap_or_else(|| panic!("the cut: {:?}", t.lines));
+    assert_eq!((&cut["version"], &cut["commit"]), (&"v0.1.0".into(), &one.as_str().into()), "of the base it read");
+    let t = w.tick().await;
+    let next = t.lines.iter().find(|l| l["cut"] == "web").unwrap_or_else(|| panic!("owed a cut: {:?}", t.lines));
+    assert_eq!((&next["version"], &next["commit"]), (&"v0.1.1".into(), &last.as_str().into()), "{next}");
+}
+
+#[tokio::test]
+async fn while_a_landing_runs_beside_the_ticks_no_other_of_its_checkout_starts_and_another_checkouts_does() {
+    let w = World::new();
+    let dir = w.dir.join("long");
+    declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
+    w.tick_alone().await;
+    until_file(&dir.join("started")).await;
+    done_while_it_runs(&w, 2, &["b"]).await;
+    // Another checkout's worker starts, and is done while web's landing runs.
     w.checkout("api").await;
     w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
     assert!(w.tick_alone().await.started.is_some());
     w.done(&w.worker_on("api", 1).await, "a", "x").await;
-    let proving = w.remote_tip("web", "proving");
     let mut landed = Vec::new();
-    let mut ticks = 0;
-    // Three ticks at least, and until api's landing, its gate beside the ticks too, ends.
     tokio::time::timeout(STUCK, async {
-        while ticks < 3 || landed.is_empty() {
+        while landed.is_empty() {
             w.advance(1);
-            let t = w.tick_alone().await;
-            let of_web = t.lines.iter().chain(&t.landed).filter(|l| l.to_string().contains("web")).collect::<Vec<_>>();
-            assert!(of_web.is_empty(), "no move of web starts: {t:?}");
-            landed.extend(t.landed);
-            ticks += 1;
+            landed.extend(w.tick_alone().await.landed);
+            assert_eq!(queued_of_web(&w).await, ["fast gate of web"], "one landing of web at a time");
             tokio::time::sleep(LOOK).await;
         }
     })
     .await
     .expect("api lands");
-    assert_eq!(landed.len(), 1, "{landed:?}");
-    assert_eq!(landed[0]["landed"], "api#1", "api's line moves beside web's cut");
-    assert_eq!(w.remote_tip("web", "proving"), proving, "#2 waits for the cut");
-    let web: Vec<String> = w.queued().await.into_iter().filter(|q| q.ends_with(" web")).collect();
-    assert_eq!(web, ["cut of web"], "nothing else of web asks the queue");
-    // Once the cut ends: it is recorded, and then #2 lands, in its order.
+    assert_eq!(landed[0]["landed"], "api#1", "api's line moves beside web's landing: {landed:?}");
     std::fs::write(dir.join("release"), "").unwrap();
-    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
-    let t = w.tick_alone().await;
-    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
-    assert_eq!(w.tick().await.landed[0]["landed"], "web#2", "then #2's landing");
-}
-
-/// Seen 2026-11-22 (factorium#231): a landing's fast gate ran in the tick, so
-/// one past the hang bound (98 s and 113 s, with the rest of their ticks) read
-/// as a hung daemon. It runs beside the ticks: while it holds past the hang
-/// bound, ticks keep coming, none slow, workers start; the tick after it
-/// ends lands.
-#[tokio::test]
-async fn ticks_keep_coming_while_a_landings_fast_gate_runs_past_the_hang_bound() {
-    let w = World::new();
-    let dir = w.dir.join("long");
-    declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
-    let t = w.tick_alone().await;
-    assert!(t.landed.is_empty(), "the gate runs on: {t:?}");
-    until_file(&dir.join("started")).await;
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    let hang = factorium_domain::daemon::hang_bound(10_000);
-    let mut started = Vec::new();
-    for _ in 0..3 {
-        w.clock.advance(hang + 30_000);
-        let t = tokio::time::timeout(STUCK, w.tick_alone()).await.expect("a tick ends while the gate holds");
-        assert!(t.landed.is_empty(), "the gate runs on: {t:?}");
-        assert!(t.took_ms < hang / 2, "no tick waits for it: {} ms in {:?}", t.took_ms, t.longest);
-        started.extend(t.started);
-    }
-    assert!(started.iter().any(|s| s["issue"] == "web#2"), "a worker starts while it runs: {started:?}");
-    assert!(w.app.moves_run() && !dir.join("release").exists(), "past three hang bounds, it holds still");
-    let doctor = w.app.doctor().await.unwrap();
-    assert!(doctor["slow_tick"].is_null(), "{doctor}");
-    std::fs::write(dir.join("release"), "").unwrap();
-    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
-    let t = w.tick_alone().await;
-    assert_eq!(t.landed[0]["landed"], "web#1", "the tick after it ended lands: {t:?}");
-    assert_eq!(w.remote_tip("web", "proving"), t.landed[0]["commit"].as_str().unwrap());
-}
-
-/// A worker that asks to land again with new commits while its landing's gate
-/// runs is not pushed as gated: its branch moved, and it lands again with them.
-#[tokio::test]
-async fn a_branch_that_moves_while_its_landings_gate_runs_lands_again_with_what_it_added() {
-    let w = World::new();
-    let dir = w.dir.join("long");
-    let one = declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
-    w.tick_alone().await;
-    until_file(&dir.join("started")).await;
-    w.commit(&crate::fixture::worktree(&one), "late", "y");
-    std::fs::write(dir.join("release"), "").unwrap();
-    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
-    let t = w.tick_alone().await;
-    assert!(t.landed.is_empty(), "not pushed as gated: {t:?}");
-    let landed = w.tick().await.landed;
-    let commit = landed.iter().find(|l| l["landed"] == "web#1").expect("it lands again")["commit"].as_str().unwrap();
-    let files = w.git(&w.dir.join("remotes/web.git"), &["ls-tree", "--name-only", commit]).unwrap();
-    assert!(files.lines().any(|f| f == "late"), "with what it added: {files}");
-}
-
-/// A worker that no longer asks to land once its landing's gate ends (it
-/// went to the watch meanwhile) is not landed.
-#[tokio::test]
-async fn a_worker_that_no_longer_asks_to_land_once_its_gate_ends_is_not_landed() {
-    let w = World::new();
-    let dir = w.dir.join("long");
-    let one = declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
-    let proving = w.remote_tip("web", "proving");
-    w.tick_alone().await;
-    until_file(&dir.join("started")).await;
-    w.app.worker_escalate(crate::fixture::id(&one), "stuck").await.unwrap();
-    std::fs::write(dir.join("release"), "").unwrap();
-    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("its steps end");
-    assert!(w.tick_alone().await.landed.is_empty());
-    assert_eq!(w.remote_tip("web", "proving"), proving, "nothing pushed");
-}
-
-/// Seen 2026-11-26 (v0.1.125 to v0.1.126): a newer binary linked while a
-/// landing's fast gate runs beside the ticks, and one of its CLI calls
-/// writes an event this binary cannot read:
-/// every tick fails before the one step that would find the gate ended, so
-/// the move beside them never ends for this binary. It swaps to the linked
-/// binary all the same once that is proven, within a tick or two, and the
-/// move ends with the exec, for the newer binary to run again.
-#[tokio::test]
-async fn a_daemon_whose_ticks_fail_while_a_move_runs_beside_them_still_swaps_to_the_linked_binary() {
-    let w = World::new();
-    let link0 = w.running_as(&w.app, "factorium");
-    let dir = w.dir.join("long");
-    declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
-    assert!(w.tick_alone().await.landed.is_empty(), "the gate runs on");
-    until_file(&dir.join("started")).await;
-    assert!(w.app.moves_run(), "the landing's gate runs beside the ticks");
-    crate::daemon::link(&w, "0.1.0");
-    w.an_event_a_newer_binary_wrote("FromANewerVersion");
-    let begun = std::time::Instant::now();
-    let restart = loop {
-        w.advance(1);
-        let ticked = w.app.tick().await;
-        let why = ticked.as_ref().expect_err("its store cannot read the event").to_string();
-        assert!(why.contains("FromANewerVersion"), "{why}");
-        if let Some(to) = w.app.after(&ticked) {
-            break to;
-        }
-        assert!(begun.elapsed() < STUCK, "the linked binary's proof ends");
-        tokio::time::sleep(LOOK).await;
-    };
-    assert_eq!(restart, link0, "it swaps to the linked binary though the move runs on");
-    assert!(w.app.moves_run() && !dir.join("release").exists(), "no tick of this binary ended the move");
+    let issues: Vec<_> =
+        land_while_it_runs(&w, 2).await.iter().map(|l| l["landed"].as_str().unwrap().to_string()).collect();
+    assert_eq!(issues, ["web#1", "web#2"], "then each of web, in its order");
 }

@@ -90,7 +90,8 @@ impl App {
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
             Ok((tagged, Some((formula.clone(), self.proves_formula(formula)))))
         };
-        let cut = line::Cut { checkout: c.name.clone(), version: version.into(), commit: base.into(), failed: None };
+        let (version, commit, base) = (version.to_string(), base.to_string(), Some(base.to_string()));
+        let cut = line::Cut { checkout: c.name.clone(), version, commit, base, failed: None };
         let made = match done.await {
             Ok((tagged, Some((formula, Some(proof))))) if beside => {
                 let (tx, proven) = tokio::sync::watch::channel(None);
@@ -189,8 +190,13 @@ impl App {
                 return Ok(None);
             }
         }
-        let record =
-            line::Cut { checkout: c.name.clone(), version: version.into(), commit: tagged.clone(), failed: None };
+        let record = line::Cut {
+            checkout: c.name.clone(),
+            version: version.into(),
+            commit: tagged.clone(),
+            base: None,
+            failed: None,
+        };
         self.submit::<line::RecordCut>(record).await?;
         Ok(Some(
             json!({ "cut": c.name, "version": version, "commit": tagged, "installed": cut.formula, "read_back": true }),

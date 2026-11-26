@@ -152,9 +152,9 @@ pub(crate) enum For {
 }
 
 impl For {
-    /// Whether it is a move of `checkout`'s line.
-    pub(crate) fn moves(&self, checkout: &str) -> bool {
-        matches!(self, For::Line(m) if m.checkout == checkout)
+    /// Whether it is a move of `checkout`'s line, of the `kind` of job.
+    pub(crate) fn moves(&self, checkout: &str, kind: crate::LineDir) -> bool {
+        matches!(self, For::Line(m) if m.checkout == checkout && m.kind() == kind)
     }
 }
 

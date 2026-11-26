@@ -285,7 +285,8 @@ impl App {
             // Promotions waiting for their mutants issue (where slimfit holds them at the base): the issue, and
             // until when (ms, UTC, seconds left), `mutants_bound` after its filing; past it, they go on without it.
             "mutants": mutants,
-            // Each landing waiting, with its place in its checkout's line (1 lands next).
+            // Each landing waiting, with its place in its checkout's line (1 lands next): it goes on
+            // while its checkout's promotion or cut runs (docs/adr/0018-a-checkout-s-moves-run-apart.md).
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
