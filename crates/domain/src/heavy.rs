@@ -605,7 +605,7 @@ pub enum HeavyEvent {
     HeavyRules {
         version: String,
     },
-    /// The urgent issues that halt every other start now: none, it runs as usual.
+    /// The urgent issues that halt heavy commands not urgent now: none, it runs as usual.
     HeavyHalted {
         by: Vec<String>,
         #[serde(default)]

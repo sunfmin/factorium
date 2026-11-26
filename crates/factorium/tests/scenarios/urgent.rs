@@ -132,16 +132,18 @@ async fn an_urgent_ready_issue_starts_first_past_the_load_and_a_blocked_one_wait
     let started = starts(&w, 2).await;
     assert_eq!(started["urgent"]["ahead_of"], serde_json::json!(["web#1"]), "{started}");
     assert!(started["urgent"]["past"][0].as_str().unwrap().starts_with("cpu"), "{started}");
+    // #3 waits for #2. #2's worker halts heavy commands, not #1's start: the load holds it, with the load's why.
     let t = w.tick().await;
-    assert!(t.started.is_none(), "#3 waits for #2, #1 for the halt #2's worker begins: {:?}", t.held);
-    assert_eq!(t.held.as_deref(), Some("halt: behind urgent web#2"));
-    // `--no-urgent` puts each back in the ordinary order: #1 goes first once the load allows.
-    w.app.issue_mark_urgent("web", 3, false).await.unwrap();
-    w.app.issue_mark_urgent("web", 2, false).await.unwrap();
-    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["urgent"], false);
-    assert!(w.tick().await.held.unwrap().starts_with("cpu"), "the halt lifted, the load holds it");
+    assert!(t.started.is_none(), "#3 waits for #2, #1 for the load: {:?}", t.held);
+    assert!(t.held.as_deref().unwrap().starts_with("cpu"), "the load holds it, not the halt: {:?}", t.held);
+    let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
+    assert!(found.iter().any(|f| f.starts_with("urgent web#2 halts")), "the halt stands: {found:?}");
+    // The load allows it: #1 starts during the halt, in the ordinary order.
     w.host.reading.lock().unwrap().cpu_busy = 10;
     assert!(starts(&w, 1).await["urgent"].is_null());
+    // `--no-urgent` takes the mark off.
+    w.app.issue_mark_urgent("web", 3, false).await.unwrap();
+    assert_eq!(w.app.issue_show("web", 3).await.unwrap()["urgent"], false);
 }
 
 #[tokio::test]
@@ -307,11 +309,11 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [3, 2, 1, 7], "lifted: as before");
 }
 
-/// Halted by issue 2 of the fixture checkout app, urgent: no other worker starts, but another
-/// checkout's done worker lands, and a third checkout's landing is
-/// promoted and cut, all during the halt.
+/// Halted by issue 2 of the fixture checkout app, urgent: a ready issue of
+/// its own checkout starts, another checkout's done worker lands, and a
+/// third checkout's landing is promoted and cut, all during the halt.
 #[tokio::test]
-async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_starts() {
+async fn halted_workers_start_and_other_checkouts_land_promote_and_cut() {
     let w = World::new();
     for c in ["app", "api", "web"] {
         w.checkout(c).await;
@@ -327,14 +329,12 @@ async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_start
     w.app.issue_mark_urgent("app", 2, true).await.unwrap();
     w.app.issue_add("app", "c", "", false, &[]).await.unwrap();
     let t = w.tick().await;
-    assert!(t.started.is_none() && t.held.as_deref() == Some("halt: behind urgent app#2"), "{:?}", t.held);
+    assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some("app#3".into()), "{:?}", t.held);
     let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    assert!(
-        found.iter().any(|f| f.starts_with("urgent app#2 halts") && f.contains("landings, promotions and cuts go on")),
-        "{found:?}"
-    );
-    let api = w.lands("api", 1, "a").await;
-    assert_eq!(api.tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
+    let halt = found.iter().find(|f| f.starts_with("urgent app#2 halts")).unwrap_or_else(|| panic!("{found:?}"));
+    assert!(halt.contains("workers start as admission allows"), "{halt}");
+    assert!(halt.contains("landings, promotions and cuts go on"), "{halt}");
+    w.lands("api", 1, "a").await;
     let cut_tick = w.lands("web", 1, "a").await.tick;
     assert!(cut_tick.lines.iter().any(|l| l["promoted"] == "web"), "promoted during the halt: {:?}", cut_tick.lines);
     let cut = cut_tick
@@ -343,10 +343,53 @@ async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_start
         .find(|l| l["cut"] == "web")
         .unwrap_or_else(|| panic!("cut during the halt: {:?}", cut_tick.lines));
     assert_eq!(cut["failed"], Value::Null, "{cut}");
-    assert_eq!(cut_tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
     // Issue 1 of the fixture checkout app, the urgent issue's own checkout, lands too.
-    let own = w.lands("app", 1, "a").await.tick;
-    assert!(own.started.is_none(), "{:?}", own.started);
+    w.lands("app", 1, "a").await;
+}
+
+/// Halted by web#1, urgent: api#1, ready, starts on the next tick admission
+/// allows; its worker's heavy command waits `behind urgent web#1` until
+/// web#1 closes, then runs.
+#[tokio::test]
+async fn halted_another_checkout_s_worker_starts_and_its_heavy_command_waits_until_the_urgent_issue_closes() {
+    let w = World::new();
+    for c in ["web", "api"] {
+        w.checkout(c).await;
+    }
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.app.issue_mark_urgent("web", 1, true).await.unwrap();
+    w.app.issue_add("api", "a", "", false, &[]).await.unwrap();
+    assert_eq!(w.tick().await.started.unwrap()["issue"], "web#1", "the urgent one first");
+    let t = w.tick().await;
+    assert_eq!(t.started.as_ref().map(|s| s["issue"].clone()), Some("api#1".into()), "{:?}", t.held);
+    let api = id(&w.worker_on("api", 1).await);
+    let cli = w.run();
+    let mut next = std::pin::pin!(cli.worker_exclusive(Some(api), &w.dir, "echo next"));
+    let waits = async {
+        let host = |d: &Value| rows(&d["resources"]).iter().find(|r| r["name"] == "host").cloned().unwrap();
+        w.until(async || rows(&host(&w.doctor().await)["waiting"]).len() == 1).await;
+        let waiting = host(&w.doctor().await)["waiting"][0].clone();
+        assert_eq!(waiting["why"], "behind urgent web#1", "{waiting}");
+        // A tick on, still halted: it waits on.
+        w.clock.advance(POLL);
+        w.tick().await;
+        tokio::time::sleep(LOOK).await;
+    };
+    tokio::select! { _ = &mut next => panic!("it started during the halt"), () = waits => {} }
+    w.lands("web", 1, "a").await;
+    w.tick().await;
+    let polls = async {
+        loop {
+            tokio::time::sleep(LOOK).await;
+            w.clock.advance(POLL);
+        }
+    };
+    let ran = tokio::time::timeout(STUCK, async {
+        tokio::select! { r = next => r, () = polls => unreachable!() }
+    });
+    assert_eq!(ran.await.expect("lifted, it runs").unwrap()["ok"], true);
 }
 
 #[tokio::test]
@@ -416,7 +459,7 @@ async fn an_urgent_start_goes_ahead_of_no_ready_issue_whose_block_is_unmet() {
 }
 
 #[tokio::test]
-async fn admission_held_only_by_the_urgent_halt_is_the_halt_s_finding_alone_and_a_full_disk_is_its_own() {
+async fn admission_held_by_the_load_during_a_halt_is_the_load_s_finding_and_a_full_disk_is_its_own() {
     let w = World::new();
     w.two_at_work().await;
     w.app.issue_mark_urgent("web", 2, true).await.unwrap();
@@ -424,12 +467,15 @@ async fn admission_held_only_by_the_urgent_halt_is_the_halt_s_finding_alone_and_
     let found = async || -> Vec<String> {
         w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect()
     };
-    assert_eq!(w.tick().await.held.as_deref(), Some("halt: behind urgent web#2"));
+    w.host.reading.lock().unwrap().cpu_busy = 95;
+    assert!(w.tick().await.held.unwrap().starts_with("cpu"), "the load holds it, not the halt");
     w.advance(31);
     w.tick().await;
     let f = found().await;
     assert!(f.iter().any(|f| f.starts_with("urgent web#2 halts")), "{f:?}");
-    assert!(!f.iter().any(|f| f.contains("admission held")), "the halt's finding covers it: {f:?}");
+    assert!(f.iter().any(|f| f.contains("admission held") && f.contains("cpu")), "the load's own finding: {f:?}");
+    w.host.reading.lock().unwrap().cpu_busy = 10;
+    starts(&w, 3).await;
 
     // An urgent issue held by a full disk: the disk holds it, not the halt.
     w.app.issue_add("web", "d", "", false, &[]).await.unwrap();
