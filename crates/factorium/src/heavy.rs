@@ -186,6 +186,14 @@ pub(crate) struct Running {
     ended: tokio::sync::watch::Receiver<()>,
 }
 
+impl Running {
+    /// Whether its steps ended: its thread dropped the sender of `ended` (what
+    /// [`App::beside_ended`] answers on), though the task may not show finished yet.
+    fn steps_ended(&self) -> bool {
+        self.run.is_finished() || self.ended.has_changed().is_err()
+    }
+}
+
 /// How `rans`, a run's steps up to the first that failed, ran; none: no step
 /// ran (a hold).
 fn outcome(rans: &[Ran]) -> Option<Outcome> {
@@ -412,7 +420,7 @@ impl App {
         while let Some(mut b) = picked.next() {
             let looked = self.look_at(&mut b.0, busy || end).await;
             b.0.stop.fetch_or(end, Ordering::Relaxed);
-            if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.run.is_finished())) {
+            if !end && (looked.is_err() || (b.0.why.is_none() && !b.0.steps_ended())) {
                 self.memory.lock().unwrap().beside.push(b);
                 failed = failed.or(looked.err());
                 continue;
@@ -615,7 +623,7 @@ impl App {
         let q = self.state::<Heavy>(queue_id()).await?;
         let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
         // Steps that ended on their own keep how they ran: the halt cuts nothing that ended.
-        let ends = ends.filter(|e| *e != Ends::Halted || !r.run.is_finished());
+        let ends = ends.filter(|e| *e != Ends::Halted || !r.steps_ended());
         r.why = r.why.or(ends);
         r.stop.store(r.why.is_some(), Ordering::Relaxed);
         Ok(())
