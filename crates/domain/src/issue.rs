@@ -66,9 +66,8 @@ pub fn urgent_first<T>(items: &mut [T], urgent: impl Fn(&T) -> bool) {
 /// The urgent issues of `issues` that halt every other start (`web#3`):
 /// each open one marked urgent that a worker has taken, from its first
 /// worker's start until it closes or its mark is taken off.
-pub fn halts(issues: &[Issue]) -> Vec<String> {
-    let halts = |i: &&Issue| i.urgent && i.status != Status::Closed && i.attempts > 0;
-    issues.iter().filter(halts).map(|i| format!("{}#{}", i.checkout, i.number)).collect()
+pub fn halts(issues: &[Issue]) -> impl Iterator<Item = &Issue> {
+    issues.iter().filter(|i| i.urgent && i.status != Status::Closed && i.attempts > 0)
 }
 
 /// The role an issue's worker plays and the account and model it starts on, each

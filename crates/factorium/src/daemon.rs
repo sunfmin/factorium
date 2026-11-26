@@ -15,7 +15,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::{Author, urgent_first};
 use factorium_domain::settings::Time;
-use factorium_domain::tracker::{self, WorkerRow};
+use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
 use factum::Value;
@@ -155,7 +155,7 @@ impl App {
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
         // One start, if admission allows.
-        if let Some(Next { checkout, number, urgent }) = self.next_issue().await? {
+        if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
             let reading = load.admission();
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
             let held = match urgent {
@@ -281,7 +281,7 @@ impl App {
     /// urgent ones first, then in the ordinary order ([`tracker::untaken`]);
     /// whose account, if it names one, can start now, and whose role has
     /// what it needs of this host (each role checked once a tick).
-    async fn next_issue(&self) -> Answer<Option<Next>> {
+    async fn next_issue(&self) -> Answer<Option<IssueRow>> {
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
@@ -289,7 +289,7 @@ impl App {
         let mut rows = self.rows(tracker::untaken()).await?;
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
-            let (checkout, number, urgent) = (r.checkout, r.number, r.urgent);
+            let (checkout, number) = (r.checkout.clone(), r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;
             }
@@ -308,7 +308,7 @@ impl App {
             // checkout is pinned to at its limit) waits behind those that
             // can; with none, its start answers why it is held.
             if self.choice(&checkout, &issue.on).await.is_err() {
-                held.get_or_insert(Next { checkout, number, urgent });
+                held.get_or_insert(r);
                 continue;
             }
             // Its role lacking what it needs of this host, it waits; doctor
@@ -320,7 +320,7 @@ impl App {
                 lacking.insert(role);
                 continue;
             }
-            return Ok(Some(Next { checkout, number, urgent }));
+            return Ok(Some(r));
         }
         Ok(held)
     }
@@ -380,11 +380,4 @@ impl App {
             }
         }
     }
-}
-
-/// The issue a tick starts next, and whether it is marked urgent.
-struct Next {
-    checkout: String,
-    number: u64,
-    urgent: bool,
 }

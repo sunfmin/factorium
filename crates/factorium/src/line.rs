@@ -171,12 +171,10 @@ impl App {
     async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
-        // Each live worker of the checkout, beside its issue as the tick names it.
-        let (mut workers, mut issues) = (Vec::new(), Vec::new());
+        let mut workers = Vec::new();
         for w in self.live_workers().await?.into_iter().filter(|w| w.checkout == c.name) {
             let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
-            issues.push(format!("{}#{}", w.checkout, w.number));
-            workers.push(line::Seen { worker: w.worker, status: w.state.status, urgent });
+            workers.push(line::Seen { worker: w.worker, number: w.number, status: w.state.status, urgent });
         }
         let look = line::look(self.now(), &settings, &workers, by_hand);
         // Halted by an urgent issue (SPEC §1.17), only an urgent landing goes.
@@ -202,17 +200,19 @@ impl App {
                 if first == Some(worker) {
                     return Ok(did);
                 }
-                let at = workers.iter().position(|w| w.worker == worker).unwrap_or_default();
-                let ahead = workers.iter().zip(&issues).take(at);
+                let named = |n: u64| format!("{}#{n}", c.name);
+                let ahead = workers.iter().take_while(|w| w.worker != worker);
                 let ahead_of: Vec<_> =
-                    ahead.filter(|(w, _)| w.status == w::Status::Landing && !w.urgent).map(|(_, i)| i).collect();
+                    ahead.filter(|w| w.status == w::Status::Landing && !w.urgent).map(|w| named(w.number)).collect();
                 let went = json!({ "ahead_of": ahead_of });
                 Ok(Ok(match did {
                     Ok(mut v) => {
                         v["urgent"] = went;
                         v
                     }
-                    Err(why) => json!({ "worker": worker, "lands": issues[at], "urgent": went, "then": why }),
+                    Err(why) => {
+                        json!({ "worker": worker, "lands": workers.iter().find(|w| w.worker == worker).map(|w| named(w.number)), "urgent": went, "then": why })
+                    }
                 }))
             }
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,

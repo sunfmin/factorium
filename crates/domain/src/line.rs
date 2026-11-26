@@ -36,6 +36,8 @@ impl Aggregate for Lines {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Seen {
     pub worker: Uuid,
+    /// Its issue's number.
+    pub number: u64,
     pub status: Status,
     pub urgent: bool,
 }

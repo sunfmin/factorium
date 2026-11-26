@@ -106,9 +106,8 @@ impl App {
         for r in self.rows(tracker::issues(None, false)).await?.into_iter().filter(|r| r.urgent) {
             urgent.push(self.issue(&r.checkout, r.number).await?);
         }
-        let by = halts(&urgent);
-        let halting = |i: &&Issue| by.contains(&format!("{}#{}", i.checkout, i.number));
-        let workers = urgent.iter().filter(halting).filter_map(|i| i.worker).collect();
+        let by: Vec<String> = halts(&urgent).map(|i| format!("{}#{}", i.checkout, i.number)).collect();
+        let workers = halts(&urgent).filter_map(|i| i.worker).collect();
         let halt = factorium_domain::heavy::Halt { by: by.clone(), workers };
         self.submit::<factorium_domain::heavy::NoteHalt>(halt).await?;
         Ok(by)

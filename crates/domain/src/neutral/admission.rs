@@ -47,12 +47,6 @@ pub fn short(r: &Reading, l: &Limits) -> Vec<String> {
     why
 }
 
-/// Each floor the host is under, the disk first: memory and disk, which a
-/// start past them would fail on, not only run slower.
-pub fn floors(r: &Reading, l: &Limits) -> Vec<String> {
-    short(r, &Limits { cpu_busy_max: u64::MAX, ..*l })
-}
-
 /// Whether the disk is under its floor: the time to reclaim build output.
 pub fn disk_short(r: &Reading, l: &Limits) -> bool {
     r.disk_free < l.disk_floor_gib * GIB
