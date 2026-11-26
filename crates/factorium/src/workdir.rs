@@ -99,7 +99,15 @@ impl App {
     /// reused, reset to `rev`: a job waiting its turn asks each tick. Jobs of a kind that run at
     /// once (a checkout's stacked landings) each take a slot of their own, its path and cache;
     /// every other job takes slot 0.
-    pub(crate) fn work_dir(&self, c: &Checkout, kind: LineDir, slot: usize, label: &str, about: &str, rev: &str) -> Answer<Git> {
+    pub(crate) fn work_dir(
+        &self,
+        c: &Checkout,
+        kind: LineDir,
+        slot: usize,
+        label: &str,
+        about: &str,
+        rev: &str,
+    ) -> Answer<Git> {
         let (name, comment) = named(kind, label, about);
         let orca = self.host.orca();
         let listed = orca.worktrees().map_err(fail("orca"))?;
@@ -139,6 +147,15 @@ impl App {
             HELD.lock().unwrap().insert(path);
         }
         Ok(here)
+    }
+
+    /// The work dir `dir` this process made is asked for again this tick, by a job that waits its
+    /// turn: the sweep leaves it.
+    pub(crate) fn work_dir_asked(&self, dir: &Path) {
+        let mut m = self.memory.lock().unwrap();
+        if m.ticks {
+            m.work_dirs.insert(dir.to_path_buf());
+        }
     }
 
     /// Ends the work dir at `dir` of `checkout`'s job of `kind`: its caches

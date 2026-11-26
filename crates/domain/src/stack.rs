@@ -102,12 +102,23 @@ impl Stack {
 #[serde(tag = "type", content = "data")]
 pub enum StackEvent {
     Stacked(Layer),
-    LayerGreen { worker: Uuid, commit: String },
-    LayerRed { worker: Uuid, why: String, kind: RedKind },
+    LayerGreen {
+        worker: Uuid,
+        commit: String,
+    },
+    LayerRed {
+        worker: Uuid,
+        why: String,
+        kind: RedKind,
+    },
     /// The layer of `worker` left, with every layer above it.
-    Unstacked { worker: Uuid },
+    Unstacked {
+        worker: Uuid,
+    },
     /// The layers up to `worker`'s landed.
-    StackLanded { worker: Uuid },
+    StackLanded {
+        worker: Uuid,
+    },
     /// Every layer left: the daemon that ran their gates is gone.
     StackCleared,
 }

@@ -114,8 +114,8 @@ pub fn default_db(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// command is registered here, beside the engine (docs/adr/0001).
 fn model() -> Model {
     use factorium_domain::{
-        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, stack, tracker, watch,
-        worker,
+        checkout, daemon, decided, gate, health, heavy, idle, issue, kit, line, outbox, settings, stack, tracker,
+        watch, worker,
     };
     Model::new()
         .aggregate::<checkout::Checkouts>()

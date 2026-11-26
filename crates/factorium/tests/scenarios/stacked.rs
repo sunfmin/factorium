@@ -11,17 +11,17 @@ use crate::fixture::{LOOK, STUCK, World};
 
 /// `web`, whose proving declares a fast gate that logs `start <files>` and `end <files>` (the
 /// `f<n>` files of the tree it runs on) to `dir/log`; is red at once on a tree that holds `RED`;
-/// and, on a tree of `k` such files (the `k`th of a stack), holds while `dir/hold-<k>` exists
-/// ([`hold`]). Three workers, #1 to #3, each commit `f<n>` (and `extra[n-1]`, if any) and are
+/// and, on a tree of `k` such files (the `k`th of a stack), holds while [`hold`] holds it. Three workers, #1 to #3, each commit `f<n>` (and `extra[n-1]`, if any) and are
 /// done. Answers the log.
 async fn three_done(w: &World, dir: &Path, extra: [Option<&str>; 3]) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let (log, d) = (dir.join("log"), dir.display());
     let log = log.display();
+    // `$k` is the shell's: the `k`th's hold is `dir/h<k>`.
+    let held = w.holds(&dir.join("h$k"));
     let gate = format!(
         "k=$(ls f[0-9]* | wc -l | tr -d ' '); f=$(ls f[0-9]* | tr '\\\\n' ' '); echo \\\"start $f\\\" >> {log}; \
-         [ -e RED ] && exit 1; i=0; while [ -e {d}/hold-$k ] && [ $i -lt 6000 ]; do sleep 0.02; i=$((i+1)); done; \
-         echo \\\"end $f\\\" >> {log}"
+         [ -e RED ] && exit 1; if [ -d {d}/h$k ]; then ({held}) || exit 1; fi; echo \\\"end $f\\\" >> {log}"
     );
     w.checkout("web").await;
     w.kit().await;
@@ -46,9 +46,8 @@ async fn three_done(w: &World, dir: &Path, extra: [Option<&str>; 3]) -> PathBuf 
 
 /// Holds the gate of the `k`th of a stack, `on`, or lets it go.
 fn hold(dir: &Path, k: usize, on: bool) {
-    std::fs::create_dir_all(dir).unwrap();
-    let file = dir.join(format!("hold-{k}"));
-    if on { std::fs::write(file, "").unwrap() } else { std::fs::remove_file(file).unwrap() }
+    let held = dir.join(format!("h{k}"));
+    if on { std::fs::create_dir_all(held).unwrap() } else { std::fs::write(held.join("release"), "").unwrap() }
 }
 
 /// What the gates logged, line by line.
@@ -62,7 +61,8 @@ async fn ticks_until(w: &World, n: usize) -> Vec<Vec<Value>> {
     tokio::time::timeout(STUCK, async {
         while ticks.iter().map(|t: &Vec<Value>| t.len()).sum::<usize>() < n {
             w.advance(1);
-            let landed: Vec<Value> = w.tick_alone().await.landed.into_iter().filter(|l| l["landed"].is_string()).collect();
+            let landed: Vec<Value> =
+                w.tick_alone().await.landed.into_iter().filter(|l| l["landed"].is_string()).collect();
             if !landed.is_empty() {
                 ticks.push(landed);
             }
@@ -108,13 +108,15 @@ async fn three_landings_all_green_gate_at_once_and_proving_moves_once_to_the_thi
     (1..=3).for_each(|k| hold(&dir, k, true));
     let log = three_done(&w, &dir, [None, None, None]).await;
     until_started(&w, &log, 3).await;
-    let starts: Vec<_> = logged(&log).into_iter().filter(|l| l.starts_with("start")).collect();
+    let mut starts: Vec<_> = logged(&log).into_iter().filter(|l| l.starts_with("start")).collect();
+    starts.sort();
     assert_eq!(starts, ["start f1 ", "start f1 f2 ", "start f1 f2 f3 "], "each merged onto the one below");
     assert!(!logged(&log).iter().any(|l| l.starts_with("end")), "all three run at once: {:?}", logged(&log));
     let doctor = w.doctor().await;
     let stack: Vec<_> = doctor["landing"].as_array().unwrap().iter().map(|l| l["stack"]["depth"].clone()).collect();
     assert_eq!(stack, [Value::from(1), Value::from(2), Value::from(3)], "{doctor}");
     (1..=3).for_each(|k| hold(&dir, k, false));
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("their gates end");
     let ticks = ticks_until(&w, 3).await;
     assert_eq!(ticks.len(), 1, "one tick, one push: {ticks:?}");
     let landed = &ticks[0];
@@ -163,7 +165,10 @@ async fn the_second_of_three_red_the_first_lands_and_the_third_is_gated_again_wi
     assert_eq!(one["status"], "closed", "#1 landed: {one}");
     let landed: Vec<Value> = ticks_until(&w, 1).await.concat();
     assert_eq!(issues(&landed), ["web#3"]);
-    let (one, three) = (w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "proving^1"]).unwrap(), landed[0]["commit"].as_str().unwrap());
+    let (one, three) = (
+        w.git(&w.dir.join("remotes/web.git"), &["rev-parse", "proving^1"]).unwrap(),
+        landed[0]["commit"].as_str().unwrap(),
+    );
     assert_eq!(parent(&w, three), one, "#3 merged again onto #1's");
     assert!(files(&w, &one).contains("f1"), "{}", files(&w, &one));
     assert!(!files(&w, three).contains("RED") && !files(&w, three).contains("f2"), "{}", files(&w, three));
@@ -193,6 +198,7 @@ async fn a_merge_green_before_the_one_below_it_waits_and_lands_with_it() {
     let waits = Value::from("green, waits for the gates below it");
     assert_eq!(gates, [Value::from("its gate runs"), waits.clone(), waits], "{doctor}");
     hold(&dir, 1, false);
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("#1's gate ends");
     let ticks = ticks_until(&w, 3).await;
     assert_eq!(ticks.len(), 1, "they land with it: {ticks:?}");
     assert_eq!(issues(&ticks[0]), ["web#1", "web#2", "web#3"]);

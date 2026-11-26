@@ -120,12 +120,13 @@ async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_n
     let w = World::new();
     w.working(CLAUDE, "a").await;
     w.done(&worker(&w.app).await, "a", "x").await;
+    // Stacked on the first tick, its merge made then: later ticks ask again for its gate.
+    let stacked = w.app_now() / 1000;
     w.while_busy(async {
         for _ in 0..3 {
             assert_eq!(w.tick().await.landed, Vec::<serde_json::Value>::new(), "the landing waits its turn");
             let gates = w.queued().await.into_iter().filter(|h| h == "fast gate of web").count();
             assert_eq!(gates, 1, "one entry for the landing, however many ticks ask");
-            // A new second: the landing's merge is a new commit each tick.
             w.clock.advance(1000);
         }
     })
@@ -136,8 +137,7 @@ async fn a_landing_waiting_out_a_long_heavy_command_keeps_one_entry_and_starts_n
     // The merge is dated by the app's clock, not by git's.
     let remote = w.dir.join("remotes/web.git");
     let dates = w.git(&remote, &["show", "-s", "--format=%at %ct", landed["commit"].as_str().unwrap()]).unwrap();
-    let now = w.app_now() / 1000;
-    assert_eq!(dates, format!("{now} {now}"));
+    assert_eq!(dates, format!("{stacked} {stacked}"));
 }
 
 #[tokio::test]

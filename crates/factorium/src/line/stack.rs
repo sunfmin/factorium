@@ -36,28 +36,58 @@ pub(super) struct Landing {
 }
 
 impl App {
-    /// The tick's pass over `c`'s landing stack: what is landable lands; each gate that waits its
-    /// turn asks again; then each worker that asks to land and is not stacked goes on top.
-    /// Answers what landed, and each red. Each step's future is boxed: the tick's would
-    /// otherwise outgrow a thread's stack.
+    /// The tick's pass over `c`'s landing stack: each gate that waits its turn asks again; each
+    /// worker that asks to land and is not stacked goes on top; then what is landable lands, a
+    /// gate green already among it. Answers each red, and what landed. Each step's future is
+    /// boxed: the tick's would otherwise outgrow a thread's stack.
     pub(super) async fn landings(&self, c: &Checkout) -> Answer<Vec<Value>> {
         let git = self.host.git(&c.path);
-        let mut did = Box::pin(self.land_stack(c, &git)).await?;
+        let mut did = Vec::new();
+        let asks = self.due_landings(c).await?;
+        if let Some(asks) = &asks {
+            self.make_room_for_urgent(c, asks).await?;
+        }
+        // Held, a gate that waits its turn asks no more: it leaves the stack, with those above it.
+        let held = self.state::<Lines>(line_id(&c.name)).await?.held.is_some();
         for layer in self.state::<Stacks>(stack_id(&c.name)).await?.layers {
-            if !layer.gated() && !self.gate_runs(&c.name, &layer) {
-                did.extend(Box::pin(self.ask_gate(c, layer)).await?);
+            // One below it may have left, and it with it.
+            let still = self.state::<Stacks>(stack_id(&c.name)).await?.of(layer.worker).is_some();
+            if !still || layer.gated() || self.gate_runs(&c.name, &layer) {
+                continue;
+            }
+            if held {
+                self.unstack(&c.name, layer.worker).await?;
+                break;
+            }
+            did.extend(Box::pin(self.ask_gate(c, layer)).await?);
+        }
+        if let Some(asks) = asks {
+            let stacked = self.state::<Stacks>(stack_id(&c.name)).await?;
+            let tip = git.fetch(&c.proving).map_err(fail("git"))?;
+            for worker in asks.into_iter().filter(|a| stacked.of(*a).is_none()) {
+                did.extend(Box::pin(self.stack_on(c, &git, &tip, worker)).await?);
             }
         }
-        let asks = match self.due_landings(c).await? {
-            Some(asks) => asks,
-            None => return Ok(did),
-        };
-        let stacked = self.state::<Stacks>(stack_id(&c.name)).await?;
-        let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-        for worker in asks.into_iter().filter(|a| stacked.of(*a).is_none()) {
-            did.extend(Box::pin(self.stack_on(c, &git, &tip, worker)).await?);
-        }
+        did.extend(Box::pin(self.land_stack(c, &git)).await?);
         Ok(did)
+    }
+
+    /// An urgent landing not yet stacked goes to the bottom of what can still move: the layers
+    /// from the first whose gate neither runs nor ended leave the stack, to be stacked again
+    /// above it. A gate that runs or ended keeps its place.
+    async fn make_room_for_urgent(&self, c: &Checkout, asks: &[Uuid]) -> Answer<()> {
+        let stack = self.state::<Stacks>(stack_id(&c.name)).await?;
+        let mut urgent = false;
+        for a in asks.iter().filter(|a| stack.of(**a).is_none()) {
+            let wk = self.state::<Workers>(*a).await?;
+            let Some(st) = wk.started.as_ref() else { continue };
+            urgent |= self.issue(&c.name, st.number).await?.urgent;
+        }
+        let waits = stack.layers.iter().find(|l| !l.gated() && !self.gate_runs(&c.name, l));
+        match waits {
+            Some(l) if urgent => self.unstack(&c.name, l.worker).await,
+            _ => Ok(()),
+        }
     }
 
     /// Those that ask to land on `c`, in the order they stack, if landings are due.
@@ -109,6 +139,8 @@ impl App {
                 return Ok(vec![self.not_merging(git, worker, &wk, tip, e).await?]);
             }
         };
+        // Its merge checked, onto the tip and the landings stacked on it.
+        self.submit::<w::NoteMergeChecked>(w::Checked { worker, tip: tip.to_string() }).await?;
         for r in below.iter().flat_map(|l| &l.regenerated) {
             if !regenerated.contains(r) {
                 regenerated.push(r.clone());
@@ -130,6 +162,7 @@ impl App {
             self.unstack(&c.name, layer.worker).await?;
             return Ok(Vec::new());
         }
+        self.work_dir_asked(&dir);
         let here = self.host.git(&c.path).at(&dir);
         let then = Then::Land { landing: Landing { layer: layer.clone() } };
         let moving = Box::new(Moving { checkout: c.name.clone(), dir: dir.clone(), then });
@@ -314,7 +347,11 @@ impl App {
     }
 
     /// What `c`'s line holds and what the app sees of it now, for the line to judge.
-    pub(super) async fn line_look(&self, c: &Checkout, by_hand: bool) -> Answer<(line::Line, factorium_domain::neutral::landing::Look)> {
+    pub(super) async fn line_look(
+        &self,
+        c: &Checkout,
+        by_hand: bool,
+    ) -> Answer<(line::Line, factorium_domain::neutral::landing::Look)> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
         let mut workers = Vec::new();

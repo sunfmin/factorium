@@ -30,9 +30,9 @@ use factorium_domain::doctor::Stuck;
 use factorium_domain::heavy::Ends;
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
-use factorium_domain::stack::{Stacks, stack_id};
 use factorium_domain::outbox::Sender;
 use factorium_domain::settings::Setting;
+use factorium_domain::stack::{Stacks, stack_id};
 use factorium_domain::worker::{self as w, Workers};
 use factorium_host::{Git, Lag, NoMerge, Ran};
 use factum::Uuid;
@@ -121,11 +121,11 @@ impl App {
             into.extend(self.moved(*moving, ended).await?.ok());
         }
         lines.extend(self.cuts_proven().await?);
-        // Before the stacks grow: one that no longer merges onto the tip leaves the line.
-        landed.extend(self.check_waiting(checkouts).await?);
         for c in checkouts {
             landed.extend(self.landings(c).await?);
         }
+        // Once proving moved: a landing not stacked that no longer merges onto the tip leaves the line.
+        landed.extend(self.check_waiting(checkouts).await?);
         for c in checkouts {
             for mv in [Move::Promote, Move::Cut] {
                 if !self.runs(c, mv) {
@@ -236,7 +236,14 @@ impl App {
     /// The red of `worker`, `wk`, whose branch does not merge onto the proving `tip` of the
     /// checkout `git`, and `e` says why: told as for a first red when proving moved since the
     /// last red's tip, which the branch now holds (factorium#171).
-    pub(super) async fn not_merging(&self, git: &Git, worker: Uuid, wk: &w::Worker, tip: &str, e: NoMerge) -> Answer<Value> {
+    pub(super) async fn not_merging(
+        &self,
+        git: &Git,
+        worker: Uuid,
+        wk: &w::Worker,
+        tip: &str,
+        e: NoMerge,
+    ) -> Answer<Value> {
         let branch = wk.started.as_ref().map(|st| st.branch.as_str()).unwrap_or_default();
         let moved =
             wk.red_tip.as_deref().filter(|p1| *p1 != tip && git.is_ancestor(p1, tip) && git.is_ancestor(p1, branch));
