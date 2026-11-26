@@ -37,6 +37,9 @@ pub struct IssueRow {
     pub standing: Standing,
     #[serde(flatten)]
     pub holder: Holder,
+    /// The owner's urgent mark.
+    #[serde(default)]
+    pub urgent: bool,
 }
 
 /// The worker that holds an issue; `taken` is its queryable column.
@@ -205,8 +208,9 @@ impl Projection for Tracker {
     /// "6": rows rebuilt from the log, so a row kept with a status of an
     /// older name (`parked`, before factorium#95) holds the current one.
     /// "7": the heavy runs' rows (factorium#308), built from the log.
+    /// "8": an issue's row holds its urgent mark.
     fn version(&self) -> u32 {
-        7
+        8
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -236,10 +240,11 @@ impl Projection for Tracker {
                 let event: IssueEvent = decode(e)?;
                 let mut standing = event.standing();
                 let mut ops = match event {
-                    IssueEvent::IssueOpened { checkout, number, title, .. } => {
-                        let standing = standing.take().unwrap_or_default();
-                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder: Holder::of(None) }))
+                    IssueEvent::IssueOpened { checkout, number, title, urgent, .. } => {
+                        let (standing, holder) = (standing.take().unwrap_or_default(), Holder::of(None));
+                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder, urgent }))
                     }
+                    IssueEvent::UrgentMarked { urgent } => merge(ISSUES, json!({ "urgent": urgent })),
                     IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),
                     IssueEvent::IssueTaken { worker } => merge(ISSUES, row(Holder::of(Some(worker)))),
                     IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => merge(ISSUES, row(Holder::of(None))),
@@ -294,7 +299,10 @@ impl Projection for Tracker {
                     HeavyEvent::HeavyEnded { id, outcome, .. } => {
                         merge_run(id, json!({ "ended_at": at, "outcome": outcome }))
                     }
-                    HeavyEvent::HeavyRuns { .. } | HeavyEvent::HeavyRules { .. } => Vec::new(),
+                    HeavyEvent::HeavyRuns { .. }
+                    | HeavyEvent::HeavyRules { .. }
+                    | HeavyEvent::HeavyMarked { .. }
+                    | HeavyEvent::HeavyHalted { .. } => Vec::new(),
                 }
             }
             _ => Vec::new(),
