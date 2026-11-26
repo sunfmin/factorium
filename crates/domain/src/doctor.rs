@@ -302,21 +302,20 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             format!("halt:{by}"),
             format!(
-                "urgent {by} halts every other start: no other worker, and no worker's or program's heavy command \
-                 not urgent, starts; landings, promotions and cuts go on, behind the urgent issue's heavy commands"
+                "urgent {by} halts heavy commands not urgent: no worker's or program's heavy command not urgent \
+                 starts; workers start as admission allows, and landings, promotions and cuts go on, behind the urgent \
+                 issue's heavy commands"
             ),
-            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick resumes \
-             the rest in their order",
+            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick lets \
+             the waiting heavy commands start in their order",
         );
     }
     stalls(seen, s, now, &mut add);
     resources(seen, s, now, &mut add);
-    // Held behind the urgent halt is the halt doing its work: its own finding says so.
     if let Some(HeldSeen { since, why }) = &seen.held
         && now - since >= s.ms(Time::HeldFor)
-        && let kind = why.split(':').next().unwrap_or(why)
-        && kind != "halt"
     {
+        let kind = why.split(':').next().unwrap_or(why);
         add(
             format!("held:{kind}"),
             format!("admission held for {} min: {why}", (now - since) / 60_000),

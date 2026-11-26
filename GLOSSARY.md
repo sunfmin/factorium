@@ -55,7 +55,8 @@ Each command's `--help` says how it works; the ADRs say why.
     ([ADR 0014](docs/adr/0014-idle-work.md)).
 17. **Urgent**: the owner's mark on an issue, which puts its start, its
     worker's heavy commands and its landing ahead, and halts every other
-    worker's start and heavy command, not line moves, while its worker lives
+    worker's or program's heavy command, not starts or line moves, while its
+    worker lives
     ([ADR 0015](docs/adr/0015-an-urgent-issue-halts-the-host.md)).
 
 ## Words within them
