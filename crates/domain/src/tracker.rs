@@ -33,6 +33,10 @@ pub struct IssueRow {
     pub checkout: String,
     pub number: u64,
     pub title: String,
+    /// When it became ready (ms): filed, or readied from waiting for a
+    /// person, whichever is later; the log's time of that event.
+    #[serde(default)]
+    pub ready_at: i64,
     #[serde(flatten)]
     pub standing: Standing,
     #[serde(flatten)]
@@ -165,7 +169,8 @@ pub fn held() -> Rows<IssueRow> {
     Rows::of(q.order_by("checkout", false).order_by("number", false))
 }
 
-/// The ready issues no worker holds, by checkout and number.
+/// The ready issues no worker holds, by checkout and number; the order
+/// they start in is [`crate::next::order`]'s.
 pub fn untaken() -> Rows<IssueRow> {
     let q = Query::table(ISSUES).filter("status", Op::Eq, json!(IssueStatus::Ready)).filter("taken", Op::Eq, false);
     Rows::of(q.order_by("checkout", false).order_by("number", false))
@@ -214,8 +219,9 @@ impl Projection for Tracker {
     /// "7": the heavy runs' rows (factorium#308), built from the log.
     /// "8": an issue's row holds its urgent mark.
     /// "9": and whether it starts ahead of the ordinary ones.
+    /// "10": each issue's row keeps when it became ready, from the log.
     fn version(&self) -> u32 {
-        9
+        10
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -248,10 +254,15 @@ impl Projection for Tracker {
                     IssueEvent::IssueOpened { checkout, number, title, urgent, task, .. } => {
                         let (standing, holder) = (standing.take().unwrap_or_default(), Holder::of(None));
                         let ahead = crate::mutants::ahead(task.as_ref());
-                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder, urgent, ahead }))
+                        let ready_at = e.meta.now.0;
+                        put(
+                            ISSUES,
+                            row(IssueRow { checkout, number, title, ready_at, standing, holder, urgent, ahead }),
+                        )
                     }
                     IssueEvent::UrgentMarked { urgent } => merge(ISSUES, json!({ "urgent": urgent })),
                     IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),
+                    IssueEvent::IssueReadied => merge(ISSUES, json!({ "ready_at": e.meta.now.0 })),
                     IssueEvent::IssueTaken { worker } => merge(ISSUES, row(Holder::of(Some(worker)))),
                     IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => merge(ISSUES, row(Holder::of(None))),
                     _ => Vec::new(),

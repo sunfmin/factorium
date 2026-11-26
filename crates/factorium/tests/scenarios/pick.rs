@@ -554,3 +554,34 @@ async fn a_second_agent_that_answers_prose_twice_hands_the_question_to_the_next_
         assert!(!text.contains("when asked again"), "{text}");
     });
 }
+
+// truefit's slimfit fault `function-refused`: slimfit refuses the
+// `--function` listing a pick is taken against, once the picker answered.
+// Its pick is not taken, and, slimfit refusing each picker's alike, the
+// question passes to the next harness until none is left: refused with
+// slimfit's words, nothing kept, no secrets file left, and no picker's
+// answer ever taken against a listing slimfit did not give.
+#[tokio::test]
+async fn a_function_listing_slimfit_refuses_after_the_pick_is_refused_with_its_words_and_nothing_is_kept() {
+    const ALSO: &str = "src/a.rs:1:22: replace a -> bool with true";
+    let grouped = json!({
+        "candidates": {"rust": [{"name": KILLS, "file": "src/a.rs", "function": "a"}]},
+        "functions": {"rust": [{"file": "src/a.rs", "function": "a", "mutants": 2, "removed": []}]},
+        "removed_tests": {"rust": []}
+    });
+    let pick = format!(r#"{{"picks": [{{"name": "{ALSO}", "why": "w"}}]}}"#);
+    let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", "", &pick, &pick).await;
+    w.host.slimfit.lock().unwrap().insert("check".into(), grouped.to_string());
+    w.host.slimfit_fault("function-refused", true);
+
+    let why = w.app.worker_pick_mutants(id(&wk), None).await.unwrap_err();
+    assert_eq!(why.code, "picker_answer", "{why}");
+    assert!(why.message.contains("its mutation tool listed no mutants of the change"), "{why}");
+    // Each picker was asked, and each answer met slimfit's refusal.
+    assert!(!grok.asked().0.is_empty(), "the grok picker was asked");
+    let functions = w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--function")).count();
+    assert!(functions >= 2, "each picker's answer is taken against slimfit: {functions}");
+    assert_eq!(kept(&w).await, Vec::<Value>::new(), "nothing is kept of it");
+    assert!(no_secrets_left(&w), "no secrets file outlives the ask");
+    assert!(!worktree(&wk).join(".slimfit").exists());
+}

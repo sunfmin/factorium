@@ -1,4 +1,4 @@
-//! Kept worktrees (SPEC §2.6): for an issue, the worktree its next start
+//! Kept worktrees (ADR 0021): for an issue, the worktree its next start
 //! uses (the one its last attempt kept, or a fresh one) and what it holds;
 //! whether a worker's worktree stays when the worker ends; how a kept one
 //! is discarded on purpose, or once its issue closes; and the worktrees no
@@ -143,7 +143,12 @@ impl App {
             return Ok(Next { path: PathBuf::from(st.worktree), branch: st.branch, resumed: Some(resumed) });
         }
         let branch = name.name();
-        let path = self.host.orca().worktree(Path::new(&c.path), &name.worker(), &branch, tip).map_err(fail("orca"))?;
+        let comment = format!(
+            "factorium's worker on {}#{} ({}): factorium removes this worktree when the issue lands or closes.",
+            c.name, name.number, issue.title
+        );
+        let orca = self.host.orca();
+        let path = orca.worktree(Path::new(&c.path), &name.worker(), &branch, tip, &comment).map_err(fail("orca"))?;
         Ok(Next { path, branch, resumed: None })
     }
 

@@ -1,4 +1,4 @@
-//! Kept worktrees when the proving tip cannot be read (SPEC §2.6): what a
+//! Kept worktrees when the proving tip cannot be read (ADR 0021): what a
 //! worktree holds is unknown, so it is held. A start refuses and takes
 //! nothing; a worker that ends keeps its worktree; start-over discards it,
 //! keeping its branch.
@@ -514,12 +514,14 @@ async fn a_tick_during_a_start_over_starts_no_worker_in_the_worktree_it_removes(
     assert!(w.git(&repo, &["show", "factorium/web-1-1-abandoned:kept.txt"]).is_ok(), "the work is kept");
 }
 
-/// factorium#189, behaviour 2: `issue close`, as another process, while a
-/// tick's start opens its worker's session (its worktree made, its worker
-/// not yet recorded). The start's claim refuses the close, so no worker is
-/// left at work on a closed issue; once the start is done, the close runs.
-#[tokio::test]
-async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issue() {
+/// The owner's stop during a start: `issue close` or
+/// `issue wait-for-human`, as another process, while a tick's start opens
+/// its worker's session (its worktree made, its worker not yet recorded).
+/// The stop is never refused for the start: it is answered, and the start,
+/// once it records its worker, ends it as the stop would have, its
+/// worktree kept, its answer saying why. Answers the stop's answer, the
+/// tick's start, and the ended worker's worktree.
+async fn stopped_during_a_start(stop: &'static str) -> (World, serde_json::Value, serde_json::Value, PathBuf) {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
@@ -531,22 +533,44 @@ async fn a_close_during_a_start_is_refused_and_leaves_no_worker_on_a_closed_issu
         if !into.lock().unwrap().is_empty() {
             return;
         }
-        let closed =
-            crate::fixture::another(&db, &host, |app| async move { app.issue_close("web", 1, "no").await }).unwrap();
-        into.lock().unwrap().push(closed.map_err(|r| (r.code, r.message)));
+        let stopped = crate::fixture::another(&db, &host, move |app| async move {
+            match stop {
+                "close" => app.issue_close("web", 1, "no").await,
+                _ => app.issue_wait_for_human("web", 1, "ask").await,
+            }
+        })
+        .unwrap();
+        into.lock().unwrap().push(stopped.map_err(|r| (r.code, r.message)));
     }));
-    w.tick().await.started.expect("the start goes on");
+    let started = w.tick().await.started.expect("the start goes on");
     *w.host.orca.while_opening.lock().unwrap() = None;
     let during = during.lock().unwrap().clone();
-    assert_eq!(during.len(), 1, "a close ran during the start");
-    let (code, why) = during[0].as_ref().expect_err("refused");
-    assert_eq!(code, "claimed");
-    assert!(why.starts_with("start is under way on it (process "), "it names the start: {why}");
-    let wk = worker(&w.app).await;
-    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("ready"), "{wk}");
-    w.app.issue_close("web", 1, "no").await.unwrap();
-    assert!(w.app.workers(false).await.unwrap().as_array().unwrap().is_empty(), "closed, its worker ended");
-    assert!(!worktree(&wk).exists(), "and its worktree is removed");
+    assert_eq!(during.len(), 1, "a {stop} ran during the start");
+    let answered = during[0].clone().expect("never refused for a start");
+    assert!(w.app.workers(false).await.unwrap().as_array().unwrap().is_empty(), "no worker of it is live");
+    let tree = PathBuf::from(started["worktree"].as_str().unwrap());
+    assert!(tree.exists(), "its worktree is kept");
+    (w, answered, started, tree)
+}
+
+#[tokio::test]
+async fn a_close_during_a_start_wins_and_the_start_ends_its_worker() {
+    let (w, answered, started, _) = stopped_during_a_start("close").await;
+    assert_eq!(answered["status"], json!("closed"), "{answered}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("closed"));
+    assert_eq!(started["ended"], json!("its issue closed: no"), "the tick says why: {started}");
+}
+
+#[tokio::test]
+async fn a_wait_for_human_during_a_start_wins_and_the_start_ends_its_worker() {
+    let (w, answered, started, _) = stopped_during_a_start("wait-for-human").await;
+    assert_eq!(answered["status"], json!("waiting_for_human"), "{answered}");
+    assert_eq!(started["ended"], json!("its issue waits for a person: ask"), "the tick says why: {started}");
+    let shown = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!((shown["status"].clone(), shown["worker"].clone()), (json!("waiting_for_human"), json!(null)));
+    assert_eq!(shown["claim"], json!(null), "the start's claim is freed");
+    w.app.issue_ready("web", 1).await.unwrap();
+    assert!(w.tick().await.started.is_some(), "readied, it starts again");
 }
 
 /// A start-over that dies between its read and its act leaves its claim:

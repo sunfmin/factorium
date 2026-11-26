@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
 pub struct Data(PathBuf);
 
-/// The clones the line and idle work run in, one of each per checkout (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0014-idle-work.md).
+/// The kinds of job of the line and idle work, each run in a work dir of its own
+/// ([`crate::workdir`]; docs/adr/0017-the-line-s-jobs-run-in-work-dirs.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LineClone {
+pub enum LineDir {
     Landing,
     Promotion,
     Cut,
@@ -17,15 +18,16 @@ pub enum LineClone {
     Idle,
 }
 
-impl LineClone {
-    pub const ALL: [LineClone; 4] = [LineClone::Landing, LineClone::Promotion, LineClone::Cut, LineClone::Idle];
+impl LineDir {
+    pub const ALL: [LineDir; 4] = [LineDir::Landing, LineDir::Promotion, LineDir::Cut, LineDir::Idle];
 
-    fn name(self) -> &'static str {
+    /// The word its work dirs are named by.
+    pub fn name(self) -> &'static str {
         match self {
-            LineClone::Landing => "landing",
-            LineClone::Promotion => "promotion",
-            LineClone::Cut => "cut",
-            LineClone::Idle => "idle",
+            LineDir::Landing => "landing",
+            LineDir::Promotion => "promotion",
+            LineDir::Cut => "cut",
+            LineDir::Idle => "idle",
         }
     }
 }
@@ -77,20 +79,40 @@ impl Data {
         self.0.join("kept").join(format!("{harness}@{account}"))
     }
 
-    /// The clones of `kind`, one directory per checkout.
-    pub fn clones(&self, kind: LineClone) -> PathBuf {
+    /// Where the jobs of `kind` keep their files, one or more per checkout:
+    /// once a clone per checkout each job ran in.
+    pub fn line(&self, kind: LineDir) -> PathBuf {
         self.0.join(kind.name())
     }
 
-    /// The clone of `kind` for `checkout`.
-    pub fn clone_of(&self, kind: LineClone, checkout: &str) -> PathBuf {
-        self.clones(kind).join(checkout)
+    /// The build caches the line's jobs keep across their work dirs.
+    pub fn caches(&self) -> PathBuf {
+        self.0.join("cache")
     }
 
-    /// The lock a promotion of `checkout` holds while it runs, beside its
-    /// clone: it names who holds it.
+    /// The build cache of `checkout`'s jobs of `kind` in `slot`: its `target`, and the
+    /// dirs its `factorium.toml` declares `cache`, each at its own path. Slot 0 is every
+    /// kind's; the others, of landings stacked at once.
+    pub fn cache(&self, kind: LineDir, checkout: &str, slot: usize) -> PathBuf {
+        let at = self.caches().join(kind.name());
+        if slot == 0 { at.join(checkout) } else { at.join(format!("{checkout} {}", slot + 1)) }
+    }
+
+    /// The lock a promotion of `checkout` holds while it runs: it names who
+    /// holds it.
     pub fn promotion_lock(&self, checkout: &str) -> PathBuf {
-        self.clones(LineClone::Promotion).join(format!("{checkout}.lock"))
+        self.line(LineDir::Promotion).join(format!("{checkout}.lock"))
+    }
+
+    /// The lock a cut of `checkout` holds from before it reads its line until it is recorded:
+    /// it names who holds it.
+    pub fn cut_lock(&self, checkout: &str) -> PathBuf {
+        self.line(LineDir::Cut).join(format!("{checkout}.lock"))
+    }
+
+    /// What the idle work of `checkout`'s tasks line printed, last run.
+    pub fn idle_tasks(&self, checkout: &str) -> PathBuf {
+        self.line(LineDir::Idle).join(format!("{checkout}.tasks"))
     }
 
     /// Where secrets wait for the start line that reads them.

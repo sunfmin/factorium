@@ -1,0 +1,21 @@
+{
+  "tree": "f3d9a8d36ffc255c736b07bc89b99ce5afe72d79+d1fba762150c532c",
+  "picker": "codex:01a2159c-3fae-71f3-9c1e-adbe39a670ad:default",
+  "author": "claude-code:3ca2f9a7-28e0-564e-a3f5-2ec698a5ae0b:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/steps.rs:176:9: delete match arm WorkerEvent::LandingRed{..} in word",
+        "why": "A failed landing still closes its span, so a test that checks only closure could miss the loss of the red outcome.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/steps.rs:177:9: delete match arm WorkerEvent::WorkerLanded{..} in word",
+        "why": "A successful landing still closes its span, so a test could miss that the outcome now uses the worker's standing label.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

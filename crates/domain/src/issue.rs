@@ -42,7 +42,7 @@ pub struct Issue {
     pub attempts: u32,
     /// The one record of what was said about it, oldest first.
     pub comments: Vec<Note>,
-    /// The numbers of the Decided records its body holds (SPEC §2).
+    /// The numbers of the Decided records its body holds (ADR 0024).
     #[serde(default)]
     pub decided: Vec<Mark>,
     /// The task it was filed for, by idle work (§1.16).
@@ -63,7 +63,7 @@ pub fn urgent_first<T>(items: &mut [T], urgent: impl Fn(&T) -> bool) {
     items.sort_by_key(|i| !urgent(i));
 }
 
-/// The urgent issues of `issues` that halt every other start (`web#3`):
+/// The urgent issues of `issues` that halt heavy commands not urgent (`web#3`):
 /// each open one marked urgent that a worker has taken, from its first
 /// worker's start until it closes or its mark is taken off.
 pub fn halts(issues: &[Issue]) -> impl Iterator<Item = &Issue> {
@@ -243,6 +243,17 @@ impl Issue {
     /// The commit it landed as, if it closed so.
     pub fn landed_as(&self) -> Option<&str> {
         self.reason.as_deref().filter(|_| self.status == Status::Closed)?.strip_prefix(LANDED_AS)
+    }
+
+    /// Why a worker on it ends, once it holds none to work: it waits for a
+    /// person, or it closed. `None` while it is ready.
+    pub fn left_why(&self) -> Option<String> {
+        let reason = self.reason.as_deref().unwrap_or_default();
+        match self.status {
+            Status::Ready => None,
+            Status::WaitingForHuman => Some(format!("its issue waits for a person: {reason}")),
+            Status::Closed => Some(format!("its issue closed: {reason}")),
+        }
     }
 
     /// Whether `a` is an issue of its own checkout, waited for until it

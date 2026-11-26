@@ -1,14 +1,6 @@
-//! Idle work: what a checkout declares under `[idle]` to run only while the
-//! host is idle, at most once per `every` — a check too slow for any gate.
-//! It runs as a heavy command on the base's tip, never ahead of anything
-//! else the queue holds, and yields to whatever queues behind it. Each run
-//! that ends is recorded; a red one is a finding, as a red promotion is.
-//!
-//! The tasks a run finds are filed as the checkout's issues (§1.16): what
-//! `[idle] tasks` prints is one or more answers shaped as slimfit's `next
-//! --all`, and of each kind the first task is filed, while no issue of that
-//! kind is open. A task whose issue closed by landing is held back only
-//! while that landing is not in the tip the run read.
+//! Idle work (docs/adr/0014-idle-work.md): a checkout's `[idle]` steps, run only while
+//! the host is idle, at most once per `every`, each run that ends recorded;
+//! and which of the tasks a run finds are filed as its checkout's issues.
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};

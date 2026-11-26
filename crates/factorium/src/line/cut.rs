@@ -10,9 +10,9 @@ use serde_json::{Value, json};
 
 use factorium_host::{Git, Ran};
 
-use super::{Did, Moving, QUEUED, Then};
+use super::{Did, Held, Moving, QUEUED, Then};
 use crate::heavy::{For, Job, Turn};
-use crate::{Answer, App, LineClone, fail};
+use crate::{Answer, App, LineDir, fail};
 
 /// A cut tagged at `tagged` and its `formula` installed, whose binary's
 /// proof (factorium#141) runs beside the daemon's ticks (factorium#242): a
@@ -20,6 +20,8 @@ use crate::{Answer, App, LineClone, fail};
 pub(crate) struct Proving {
     /// As recorded failed: its commit the base.
     cut: line::Cut,
+    /// The checkout's cut lock, held until the cut is recorded.
+    _lock: Held,
     tagged: String,
     formula: String,
     proven: tokio::sync::watch::Receiver<Option<Result<(), String>>>,
@@ -27,32 +29,41 @@ pub(crate) struct Proving {
 
 impl App {
     /// Cuts a version of `c` from its base tip, if it declares a cut.
-    /// `bound_at`: when the cut falls due however busy.
-    pub(super) async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>) -> Answer<Did> {
+    /// `bound_at`: when the cut falls due however busy. `lock`: the checkout's cut lock, held
+    /// until the cut is recorded: the daemon's, beside the ticks, holds it on.
+    pub(super) async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>, lock: Held) -> Answer<Did> {
         let git = self.host.git(&c.path);
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().map_err(fail("git"))?.first().map(String::as_str));
-        let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
-        // The steps share the clone, so they take one turn of the queue.
+        let short = &base[..base.len().min(7)];
+        let about = format!(
+            "factorium's cut of {} {version} from its base {short}: its steps, then the tag and the install.",
+            c.name
+        );
+        let here = self.work_dir(c, LineDir::Cut, 0, &format!("{} {version}", c.name), &about, &base)?;
+        // The steps share the work dir, so they take one turn of the queue.
         let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
         let turn = if by_hand {
             Turn::Wait
         } else {
             let key = Some(format!("cut:{}:{version}:{base}", c.name));
-            let (version, base, dir, steps) = (version.clone(), base.clone(), here.dir.clone(), cut.steps.clone());
-            let then = Then::Cut { version, base, dir, steps };
-            Turn::Beside { key, yields: false, of: For::Line(Box::new(Moving { checkout: c.name.clone(), then })) }
+            let then = Then::Cut { version: version.clone(), base: base.clone(), steps: cut.steps.clone(), lock };
+            let moving = Moving { checkout: c.name.clone(), dir: here.dir.clone(), then };
+            Turn::Beside { key, yields: false, of: For::Line(Box::new(moving)) }
         };
         let Some(rans) = self.heavy(job, turn).await?.filter(|_| by_hand) else { return Ok(Err(QUEUED.into())) };
-        self.cut_ran(c, &here, &version, &base, &cut.steps, rans, false).await
+        let did = self.cut_ran(c, &here, &version, &base, &cut.steps, rans, None).await;
+        let _ = self.work_dir_done(LineDir::Cut, &c.name, &here.dir);
+        did
     }
 
-    /// Finishes the cut of `version` of `c` from `base`, whose `steps` ran in the clone `here`
+    /// Finishes the cut of `version` of `c` from `base`, whose `steps` ran in the work dir `here`
     /// so: tagged and installed once they all passed, recorded made or failed. `beside`: the
-    /// daemon's, whose installed binary's proof runs beside the ticks ([`Proving`]), and a later
-    /// tick records the cut once it ends ([`App::cuts_proven`]); else it is waited for.
+    /// daemon's, its cut lock, whose installed binary's proof runs beside the ticks ([`Proving`])
+    /// holding it, and a later tick records the cut once it ends ([`App::cuts_proven`]); else it
+    /// is waited for.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn cut_ran(
         &self,
@@ -62,7 +73,7 @@ impl App {
         base: &str,
         steps: &[String],
         rans: Vec<Ran>,
-        beside: bool,
+        beside: Option<Held>,
     ) -> Answer<Did> {
         let declared = self.declared(here, base)?;
         let formula = declared.cut.and_then(|cut| cut.formula);
@@ -83,17 +94,18 @@ impl App {
             up.map_err(|e| format!("installing {formula} failed: {e}"))?;
             Ok((tagged, Some((formula.clone(), self.proves_formula(formula)))))
         };
-        let cut = line::Cut { checkout: c.name.clone(), version: version.into(), commit: base.into(), failed: None };
-        let made = match done.await {
-            Ok((tagged, Some((formula, Some(proof))))) if beside => {
+        let (version, commit, base) = (version.to_string(), base.to_string(), Some(base.to_string()));
+        let cut = line::Cut { checkout: c.name.clone(), version, commit, base, failed: None };
+        let made = match (done.await, beside) {
+            (Ok((tagged, Some((formula, Some(proof))))), Some(_lock)) => {
                 let (tx, proven) = tokio::sync::watch::channel(None);
                 tokio::spawn(async move { tx.send_replace(Some(proof.await)) });
-                self.memory.lock().unwrap().proving.push(Proving { cut, tagged, formula, proven });
+                self.memory.lock().unwrap().proving.push(Proving { cut, _lock, tagged, formula, proven });
                 return Ok(Err("its installed binary is being proven beside the ticks".into()));
             }
-            Ok((tagged, Some((formula, Some(proof))))) => proof.await.map(|()| (tagged, Some(formula))),
-            Ok((tagged, installed)) => Ok((tagged, installed.map(|(f, _)| f))),
-            Err(why) => Err(why),
+            (Ok((tagged, Some((formula, Some(proof))))), None) => proof.await.map(|()| (tagged, Some(formula))),
+            (Ok((tagged, installed)), _) => Ok((tagged, installed.map(|(f, _)| f))),
+            (Err(why), _) => Err(why),
         };
         self.cut_recorded(cut, made).await
     }
@@ -166,7 +178,7 @@ impl App {
     /// is pushed only once they pass.
     pub(super) async fn cut_read_back(&self, c: &Checkout, version: &str) -> Answer<Option<Value>> {
         let git = self.host.git(&c.path);
-        // The checkout's tags are origin's, as fetched with its base: a cut tags in its own clone.
+        // The checkout's tags are origin's, as fetched with its base.
         git.fetch(&c.base).map_err(fail("git"))?;
         let Ok(tagged) = git.sha(&format!("refs/tags/{version}")) else { return Ok(None) };
         let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };
@@ -182,8 +194,13 @@ impl App {
                 return Ok(None);
             }
         }
-        let record =
-            line::Cut { checkout: c.name.clone(), version: version.into(), commit: tagged.clone(), failed: None };
+        let record = line::Cut {
+            checkout: c.name.clone(),
+            version: version.into(),
+            commit: tagged.clone(),
+            base: None,
+            failed: None,
+        };
         self.submit::<line::RecordCut>(record).await?;
         Ok(Some(
             json!({ "cut": c.name, "version": version, "commit": tagged, "installed": cut.formula, "read_back": true }),

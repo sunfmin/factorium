@@ -1,18 +1,10 @@
 //! A decision a decider (a session, a worker, the watch) made for the owner,
-//! as it recorded it in the issue it belongs to: the body when the issue is
-//! filed, a comment afterwards. The issue is its one home; doctor's
-//! `decided` reads it from there. Its shape:
-//!
-//! ```text
-//! Decided (<who>, for Felix): <what, one line>
-//! Options: A) …  B) …
-//! Chose: B, because …
-//! Undo: <how to take it back>
-//! ```
-//!
-//! Each record has a short number, `D<n>`, one sequence for the host, given
-//! once when it enters its issue ([`Numbers`]) and kept on the issue's own
-//! events: a comment's on its event, a body's as [`Mark`]s.
+//! recorded in the shape ADR 0024 gives, in the issue it belongs to: the
+//! body when the issue is filed, a comment afterwards. The issue is its one
+//! home; doctor's `decided` reads it from there. Each record has a short
+//! number, `D<n>`, one sequence for the host, given once when it enters its
+//! issue ([`Numbers`]) and kept on the issue's own events: a comment's on its
+//! event, a body's as [`Mark`]s.
 
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};

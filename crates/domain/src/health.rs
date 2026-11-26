@@ -1,33 +1,10 @@
 //! A live worker's health. Each tick the daemon makes one observation of a
 //! worker — what its session shows, what its processes hold — and one
 //! command, [`Observe`], records it and answers the verdict: wait for the
-//! watch and why, end it on a used-up account, or nothing. The rules and
-//! their clocks live here:
-//!
-//! - **up**: a harness not up five minutes after it started;
-//! - **hot**: processes over their share — of the CPU, of memory, of
-//!   process count — for `hot_for`;
-//! - **hung**: its turn open, its processes next to idle and its screen
-//!   unchanged past `silent_bound`;
-//! - **silent**: its turn closed, and no done, past `silent_bound`, with
-//!   no heavy entry of its own in flight: its clock starts again when one
-//!   ends; nor while its issue waits for anything unmet (factorium#283),
-//!   its clock starting again once all of it is met; nor within a wait it
-//!   declared on a long command of its own (held to two hours), the
-//!   finding past it naming what it said;
-//! - **quota**: its account used up: stablehand is told so, until it next
-//!   reads the account; the host's own login of its harness rests an hour.
-//! - **limit**: its engine at its limit, until the reset its screen gives:
-//!   it waits, parked until then, no finding meanwhile; landing, it is left
-//!   to its landing. The same words read again (its screen after the
-//!   reset) are no limit: the app sees past them.
-//!
-//! A worker waiting for the watch, not parked, is judged on these two
-//! alone: the watch can do nothing for a spent engine, and its finding
-//! (hung, a word that did not reach it) is the spent engine's doing.
-//!
-//! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
-//! quiet are neutral: [`crate::neutral::hot`].
+//! watch and why, end it on a used-up account, or nothing. The rules (up,
+//! hot, hung, silent, quota, limit) and their fixed bounds are ADR 0023's,
+//! off the path; their clocks live here. Over and quiet are neutral:
+//! [`crate::neutral::hot`].
 
 use factum_core::{Event, Uuid};
 use serde::{Deserialize, Serialize};

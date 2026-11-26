@@ -44,13 +44,15 @@ pub struct Seen {
 
 /// What the app sees of the checkout now, for the line to judge: its live
 /// workers and their status, oldest status first. Those waiting for the
-/// watch do not keep it busy; of those asking to land, the first urgent
-/// one lands, else the first.
+/// watch do not keep it busy; those asking to land stack the urgent first,
+/// then each as it asked.
 pub fn look(now: i64, settings: &Settings, workers: &[Seen], by_hand: bool) -> crate::neutral::landing::Look {
+    let mut asks: Vec<&Seen> = workers.iter().filter(|w| w.status == Status::Landing).collect();
+    crate::issue::urgent_first(&mut asks, |w| w.urgent);
     crate::neutral::landing::Look {
         now,
         idle: workers.iter().all(|w| w.status == Status::Waiting),
-        asks: workers.iter().filter(|w| w.status == Status::Landing).min_by_key(|w| !w.urgent).map(|w| w.worker),
+        asks: asks.into_iter().map(|w| w.worker).collect(),
         bounds: bounds(settings),
         by_hand,
     }
@@ -77,7 +79,7 @@ pub fn why(not: NotDue) -> String {
         NotDue::NothingToCut => "nothing promoted since the last cut".into(),
         NotDue::CutFailed { version, why } => format!("cutting {version} failed; a cut by hand, or the next promotion of a newer commit, tries again: {why}"),
         NotDue::Unsettled => {
-            "the checkout is busy or unpromoted, and its oldest promotion waits within the cut bound less the hold bound"
+            "the checkout is busy or unpromoted, or its last promotion was by hand and leaves its cut to one by hand, and its oldest promotion waits within the cut bound less the hold bound"
                 .into()
         }
     }
@@ -113,6 +115,9 @@ pub struct Promotion {
     pub behind: bool,
     /// How its gate ran on the tip ([`crate::declared::Promoting::said`]).
     pub gated: String,
+    /// Asked for by hand.
+    #[serde(default)]
+    pub by_hand: bool,
 }
 
 command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s, p, now| {
@@ -121,7 +126,12 @@ command!(Promote, "line.promote", Lines, Promotion, |p| line_id(&p.checkout), |s
     }
     Ok(vec![match p.red() {
         Some(why) => LineEvent::PromotionRed { tip: p.tip.clone(), why },
-        None => LineEvent::Promoted { tip: p.tip.clone(), at: now.0, gated: Some(p.gated.clone()) },
+        None => LineEvent::Promoted {
+            tip: p.tip.clone(),
+            at: now.0,
+            gated: Some(p.gated.clone()),
+            by_hand: Some(p.by_hand),
+        },
     }])
 });
 
@@ -155,6 +165,10 @@ pub struct Cut {
     pub checkout: String,
     pub version: String,
     pub commit: String,
+    /// The base commit it was cut from: the promotions up to it are cut, one made since is
+    /// owed its own. None, read back: all of them.
+    #[serde(default)]
+    pub base: Option<String>,
     pub failed: Option<String>,
 }
 
@@ -166,7 +180,12 @@ command!(RecordCut, "line.cut", Lines, Cut, |p| line_id(&p.checkout), |s, p, now
         Some(why) => {
             LineEvent::CutFailed { version: p.version.clone(), why: why.clone(), commit: Some(p.commit.clone()) }
         }
-        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: Some(now.0) },
+        None => LineEvent::CutMade {
+            version: p.version.clone(),
+            commit: p.commit.clone(),
+            at: Some(now.0),
+            base: p.base.clone(),
+        },
     }])
 });
 

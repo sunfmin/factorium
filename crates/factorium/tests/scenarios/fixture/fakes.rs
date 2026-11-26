@@ -60,6 +60,8 @@ pub type Closing = Box<dyn FnMut(&str) + Send>;
 pub struct FakeOrca {
     pub terminals: Mutex<BTreeMap<String, Terminal>>,
     pub removed: Mutex<Vec<PathBuf>>,
+    /// The worktrees it made and holds, by path: the name it shows and the comment it keeps.
+    pub made: Mutex<BTreeMap<PathBuf, (String, String)>>,
     /// Orca refuses to open terminals while set.
     pub refuse_open: Mutex<bool>,
     /// Terminals open at their shell's prompt while set, their harness not
@@ -203,13 +205,32 @@ impl FakeOrca {
             }
             ("worktree", "create") => {
                 let repo = path_of(flag(args, "--repo")).unwrap();
-                let path = root.join("worktrees").join(flag(args, "--name"));
-                let (branch, sha) = (flag(args, "--branch"), flag(args, "--base-branch"));
+                // As Orca: the dir is the name made a slug, and a taken dir or branch gets a suffix.
+                let slug: String = flag(args, "--name")
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '-' })
+                    .collect();
+                let free = |n: u32| {
+                    let s = if n == 1 { String::new() } else { format!("-{n}") };
+                    let taken = git_of(
+                        root,
+                        &repo,
+                        &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{}{s}", flag(args, "--branch"))],
+                    )
+                    .is_ok();
+                    (!root.join("worktrees").join(format!("{slug}{s}")).exists() && !taken).then_some(s)
+                };
+                let suffix = (1..).find_map(free).unwrap();
+                let path = root.join("worktrees").join(format!("{slug}{suffix}"));
+                let (branch, sha) = (format!("{}{suffix}", flag(args, "--branch")), flag(args, "--base-branch"));
+                let branch = branch.as_str();
                 if let Err(e) =
                     git_of(root, &repo, &["worktree", "add", "--quiet", "-b", branch, &path.to_string_lossy(), sha])
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
+                let shown = (flag(args, "--name").to_string(), flag(args, "--comment").to_string());
+                self.made.lock().unwrap().insert(path.clone(), shown);
                 let id = format!("wt-{}", held.len() + 1);
                 held.insert(id, path.clone());
                 // Orca opens a shell in a new workspace.
@@ -217,6 +238,30 @@ impl FakeOrca {
                     Terminal { worktree: path.clone(), title: "shell".into(), alive: true, ..Default::default() };
                 self.terminals.lock().unwrap().insert(format!("shell-{}", flag(args, "--name")), shell);
                 answer(json!({ "worktree": { "path": path, "branch": branch } }))
+            }
+            ("worktree", "set") => {
+                let path = path_of(flag(args, "--worktree")).unwrap();
+                match self.made.lock().unwrap().get_mut(&path) {
+                    Some((name, comment)) => {
+                        if args.contains(&"--comment") {
+                            *comment = flag(args, "--comment").into();
+                        }
+                        if args.contains(&"--display-name") {
+                            *name = flag(args, "--display-name").into();
+                        }
+                        answer(json!({ "worktree": { "path": path, "displayName": name, "comment": comment } }))
+                    }
+                    None => error("selector_not_found"),
+                }
+            }
+            ("worktree", "list") => {
+                let mut made = self.made.lock().unwrap();
+                made.retain(|p, _| p.exists());
+                let rows: Vec<Value> = made
+                    .iter()
+                    .map(|(p, (name, comment))| json!({ "path": p, "displayName": name, "comment": comment }))
+                    .collect();
+                answer(json!({ "worktrees": rows, "totalCount": rows.len(), "truncated": false }))
             }
             ("worktree", "rm") => {
                 let path = path_of(flag(args, "--worktree")).unwrap();
@@ -247,6 +292,7 @@ impl FakeOrca {
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
+                self.made.lock().unwrap().remove(&path);
                 answer(json!({ "removed": true }))
             }
             ("terminal", "create") => {
@@ -977,6 +1023,16 @@ impl FakeStablehand {
     }
 }
 
+/// The failures the stand-in slimfit answers when asked (truefit.toml's
+/// slimfit `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as
+/// slimfit 0.1.56 answers it: `function-refused`, every `check --mutants
+/// --function` listing refused (exit 2), as one of a change whose source
+/// its mutation tool cannot parse.
+pub const SLIMFIT_FAULTS: [&str; 1] = ["function-refused"];
+
+/// slimfit's refusal of a `--function` listing (`function-refused`).
+const SLIMFIT_FUNCTION_REFUSED: &str = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\nError: failed to parse src/lib.rs", "fix": "fix the command's failure in its log .slimfit/out/rust/mutants-list.log"}]}"#;
+
 /// The machine as a scenario has it.
 pub struct FakeHost {
     pub orca: FakeOrca,
@@ -990,6 +1046,8 @@ pub struct FakeHost {
     /// slimfit: its whole command line, else its subcommand → what it prints
     /// (`help picker`, `help reviewer`, `check`).
     pub slimfit: Mutex<BTreeMap<String, String>>,
+    /// While set, a `--function` listing is refused (`function-refused`).
+    pub slimfit_function_refused: Mutex<bool>,
     /// rolesmith: what each project's roles lack of this host.
     pub rolesmith: Mutex<FakeRolesmith>,
     /// Programs not found on PATH.
@@ -1027,7 +1085,7 @@ impl FakeHost {
         let (orca, brew, procs, reading_procs) = Default::default();
         let (stablehand, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
         let sleeps_take = Default::default();
-        let (lingers, dropping, hosts, rolesmith) = Default::default();
+        let (lingers, dropping, hosts, rolesmith, slimfit_function_refused) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -1037,6 +1095,7 @@ impl FakeHost {
             reading_procs,
             stablehand,
             slimfit,
+            slimfit_function_refused,
             rolesmith,
             missing,
             hosts,
@@ -1049,6 +1108,14 @@ impl FakeHost {
             gone,
             clock,
             root: root.to_path_buf(),
+        }
+    }
+
+    /// Sets, or clears, slimfit's failure `name` (one of [`SLIMFIT_FAULTS`]).
+    pub fn slimfit_fault(&self, name: &str, on: bool) {
+        match name {
+            "function-refused" => *self.slimfit_function_refused.lock().unwrap() = on,
+            _ => panic!("no slimfit fault {name}: {SLIMFIT_FAULTS:?}"),
         }
     }
 
@@ -1092,6 +1159,9 @@ impl Programs for FakeHost {
             "brew" => self.brew.lock().unwrap().answer(&self.root, args),
             "stablehand" => self.stablehand.lock().unwrap().answer(args, self.clock.now()),
             "slimfit" => {
+                if args.contains(&"--function") && *self.slimfit_function_refused.lock().unwrap() {
+                    return Said { ok: false, out: SLIMFIT_FUNCTION_REFUSED.into(), err: String::new() };
+                }
                 let said = self.slimfit.lock().unwrap();
                 // A refusal is printed as slimfit prints one: `{"error": …}`, exit 2.
                 let out = said.get(&args.join(" ")).or_else(|| said.get(args[0])).cloned();

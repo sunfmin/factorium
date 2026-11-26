@@ -1,0 +1,10 @@
+{
+  "tree": "b46f0e74a33e508f972c7e4bc0fd6fb9a18f8321+d1fba762150c532c",
+  "lines": 354,
+  "serves": "factorium#377",
+  "considered": "the clones' Git::fresh (deleted, replaced by Git::detached), merge_from (replaced by merge in the shared repo), Orca::worktree (reused with a comment), kept.rs's worktree listing (not reused: it reads git branches, a work dir is detached), the gate records' JSON for the mtimes",
+  "reviewer": "codex:01a217e6-fc45-7e02-af36-eb93f561f26c:default",
+  "author": "claude-code:6fc0f3ed-5de8-5b6a-8386-7b5ea2be8031:opus",
+  "cut": "In crates/factorium/src/line.rs and line/cut.rs, store the work-dir path once on Moving and delete the three copies in Then and the match in Moving::dir. In crates/factorium/src/workdir.rs, use the existing serde_json dependency to read and write a typed map of paths to blob IDs and mtimes, replacing the hand-written TSV codec while keeping the blob-ID check before restoring a timestamp. Workspace tools were unavailable, so I reviewed the supplied diff.",
+  "answer": "Both made: Moving holds dir once (Then's three copies and Moving::dir's match gone); the mtimes are a serde_json BTreeMap of path to (id, ns), the id checked before a restore; and Git::contents leaves out changed files instead of hashing them. 354 lines net remain: the work dirs, their sweep and doctor finding, the cache and mtime restore, the clones' retirement."
+}

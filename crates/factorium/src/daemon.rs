@@ -14,7 +14,8 @@ use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::{Author, urgent_first};
-use factorium_domain::settings::Time;
+use factorium_domain::next;
+use factorium_domain::settings::{Setting, Time};
 use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
@@ -22,7 +23,7 @@ use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{Answer, App, LineClone, Refusal};
+use crate::{Answer, App, LineDir, Refusal};
 
 pub use process::handed_lock;
 
@@ -46,6 +47,8 @@ pub struct Tick {
     pub roles: Vec<Value>,
     /// Issues filed to bump a pin of another checkout behind its base tip.
     pub bumped: Vec<Value>,
+    /// Work dirs whose job no longer runs, removed.
+    pub work_dirs: Vec<Value>,
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
@@ -78,12 +81,13 @@ impl Tick {
             || !self.idle.is_empty()
             || !self.resumed.is_empty()
             || !self.roles.is_empty()
+            || !self.work_dirs.is_empty()
             || self.upgrade.is_some()
     }
 }
 
 impl App {
-    async fn listed(&self) -> Answer<Vec<Checkout>> {
+    pub(crate) async fn listed(&self) -> Answer<Vec<Checkout>> {
         self.rows(tracker::listed()).await
     }
 
@@ -94,6 +98,7 @@ impl App {
     /// One pass of the daemon, recorded: a failing one adds to the run of
     /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
+        self.memory.lock().unwrap().ticks = true;
         let start = self.now();
         let mut steps = Steps::at(start);
         let mut done = self.pass(&mut steps).await;
@@ -126,8 +131,8 @@ impl App {
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
         t.finished = self.finish_unlanded().await?;
-        // Before the lines and the starts: what an urgent issue halts, and what it no longer does.
-        let halt = self.note_halt().await?;
+        // Before the lines and the starts: which urgent issues halt heavy commands not urgent.
+        self.note_halt().await?;
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
@@ -154,9 +159,9 @@ impl App {
         if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
             let reading = load.admission();
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
+            // A halt holds no start: a start not urgent is admission's as at any other time.
             let held = match urgent {
                 true => admission::admit_urgent(&reading, &settings),
-                false if !halt.is_empty() => Err(format!("halt: behind urgent {}", halt.join(", "))),
                 false => admission::admit(&reading, &load.queue, self.now(), &settings),
             };
             // What it goes ahead of, read while it is still among the ready ones.
@@ -172,7 +177,7 @@ impl App {
                             started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
                         }
                         t.started = Some(started);
-                        // An urgent start halts the rest from now, not from the next tick.
+                        // An urgent start halts heavy commands not urgent from now, not from the next tick.
                         self.note_halt().await?;
                         None
                     }
@@ -195,6 +200,9 @@ impl App {
             self.reclaim();
         }
         steps.ended("idle work's start", self.now());
+        // After every job this tick asked for asked: what none asked for is left over.
+        t.work_dirs = self.sweep_work_dirs();
+        steps.ended("sweeping work dirs", self.now());
         t.resumed = self.resume_parked().await?;
         steps.ended("resuming parked workers", self.now());
         t.watch = self.look_if_due(&settings).await?;
@@ -260,12 +268,19 @@ impl App {
         Ok(filed)
     }
 
+    /// The ready issues no worker holds, in the ordinary order they start
+    /// ([`next::order`]): the checkout with the fewest live workers first.
+    async fn ready(&self) -> Answer<Vec<IssueRow>> {
+        let live = self.live_workers().await?;
+        Ok(next::order(self.rows(tracker::untaken()).await?, live.iter().map(|w| w.checkout.as_str())))
+    }
+
     /// The ready issues no worker holds and nothing open blocks, ahead of
     /// which the urgent `checkout`#`number` started: those not urgent before
-    /// it in the ordinary order.
+    /// it in the ordinary order ([`App::ready`]).
     async fn ahead_of(&self, checkout: &str, number: u64) -> Answer<Vec<String>> {
         let mut ahead = Vec::new();
-        for r in self.rows(tracker::untaken()).await? {
+        for r in self.ready().await? {
             if (r.checkout.as_str(), r.number) == (checkout, number) {
                 break;
             }
@@ -279,19 +294,27 @@ impl App {
 
     /// The first ready issue no worker holds and nothing open blocks, the
     /// urgent ones first, then those that start ahead (a promotion's mutants
-    /// issue), then in the ordinary order ([`tracker::untaken`]);
-    /// whose account, if it names one, can start now, and whose role has
-    /// what it needs of this host (each role checked once a tick).
+    /// issue), then in the ordinary order ([`App::ready`]);
+    /// whose checkout is under its cap (`workers_per_checkout`), unless it is
+    /// urgent or starts ahead; whose account, if it names one, can start now, and whose role
+    /// has what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
+        let workers = self.live_workers().await?;
+        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
+        let cap = self.settings().await?.get(Setting::WorkersPerCheckout);
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
-        let mut rows = self.rows(tracker::untaken()).await?;
+        let mut rows = self.ready().await?;
         // Those that start ahead (a promotion's mutants issue), then the urgent before all.
         urgent_first(&mut rows, |r| r.ahead);
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
+            // Its checkout at its cap, it waits for one of its workers to end: doctor's `capped`.
+            if next::capped(&live, &r, cap) {
+                continue;
+            }
             let (checkout, number) = (r.checkout.clone(), r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;
@@ -373,13 +396,13 @@ impl App {
         Ok(resumed)
     }
 
-    /// Frees disk: the build outputs of the line's worktrees, rebuilt when
-    /// next needed.
+    /// Frees disk: the build caches of the line's jobs, rebuilt when next
+    /// needed.
     fn reclaim(&self) {
-        for kind in LineClone::ALL {
-            let Ok(dirs) = std::fs::read_dir(self.data().clones(kind)) else { continue };
+        for kind in LineDir::ALL {
+            let Ok(dirs) = std::fs::read_dir(self.data().caches().join(kind.name())) else { continue };
             for d in dirs.flatten() {
-                let _ = std::fs::remove_dir_all(d.path().join("target"));
+                let _ = std::fs::remove_dir_all(d.path());
             }
         }
     }

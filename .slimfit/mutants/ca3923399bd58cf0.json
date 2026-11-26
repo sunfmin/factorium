@@ -1,0 +1,6 @@
+{
+  "tree": "681c2ee6a181eb0c3852c6b3abb240146610b335+d1fba762150c532c",
+  "picker": "codex:01a215b3-66a6-7502-8ce9-d9c32d6c5eff:default",
+  "author": "claude-code:1c3840bc-c6fc-5d74-8706-d10c06f26fbd:opus",
+  "none": "The listed replacements cannot build for Answer<String>, a Result alias."
+}

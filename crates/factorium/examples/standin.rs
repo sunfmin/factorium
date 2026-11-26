@@ -32,7 +32,8 @@
 //!
 //! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
 //! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`,
-//! `fakes::STABLEHAND_FAULTS`); `real` never reads it.
+//! `fakes::STABLEHAND_FAULTS`, `fakes::SLIMFIT_FAULTS`); `real` never
+//! reads it.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -136,7 +137,9 @@ fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
     let arg = |i: usize| a.get(i).map(String::as_str).unwrap_or_default();
     let unit = |r: Result<(), String>| made(r.map(|()| true));
     match method {
-        "worktree" => made(orca.worktree(arg(0).as_ref(), arg(1), arg(2), arg(3)).map(|p| p.display().to_string())),
+        "worktree" => {
+            made(orca.worktree(arg(0).as_ref(), arg(1), arg(2), arg(3), arg(4)).map(|p| p.display().to_string()))
+        }
         "remove" => unit(orca.remove(arg(0).as_ref())),
         "open" => made(orca.open(arg(0).as_ref(), arg(1), arg(2))),
         "ready" => unit(orca.ready(arg(0))),
@@ -154,6 +157,13 @@ fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
         // lists the host's other terminals too, which no case reads.
         "listed" => made(orca.terminals().map(|t| {
             t.into_iter().find(|(h, _)| h == arg(0)).map(|(_, title)| title).map_or(Value::Null, Value::from)
+        })),
+        "comment" => unit(orca.comment(arg(0).as_ref(), arg(1))),
+        "show_as" => unit(orca.show_as(arg(0).as_ref(), arg(1))),
+        // The name and comment Orca lists the worktree at a path with, if it lists it.
+        "listed_worktree" => made(orca.worktrees().map(|rows| {
+            let row = rows.into_iter().find(|w| w.path == std::path::Path::new(arg(0)));
+            row.map_or(Value::Null, |w| json!({ "name": w.name, "comment": w.comment }))
         })),
         _ => panic!("no Orca reader {method}"),
     }
@@ -202,6 +212,7 @@ fn main() {
                 Ok(f) if fakes::STABLEHAND_FAULTS.contains(&f.as_str()) => {
                     host.stablehand.lock().unwrap().fault(&f, true)
                 }
+                Ok(f) if fakes::SLIMFIT_FAULTS.contains(&f.as_str()) => host.slimfit_fault(&f, true),
                 Ok(f) => host.orca.fault(&f, true),
                 Err(_) => {}
             }
