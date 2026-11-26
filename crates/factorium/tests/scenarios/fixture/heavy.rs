@@ -31,6 +31,13 @@ pub const POLL: i64 = 500;
 /// loaded host leaves the scenario waiting (factorium#155).
 pub const LOOK: Duration = Duration::from_millis(10);
 
+/// What `comes` answers; past [`STUCK`], a hang, it fails, as `what` never came.
+/// Boxed: a scenario's future, nesting several of these, is kept on its
+/// test thread's stack, and overflowed it unboxed.
+pub async fn bounded<T>(what: &str, comes: impl Future<Output = T>) -> T {
+    tokio::time::timeout(STUCK, Box::pin(comes)).await.unwrap_or_else(|_| panic!("{what} never came"))
+}
+
 /// Until `path` is there; past [`STUCK`], a hang, it fails.
 pub async fn until_file(path: &Path) {
     let there = async {
@@ -38,7 +45,7 @@ pub async fn until_file(path: &Path) {
             tokio::time::sleep(LOOK).await;
         }
     };
-    tokio::time::timeout(STUCK, there).await.unwrap_or_else(|_| panic!("{} never came", path.display()));
+    bounded(&path.display().to_string(), there).await
 }
 
 impl World {
@@ -46,31 +53,43 @@ impl World {
     /// heavy command has done what the time it woke at gave it to do), moves
     /// the clock a poll on: each asks again.
     pub async fn poll(&self, n: usize) {
-        self.until(async || self.clock.asleep() == n).await;
+        self.until_or(&format!("{n} waits asleep on the clock"), async || self.clock.asleep() == n).await;
         self.clock.advance(POLL);
     }
 
     /// Until `done`: looked at again each time the world's clock tells of a
     /// wait that began or ended, and every [`LOOK`] besides, for what moves
-    /// without the clock (another run's entry leaving the queue).
-    pub async fn until(&self, mut done: impl AsyncFnMut() -> bool) {
-        loop {
-            let changed = self.clock.changed();
-            if done().await {
-                return;
+    /// without the clock (another run's entry leaving the queue). Past
+    /// [`STUCK`], a hang, it fails, naming the line that waited.
+    #[track_caller]
+    pub fn until(&self, done: impl AsyncFnMut() -> bool) -> impl Future<Output = ()> {
+        let at = std::panic::Location::caller();
+        async move { self.until_or(&format!("the wait at {at}"), done).await }
+    }
+
+    /// [`World::until`], failing past [`STUCK`] as `what` never came.
+    async fn until_or(&self, what: &str, mut done: impl AsyncFnMut() -> bool) {
+        let comes = async {
+            loop {
+                let changed = self.clock.changed();
+                if done().await {
+                    return;
+                }
+                tokio::select! { () = changed => {}, () = tokio::time::sleep(LOOK) => {} }
             }
-            tokio::select! { () = changed => {}, () = tokio::time::sleep(LOOK) => {} }
-        }
+        };
+        bounded(what, comes).await
     }
 
     /// Until the heavy command `what` has left the queue.
     pub async fn gone(&self, what: &str) {
-        self.until(async || !self.queued().await.iter().any(|h| h == what)).await;
+        let left = format!("`{what}` leaving the queue");
+        self.until_or(&left, async || !self.queued().await.iter().any(|h| h == what)).await;
     }
 
     /// Until the heavy command `what` is in the queue.
     pub async fn until_queued(&self, what: &str) {
-        self.until(async || self.queued().await.iter().any(|h| h == what)).await;
+        self.until_or(&format!("`{what}` queued"), async || self.queued().await.iter().any(|h| h == what)).await;
     }
 
     /// Runs `during` while another CLI run's heavy command holds the queue, then
