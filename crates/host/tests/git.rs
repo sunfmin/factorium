@@ -35,7 +35,11 @@ fn ran(home: &Path, f: impl FnOnce()) -> Vec<String> {
     f();
     std::fs::remove_file(home.join(".gitconfig")).unwrap();
     let traced = std::fs::read_to_string(&trace).unwrap_or_default();
-    traced.lines().filter_map(|l| l.split(" cmd_name ").nth(1)).map(|c| c.split(' ').next().unwrap().to_string()).collect()
+    traced
+        .lines()
+        .filter_map(|l| l.split(" cmd_name ").nth(1))
+        .map(|c| c.split(' ').next().unwrap().to_string())
+        .collect()
 }
 
 #[test]
