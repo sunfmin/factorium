@@ -240,35 +240,59 @@ async fn an_urgent_worker_s_gate_goes_ahead_of_an_entry_not_urgent_that_waited_l
     assert!(gated.is_ok(), "{gated:?}");
 }
 
-/// Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md): what is not urgent waits, past
-/// the starve bound and a line move's bound too; a command not urgent that
-/// runs is cut short once an urgent entry waits for what it holds, the
-/// urgent issue's worker's own is not, however it was queued; lifted, the
-/// rest start in their old order.
+/// Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md): a worker's or a program's entry
+/// not urgent waits, past the starve bound too; one that runs is cut short
+/// once an urgent entry waits for what it holds, the urgent issue's
+/// worker's own is not, however it was queued. A line move is not halted:
+/// a landing's gate waits only behind the urgent entries, and a running
+/// cut is never cut short. Lifted, the rest start in their old order.
 #[test]
-fn halted_nothing_but_an_urgent_entry_starts_and_what_runs_not_urgent_is_cut_short() {
-    let mut gate = Entry {
-        ask: Ask { id: Uuid::from_u128(2), what: "fast gate of web".into(), ..Ask::default() },
+fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_moves_go_on() {
+    let gate = Entry {
+        ask: Ask {
+            id: Uuid::from_u128(2),
+            what: "fast gate of web".into(),
+            lands: Some(Uuid::from_u128(200)),
+            ..Ask::default()
+        },
         queued_at: MIN,
         ..Entry::default()
     };
-    gate.ask.bound_at = Some(0);
     let running = Entry { started_at: Some(0), ..workers(4, 0, false) };
     let (exclusive, urgent) = (workers(1, 0, false), workers(3, 2 * MIN, true));
+    let program =
+        Entry { ask: Ask { program: true, worker: None, ..workers(7, 0, false).ask }, ..workers(7, 0, false) };
     // Its worker's command, queued before its issue was marked.
     let own = Entry { started_at: Some(0), ..workers(5, 0, false) };
-    let entries = vec![exclusive.clone(), gate.clone(), urgent.clone(), running.clone(), own.clone()];
+    let cut = Entry {
+        ask: Ask { id: Uuid::from_u128(8), what: "cut of api".into(), ..Ask::default() },
+        started_at: Some(0),
+        ..Entry::default()
+    };
+    let entries = vec![
+        exclusive.clone(),
+        gate.clone(),
+        urgent.clone(),
+        running.clone(),
+        own.clone(),
+        program.clone(),
+        cut.clone(),
+    ];
     let (halt, halt_for) = (vec!["web#3".into()], vec![own.ask.worker.unwrap()]);
     let q = Queue { entries, halt, halt_for, ..Queue::default() };
     let now = 300 * MIN;
     let at = Reading { read_at: now, settle: 0, order: ORDER };
+    // The urgent entry and the landing's gate wait together: the urgent one starts first.
     assert_eq!(q.may_start(urgent.ask.id, Ok(()), at, now), Ok(()));
-    for e in [&exclusive, &gate] {
+    assert_eq!(q.may_start(gate.ask.id, Ok(()), at, now).unwrap_err(), "waits behind 3");
+    for e in [&exclusive, &program] {
         assert_eq!(q.may_start(e.ask.id, Ok(()), at, now).unwrap_err(), "behind urgent web#3");
     }
     let whys: Vec<_> = q.resources(now, ORDER)[0].waiting.iter().map(|h| h.why.clone()).collect();
-    assert_eq!(whys[1..], [Some("behind urgent web#3".to_string()), Some("behind urgent web#3".to_string())]);
+    let behind = Some("behind urgent web#3".to_string());
+    assert_eq!(whys, [None, Some("behind `3`, an urgent issue's".into()), behind.clone(), behind]);
     assert_eq!(q.ends(running.ask.id, now, i64::MAX, false), Some(Ends::Halted), "cut short for it");
+    assert_eq!(q.ends(cut.ask.id, now, i64::MAX, false), None, "a line move is never cut short by the halt");
     // Nothing urgent waiting for what it holds, it runs on: a device for the host, or no urgent ask.
     let device = Entry { started_at: Some(0), ..with_resources(workers(6, 0, false), &["FMGG"]) };
     let q2 = Queue { entries: [q.entries.clone(), vec![device.clone()]].concat(), ..q.clone() };
@@ -276,30 +300,53 @@ fn halted_nothing_but_an_urgent_entry_starts_and_what_runs_not_urgent_is_cut_sho
     let quiet =
         Queue { entries: q.entries.iter().filter(|e| e.ask.id != urgent.ask.id).cloned().collect(), ..q.clone() };
     assert_eq!(quiet.ends(running.ask.id, now, i64::MAX, false), None, "no urgent entry waits: it runs on");
+    assert_eq!(quiet.may_start(gate.ask.id, Ok(()), at, now), Ok(()), "no urgent entry waits: the gate starts");
     assert_eq!(q.ends(own.ask.id, now, i64::MAX, false), None, "the urgent issue's own runs on");
     let q = Queue { halt: Vec::new(), halt_for: Vec::new(), ..q };
     assert_eq!(q.ends(running.ask.id, now, i64::MAX, false), None, "lifted, nothing is cut");
-    assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [2, 3, 1], "lifted: the move past its bound, then as before");
+    assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [3, 2, 1, 7], "lifted: as before");
 }
 
+/// Halted by app#2, urgent: no other worker starts, but another
+/// checkout's done worker lands, and a third checkout's landing is
+/// promoted and cut, all during the halt.
 #[tokio::test]
-async fn halted_a_ready_issue_and_a_promotion_owed_by_its_bound_wait_until_the_urgent_one_lands() {
+async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_starts() {
     let w = World::new();
-    w.two_at_work().await;
-    w.lands("web", 1, "a").await;
-    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
-    w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
-    w.advance(61);
+    for c in ["app", "api", "web"] {
+        w.checkout(c).await;
+    }
+    w.kit().await;
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    for (c, title) in [("app", "a"), ("app", "b"), ("api", "a"), ("web", "a")] {
+        w.app.issue_add(c, title, "", false, &[]).await.unwrap();
+    }
+    for _ in 0..4 {
+        w.tick().await;
+    }
+    w.app.issue_mark_urgent("app", 2, true).await.unwrap();
+    w.app.issue_add("app", "c", "", false, &[]).await.unwrap();
     let t = w.tick().await;
-    assert!(t.started.is_none() && t.held.as_deref() == Some("halt: behind urgent web#2"), "{:?}", t.held);
-    assert!(!t.lines.iter().any(|l| l["promoted"] == "web"), "the promotion waits: {:?}", t.lines);
+    assert!(t.started.is_none() && t.held.as_deref() == Some("halt: behind urgent app#2"), "{:?}", t.held);
     let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    assert!(found.iter().any(|f| f.starts_with("urgent web#2 halts")), "{found:?}");
-    assert!(!found.iter().any(|f| f.contains("not promoted")), "the halt is no stall: {found:?}");
-    w.lands("web", 2, "b").await;
-    let t = w.tick().await;
-    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "lifted, it promotes: {:?}", t.lines);
-    assert_eq!(t.started.expect("#3 starts")["issue"], "web#3");
+    assert!(
+        found.iter().any(|f| f.starts_with("urgent app#2 halts") && f.contains("landings, promotions and cuts go on")),
+        "{found:?}"
+    );
+    let api = w.lands("api", 1, "a").await;
+    assert_eq!(api.tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
+    let cut_tick = w.lands("web", 1, "a").await.tick;
+    assert!(cut_tick.lines.iter().any(|l| l["promoted"] == "web"), "promoted during the halt: {:?}", cut_tick.lines);
+    let cut = cut_tick
+        .lines
+        .iter()
+        .find(|l| l["cut"] == "web")
+        .unwrap_or_else(|| panic!("cut during the halt: {:?}", cut_tick.lines));
+    assert_eq!(cut["failed"], Value::Null, "{cut}");
+    assert_eq!(cut_tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
+    // app#1, of the urgent issue's own checkout, lands too.
+    let own = w.lands("app", 1, "a").await.tick;
+    assert!(own.started.is_none(), "{:?}", own.started);
 }
 
 #[tokio::test]
@@ -366,22 +413,4 @@ async fn an_urgent_start_goes_ahead_of_no_ready_issue_whose_block_is_unmet() {
     w.app.issue_mark_urgent("web", 2, true).await.unwrap();
     let started = starts(&w, 2).await;
     assert_eq!(started["urgent"]["ahead_of"], serde_json::json!([]), "#1 could not go: {started}");
-}
-
-#[tokio::test]
-async fn halted_a_landing_not_urgent_waits_while_the_urgent_worker_works_and_is_no_stall() {
-    let w = World::new();
-    w.two_at_work().await;
-    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
-    w.tick().await;
-    w.done(&w.worker_on("web", 1).await, "a", "x").await;
-    let t = w.tick().await;
-    assert!(!t.landed.iter().any(|l| l["landed"] == "web#1"), "{:?}", t.landed);
-    w.advance(11);
-    let t = w.tick().await;
-    assert!(!t.landed.iter().any(|l| l["landed"] == "web#1"), "still halted: {:?}", t.landed);
-    let found: Vec<_> = w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect();
-    assert!(!found.iter().any(|f| f.contains("to land")), "the halt is no stall: {found:?}");
-    w.lands("web", 2, "b").await;
-    assert!(w.tick().await.landed.iter().any(|l| l["landed"] == "web#1"), "lifted, #1 lands");
 }
