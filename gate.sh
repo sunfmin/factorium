@@ -1,5 +1,5 @@
 #!/bin/sh
-# The fast gate (SPEC.md §5): what every landing needs, run on its merge
+# The fast gate (factorium.toml's `[gate] fast`): what every landing needs, run on its merge
 # with proving. The release build and the models are the slow gate's
 # (./slow.sh), before a promotion moves the base.
 set -eu

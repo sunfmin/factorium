@@ -35,7 +35,7 @@ callers needed, and two of its concepts leaked out:
 
 No test changes: the scenarios drive the tick, `promote` and `cut` as
 before, so each step is tested as it lands. The crate stays within its
-budget (SPEC §5).
+budget (its target in `lines.sh`, ADR 0031).
 
 ## Consequences
 

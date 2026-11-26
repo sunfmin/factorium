@@ -1,9 +1,9 @@
-# How factorium gates and cuts itself (SPEC.md §5).
+# How factorium gates and cuts itself (the fields: crates/domain/src/declared.rs).
 
 [gate]
 fast = "./gate.sh"
 fast_limit = 900
-slow = "./slow.sh"  # only what gate.sh lacks (SPEC.md §5)
+slow = "./slow.sh"  # only what gate.sh lacks
 slow_limit = 1800
 # What every landing's gate rewrites: a landing whose only conflicts are
 # these takes proving's copy and lands them as its gate left them (SPEC.md

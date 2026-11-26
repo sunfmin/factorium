@@ -41,7 +41,7 @@ the guard, and had to be threaded through the dispatch: `Top::Guard` was an
 `App`'s interface is unchanged: the scenarios and the CLI keep calling the
 same methods, and `tests/scenarios/binary.rs` tests the binary end to end,
 so every step is tested as it lands. The crate stays within its budget
-(SPEC §5): no step adds more than a module's header.
+(its target in `lines.sh`, ADR 0031): no step adds more than a module's header.
 
 ## Consequences
 

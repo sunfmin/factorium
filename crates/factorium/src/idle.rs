@@ -196,7 +196,7 @@ impl App {
         }
         let Some(idle) = self.idle_ready(&c, false).await? else {
             let why = format!(
-                "{} declares no `[idle]` in factorium.toml at the tip of {}: declare its `steps` or `tasks` there (SPEC §5)",
+                "{} declares no `[idle]` in factorium.toml at the tip of {}: declare its `steps` or `tasks` there (docs/adr/0014-idle-work.md)",
                 c.name, c.base
             );
             return Err(Refusal::new("no_idle", why));

@@ -21,57 +21,6 @@ on the owner: which repo moves first, and how Guild moves its gate and landing d
 counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
 and factorium does not is in `docs/dropped.md`.
 
-## 5. Crates
-
-| Crate | Holds | Target (source lines) |
-|---|---|---|
-| `factorium-domain` | The pure half, on factum: the issue, worker, landing, promotion, cut, account and watch aggregates and processes; admission, the heavy-command queue's start rule, a worker's health (up, hot, hung, silent, quota) decided by one command from one observation; the disk floor as a pure function of readings; doctor's findings. No IO, no clock. | 6,240 |
-| `factorium-harness` | The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; where a session on an account keeps its files (the account itself is stablehand's). Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls. | 8,000 |
-| `factorium-host` | The effects: git (worktrees, merge, push requiring a value), orca (terminals), host readings (CPU ticks, memory, pressure, disk, process creation), process trees and sampling, the programs it reads the answers of (Homebrew, stablehand). | 4,000 |
-| `factorium` | The binary: CLI, the daemon (factum's tick plus three workers — the starter, the gate runner, the lander), the watch's terminal, `doctor`'s text. | 4,830 |
-
-A crate's target is a trend, not a gate (factorium#163): `./lines.sh`,
-which `checks.sh` runs, prints each crate's lines against its target here
-and an overage, and never fails. A crate over its target, or that grew at
-each of its last five landings that changed it, is a task: the idle tasks
-line runs `./lines.sh --tasks` after slimfit's `next`, and a `crate-lines`
-issue names the crate and the files that grew most (§1.16). Its worker
-deepens the crate; a target changes only with its reason in the issue that
-changes it. fmt and clippy stay bounds.
-
-**What a repo declares**, in `factorium.toml` at its root (§3); every
-table may be left out:
-
-```toml
-[gate]
-fast = "./gate.sh"      # what every landing needs, on its merge
-fast_limit = 600        # seconds
-slow = "./slow.sh"      # what fast lacks (§1.13)
-slow_limit = 3600
-regenerated = [".truefit/models/*.json"]  # git globs: records the gate rewrites (§1.12)
-
-[cut]                   # a version from the base tip (§1.14)
-steps = ["./release.sh $FACTORIUM_VERSION"]
-formula = "tap/name"    # the Homebrew formula upgraded once cut
-limit = 3600
-
-[idle]                  # only while the host is idle (§1.16)
-steps = ["./soak.sh"]
-tasks = "slimfit --version && slimfit next --all"   # filed as issues (§1.16)
-every = 86400           # at most once per this many seconds
-limit = 14400           # seconds, all the steps together; past it, red
-```
-
-**For Guild.** Guild depends on `factorium-harness`, `factorium-host`
-and the domain's neutral parts (admission, the queue's start rule,
-hot-worker rules, landing onto a proving branch), as git dependencies
-pinned to a revision. Those public items name no issue, worker, watch or
-checkout: what only the caller knows it passes in, or says through a
-trait it implements. They live in `factorium_domain::neutral`; factorium's
-own modules wrap them with what it knows. A test from outside
-(`crates/factorium/tests/neutral.rs`) checks they name none of those and
-depend on nothing else of factorium.
-
 ## 6. Tests: only at the outermost layer
 
 - **Scenarios through `App`.** `App` is the program's one entry: every

@@ -1,5 +1,5 @@
 #!/bin/sh
-# The slow gate (SPEC.md §5, §6): what the fast gate lacks, before a
+# The slow gate (factorium.toml's `[gate] slow`; SPEC.md §6): what the fast gate lacks, before a
 # promotion moves the base: the release build and the models. A promotion
 # runs these alone on a tip a green landing pushed, and ./gate.sh first on
 # any other (docs/adr/0012-the-line-gate-landing-promotion-cut.md). Measured 2026-11-26: fast gate 563s; these

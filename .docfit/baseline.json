@@ -1,10 +1,10 @@
 {
   "SPEC.md": {
-    "local_refs": 17,
-    "rehome": 15264
+    "local_refs": 16,
+    "rehome": 12047
   },
   "checks.sh": {
-    "local_refs": 2
+    "local_refs": 1
   },
   "crates/domain/src/admission.rs": {
     "local_refs": 1
@@ -131,9 +131,6 @@
   },
   "crates/factorium/tests/scenarios/line.rs": {
     "local_refs": 7
-  },
-  "crates/factorium/tests/scenarios/lines.rs": {
-    "local_refs": 1
   },
   "crates/factorium/tests/scenarios/needs.rs": {
     "local_refs": 1
@@ -281,9 +278,6 @@
   "docs/dropped.md": {
     "local_refs": 2,
     "rehome": 3272
-  },
-  "lines.sh": {
-    "local_refs": 1
   },
   "models/HeavyQueue.tla": {
     "local_refs": 8
