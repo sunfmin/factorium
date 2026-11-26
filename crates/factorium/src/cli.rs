@@ -441,7 +441,7 @@ pub enum WorkerCmd {
 
 #[derive(Subcommand)]
 pub enum HeavyCmd {
-    /// Runs a heavy command once the machine has room, by the queue's rule, beside workers' and gates' (a line move past its bound goes ahead of it, as of a worker's), at a gate's priority. Exits with its exit code. With `--resource`, it holds those resources instead, all at once, as `worker exclusive --resource` does.
+    /// Runs a heavy command once the machine has room, by the queue's rule, beside workers' and gates' (a line move past its bound, and a landing's fast gate, go ahead of it, as of a worker's), at a gate's priority. Exits with its exit code. With `--resource`, it holds those resources instead, all at once, as `worker exclusive --resource` does.
     #[command(verbatim_doc_comment)]
     Run {
         /// Runs it at background priority instead: gates get the CPU first.

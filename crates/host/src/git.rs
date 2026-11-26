@@ -1,5 +1,5 @@
 //! git, as a program: every call runs `git` in a directory as the host runs
-//! it — with the host's home, so with the config that home holds and no
+//! it (or answers as it would, where that is certain: `refs`) — with the host's home, so with the config that home holds and no
 //! other — and answers what it printed, or why it failed. The app makes one
 //! through [`crate::Host`]; a checkout's repo is one value, and what the app
 //! does to it (fetch a tip, a fresh work dir, a push that requires what it
@@ -10,6 +10,8 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 
 use crate::Clock;
+
+mod refs;
 
 /// The git program, found once: the binary in the exec path of the `git` on
 /// PATH. On macOS `/usr/bin/git` is a shim that looks Xcode's git up on every
@@ -143,6 +145,9 @@ impl Git {
 
     /// The commit `rev` names.
     pub fn sha(&self, rev: &str) -> Result<String, String> {
+        if let Some(id) = refs::read(&self.dir, rev) {
+            return Ok(id);
+        }
         self.run(&["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])
     }
 
@@ -153,7 +158,13 @@ impl Git {
 
     /// The text of `file` at `rev`, if it has one.
     pub fn shown(&self, rev: &str, file: &str) -> Option<String> {
-        self.run(&["show", &format!("{rev}:{file}")]).ok()
+        let Some(id) = refs::object_id(rev).or_else(|| refs::read(&self.dir, rev)) else {
+            return self.run(&["show", &format!("{rev}:{file}")]).ok();
+        };
+        let at = format!("{id}:{file}");
+        // A commit that lacks the file lacks it for good.
+        let lacks = |e: &str| e.contains("does not exist in") || e.contains("exists on disk, but not in");
+        refs::once(&self.dir, &format!("show {at}"), lacks, || self.run(&["show", &at])).ok()
     }
 
     /// Fetches `branch` from origin, and origin's tags with it; answers its
@@ -161,11 +172,27 @@ impl Git {
     /// repo sees the refs a worker's worktree sees (factorium#109). A tag
     /// here that origin moved is left as it is: the branch is still fetched.
     pub fn fetch(&self, branch: &str) -> Result<String, String> {
-        let refspec = format!("+refs/heads/{branch}:refs/remotes/origin/{branch}");
-        if self.run(&["fetch", "--quiet", "--tags", "origin", &refspec]).is_err() {
-            self.run(&["fetch", "--quiet", "origin", &refspec])?;
+        self.fetch_all(&[branch]).map(|mut tips| tips.remove(0))
+    }
+
+    /// [`Git::fetch`] of each of `branches` at once, in one fetch; answers
+    /// their tips, in order. Refused, nothing fetched, if origin lacks one.
+    pub fn fetch_all(&self, branches: &[&str]) -> Result<Vec<String>, String> {
+        let refspecs: Vec<String> =
+            branches.iter().map(|b| format!("+refs/heads/{b}:refs/remotes/origin/{b}")).collect();
+        let fetch = |tags: &[&str]| {
+            let args = ["fetch", "--quiet"].iter().chain(tags).copied().chain(["origin"]);
+            self.run(&args.chain(refspecs.iter().map(String::as_str)).collect::<Vec<_>>())
+        };
+        match fetch(&["--tags"]) {
+            // Origin has no such branch: fetching it without the tags finds none either.
+            Err(e) if e.contains("couldn't find remote ref") => return Err(e),
+            Err(_) => {
+                fetch(&[])?;
+            }
+            Ok(_) => {}
         }
-        self.sha(&format!("refs/remotes/origin/{branch}"))
+        branches.iter().map(|b| self.sha(&format!("refs/remotes/origin/{b}"))).collect()
     }
 
     /// Whether `a` is an ancestor of `b`.
@@ -429,12 +456,28 @@ impl Git {
 
     /// How local `branch` stands to `tip`.
     pub fn lag(&self, branch: &str, tip: &str) -> Result<Lag, String> {
-        let Ok(at) = self.sha(&format!("refs/heads/{branch}")) else { return Ok(Lag::Even) };
-        let behind = self.ahead(&at, tip)?;
+        // Both sides in one git: a tick asks this of every checkout's base.
+        let local = format!("refs/heads/{branch}");
+        let ends = refs::read(&self.dir, &local).zip(refs::object_id(tip).or_else(|| refs::read(&self.dir, tip)));
+        let range = ends.as_ref().map_or_else(|| format!("{local}...{tip}"), |(at, tip)| format!("{at}...{tip}"));
+        let count = || self.run(&["rev-list", "--left-right", "--count", &range]);
+        let counted = match ends {
+            // Fixed by the two commits: asked once.
+            Some(_) => refs::once(&self.dir, &format!("rev-list --left-right --count {range}"), |_| false, count),
+            None => count(),
+        };
+        let counted = match counted {
+            Ok(counted) => counted,
+            Err(_) if self.sha(&local).is_err() => return Ok(Lag::Even),
+            Err(e) => return Err(e),
+        };
+        let mut sides = counted.split_whitespace().map(str::parse::<u64>);
+        let (Some(Ok(ours)), Some(Ok(behind))) = (sides.next(), sides.next()) else {
+            return Err(format!("git rev-list --left-right --count {local}...{tip}: answered {counted:?}"));
+        };
         if behind == 0 {
             return Ok(Lag::Even);
         }
-        let ours = self.ahead(tip, &at)?;
         if ours > 0 {
             return Ok(Lag::Diverged { behind, ours });
         }
