@@ -1,0 +1,21 @@
+{
+  "tree": "667ede217c6bb1c38790701de51a4aac33d0103e+d1fba762150c532c",
+  "picker": "codex:01a21671-f0c0-7023-91ed-e34bf55247fd:default",
+  "author": "claude-code:8a685c3c-1aa6-5684-af79-5b0adf7dc0be:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/shell.rs:189:9: replace Programs::run_within -> Option<Said> with None",
+        "why": "Both added tests use implementations that override this method, so a stand-in that relies on the default could stop returning screen reads without either test noticing.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/host/src/shell.rs:232:42: replace < with <= in <impl Programs for System>::run_within",
+        "why": "The timeout test allows substantial timing slack and does not distinguish expiring exactly at the limit from polling once more.",
+        "outcome": "survived",
+        "first_outcome": "survived"
+      }
+    ]
+  }
+}

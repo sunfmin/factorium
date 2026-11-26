@@ -144,13 +144,9 @@ impl App {
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
         let live = self.live_workers().await?;
-        self.retry_workers(&live.iter().map(|w| w.worker).collect::<Vec<_>>()).await?;
-        for w in live {
-            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
-            {
-                t.seen.push(seen);
-            }
-        }
+        let workers: Vec<_> = live.iter().map(|w| w.worker).collect();
+        self.retry_workers(&workers).await?;
+        t.seen = self.workers_health(&workers, |w| load.worker(w, self.now(), hold), &settings).await?;
         steps.ended("watching workers", self.now());
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
@@ -205,16 +201,20 @@ impl App {
         steps.ended("the watch's look", self.now());
         t.upgrade = self.upgrade_from_tap(&checkouts, &settings).await?;
         steps.ended("upgrading from the tap", self.now());
-        t.restart = self.swap_due().map(|b| b.to_string_lossy().into_owned());
+        t.restart = self.swap_due(false).map(|b| b.to_string_lossy().into_owned());
         self.note_refusal().await?;
         Ok(t)
     }
 
-    /// The linked binary to exec once proven; not while a line move runs
-    /// beside the ticks, which a restart would end, nor while a message is
-    /// typed beside them: the next daemon would type it again.
-    fn swap_due(&self) -> Option<std::path::PathBuf> {
-        (!self.moves_run() && !self.typing(|_| true)).then(|| self.swapped(false)).flatten()
+    /// The linked binary to exec once proven; not while a message is typed
+    /// beside the ticks (the next daemon would type it again), nor, after a
+    /// good tick, while a line move runs beside them, which a restart would
+    /// end. After a `failed` one it would wait for ever: only a good tick
+    /// finds the move ended, so the restart ends it, and the newer binary
+    /// moves the line again.
+    fn swap_due(&self, failed: bool) -> Option<std::path::PathBuf> {
+        let held = (!failed && self.moves_run()) || self.typing(|_| true);
+        (!held).then(|| self.swapped(false)).flatten()
     }
 
     /// The binary to run in place of this one after a tick: a good tick's
@@ -225,7 +225,7 @@ impl App {
     pub fn after(&self, ticked: &Answer<Tick>) -> Option<std::path::PathBuf> {
         match ticked {
             Ok(t) => t.restart.as_ref().map(Into::into),
-            Err(_) => self.swap_due().or_else(|| self.fallback()),
+            Err(_) => self.swap_due(true).or_else(|| self.fallback()),
         }
     }
 

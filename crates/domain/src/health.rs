@@ -62,8 +62,15 @@ pub enum Sight {
     Gone,
     /// Its account is used up: the line that says so.
     Quota(String),
-    /// Its engine is at its limit until then (ms): the words that say so.
-    Limit { said: String, until: i64 },
+    /// Its engine is at its limit until then (ms): the words that say so,
+    /// and the window of its account it spent, as stablehand names it
+    /// (`None`: the whole account).
+    Limit {
+        said: String,
+        until: i64,
+        #[serde(default)]
+        window: Option<String>,
+    },
     /// Its harness stopped: the line that says so.
     Stopped(String),
     /// Its harness is not up in its terminal (not yet, or no longer): why.
@@ -116,7 +123,7 @@ fn spent(w: &Worker, sight: &Sight, now: i64) -> Option<Vec<WorkerEvent>> {
     Some(match sight {
         Sight::Quota(said) => vec![WorkerEvent::UsedUp { said: said.clone(), until: now + QUOTA_REST_MS }],
         Sight::Limit { .. } if matches!(w.status, Status::Landing | Status::Finishing) => Vec::new(),
-        Sight::Limit { said, until } => {
+        Sight::Limit { said, until, .. } => {
             vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
         }
         _ => return None,
