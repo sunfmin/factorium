@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 sh -n packaging/release.sh
 sh packaging/release-test.sh
 
-# The tests run once, instrumented, under slimfit (SPEC.md §6). What
+# The tests run once, instrumented, under slimfit (docs/adr/0032). What
 # `slimfit check` holds is slimfit's, test time among it (`test_seconds`,
 # the tests' CPU time): `slimfit check --help`, `slimfit help mutants-scope`.
 slimfit check

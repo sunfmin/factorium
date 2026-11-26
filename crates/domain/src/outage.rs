@@ -1,4 +1,4 @@
-//! A store the daemon cannot read (SPEC §6): its looks fail, and with them
+//! A store the daemon cannot read: its looks fail, and with them
 //! everything the store would carry to the watch. What reaches the watch
 //! then is decided here, kept outside the store by the daemon: one episode
 //! per error, one brief at its start and one each hour while it lasts.

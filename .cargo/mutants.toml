@@ -1,6 +1,6 @@
 # What cargo-mutants skips, and why; slimfit's cargo-mutants runs
 # (`slimfit check --mutants`, on a change) read this file. Each mutant
-# here cannot be reached from the outermost layer (SPEC.md §6), so no
+# here cannot be reached from the outermost layer (docs/adr/0032), so no
 # scenario or binary test can catch it. A pattern names the mutant by what
 # it does; where that names a caught one too, by its line as well, so a
 # moved line shows up as missed again.
@@ -38,7 +38,7 @@ exclude_re = [
   'replace > with >= in (prefer|ended_last)$',
   # Equivalent: a stamp well formed, as every stand-in writes one, passes
   # each check either way; a malformed or offset one only a real harness
-  # could write, and the stand-ins are the only sessions (SPEC.md §6).
+  # could write, and the stand-ins are the only sessions (docs/adr/0032).
   'session.rs:1[36]:.*replace \|\| with && in parse_iso$',
   'session.rs:33:.*replace \|\| with && in parse_iso$',
   'session.rs:36:.* in parse_iso$',
@@ -67,7 +67,7 @@ exclude_re = [
   'in compressed$',
   'replace compressed -> bool with false$',
   # The host's own readings and processes: scenarios stand in for them in
-  # process (SPEC.md §6), and the binary tests' daemon has no worker whose
+  # process (docs/adr/0032), and the binary tests' daemon has no worker whose
   # processes or share of the host it reads.
   'replace <impl Host for Machine>::(reading|processes) ->',
   'procs.rs:.*replace (list|parse) ->',
