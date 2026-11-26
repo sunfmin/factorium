@@ -49,6 +49,12 @@
     "sentence": "`owner.rs` was the binary's biggest, busiest file (459 lines, 35 commits in 90 days). Its history shows why: most of those commits only added a line to `model()`, the list of every aggregate and command the engine runs.",
     "source": "docs/adr/0001-owner-commands-by-concept.md:7"
   },
+  "0b9192ea784f": {
+    "mark": "not",
+    "sentence": "the tick: one pass over every step that moves without a command, in order, timed by its steps.",
+    "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:10",
+    "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
+  },
   "0c13987e59f0": {
     "mark": "promise",
     "sentence": "A heavy command asks for one or more (`worker exclusive --resource <name> …`, `heavy run --resource <name> …`; none named is `host`), granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.",
@@ -68,6 +74,12 @@
     "mark": "promise",
     "sentence": "Records made before numbers were given take theirs once, oldest first by when they were made (a body's, when its issue was filed), before any new one takes the next: an open issue's as an event of its issue; a closed one takes no event (its stream has ended), so the sequence's stream places them, each named by its issue and its place in it (a comment's index, a body record's head), never copied.",
     "source": "SPEC.md:230"
+  },
+  "0ec97f07fd04": {
+    "mark": "not",
+    "sentence": "It drives the tick only through `tick` and `after`.",
+    "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:30",
+    "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
   "0fdc353f3cd2": {
     "mark": "not",
@@ -114,6 +126,12 @@
     "mark": "not",
     "sentence": "The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.",
     "source": "SPEC.md:152"
+  },
+  "1f558d3e15fd": {
+    "mark": "not",
+    "sentence": "The tick used none of the process's details, but every reader of one read past the other, and the lock, pid and ticked files sat in the tick's module.",
+    "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:18",
+    "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
   "22a58c447520": {
     "mark": "not",
@@ -441,6 +459,12 @@
     "sentence": "A daemon Homebrew installed notes its formula's link at start; once the link names another version (a cut by the daemon, by `factorium cut`, or by hand), it execs the link between ticks, as the same pid, once that binary is proven to open this host's database: it answers `doctor` on a copy (SQLite's backup, never the live file). A cut of the formula proves it right after the install; one that fails is a failed cut, its why the error and the copy's path (kept for a look), and the old binary runs on.",
     "source": "SPEC.md:220"
   },
+  "c2393ba1fe08": {
+    "mark": "not",
+    "sentence": "A change to the daemon's lifecycle (lock, exec, stop, liveness) edits `daemon/process.rs` only.",
+    "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:37",
+    "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
+  },
   "c29cc046c3d4": {
     "mark": "not",
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue may name a role directory, §1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
@@ -526,6 +550,12 @@
     "mark": "promise",
     "sentence": "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs (factorium#311). A prompt Claude Code took is read from its session file as typed, or in the block it writes a long paste in (`<pasted_content id=\"…\">`). `factorium outbox [--worker <id>]` answers the record.",
     "source": "SPEC.md:323"
+  },
+  "e104154232ae": {
+    "mark": "not",
+    "sentence": "A new tick step edits `daemon.rs` only.",
+    "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:36",
+    "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
   "e1fcaa4d3692": {
     "mark": "promise",
