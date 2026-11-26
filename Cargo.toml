@@ -12,9 +12,9 @@ repository = "https://github.com/sunfmin/factorium"
 factorium-domain = { path = "crates/domain" }
 factorium-harness = { path = "crates/harness" }
 factorium-host = { path = "crates/host" }
-factum = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
-factum-core = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
-factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
+factum = { git = "https://github.com/sunfmin/factum", rev = "92d7d59c68b73f6c0d6ad89fe939662bdae2c7ec" }
+factum-core = { git = "https://github.com/sunfmin/factum", rev = "92d7d59c68b73f6c0d6ad89fe939662bdae2c7ec" }
+factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "92d7d59c68b73f6c0d6ad89fe939662bdae2c7ec" }
 agent-help = { git = "https://github.com/sunfmin/agent-cli", rev = "f506df826a97b2fd834e1d65b9057001a6a6e796" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
