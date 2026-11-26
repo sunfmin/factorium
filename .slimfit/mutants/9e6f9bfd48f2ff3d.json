@@ -1,0 +1,6 @@
+{
+  "tree": "ae369700a6f73af04313528bf68780f3b0f36a4d+d1fba762150c532c",
+  "picker": "codex:01a21558-117b-74a1-a9c6-94fbe19b5ca0:default",
+  "author": "claude-code:1b799c13-0488-5231-b497-81e0f1f48059:opus",
+  "none": "All candidates fail to build: Answer aliases Result, which has no new constructor or Default implementation, and the from_iter replacements require a default Result element."
+}
