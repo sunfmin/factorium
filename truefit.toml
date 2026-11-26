@@ -1084,83 +1084,83 @@ why = "the finding is read from the queue's records by one doctor pass; stall.rs
 [[promise]]
 name = "guard-worker-only"
 says = "the guard lets a worker run only"
-source = "SPEC.md:54"
+source = "SPEC.md:26"
 check = ["test"]
 
 [[promise]]
 name = "promote-refused-while-running"
 says = "while a promotion of that checkout runs, the daemon's or another `promote`, it is refused"
-source = "SPEC.md:60"
+source = "SPEC.md:32"
 check = ["test"]
 why = "the refusal reads the promotion's one running record (Running::take); line.rs runs `promote` by hand beside the daemon's"
 
 [[promise]]
 name = "nothing-ahead-of-brief"
 says = "Nothing is typed before the harness is up, nor ahead of the brief."
-source = "SPEC.md:74"
+source = "SPEC.md:46"
 check = ["test"]
 why = "each session's outbox is one record, typed in order by one daemon; outbox.rs holds the brief and what comes after it"
 
 [[promise]]
 name = "comment-never-stops-turn"
 says = "never stopping its running turn"
-source = "SPEC.md:97"
+source = "SPEC.md:69"
 check = ["test"]
 why = "delivery goes through the one outbox; outbox.rs and comment.rs type behind a running turn"
 
 [[promise]]
 name = "told-at-most-once"
 says = "Each reaches the worker at most once"
-source = "SPEC.md:109"
+source = "SPEC.md:81"
 check = ["test"]
 why = "the line `tell` or `restart` types is its one delivery, written once; comment.rs checks each is typed once"
 
 [[promise]]
 name = "exec-only-proven"
 says = "once that binary is proven to open this host's database"
-source = "SPEC.md:161"
+source = "SPEC.md:133"
 check = ["test"]
 
 [[promise]]
 name = "help-is-the-manual"
 says = "every command's `--help` says what it does and what it answers"
-source = "SPEC.md:224"
+source = "SPEC.md:196"
 kept = "no test reads every command's --help; the help is kept the manual by review of each command's change"
 
 [[promise]]
 name = "lines-never-fail"
 says = "and never fails"
-source = "SPEC.md:242"
+source = "SPEC.md:214"
 kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn every gate red"
 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:346"
+source = "SPEC.md:318"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:359"
+source = "SPEC.md:331"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:424"
+source = "SPEC.md:396"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:429"
+source = "SPEC.md:401"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:431"
+source = "SPEC.md:403"
 check = ["model line"]
 
 [[promise]]
@@ -1246,25 +1246,25 @@ check = ["test"]
 [[promise]]
 name = "usage-read-once-by-id"
 says = "each assistant message's `usage` once, by its id"
-source = "SPEC.md:107"
+source = "SPEC.md:79"
 check = ["test"]
 
 [[promise]]
 name = "older-daemon-swaps-on-failed-tick"
 says = "a failed tick still starts that proof and swaps once it passed"
-source = "SPEC.md:172"
+source = "SPEC.md:144"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-heavy"
 says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
-source = "SPEC.md:206"
+source = "SPEC.md:178"
 check = ["test"]
 
 [[promise]]
 name = "slow-step-a-finding"
 says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
-source = "SPEC.md:210"
+source = "SPEC.md:182"
 check = ["test"]
 
 [[promise]]
@@ -1358,13 +1358,13 @@ check = ["test"]
 [[promise]]
 name = "older-store-read-as-it-is"
 says = "A store written by an older binary is read by a newer one as it is: no script is run by hand"
-source = "SPEC.md:34"
+source = "docs/adr/0025-everything-lives-in-one-database.md:24"
 check = ["test"]
 
 [[promise]]
 name = "installs-only-at-its-cut"
 says = "a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then"
-source = "SPEC.md:179"
+source = "SPEC.md:151"
 check = ["test"]
 
 [[promise]]
@@ -1395,21 +1395,21 @@ check = ["test"]
 [[promise]]
 name = "no-tick-waits-for-typing"
 says = "And no tick waits for its typing at all"
-source = "SPEC.md:83"
+source = "SPEC.md:55"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
 
 [[promise]]
 name = "typing-beside-ends-before-retry-or-swap"
 says = "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs"
-source = "SPEC.md:88"
+source = "SPEC.md:60"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; on.rs ticks again while seven are typed (none typed twice) and holds the restart until the typing's outcome is recorded"
 
 [[promise]]
 name = "spent-stores-nothing"
 says = "`spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing."
-source = "SPEC.md:139"
+source = "SPEC.md:111"
 check = ["test"]
 
 [[promise]]

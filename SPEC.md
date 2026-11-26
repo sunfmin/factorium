@@ -21,34 +21,6 @@ on the owner: which repo moves first, and how Guild moves its gate and landing d
 counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
 and factorium does not is in `docs/dropped.md`.
 
-## 3. One database
-
-Everything factorium knows lives in one SQLite file,
-`$XDG_DATA_HOME/factorium/factorium.db`: factum's log, its work rows and
-its projections. The tracker, the checkout list, the kit, gate records, landings, promotions, cuts, the watch's episodes,
-rounds and reports, and the host's settings are all events and
-projections in it. No cache directory holds state; no remote ref holds
-state. The CLI and the daemon open the same file (WAL); a CLI command is
-a factum submission or a query, so the CLI needs no socket to the daemon.
-
-A store written by an older binary is read by a newer one as it is: no
-script is run by hand, so the swap's proof (§4) passes on it and the
-daemon moves to the newer binary by itself. The log is
-never rewritten; a change to what is kept is carried by the code that reads
-it. A renamed event, field or value keeps its old name as a serde alias
-wherever it is read (an event's kind, its data, an aggregate's state in a
-snapshot); an event whose data changed in shape takes a factum upcast;
-an aggregate's state that changed in shape takes a new `code()`, so a
-snapshot kept by other code is folded again; a projection whose rows hold
-a changed value takes a new `version()`, so its rows are rebuilt from the
-log. factorium#95's rename (`parked` to `waiting_for_human`, `IssueParked`
-to `IssueWaitingForHuman`) is read so.
-
-What a repo declares about itself — its gate commands and limits, its
-cut steps, its idle work, its heavy commands, its proving branch — is a file committed
-in the repo, `factorium.toml`, because it changes with the code and is
-reviewed with it. It is the one exception to "everything in the database".
-
 ## 4. Commands
 
 One binary, `factorium`. Three groups, by who uses them; the guard lets a
