@@ -2,13 +2,9 @@
   "Cargo.toml": {
     "local_refs": 1
   },
-  "README.md": {
-    "bytes": 4107,
-    "local_refs": 1
-  },
   "SPEC.md": {
-    "local_refs": 59,
-    "rehome": 73711
+    "local_refs": 40,
+    "rehome": 47938
   },
   "checks.sh": {
     "local_refs": 2
@@ -279,8 +275,7 @@
     "bytes": 3212,
     "local_refs": 4,
     "pointers": [
-      ".github/workflows/README.md",
-      "ADR 0013"
+      ".github/workflows/README.md"
     ]
   },
   "docs/adr/0005-the-tick-and-the-process-that-ticks.md": {
@@ -318,6 +313,6 @@
     "local_refs": 1
   },
   "truefit.toml": {
-    "local_refs": 10
+    "local_refs": 5
   }
 }
