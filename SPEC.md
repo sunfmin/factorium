@@ -83,10 +83,7 @@ leaves it out: the daemon runs the look.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
    no worker holds; admission admits one start per reading. Urgent ones
    (§1.17) first; only the memory and disk floors hold one, never the load.
-   Then the start goes to the ready issue whose checkout has the fewest
-   live workers; among those, the issue that has been ready longest (since
-   it was filed, or readied from waiting for a person, whichever is
-   later); then by checkout and number, so the order is total.
+   Then by fewest live workers in its checkout, ready longest, checkout, number.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its
