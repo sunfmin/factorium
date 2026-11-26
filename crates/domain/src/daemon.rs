@@ -32,7 +32,7 @@ pub struct RolledBack {
 }
 
 /// A binary Homebrew links that the daemon does not swap to, as its proof
-/// failed (§4): its version, and why.
+/// failed (docs/adr/0030): its version, and why.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Refused {
     pub version: String,

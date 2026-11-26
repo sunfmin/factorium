@@ -1,5 +1,5 @@
-//! The command line: what the binary parses, which is its manual (SPEC
-//! §4), assembled by agent-help from the doc comments here ([`manual`]), and the one [`App`] call each command makes, with the readings of
+//! The command line: what the binary parses, which is its manual
+//! (docs/adr/0026), assembled by agent-help from the doc comments here ([`manual`]), and the one [`App`] call each command makes, with the readings of
 //! its arguments. A new command or flag lands here and in the module behind
 //! its call; how the process runs is `main.rs`'s (docs/adr/0002).
 
@@ -35,7 +35,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
+    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. A failing tick is recorded, and `tick_failures_max` of them in a row is a finding; the watch still looks when a tick fails. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Run,
     /// Stops the daemon; run as the service, unloads the service, and no command loads it back until `service install`.
@@ -56,7 +56,7 @@ pub enum Top {
         #[arg(long)]
         all: bool,
     },
-    /// Answers what was passed to a worker's session (`--worker`) or the watch's, oldest first: who from, the line typed, and how its delivery went (typed, submitted, queued, brief, not_typed, missed).
+    /// Answers what was passed to a worker's session (`--worker`) or the watch's, oldest first: who from, the line typed, and how its delivery went: `typed` (a brief), `submitted` (it started a turn), `queued` (it waits behind the running turn; found taken in the session file on a later look, it was submitted), `brief` (written into a brief still to be typed), `not_typed` (the harness was not up, the terminal gone, Orca refused), or `missed` (typed, it started no turn and none runs: a dialog took it; or still unread 10 min after it was given).
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Outbox {
         #[arg(long)]
@@ -88,7 +88,7 @@ pub enum Top {
     /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Discard { worktree: PathBuf },
-    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`.
+    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`. Whatever the bound or a red tip says; but while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, which is left be.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares.
@@ -137,7 +137,7 @@ pub enum Top {
     /// A worker's commands.
     #[command(subcommand, next_help_heading = "Run by a worker", verbatim_doc_comment)]
     Worker(WorkerCmd),
-    /// The watch's commands.
+    /// The watch's commands. The watch runs every owner command too, but `stop`.
     #[command(subcommand, next_help_heading = "Run by the watch", verbatim_doc_comment)]
     Watch(WatchCmd),
     /// The hook a session runs before each tool call: refuses what its session may not run.
@@ -185,7 +185,7 @@ pub enum CheckoutCmd {
         /// Its idle work runs on this host, as the repo's `[idle]` declares.
         #[arg(long, conflicts_with = "no_idle", verbatim_doc_comment)]
         idle: bool,
-        /// Its idle work runs not on this host: no idle run, no `tasks_bound` run, no task filed; `factorium idle` by hand still runs it.
+        /// Its idle work runs not on this host: no idle run, no `tasks_bound` run, no task filed; `factorium idle` by hand still runs it. `list` shows it as `idle_off`.
         #[arg(long, verbatim_doc_comment)]
         no_idle: bool,
     },
@@ -293,7 +293,7 @@ pub enum IssueCmd {
     /// Readies an issue that waits for a person.
     #[command(verbatim_doc_comment)]
     Ready { checkout: String, number: u64 },
-    /// Moves an issue to another host's factorium, reached by ssh (`--to`, as ssh names it; run there in a login shell). Checks first that its factorium lists a checkout of this name with this one's origin, changing nothing here until it does. Then: its worker here ends, its worktree kept, as `wait-for-human`; what that worktree holds that origin does not (its commits, and its changes not committed as one commit on top) is pushed to origin's `factorium/move/<checkout>-<n>`; it is filed there (its body, where it came from, the branch to continue from, then its comments; its role, account and blockers, this host's, are named, not carried); and it is closed here with a comment naming the issue there. Answers the issue there (`moved_to`) and the branch. A step that fails answers what was done before it; the issue here stays open.
+    /// Moves an issue to another host's factorium, reached by ssh (`--to`, as ssh names it; run there in a login shell). Checks first that its factorium lists a checkout of this name with this one's origin, changing nothing here until it does. Then: its worker here ends, its worktree kept, as `wait-for-human`; what that worktree holds that origin does not (its commits, and its changes not committed as one commit on top) is pushed to origin's `factorium/move/<checkout>-<n>`; it is filed there with `issue add` (its body, where it came from, the branch to merge first, then its comments with who and when; its role, account and blockers, this host's, are named, not carried; one that waited for a person here is filed `--waiting-for-human`, its `--why` naming where it waited and why, so no worker there takes it before a person decides; a ready one arrives ready); and it is closed here with a comment naming the issue there. Answers the issue there (`moved_to`) and the branch. A step that fails answers what was done before it; the issue here stays open.
     #[command(verbatim_doc_comment)]
     Move {
         checkout: String,
@@ -309,7 +309,7 @@ pub enum IssueCmd {
         #[arg(long)]
         why: String,
     },
-    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode), and the next worker's brief carries it.
+    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode), never stopping its running turn, and the next worker's brief carries it. Answers `delivery`: `submitted`, `queued` or `missed` (typed at its session), `brief`, `watch`, or `none` (no worker, or delivery failed: `undelivered` says why).
     #[command(verbatim_doc_comment)]
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, or in a wait it declared), back to work as soon as all it waits for is met.
@@ -457,7 +457,7 @@ pub enum HeavyCmd {
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
-    /// Answers the queue's depth: how many run and wait, and each entry.
+    /// Answers the queue's depth: how many run and wait (`running`, `waiting`), each entry, and each resource.
     #[command(verbatim_doc_comment)]
     Depth,
 }

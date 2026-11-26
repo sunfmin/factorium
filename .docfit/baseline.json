@@ -1,7 +1,7 @@
 {
   "SPEC.md": {
-    "local_refs": 22,
-    "rehome": 32732
+    "local_refs": 17,
+    "rehome": 15264
   },
   "checks.sh": {
     "local_refs": 2
@@ -307,6 +307,6 @@
     "local_refs": 1
   },
   "truefit.toml": {
-    "local_refs": 4
+    "local_refs": 3
   }
 }

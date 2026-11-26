@@ -1,4 +1,4 @@
-//! `issue move` (SPEC §4, §7): one issue handed to another host's
+//! `issue move` (`issue move --help`, SPEC §7): one issue handed to another host's
 //! factorium over ssh. Checked there first, nothing changed here until that
 //! passes; then its worker ends here, its worktree kept; its work goes to a
 //! branch of its own on origin; it is filed there, and closed here.
