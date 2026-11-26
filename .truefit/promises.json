@@ -55,6 +55,11 @@
     "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:10",
     "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
+  "0bdd9b46e5c5": {
+    "mark": "not",
+    "sentence": "Nobody knows how long an issue takes before it starts; a holder knows how long it holds when it asks, so the order is the resource queue's, never the issue's: it replaces hand-ordered `issue block` chains between issues that share a device.",
+    "source": "SPEC.md:39"
+  },
   "0c13987e59f0": {
     "mark": "promise",
     "sentence": "A heavy command asks for one or more (`worker exclusive --resource <name> …`, `heavy run --resource <name> …`; none named is `host`), granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.",
