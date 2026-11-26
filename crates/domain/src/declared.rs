@@ -125,67 +125,50 @@ pub enum Kind {
     Slow,
 }
 
-/// What a gate runs on: a tree a landing or a worker gates, or the proving
-/// tip a promotion promotes, as [`Promoting`] says.
+/// What a gate runs: the fast gate, on a tree a landing or a worker gates, or
+/// a promotion's on the proving tip (SPEC §1.13). Proving moves only by
+/// landings, each fast-gated on the commit it pushes, so a tip a landing
+/// gated green needs only what the fast gate lacks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Gating {
     Fast,
-    Promotion(Promoting),
+    /// The tip is the commit of `by`'s green landing: the slow steps alone.
+    SlowOnly {
+        by: String,
+    },
+    /// No green landing's record of the tip: the fast gate, then the slow steps.
+    Full,
 }
 
 impl Gating {
     /// The gate whose record it is.
     pub fn kind(&self) -> Kind {
-        match self {
-            Gating::Fast => Kind::Fast,
-            Gating::Promotion(_) => Kind::Slow,
-        }
+        if *self == Gating::Fast { Kind::Fast } else { Kind::Slow }
     }
-}
 
-/// How a promotion gates the proving tip (SPEC §1.13). Proving moves only by
-/// landings, each gated by the fast gate on the very commit it pushes; so a
-/// tip a landing gated green needs only what the fast gate lacks.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Promoting {
-    /// The tip is the commit of `by`'s landing, whose fast gate was green:
-    /// the slow steps alone, none when the checkout declares none.
-    SlowOnly { by: String },
-    /// No green landing's record of the tip: the fast gate, then the slow steps.
-    Full,
-}
-
-impl Promoting {
-    /// Which case ran, in the words doctor and the promotion's record use.
+    /// Which case a promotion ran, in the words doctor and its record use.
     pub fn said(&self) -> String {
         match self {
-            Promoting::SlowOnly { by } => format!("slow steps only, tip gated green by {by}'s landing"),
-            Promoting::Full => "fast gate and slow steps".into(),
+            Gating::SlowOnly { by } => format!("slow steps only, tip gated green by {by}'s landing"),
+            _ => "fast gate and slow steps".into(),
         }
     }
 }
 
 impl Gate {
-    /// What the slow gate holds that the fast gate lacks: none when `slow`
-    /// is absent or is the fast gate's command.
-    pub fn slow_steps(&self) -> Option<&str> {
-        self.slow.as_deref().filter(|s| s.trim() != self.fast.trim())
-    }
-
-    /// The command and limit `gating` runs; `None` when it runs nothing (a
-    /// promotion's slow steps alone, of a checkout that declares none).
+    /// The command and limit `gating` runs. The slow steps are what `slow`
+    /// holds the fast gate lacks: none when it is absent or `fast`'s command,
+    /// and then the slow steps alone are nothing: `None`.
     pub fn of(&self, gating: &Gating) -> Option<(String, u64)> {
-        let fast = (self.fast.clone(), self.fast_limit);
-        let slow = self.slow_steps().map(|s| (s.to_string(), self.slow_limit));
-        match gating {
-            Gating::Fast => Some(fast),
-            Gating::Promotion(Promoting::SlowOnly { .. }) => slow,
-            // Each in braces of its own, ended by a newline: a line of its own
-            // may end in a comment, or join its commands by `;` or `||`.
-            Gating::Promotion(Promoting::Full) => Some(match slow {
-                None => fast,
-                Some((s, l)) => (format!("{{ {}\n}} && {{ {s}\n}}", fast.0), fast.1 + l),
-            }),
+        let slow = self.slow.as_deref().filter(|s| s.trim() != self.fast.trim());
+        match (gating, slow) {
+            (Gating::Fast, _) | (Gating::Full, None) => Some((self.fast.clone(), self.fast_limit)),
+            (Gating::SlowOnly { .. }, slow) => slow.map(|s| (s.to_string(), self.slow_limit)),
+            // Each in braces of its own, ended by a newline: either may end in
+            // a comment, or join its commands by `;` or `||`.
+            (Gating::Full, Some(s)) => {
+                Some((format!("{{ {}\n}} && {{ {s}\n}}", self.fast), self.fast_limit + self.slow_limit))
+            }
         }
     }
 }

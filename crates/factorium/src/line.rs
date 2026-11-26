@@ -20,7 +20,7 @@ pub(crate) use cut::Proving;
 use std::path::Path;
 
 use factorium_domain::checkout::Checkout;
-use factorium_domain::declared::{Gating, Kind, Promoting};
+use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::doctor::Stuck;
 use factorium_domain::heavy::{Ends, Heavy, queue_id};
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
@@ -85,14 +85,8 @@ enum Then {
     /// The landing of a worker's branch, merged in the clone `dir`.
     Land { landing: Landing, dir: std::path::PathBuf },
     /// The promotion of the proving `tip` over `base`, its gate run in the clone `dir` as
-    /// `promoting` says, holding the checkout's promotion lock.
-    Promote {
-        tip: String,
-        base: String,
-        promoting: Promoting,
-        dir: std::path::PathBuf,
-        _lock: std::sync::Arc<std::fs::File>,
-    },
+    /// `gating` says, holding the checkout's promotion lock.
+    Promote { tip: String, base: String, gating: Gating, dir: std::path::PathBuf, _lock: std::sync::Arc<std::fs::File> },
     /// The cut of `version` from `base`, its `steps` run in the clone `dir`.
     Cut { version: String, base: String, dir: std::path::PathBuf, steps: Vec<String> },
 }
@@ -163,10 +157,10 @@ impl App {
                 let gated = self.gate_ran(&c.name, &here, &landing.merged, false, Kind::Fast, ran).await?;
                 self.land_gated(&c, &here, landing, gated).await
             }
-            Then::Promote { tip, base, promoting, dir, _lock } => {
+            Then::Promote { tip, base, gating, dir, _lock } => {
                 let ran = rans.into_iter().next().expect("one step");
                 let gated = self.gate_ran(&c.name, &self.host.git(&dir), &tip, false, Kind::Slow, ran).await?;
-                self.promote_gated(&c, &self.host.git(&c.path), tip, base, &promoting, gated).await
+                self.promote_gated(&c, &self.host.git(&c.path), tip, base, &gating, gated).await
             }
             Then::Cut { version, base, dir, steps } => {
                 self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans, true).await
@@ -393,25 +387,24 @@ impl App {
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let line = self.state::<Lines>(line_id(&c.name)).await?;
-        let promoting = match line.unpromoted.iter().find(|l| l.commit == tip) {
-            Some(l) => Promoting::SlowOnly { by: format!("{}#{}", c.name, l.number) },
-            None => Promoting::Full,
+        let gating = match line.unpromoted.iter().find(|l| l.commit == tip) {
+            Some(l) => Gating::SlowOnly { by: format!("{}#{}", c.name, l.number) },
+            None => Gating::Full,
         };
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {
             let (dir, _lock) = (here.dir.clone(), running.clone());
-            let then = Then::Promote { tip: tip.clone(), base: base.clone(), promoting: promoting.clone(), dir, _lock };
+            let then = Then::Promote { tip: tip.clone(), base: base.clone(), gating: gating.clone(), dir, _lock };
             let moving = Moving { checkout: c.name.clone(), then };
             At::Beside { rev: &tip, bound_at, moving: Box::new(moving) }
         };
-        let gating = Gating::Promotion(promoting.clone());
-        let Some(gated) = self.gate(&c.name, &here, at, gating).await? else { return Ok(Err(QUEUED.into())) };
-        self.promote_gated(c, git, tip, base, &promoting, gated).await
+        let Some(gated) = self.gate(&c.name, &here, at, gating.clone()).await? else { return Ok(Err(QUEUED.into())) };
+        self.promote_gated(c, git, tip, base, &gating, gated).await
     }
 
-    /// Promotes the proving `tip` of `c` over `base` as its gate, run as `promoting` says, says:
+    /// Promotes the proving `tip` of `c` over `base` as its gate, run as `gating`, says:
     /// red, it is recorded red; green, the base is fast-forwarded to it. Both say which case ran.
     async fn promote_gated(
         &self,
@@ -419,10 +412,10 @@ impl App {
         git: &Git,
         tip: String,
         base: String,
-        promoting: &Promoting,
+        gating: &Gating,
         gated: Gated,
     ) -> Answer<Did> {
-        let (behind, said) = (git.is_ancestor(&base, &tip), promoting.said());
+        let (behind, said) = (git.is_ancestor(&base, &tip), gating.said());
         let red = (!gated.green).then(|| format!("{said}: {}", gated.why()));
         let (checkout, gated) = (c.name.clone(), said);
         let promotion = line::Promotion { checkout, tip: tip.clone(), base: base.clone(), red, behind, gated };
