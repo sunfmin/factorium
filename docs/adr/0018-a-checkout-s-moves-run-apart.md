@@ -27,6 +27,7 @@ each push requires the tip it read.
   while a promotion runs, no cut while a cut runs or its installed binary
   is proven; its landings stack, their gates at once
   ([ADR 0019](0019-stacked-landing-gates.md)).
+- `promote` by hand moves the line now, whatever the bound or a red tip says, but while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, which is left be.
 - Each goes through the heavy queue as before: the queue's room alone
   decides whether their heavy steps run together.
 - A promotion's gate is on the tip it read, and the base fast-forwards only

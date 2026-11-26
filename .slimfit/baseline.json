@@ -221,10 +221,10 @@
     {
       "suite": "rust",
       "file": "crates/factorium/src/cli.rs",
-      "prod_lines": 539,
-      "commits_90d": 48,
-      "commits_total": 48,
-      "reason": "Already deep: it is the clap command tree (the manual, SPEC §4, as agent-help reads it) and the one App call each command makes; docs/adr/0002 settles that the manual and its dispatch are one concept with one home. Its churn is commands and flags being added, which land here by design; each arm is a one-line reading of arguments into an App call whose behaviour lives in the library. Splitting it per command group would spread one concept over many files and leave each piece a pass-through."
+      "prod_lines": 563,
+      "commits_90d": 59,
+      "commits_total": 59,
+      "reason": "Already deep: it is the clap command tree (the manual, docs/adr/0026, as agent-help reads it) and the one App call each command makes; docs/adr/0002 settles that the manual and its dispatch are one concept with one home. Its churn is commands and flags being added, which land here by design; each arm is a one-line reading of arguments into an App call whose behaviour lives in the library. Splitting it per command group would spread one concept over many files and leave each piece a pass-through."
     }
   ],
   "kept_spans": [

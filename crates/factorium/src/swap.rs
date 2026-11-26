@@ -80,7 +80,7 @@ impl crate::App {
             (false, true) => Some(self.proofs.prove(&self.db, &to, &dir)),
             (false, false) => self.proofs.started(&self.db, &to, &dir),
         };
-        // Known once its proof ended: what the tick records of it (doctor's refusal, §4).
+        // Known once its proof ended: what the tick records of it (doctor's refusal, docs/adr/0030).
         if let Some(p) = &proven {
             self.memory.lock().unwrap().refusal =
                 Some(p.clone().err().map(|why| Refused { version: version_of(&to), why }));

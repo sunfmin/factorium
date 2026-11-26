@@ -29,6 +29,14 @@ tick's module.
   descriptor's variable, the exec, the ticked file and the stop poll are
   private to it. It drives the tick only through `tick` and `after`.
 
+Each tick:
+
+- No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks.
+- Each tick is timed by its steps; daemon.log has each one that did
+  something or was slow, with how long it took and its longest step. A
+  daemon silent five `tick_every` (never under two minutes) is taken to
+  hang, so a tick past half that bound is kept, and for an hour is a finding naming how long it took and that step.
+
 No test changes: the scenarios call the same `App` methods.
 
 ## Consequences
