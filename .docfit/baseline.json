@@ -1,7 +1,4 @@
 {
-  "Cargo.toml": {
-    "local_refs": 1
-  },
   "README.md": {
     "bytes": 4107,
     "local_refs": 1
