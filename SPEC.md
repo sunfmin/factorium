@@ -80,7 +80,11 @@ leaves it out: the daemon runs the look.
    answers it (`not_before`, in ms and UTC), and doctor lists a ready issue
    waiting for its time under `not_before`, with the time.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
-   no worker holds; admission admits one start per reading.
+   no worker holds; admission admits one start per reading. The start
+   goes to the ready issue whose checkout has the fewest live workers;
+   among those, the issue that has been ready longest (since it was
+   filed, or readied from waiting for a person, whichever is later); then
+   by checkout and number, so the order is total.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its

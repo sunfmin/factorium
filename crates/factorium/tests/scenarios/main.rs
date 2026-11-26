@@ -46,6 +46,7 @@ mod lines;
 mod manual;
 mod moved;
 mod needs;
+mod next;
 mod not_before;
 mod on;
 mod one_harness;

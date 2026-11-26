@@ -14,6 +14,7 @@ use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::Author;
+use factorium_domain::next;
 use factorium_domain::settings::Time;
 use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -241,15 +242,18 @@ impl App {
         Ok(filed)
     }
 
-    /// The oldest ready issue no worker holds and nothing open blocks,
-    /// whose account, if it names one, can start now, and whose role has
-    /// what it needs of this host (each role checked once a tick).
+    /// The first ready issue in the order they start ([`next::order`])
+    /// that no worker holds and nothing open blocks, whose account, if it
+    /// names one, can start now, and whose role has what it needs
+    /// of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
-        for r in self.rows(tracker::untaken()).await? {
+        let live = self.live_workers().await?;
+        let ready = next::order(self.rows(tracker::untaken()).await?, live.iter().map(|w| w.checkout.as_str()));
+        for r in ready {
             let (checkout, number) = (r.checkout, r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;

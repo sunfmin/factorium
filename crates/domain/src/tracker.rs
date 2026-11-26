@@ -33,6 +33,10 @@ pub struct IssueRow {
     pub checkout: String,
     pub number: u64,
     pub title: String,
+    /// When it became ready (ms): filed, or readied from waiting for a
+    /// person, whichever is later; the log's time of that event.
+    #[serde(default)]
+    pub ready_at: i64,
     #[serde(flatten)]
     pub standing: Standing,
     #[serde(flatten)]
@@ -205,8 +209,9 @@ impl Projection for Tracker {
     /// "6": rows rebuilt from the log, so a row kept with a status of an
     /// older name (`parked`, before factorium#95) holds the current one.
     /// "7": the heavy runs' rows (factorium#308), built from the log.
+    /// "8": each issue's row keeps when it became ready, from the log.
     fn version(&self) -> u32 {
-        7
+        8
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -238,9 +243,13 @@ impl Projection for Tracker {
                 let mut ops = match event {
                     IssueEvent::IssueOpened { checkout, number, title, .. } => {
                         let standing = standing.take().unwrap_or_default();
-                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder: Holder::of(None) }))
+                        {
+                        let ready_at = e.meta.now.0;
+                        put(ISSUES, row(IssueRow { checkout, number, title, ready_at, standing, holder: Holder::of(None) }))
+                    }
                     }
                     IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),
+                    IssueEvent::IssueReadied => merge(ISSUES, json!({ "ready_at": e.meta.now.0 })),
                     IssueEvent::IssueTaken { worker } => merge(ISSUES, row(Holder::of(Some(worker)))),
                     IssueEvent::IssueReleased | IssueEvent::IssueClosed { .. } => merge(ISSUES, row(Holder::of(None))),
                     _ => Vec::new(),
