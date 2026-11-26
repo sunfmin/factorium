@@ -82,6 +82,18 @@ impl From<factum::Error> for Refusal {
 
 pub type Answer<T = Value> = Result<T, Refusal>;
 
+/// The state `state` of `stream`: `null`, a stream with no events yet, is
+/// its default; one that does not read as `S` is refused (`bad_state`),
+/// never answered as new.
+fn read_state<S: DeserializeOwned + Default>(stream: &StreamId, state: Value) -> Answer<S> {
+    if state.is_null() {
+        return Ok(S::default());
+    }
+    serde_json::from_value(state).map_err(|e| {
+        Refusal::new("bad_state", format!("the {} state of {stream} does not read: {e}", stream.aggregate))
+    })
+}
+
 fn fail(code: &str) -> impl Fn(String) -> Refusal + '_ {
     move |m| Refusal::new(code, m)
 }
@@ -300,13 +312,15 @@ impl App {
         Ok(self.engine.submit(submission).await?.events)
     }
 
-    /// The state of the stream `id` of aggregate `A`.
+    /// The state of the stream `id` of aggregate `A`, as [`read_state`]
+    /// reads it. A stored snapshot that does not read fails factum's fold
+    /// first: refused as `store`, which the watch hears of.
     async fn state<A: Aggregate>(&self, id: Uuid) -> Answer<A::State>
     where
         A::State: DeserializeOwned + Default,
     {
-        let state = self.engine.state(&StreamId::new(A::NAME, id)).await?;
-        Ok(serde_json::from_value(state).unwrap_or_default())
+        let stream = StreamId::new(A::NAME, id);
+        read_state(&stream, self.engine.state(&stream).await?)
     }
 
     async fn rows<R: DeserializeOwned>(&self, rows: Rows<R>) -> Answer<Vec<R>> {
@@ -332,5 +346,35 @@ impl App {
 
     fn data(&self) -> Data {
         Data::of(&self.db)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use factorium_domain::checkout::Checkout;
+
+    fn stream() -> StreamId {
+        StreamId::new("checkout", Uuid::nil())
+    }
+
+    #[test]
+    fn a_state_of_no_events_yet_reads_as_its_default() {
+        assert_eq!(read_state::<Checkout>(&stream(), Value::Null), Ok(Checkout::default()));
+    }
+
+    #[test]
+    fn a_state_that_does_not_read_is_refused_naming_its_aggregate_stream_and_why() {
+        let refused = read_state::<Checkout>(&stream(), serde_json::json!({ "name": 5 })).unwrap_err();
+        assert_eq!(refused.code, "bad_state");
+        let m = &refused.message;
+        assert!(m.contains("checkout state") && m.contains(&stream().to_string()) && m.contains("integer `5`"), "{m}");
+    }
+
+    #[test]
+    fn a_state_that_reads_is_answered() {
+        let listed = Checkout { name: "web".into(), listed: true, ..Checkout::default() };
+        let state = serde_json::to_value(&listed).unwrap();
+        assert_eq!(read_state::<Checkout>(&stream(), state), Ok(listed));
     }
 }
