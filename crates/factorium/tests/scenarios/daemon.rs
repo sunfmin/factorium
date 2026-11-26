@@ -597,7 +597,7 @@ fn a_tick_past_half_the_hang_bound_is_slow_and_kept_until_a_slower_one() {
     assert_eq!(s.slow, Some(slow), "a later tick does not clear it");
 }
 
-/// factorium#363: a tick spent 55 s watching 18 workers, as their screens
+/// daemon.log, 2026-11-26 ~12:17 JST: a tick spent 55 s watching 18 workers, as their screens
 /// were read one after another and Orca was slow to answer. They are read
 /// at once, so ten slow reads cost the tick one; a read past its limit is
 /// given up, and that worker gets no verdict that tick, as an unreadable

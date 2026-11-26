@@ -38,7 +38,7 @@ const SUBMIT_WAIT: u32 = 10;
 const PRESS_WAIT: u32 = 5;
 
 /// How long a terminal's screen is given to be read: past it, nothing is
-/// known of the terminal, and the tick that asked goes on (factorium#363).
+/// known of the terminal, and the tick that asked goes on.
 pub const READ_WAIT: Duration = Duration::from_secs(5);
 
 /// Orca, reached through the programs the host runs.

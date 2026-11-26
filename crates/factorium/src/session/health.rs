@@ -50,7 +50,7 @@ impl App {
     }
 
     /// Looks at each live worker of `workers`, with its `share` of the
-    /// host: their screens read at once (factorium#363), each on a thread of
+    /// host: their screens read at once, each on a thread of
     /// its own, so one Orca is slow to answer holds up the tick by one read,
     /// not by all; then each in turn, in `workers`' order, as
     /// [`App::worker_health`] decides. Answers what it found, if anything.

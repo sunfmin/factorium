@@ -62,7 +62,7 @@ fn a_terminal_never_seen_idle_is_not_ready() {
     assert!(Orca(&Scripted::new(None)).ready("t").is_ok());
 }
 
-/// A screen read is given a limit (factorium#363); programs whose answers
+/// A screen read is given a limit; programs whose answers
 /// come at once, as this stand-in's, are read as they answer.
 #[test]
 fn a_screen_read_through_programs_that_answer_at_once_is_the_screen() {

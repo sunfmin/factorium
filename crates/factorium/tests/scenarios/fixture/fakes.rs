@@ -36,7 +36,7 @@ pub struct Terminal {
     /// Its harness opened a dialog of its own: a line typed with Enter
     /// answers it and starts no turn; Escape dismisses it, back to its prompt.
     pub dialog: bool,
-    /// How long Orca takes to read its screen (factorium#363: one slow
+    /// How long Orca takes to read its screen (daemon.log, 2026-11-26: one slow
     /// Orca answer held a tick 55 s); reads of other terminals are not
     /// held up by it.
     pub reads_take: Option<std::time::Duration>,
