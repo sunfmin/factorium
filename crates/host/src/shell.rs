@@ -29,9 +29,10 @@ pub enum Priority {
     /// As any other process: a gate, and any heavy command whose time a
     /// gate compares, so both measure at the same priority.
     Normal,
-    /// Only what others leave: heavy work whose time no gate compares (a
-    /// cut, idle work, a mutation run), so a gate running beside it is not
-    /// slowed. Inherited by every process it starts.
+    /// Below a gate: heavy work whose time no gate compares (a cut, idle
+    /// work, a mutation run). A gate running beside it gets the CPU first;
+    /// when the host has room it runs at full speed, on every core and at
+    /// full disk. Inherited by every process it starts.
     Background,
 }
 
@@ -40,10 +41,12 @@ impl Priority {
     fn launcher(self) -> &'static [&'static str] {
         match self {
             Priority::Normal => &[],
-            // Darwin's background band (lowest CPU, throttled disk), and
-            // a nice of 10 more, which leaves room below: a background
-            // command's own heavy commands go lower still.
-            Priority::Background if cfg!(target_os = "macos") => &["taskpolicy", "-b", "nice", "-n", "10"],
+            // A nice of 10 alone: the scheduler gives a normal-priority
+            // gate the CPU first when they compete, and leaves room below
+            // (a background command's own heavy commands go lower still).
+            // Not Darwin's background band (`taskpolicy -b`): it holds
+            // the tree to the efficiency cores and throttles its disk even
+            // when nothing else needs them.
             Priority::Background => &["nice", "-n", "10"],
         }
     }

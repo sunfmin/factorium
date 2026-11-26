@@ -20,6 +20,10 @@ pub struct Line {
     /// Promoted, and not yet in a cut.
     pub uncut: Vec<Landing>,
     pub promoted: Option<String>,
+    /// How the last promotion gated its tip, as its caller said it (none in
+    /// promotions recorded before it was kept).
+    #[serde(default)]
+    pub gated: Option<String>,
     /// The proving tip whose slow gate went red, while it is the tip.
     pub red: Option<(String, String)>,
     pub version: Option<String>,
@@ -30,6 +34,17 @@ pub struct Line {
     /// When it last moved: a landing, a promotion or a cut, ms.
     #[serde(default)]
     pub moved: Option<i64>,
+    /// The last work asked for that a promotion waits for first, before its slow gate.
+    #[serde(default)]
+    pub awaited: Option<Awaited>,
+}
+
+/// Work a promotion waits for first: its number, and when it was asked for (ms),
+/// from which its wait is bounded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Awaited {
+    pub number: u64,
+    pub at: i64,
 }
 
 /// A cut that failed: its version, why, and the base commit it was taken
@@ -43,17 +58,18 @@ pub struct CutFailure {
 
 /// What happened on a line. A cut's `at` is none in cuts recorded before
 /// factorium#222, a failed cut's `commit` (the base it was cut from) in those
-/// before factorium#251.
+/// before factorium#251, a promotion's `gated` in those before it was kept.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
     Landed { number: u64, commit: String, at: i64 },
     PromotionRed { tip: String, why: String },
-    Promoted { tip: String, at: i64 },
+    Promoted { tip: String, at: i64, gated: Option<String> },
     CutMade { version: String, commit: String, at: Option<i64> },
     CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
     LandingsReleased,
+    Awaited { number: u64, at: i64 },
 }
 
 impl Line {
@@ -66,7 +82,7 @@ impl Line {
                 s.moved = Some(at);
             }
             LineEvent::PromotionRed { tip, why } => s.red = Some((tip, why)),
-            LineEvent::Promoted { tip, at } => {
+            LineEvent::Promoted { tip, at, gated } => {
                 // Everything landed up to the tip is promoted with it.
                 let n = s.unpromoted.iter().position(|l| l.commit == tip).map_or(s.unpromoted.len(), |i| i + 1);
                 s.uncut.extend(s.unpromoted.drain(..n));
@@ -74,7 +90,7 @@ impl Line {
                 if s.cut_failed.as_ref().is_some_and(|f| f.commit.as_ref() != Some(&tip)) {
                     s.cut_failed = None;
                 }
-                (s.promoted, s.red, s.moved) = (Some(tip), None, Some(at));
+                (s.promoted, s.red, s.moved, s.gated) = (Some(tip), None, Some(at), gated);
             }
             LineEvent::CutMade { version, at, .. } => {
                 s.uncut.clear();
@@ -84,6 +100,7 @@ impl Line {
             LineEvent::CutFailed { version, why, commit } => s.cut_failed = Some(CutFailure { version, why, commit }),
             LineEvent::LandingsHeld { why } => s.held = Some(why),
             LineEvent::LandingsReleased => s.held = None,
+            LineEvent::Awaited { number, at } => s.awaited = Some(Awaited { number, at }),
         }
     }
 }

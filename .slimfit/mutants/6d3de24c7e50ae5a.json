@@ -1,0 +1,39 @@
+{
+  "tree": "f6ccfdd90557cd33a99aebfe67f285bea2dfcc15+d1fba762150c532c",
+  "picker": "codex:01a216c1-80dd-7283-abcf-bd5c00e2a152:default",
+  "author": "claude-code:56392c8d-c8ac-5b22-ba5e-24b9cde59f60:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/host/src/git.rs:166:63: replace || with && in Git::shown",
+        "why": "Both missing-file assertions can return None even if the second call reruns Git after the objects are removed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git.rs:189:23: replace match guard e.contains(\"couldn't find remote ref\") with false in Git::fetch_all",
+        "why": "The missing-branch test checks the returned error, which an unnecessary second fetch would also produce.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git/refs.rs:18:80: replace || with && in read",
+        "why": "The ref tests use ordinary names and may miss a branch-style name containing `..` reaching the filesystem lookup.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git/refs.rs:24:19: replace match guard e.kind() == std::io::ErrorKind::NotFound with false in read",
+        "why": "The packed-ref assertion can pass through Git's fallback even if the direct reader skips packed-refs.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/host/src/git/refs.rs:35:44: replace && with || in object_id",
+        "why": "The cache test uses full hashes and may miss an abbreviated hash being treated as a fixed object ID.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

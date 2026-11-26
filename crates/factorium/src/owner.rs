@@ -31,9 +31,13 @@ impl App {
         let path =
             std::fs::canonicalize(path).map_err(|e| Refusal::new("no_path", format!("{}: {e}", path.display())))?;
         let git = self.host.git(&path);
-        let base_tip = git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
-        if git.fetch(proving).is_err() {
-            git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
+        // Both at once, where origin holds both, as it does but the first time.
+        if git.fetch_all(&[base, proving]).is_err() {
+            let base_tip =
+                git.fetch(base).map_err(|e| Refusal::new("no_base", format!("origin has no {base}: {e}")))?;
+            if git.fetch(proving).is_err() {
+                git.push_requiring(&base_tip, proving, None).map_err(crate::fail("no_proving"))?;
+            }
         }
         let add = Add {
             name: name.into(),

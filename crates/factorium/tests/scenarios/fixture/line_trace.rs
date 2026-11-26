@@ -2,20 +2,22 @@
 //! (models/Line.tla; `models/line.sh trace` checks one with `truefit model
 //! line-run --trace`): each record of a landing, a promotion or a cut, in
 //! the order it was recorded, with the line after it as the line's own
-//! `apply` makes it, the workers' landing status and the closed issues.
+//! `apply` makes it, the workers' landing status and the closed issues,
+//! proving's tip and the trees whose fast gate went green.
 //!
 //! The model's steps the code records nothing of are put in where the
 //! records say they were taken: the tip read before a gate's record, a
 //! gate green already (no record) before a landing's or a promotion's, a
 //! push before what is recorded after it. A tick that ends with a gated
 //! landing or promotion unpushed had its push answer an error (refused, or
-//! lost after it took effect: the model may take either); one that ends
-//! mid-way, with the landing pushed or recorded, died there.
+//! lost after it took effect: it took effect when proving's first-parent
+//! history holds its tree); one that ends mid-way, with the landing pushed
+//! or recorded, died there.
 //!
 //! A commit is named as the model names it: the workers' slots (by issue
 //! number) merged in the order they landed; `[0]` is none.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use factorium_domain::line::{Line, LineEvent};
 use serde_json::{Value, json};
@@ -41,6 +43,14 @@ struct Trace {
     /// Each landed commit's name, and the last one's.
     names: HashMap<String, Vec<usize>>,
     last: Vec<usize>,
+    /// Proving's tip, the trees whose fast gate went green, and the landing
+    /// in flight's merge (its tree, when its gate ran), as the model names them.
+    proving: Vec<usize>,
+    fast: Vec<Vec<usize>>,
+    merge: Vec<usize>,
+    merge_tree: Option<String>,
+    /// Every tree proving's tip ever held, on the remotes.
+    proving_trees: HashSet<String>,
     /// Where the landing and the promotion in flight are, as the model's steps.
     land: &'static str,
     prom: &'static str,
@@ -69,6 +79,8 @@ impl Trace {
             "uncut": names(&l.uncut),
             "promoted": self.named(l.promoted.as_ref()),
             "red": self.named(l.red.as_ref().map(|r| &r.0)),
+            "proving": self.proving,
+            "fast": self.fast,
         });
         let step = self.out.len() + 1;
         self.out.push(json!({ "step": step, "event": action, "state": state }));
@@ -81,9 +93,25 @@ impl Trace {
         while let (Some(i), Some(j)) = (at(self.land), at(to))
             && i < j
         {
+            match i {
+                0 => self.read_merge(),
+                2 => self.proving = self.merge.clone(),
+                _ => {}
+            }
             self.step(["LandRead", "LandGate", "LandPush"][i]);
             self.land = order[i + 1];
         }
+    }
+
+    /// Line::landing: the first asking's branch merged onto proving's tip
+    /// (proving itself when it holds the branch already).
+    fn read_merge(&mut self) {
+        let w = self.asks.first().copied().unwrap_or(0);
+        self.merge = self.proving.clone();
+        if !self.merge.contains(&w) {
+            self.merge.push(w);
+        }
+        self.merge_tree = None;
     }
 
     fn prom_to(&mut self, to: &'static str) {
@@ -121,7 +149,14 @@ impl Trace {
                 self.step("LandGate");
                 self.land = "idle";
             }
-            "GateRan" if data["green"] == true && data["kind"] == "fast" => self.land_to("gated"),
+            "GateRan" if data["green"] == true && data["kind"] == "fast" => {
+                self.land_to("merged");
+                self.merge_tree = data["tree"].as_str().map(String::from);
+                if !self.fast.contains(&self.merge) {
+                    self.fast.push(self.merge.clone());
+                }
+                self.land_to("gated");
+            }
             "GateRan" if data["green"] == true => self.prom_to("gated"),
             "GateRan" if data["kind"] == "fast" => self.land_to("merged"),
             "GateRan" => self.prom_to("read"),
@@ -176,6 +211,10 @@ impl Trace {
     /// left mid-way died there.
     fn tick_ended(&mut self) {
         if self.land == "gated" {
+            // Lost after it took effect, or refused (a tree green already, of no record, is refused).
+            if self.merge_tree.as_ref().is_some_and(|t| self.proving_trees.contains(t)) {
+                self.proving = self.merge.clone();
+            }
             self.step("LandPush");
             self.land = "idle";
         }
@@ -207,7 +246,7 @@ impl World {
             .map(|(seq, stream, kind, data)| (seq, stream, kind, serde_json::from_str(&data).unwrap()))
             .collect();
         // Each worker's slot: the number of the issue it took.
-        let mut t = Trace { land: "idle", prom: "idle", ..Trace::default() };
+        let mut t = Trace { land: "idle", prom: "idle", proving_trees: self.proving_trees(), ..Trace::default() };
         for (_, stream, _, data) in rows.iter().filter(|r| r.2 == "IssueOpened") {
             t.issues.insert(stream.clone(), data["number"].as_u64().unwrap() as usize);
         }
@@ -227,6 +266,15 @@ impl World {
             t.tick_ended();
         }
         t.out.iter().map(|r| r.to_string() + "\n").collect()
+    }
+
+    /// Every tree proving's tip held, on each remote: its first-parent history.
+    fn proving_trees(&self) -> HashSet<String> {
+        let remotes = std::fs::read_dir(self.dir.join("remotes")).into_iter().flatten().flatten();
+        remotes
+            .filter_map(|r| self.git(&r.path(), &["log", "--first-parent", "--format=%T", "proving"]).ok())
+            .flat_map(|out| out.lines().map(String::from).collect::<Vec<_>>())
+            .collect()
     }
 
     /// Writes the run's line trace where [`TRACE`] names, if it does.
