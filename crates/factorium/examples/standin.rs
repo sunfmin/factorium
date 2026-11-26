@@ -158,6 +158,7 @@ fn orca(orca: &Orca, method: &str, a: &[String]) -> Value {
             t.into_iter().find(|(h, _)| h == arg(0)).map(|(_, title)| title).map_or(Value::Null, Value::from)
         })),
         "comment" => unit(orca.comment(arg(0).as_ref(), arg(1))),
+        "show_as" => unit(orca.show_as(arg(0).as_ref(), arg(1))),
         // The name and comment Orca lists the worktree at a path with, if it lists it.
         "listed_worktree" => made(orca.worktrees().map(|rows| {
             let row = rows.into_iter().find(|w| w.path == std::path::Path::new(arg(0)));

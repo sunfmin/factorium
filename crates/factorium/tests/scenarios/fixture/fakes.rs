@@ -229,9 +229,14 @@ impl FakeOrca {
             ("worktree", "set") => {
                 let path = path_of(flag(args, "--worktree")).unwrap();
                 match self.made.lock().unwrap().get_mut(&path) {
-                    Some((_, comment)) => {
-                        *comment = flag(args, "--comment").into();
-                        answer(json!({ "worktree": { "path": path, "comment": comment } }))
+                    Some((name, comment)) => {
+                        if args.contains(&"--comment") {
+                            *comment = flag(args, "--comment").into();
+                        }
+                        if args.contains(&"--display-name") {
+                            *name = flag(args, "--display-name").into();
+                        }
+                        answer(json!({ "worktree": { "path": path, "displayName": name, "comment": comment } }))
                     }
                     None => error("selector_not_found"),
                 }

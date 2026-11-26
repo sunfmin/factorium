@@ -31,7 +31,10 @@ builds, about 20 GB each for factorium's landing and promotion.
 - The build cache is the one thing kept across jobs, outside the worktree:
   one per checkout and kind under the data directory
   (`cache/<kind>/<checkout>`), given to the job's steps as
-  `CARGO_TARGET_DIR`. A build tool reads a file as changed by its mtime,
+  `CARGO_TARGET_DIR`. The work dir is made at one path per checkout and
+  kind, as rustc's incremental cache holds absolute paths: Orca's path
+  follows the name a worktree is made with (`<kind> <checkout>`), and it
+  is then shown as its job's. A build tool reads a file as changed by its mtime,
   and a new worktree's are all new: as a job ends, each tracked file's
   content id and mtime are kept beside its cache, and the next job's work
   dir gives each file whose content is the same that mtime back, so the

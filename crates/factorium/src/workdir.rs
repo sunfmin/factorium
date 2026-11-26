@@ -8,10 +8,13 @@
 //! The build cache is the one thing kept across jobs, outside the worktree:
 //! one per checkout and kind under the data directory, given to the job's
 //! steps as `CARGO_TARGET_DIR`, and the dirs `factorium.toml` declares
-//! `cache` moved in at the start and out at the end. A build tool reads a
-//! file as changed by its mtime, and a new worktree's are all new: each file
-//! whose content is as the last job of its kind left it gets back the mtime
-//! it had then, as a work dir reused across jobs would have kept it.
+//! `cache` moved in at the start and out at the end. The build reads its
+//! cache as one reused clone's would: the work dir is made at one path per
+//! checkout and kind (Orca's path follows the name it is made with; it is
+//! then shown as its job's), as rustc's incremental cache holds absolute
+//! paths; and each file whose content is as the last job of its kind left
+//! it gets back the mtime it had then, as a build tool reads a file as
+//! changed by its mtime and a new worktree's are all new.
 //!
 //! A work dir whose job no longer runs (its process gone, or the daemon's
 //! own that no tick asks for) is removed by the daemon's next tick; one that
@@ -97,8 +100,14 @@ impl App {
         let path = match mine.filter(|m| m.path.is_dir()) {
             Some(m) => m.path,
             None => {
-                let branch = format!("factorium-line/{}-{}", kind.name(), c.name);
-                orca.worktree(Path::new(&c.path), &name, &branch, rev, &comment).map_err(fail("orca"))?
+                let (made_as, branch) =
+                    (format!("{} {}", kind.name(), c.name), format!("factorium-line/{}-{}", kind.name(), c.name));
+                let path = orca.worktree(Path::new(&c.path), &made_as, &branch, rev, &comment).map_err(fail("orca"))?;
+                if let Err(e) = orca.show_as(&path, &name) {
+                    let _ = orca.remove(&path);
+                    return Err(Refusal::new("orca", e));
+                }
+                path
             }
         };
         let here = self.host.git(&c.path).at(&path);

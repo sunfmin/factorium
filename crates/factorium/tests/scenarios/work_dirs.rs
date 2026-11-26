@@ -183,4 +183,8 @@ async fn a_file_unchanged_since_the_last_landing_keeps_its_mtime_in_the_next_one
     assert_eq!(first[0], second[0], "unchanged: its mtime as the last landing left it");
     let mtime = |s: &str| s.parse::<f64>().unwrap();
     assert!(mtime(&second[1]) > mtime(&first[1]) + 1.0, "changed: new ({first:?} then {second:?})");
+    // Both at one path, made as `landing web`, as a build cache holds absolute paths.
+    let removed = w.host.orca.removed.lock().unwrap().clone();
+    let landings: Vec<_> = removed.iter().filter(|p| p.ends_with("landing-web")).collect();
+    assert_eq!(landings.len(), 2, "{removed:?}");
 }

@@ -96,14 +96,15 @@ stdin = """
 """
 
 # A worktree made with a name and a comment, as the line's work dirs and
-# workers' worktrees are: Orca lists it with both, and once it is removed,
-# not at all.
+# workers' worktrees are: Orca lists it with both, then with the name it is
+# shown as and the comment set after, and once it is removed, not at all.
 [[standin.case]]
 name = "commented-worktree"
 stdin = """
 {"scratch": "truefit-commented-worktree"}
 {"orca": "worktree", "args": ["{scratch}", "truefit commented#1", "truefit-commented-worktree", "{sha}", "what runs here; factorium removes it when this ends (pid 1)."], "keep": {"worktree": "/ok"}}
 {"orca": "listed_worktree", "args": ["{worktree}"]}
+{"orca": "show_as", "args": ["{worktree}", "truefit shown#2"]}
 {"orca": "comment", "args": ["{worktree}", "what ran here; kept."]}
 {"orca": "listed_worktree", "args": ["{worktree}"]}
 {"orca": "remove", "args": ["{worktree}"]}

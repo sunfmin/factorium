@@ -131,6 +131,12 @@ impl Orca<'_> {
         Ok(rows.iter().map(row).collect())
     }
 
+    /// Shows the worktree at `worktree` as `name`, wherever it is.
+    pub fn show_as(&self, worktree: &Path, name: &str) -> Result<(), String> {
+        let sel = format!("path:{}", worktree.display());
+        self.call(&["worktree", "set", "--worktree", &sel, "--display-name", name]).map(|_| ()).map_err(String::from)
+    }
+
     /// Sets the comment Orca keeps of the worktree at `worktree`.
     pub fn comment(&self, worktree: &Path, comment: &str) -> Result<(), String> {
         let sel = format!("path:{}", worktree.display());
