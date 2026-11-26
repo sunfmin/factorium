@@ -1,4 +1,6 @@
-//! The heavy-command queue of resources, whose rules SPEC.md §1.9 holds:
+//! The heavy-command queue of resources, whose rules
+//! docs/adr/0010-admission-and-the-heavy-queue.md and
+//! docs/adr/0011-resources-queue-shortest-hold-first.md hold:
 //! its stream, its entries and what each asks, each resource's line and
 //! why one waits, and the line jobs' names. The start rule is neutral:
 //! [`crate::neutral::queue`].

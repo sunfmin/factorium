@@ -1,4 +1,4 @@
-//! Idle work (SPEC.md §1.16): a checkout's `[idle]` steps, run only while
+//! Idle work (docs/adr/0014-idle-work.md): a checkout's `[idle]` steps, run only while
 //! the host is idle, at most once per `every`, each run that ends recorded;
 //! and which of the tasks a run finds are filed as its checkout's issues.
 
