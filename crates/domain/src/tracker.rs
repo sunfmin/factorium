@@ -299,9 +299,10 @@ impl Projection for Tracker {
                     HeavyEvent::HeavyEnded { id, outcome, .. } => {
                         merge_run(id, json!({ "ended_at": at, "outcome": outcome }))
                     }
-                    HeavyEvent::HeavyRuns { .. } | HeavyEvent::HeavyRules { .. } | HeavyEvent::HeavyMarked { .. } => {
-                        Vec::new()
-                    }
+                    HeavyEvent::HeavyRuns { .. }
+                    | HeavyEvent::HeavyRules { .. }
+                    | HeavyEvent::HeavyMarked { .. }
+                    | HeavyEvent::HeavyHalted { .. } => Vec::new(),
                 }
             }
             _ => Vec::new(),

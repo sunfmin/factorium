@@ -21,7 +21,7 @@ use std::path::Path;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::doctor::Stuck;
-use factorium_domain::heavy::Ends;
+use factorium_domain::heavy::{Ends, Heavy, queue_id};
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
@@ -147,7 +147,9 @@ impl App {
     /// ran, it is due again.
     async fn moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
         let c = self.checkout(&moving.checkout).await?;
-        let Ok(rans) = ended else { return Ok(Err(format!("a move of {} was unqueued while it ran", c.name))) };
+        let Ok(rans) = ended else {
+            return Ok(Err(format!("a move of {} ended while it ran: {}", c.name, ended.unwrap_err())));
+        };
         match moving.then {
             Then::Land { landing, dir } => {
                 let (ran, here) = (rans.into_iter().next().expect("one step"), self.host.git(&dir));
@@ -177,6 +179,12 @@ impl App {
             workers.push(line::Seen { worker: w.worker, status: w.state.status, urgent });
         }
         let look = line::look(self.now(), &settings, &workers, by_hand);
+        // Halted by an urgent issue (SPEC §1.17), only an urgent landing goes.
+        let halt = self.state::<Heavy>(queue_id()).await?.halt;
+        let urgent_lands = mv == Move::Land && workers.iter().any(|w| look.asks == Some(w.worker) && w.urgent);
+        if !halt.is_empty() && !urgent_lands {
+            return Ok(Err(format!("halted: behind urgent {}", halt.join(", "))));
+        }
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
         let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);

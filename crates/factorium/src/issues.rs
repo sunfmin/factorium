@@ -99,6 +99,21 @@ impl App {
         Ok(self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.urgent))
     }
 
+    /// Records which urgent issues halt every other start now (SPEC §1.17),
+    /// read from the open issues; answers them.
+    pub(crate) async fn note_halt(&self) -> Answer<Vec<String>> {
+        let mut urgent = Vec::new();
+        for r in self.rows(tracker::issues(None, false)).await?.into_iter().filter(|r| r.urgent) {
+            urgent.push(self.issue(&r.checkout, r.number).await?);
+        }
+        let by = halts(&urgent);
+        let halting = |i: &&Issue| by.contains(&format!("{}#{}", i.checkout, i.number));
+        let workers = urgent.iter().filter(halting).filter_map(|i| i.worker).collect();
+        let halt = factorium_domain::heavy::Halt { by: by.clone(), workers };
+        self.submit::<factorium_domain::heavy::NoteHalt>(halt).await?;
+        Ok(by)
+    }
+
     /// `issue edit --urgent`/`--no-urgent`: the owner's mark, which puts its
     /// start, its worker's heavy commands and its landing ahead (SPEC §1).
     pub async fn issue_mark_urgent(&self, checkout: &str, number: u64, urgent: bool) -> Answer {

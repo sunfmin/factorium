@@ -126,6 +126,8 @@ impl App {
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
         t.finished = self.finish_unlanded().await?;
+        // Before the lines and the starts: what an urgent issue halts, and what it no longer does.
+        let halt = self.note_halt().await?;
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
@@ -158,6 +160,7 @@ impl App {
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
             let held = match urgent {
                 true => admission::admit_urgent(&reading, &settings),
+                false if !halt.is_empty() => Err(format!("halt: behind urgent {}", halt.join(", "))),
                 false => admission::admit(&reading, &load.queue, self.now(), &settings),
             };
             let held = match held {
@@ -169,6 +172,8 @@ impl App {
                             started["urgent"] = went;
                         }
                         t.started = Some(started);
+                        // An urgent start halts the rest from now, not from the next tick.
+                        self.note_halt().await?;
                         None
                     }
                     Err(r) if r.code == "no_harness" => Some(format!("kit: {}", r.message)),

@@ -421,7 +421,7 @@ impl App {
             ended.push((
                 of,
                 match why {
-                    Some(w @ Ends::Unqueued) => Err(w),
+                    Some(w @ (Ends::Unqueued | Ends::Halted)) => Err(w),
                     Some(w @ Ends::GaveWay) if rans.iter().any(|r| !r.ok) => Err(w),
                     _ => Ok(rans),
                 },
@@ -603,6 +603,8 @@ impl App {
         }
         let q = self.state::<Heavy>(queue_id()).await?;
         let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
+        // Steps that ended on their own keep how they ran: the halt cuts nothing that ended.
+        let ends = ends.filter(|e| *e != Ends::Halted || !r.run.is_finished());
         r.why = r.why.or(ends);
         r.stop.store(r.why.is_some(), Ordering::Relaxed);
         Ok(())
@@ -615,6 +617,8 @@ impl App {
         if let Some(last) = rans.last_mut().filter(|l| !l.ok) {
             if r.why == Some(Ends::Held) {
                 last.tail = format!("{}\nended: {} of {}s", last.tail, Ends::Held, r.hold_ms / 1000);
+            } else if r.why == Some(Ends::Halted) {
+                last.tail = format!("{}\nended: {}", last.tail, Ends::Halted);
             } else if r.deadline.is_some_and(|d| self.now() >= d) {
                 last.timed_out = true;
             }

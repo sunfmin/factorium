@@ -179,6 +179,7 @@ fn model() -> Model {
         .command::<heavy::EndHeavy>()
         .command::<heavy::NoteRun>()
         .command::<heavy::NoteRules>()
+        .command::<heavy::NoteHalt>()
         .aggregate::<daemon::Daemons>()
         .command::<daemon::StartDaemon>()
         .command::<daemon::NoteTick>()
