@@ -1,4 +1,4 @@
-# 10. Each resource has one queue, shortest declared hold first
+# 11. Each resource has one queue, shortest declared hold first
 
 Status: accepted
 
@@ -18,7 +18,7 @@ knows how long it holds when it asks.
   --resource <name> --slots <n>`), never in a checkout's `factorium.toml`:
   a phone serves every checkout on the host. `slots = n`: n holders at most (1 is a mutex).
   The resource `host` is never declared; its rule is the room the host's
-  readings allow (ADR 0009). A new kind of lock is a new rule and nothing
+  readings allow (ADR 0010). A new kind of lock is a new rule and nothing
   else.
 - A command asking for several is granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.
 - A worker's hold across commands (`worker hold`) waits as a command does; with `--between 22:00-07:00` (the host's local time, every day; an overnight run on the charger) it is passed over outside its window, joining the line only inside it, its starve bound counted from the window's opening; granted, it outlives its waiter until `worker release <name>` or its worker ends, and the worker's own commands asking for what it holds run inside it, taking no slot of their own.

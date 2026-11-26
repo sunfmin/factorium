@@ -1,4 +1,4 @@
-//! The owner's urgent mark on an issue (docs/adr/0014-an-urgent-issue-halts-the-host.md): its start goes before
+//! The owner's urgent mark on an issue (docs/adr/0015-an-urgent-issue-halts-the-host.md): its start goes before
 //! every other ready issue, held only by the memory and disk floors; its
 //! worker's heavy commands go ahead of those not urgent, behind a line move
 //! past its bound; its landing takes the next turn of its checkout's line,
@@ -240,7 +240,7 @@ async fn an_urgent_worker_s_gate_goes_ahead_of_an_entry_not_urgent_that_waited_l
     assert!(gated.is_ok(), "{gated:?}");
 }
 
-/// Halted by an urgent issue (docs/adr/0014-an-urgent-issue-halts-the-host.md): what is not urgent waits, past
+/// Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md): what is not urgent waits, past
 /// the starve bound and a line move's bound too; a command not urgent that
 /// runs is cut short once an urgent entry waits for what it holds, the
 /// urgent issue's worker's own is not, however it was queued; lifted, the

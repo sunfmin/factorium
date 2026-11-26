@@ -1,4 +1,4 @@
-# 14. An owner's urgent issue goes first and halts every other start
+# 15. An owner's urgent issue goes first and halts every other start
 
 Status: accepted (the owner asked for it, 2026-11)
 

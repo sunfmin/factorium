@@ -1,4 +1,4 @@
-# 7. A worker's role is a directory read from the host, and a waiting issue waits for a person
+# 8. A worker's role is a directory read from the host, and a waiting issue waits for a person
 
 Status: accepted
 

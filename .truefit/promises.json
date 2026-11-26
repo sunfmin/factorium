@@ -47,7 +47,7 @@
   "0a8473ac7d81": {
     "mark": "not",
     "sentence": "A worker that wants room waits at most a tick for idle work.",
-    "source": "docs/adr/0013-idle-work.md:29",
+    "source": "docs/adr/0014-idle-work.md:29",
     "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "0a8e7890f25f": {
@@ -173,7 +173,7 @@
   "2792c6a294c2": {
     "mark": "not",
     "sentence": "A concept added in passing, to fit one change, is a word only that change knows, and the next reader guesses at it.",
-    "source": "docs/adr/0006-the-concepts-are-fixed.md:11",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:11",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "287daf6d0a6f": {
@@ -219,7 +219,7 @@
   "2f8acd77bdca": {
     "mark": "not",
     "sentence": "factorium runs agents while nobody watches, and every concept it has is one more thing the watch, a worker and the operator must read the same way: in doctor's findings, in each command's `--help`, in the database.",
-    "source": "docs/adr/0006-the-concepts-are-fixed.md:8",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:8",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "32420616b492": {
@@ -230,7 +230,7 @@
   "399c04d04bc6": {
     "mark": "not",
     "sentence": "A word used inside a concept (a role, a hold, an episode) is listed under \"Words within them\": it adds no concept.",
-    "source": "docs/adr/0006-the-concepts-are-fixed.md:19",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:19",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "3e7d0c2902c4": {
@@ -242,7 +242,7 @@
   "41b5dfe25d3e": {
     "mark": "not",
     "sentence": "The order is the resource queue's, never the issue's.",
-    "source": "docs/adr/0010-resources-queue-shortest-hold-first.md:16",
+    "source": "docs/adr/0011-resources-queue-shortest-hold-first.md:16",
     "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "43d8855f5275": {
@@ -258,7 +258,7 @@
   "4c5f1533dfe4": {
     "mark": "not",
     "sentence": "The load that hurts comes from heavy commands (builds, test suites, gates), and a time a gate compares (slimfit's test time) is only true if every gate is measured alike.",
-    "source": "docs/adr/0009-admission-and-the-heavy-queue.md:9",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:9",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "51ffe0033cd4": {
@@ -269,7 +269,7 @@
   "526edceff2c8": {
     "mark": "not",
     "sentence": "A role a worker could write to would change the rules of every worker after it.",
-    "source": "docs/adr/0007-roles-and-waiting-issues.md:10",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:10",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "535e8408a8fd": {
@@ -290,8 +290,8 @@
   "595ea124f43d": {
     "mark": "promise",
     "sentence": "Its landing takes the next turn of its checkout's line, never cutting a running gate short.",
-    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:22",
-    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:22",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "5afb14fcaae7": {
     "mark": "promise",
@@ -311,7 +311,7 @@
   "5c464b905bd5": {
     "mark": "not",
     "sentence": "A named resource is declared in the host's settings (`settings --resource <name> --slots <n>`), never in a checkout's `factorium.toml`: a phone serves every checkout on the host.",
-    "source": "docs/adr/0010-resources-queue-shortest-hold-first.md:17",
+    "source": "docs/adr/0011-resources-queue-shortest-hold-first.md:17",
     "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   },
   "5fe2ffcddf67": {
@@ -332,7 +332,7 @@
   "698ad6e0c7fa": {
     "mark": "not",
     "sentence": "A checkout may have a default role, kept in the host's checkout list and not in the repo's `factorium.toml`, since the path holds only on this host.",
-    "source": "docs/adr/0007-roles-and-waiting-issues.md:23",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:23",
     "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   },
   "6b3236f11c1f": {
@@ -365,7 +365,7 @@
   "78ef83ba2321": {
     "mark": "not",
     "sentence": "An agent looking at every finding all the time would spend its model on what fixes itself, and a session briefed once keeps rules the next cut may change.",
-    "source": "docs/adr/0012-the-watch-and-the-daemon-it-reads.md:8",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:8",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "7b6a22997151": {
@@ -416,7 +416,7 @@
   "8d14bdd7a59e": {
     "mark": "not",
     "sentence": "One resident agent session, the watch, deals with every finding: escalations, failed, hot and silent workers, red promotions, red idle work, failed cuts, resource holds.",
-    "source": "docs/adr/0012-the-watch-and-the-daemon-it-reads.md:15",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:15",
     "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "91db289c1891": {
@@ -439,7 +439,7 @@
   "941db9f0ac35": {
     "mark": "not",
     "sentence": "A look (no model) every five minutes reads doctor's findings.",
-    "source": "docs/adr/0012-the-watch-and-the-daemon-it-reads.md:17",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:17",
     "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "946dbe0dbd8b": {
@@ -465,7 +465,7 @@
   "9a3f3bf5194f": {
     "mark": "not",
     "sentence": "The queue holds the busy share near the limit, and the load it holds back shows only in its wait, which admission reads.",
-    "source": "docs/adr/0009-admission-and-the-heavy-queue.md:33",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:33",
     "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "9b9c3f581a08": {
@@ -491,8 +491,8 @@
   "a2fc0e488c35": {
     "mark": "promise",
     "sentence": "Its start goes before every other ready issue, held only by the memory and disk floors, never by the load.",
-    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:18",
-    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:18",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "a7685f55d299": {
     "mark": "promise",
@@ -512,8 +512,8 @@
   "aa1f9f891da1": {
     "mark": "promise",
     "sentence": "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it.",
-    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:14",
-    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:14",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "aae476d382e9": {
     "mark": "promise",
@@ -523,7 +523,7 @@
   "aae4e201ca85": {
     "mark": "not",
     "sentence": "Each start asks `stablehand pick`, counting factorium's own live sessions on each account, and starts the engine, model and account it answers, by the command stablehand keeps for that engine (`stablehand command set`); factorium adds only its own arguments, the guard and the session.",
-    "source": "docs/adr/0008-accounts-are-stablehands.md:20",
+    "source": "docs/adr/0009-accounts-are-stablehands.md:20",
     "why": "how a start is made; its outcomes are the registered promises used-up-account-waits and without-stablehand-claude-code-alone"
   },
   "ac68931ab705": {
@@ -647,7 +647,7 @@
   "d9626120c10c": {
     "mark": "not",
     "sentence": "The base branch is what every host and every release builds from, so nothing may reach it that a gate has not passed on that very tree, and a slow gate cannot run on every landing.",
-    "source": "docs/adr/0011-the-line-gate-landing-promotion-cut.md:8",
+    "source": "docs/adr/0012-the-line-gate-landing-promotion-cut.md:8",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "dab3e8e2ad2f": {
@@ -706,8 +706,8 @@
   "e9d3297614e2": {
     "mark": "not",
     "sentence": "In the ordinary order it waits behind admission's load reading, the heavy queue and its checkout's line, each fair to every issue and none knowing this one matters more.",
-    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:8",
-    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:8",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "ea300ca7d549": {
     "mark": "promise",
@@ -742,7 +742,7 @@
   "f473f0af0031": {
     "mark": "not",
     "sentence": "That directory's path holds only on this host.",
-    "source": "docs/adr/0007-roles-and-waiting-issues.md:10",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:10",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "f4743d2d491c": {
@@ -778,7 +778,7 @@
   "fc674610f666": {
     "mark": "not",
     "sentence": "`[idle]` lives in the repo, so every host with a checkout of it would file the same tasks: `checkout edit --no-idle` turns it off on this host alone.",
-    "source": "docs/adr/0013-idle-work.md:23",
+    "source": "docs/adr/0014-idle-work.md:23",
     "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   }
 }

@@ -14,6 +14,7 @@
 //! (factorium#307).
 
 mod cut;
+mod mutants;
 
 pub(crate) use cut::Proving;
 
@@ -178,7 +179,7 @@ impl App {
             workers.push(line::Seen { worker: w.worker, number: w.number, status: w.state.status, urgent });
         }
         let look = line::look(self.now(), &settings, &workers, by_hand);
-        // Halted by an urgent issue (docs/adr/0014-an-urgent-issue-halts-the-host.md), only an urgent landing goes.
+        // Halted by an urgent issue (docs/adr/0015-an-urgent-issue-halts-the-host.md), only an urgent landing goes.
         let halt = self.state::<Heavy>(queue_id()).await?.halt;
         let urgent_lands = mv == Move::Land && workers.iter().any(|w| look.asks == Some(w.worker) && w.urgent);
         if !halt.is_empty() && !urgent_lands {
@@ -359,7 +360,7 @@ impl App {
 
     /// Promotes the proving `tip` of `c`: its gate, then the base fast-forwarded to it. The tip
     /// a green landing pushed (its record names it) runs the slow steps alone, none when the
-    /// checkout declares none; any other, the fast gate then the slow steps (docs/adr/0011-the-line-gate-landing-promotion-cut.md).
+    /// checkout declares none; any other, the fast gate then the slow steps (docs/adr/0012-the-line-gate-landing-promotion-cut.md).
     /// `bound_at`: when the promotion falls due however busy.
     async fn promote_tip(
         &self,
@@ -392,6 +393,10 @@ impl App {
             None => Gating::Full,
         };
         let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
+        // Its mutants first, where slimfit holds them at the base; by hand, whatever they owe.
+        if !by_hand && let Some(did) = self.mutants_first(c, &here, &tip).await? {
+            return Ok(did);
+        }
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {

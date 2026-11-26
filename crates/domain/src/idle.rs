@@ -170,7 +170,7 @@ pub fn to_file(said: &str, tip: &str, issues: &[Issue], in_tip: impl Fn(&str) ->
             "The next `{kind}` task, as `{read}` read it at {tip}:\n\n```json\n{shown}\n```\n\n\
              Do this one task, by its `steps`; accept it as its `accept` says, then land. \
              Your judgment is accepted (slimfit#44): nothing is checked beyond the task's own accept.{rules}\n\n\
-             Filed by idle work (docs/adr/0013-idle-work.md): one open issue per kind; once this closes, the next idle run files the next.",
+             Filed by idle work (docs/adr/0014-idle-work.md): one open issue per kind; once this closes, the next idle run files the next.",
             kind = task.kind,
             read = own.unwrap_or(by),
         );

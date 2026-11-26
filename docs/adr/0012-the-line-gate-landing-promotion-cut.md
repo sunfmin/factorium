@@ -1,4 +1,4 @@
-# 11. A change reaches the base by landing, promotion and cut, each gated
+# 12. A change reaches the base by landing, promotion and cut, each gated
 
 Status: accepted
 

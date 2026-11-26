@@ -1,4 +1,4 @@
-//! Gates first (docs/adr/0009-admission-and-the-heavy-queue.md): a gate, and a worker's `worker exclusive`
+//! Gates first (docs/adr/0010-admission-and-the-heavy-queue.md): a gate, and a worker's `worker exclusive`
 //! (whose times a gate compares), run at the priority factorium runs at;
 //! other heavy work — a cut, idle work, `worker exclusive --background` —
 //! runs below it, its whole process tree.

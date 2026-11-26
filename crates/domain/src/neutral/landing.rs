@@ -34,6 +34,17 @@ pub struct Line {
     /// When it last moved: a landing, a promotion or a cut, ms.
     #[serde(default)]
     pub moved: Option<i64>,
+    /// The last work asked for that a promotion waits for first, before its slow gate.
+    #[serde(default)]
+    pub awaited: Option<Awaited>,
+}
+
+/// Work a promotion waits for first: its number, and when it was asked for (ms),
+/// from which its wait is bounded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Awaited {
+    pub number: u64,
+    pub at: i64,
 }
 
 /// A cut that failed: its version, why, and the base commit it was taken
@@ -58,6 +69,7 @@ pub enum LineEvent {
     CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
     LandingsReleased,
+    Awaited { number: u64, at: i64 },
 }
 
 impl Line {
@@ -88,6 +100,7 @@ impl Line {
             LineEvent::CutFailed { version, why, commit } => s.cut_failed = Some(CutFailure { version, why, commit }),
             LineEvent::LandingsHeld { why } => s.held = Some(why),
             LineEvent::LandingsReleased => s.held = None,
+            LineEvent::Awaited { number, at } => s.awaited = Some(Awaited { number, at }),
         }
     }
 }

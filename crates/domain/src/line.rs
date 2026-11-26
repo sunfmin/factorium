@@ -137,6 +137,18 @@ impl Promotion {
     }
 }
 
+/// The issue a promotion of `checkout` waits for first: the one filed for
+/// the mutants it owes (`crate::mutants`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Await {
+    pub checkout: String,
+    pub number: u64,
+}
+
+command!(AwaitMutants, "line.await", Lines, Await, |p| line_id(&p.checkout), |s, p, now| {
+    Ok(vec![LineEvent::Awaited { number: p.number, at: now.0 }])
+});
+
 /// What a cut did: the version, the commit it tagged, or why it failed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cut {

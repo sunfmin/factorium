@@ -1,4 +1,4 @@
-# 6. factorium has a fixed set of concepts, listed in the glossary
+# 7. factorium has a fixed set of concepts, listed in the glossary
 
 Status: accepted (the owner approved factorium's specification on
 2026-11-17, its concepts among it)

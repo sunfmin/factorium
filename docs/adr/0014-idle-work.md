@@ -1,4 +1,4 @@
-# 13. Idle work runs only on an idle host, and files one task of each kind
+# 14. Idle work runs only on an idle host, and files one task of each kind
 
 Status: accepted
 

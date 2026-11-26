@@ -229,7 +229,7 @@ async fn a_worker_waiting_for_the_watch_at_agy_s_quota_is_parked_until_the_reset
     assert_eq!(w.app.doctor().await.unwrap()["limited"], json!([]));
 }
 
-/// agy's quota with no reset says its account is used up (docs/adr/0008-accounts-are-stablehands.md): the
+/// agy's quota with no reset says its account is used up (docs/adr/0009-accounts-are-stablehands.md): the
 /// worker ends, its issue to start again, and agy on the host's own login
 /// starts no worker for an hour; no finding meanwhile.
 #[tokio::test]
