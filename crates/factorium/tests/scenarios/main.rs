@@ -77,3 +77,4 @@ mod unqueue;
 mod upgrade;
 mod urgent;
 mod watch;
+mod work_dirs;

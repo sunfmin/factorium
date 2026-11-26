@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use factorium::LineClone;
+use factorium::LineDir;
 use factorium::host::Host;
 use factorium_domain::neutral::landing::{Bounds, Due, Line, LineEvent, Look, Move};
 
@@ -509,29 +509,25 @@ async fn a_cut_still_locked_past_the_bound_fails_naming_the_holder_and_is_cleare
 }
 
 #[tokio::test]
-async fn the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout() {
+async fn the_clones_the_line_ran_in_before_are_retired_as_the_daemon_starts_their_builds_kept_as_its_caches() {
     let w = World::new();
     let web = w.checkout("web").await;
-    w.kit().await;
-    // A landing dir made the old way: a worktree of the checkout.
-    let landing = w.data().clone_of(LineClone::Landing, "web");
-    std::fs::create_dir_all(landing.parent().unwrap()).unwrap();
-    w.git(&web, &["worktree", "add", "--quiet", "--detach", &landing.to_string_lossy(), "HEAD"]).unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
-    let wk = worker(&w.app).await;
-    w.done(&wk, "a", "x").await;
-    let t = w.tick().await;
-    assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
-    assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
-    assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["installed"] == "web"), "{:?}", t.lines);
-    for kind in [LineClone::Landing, LineClone::Promotion, LineClone::Cut] {
-        assert!(w.data().clone_of(kind, "web").join(".git").is_dir(), "{kind:?} is a clone");
-    }
-    let listed = w.git(&web, &["worktree", "list", "--porcelain"]).unwrap();
-    let trees: Vec<_> = listed.lines().filter_map(|l| l.strip_prefix("worktree ")).collect();
-    assert_eq!(trees.len(), 1, "only the checkout itself: {trees:?}");
-    assert!(trees[0].ends_with("repos/web"), "{trees:?}");
+    // The landing's clone of before, with its build; a promotion lock beside the clones stays.
+    let clone = w.data().line(LineDir::Landing).join("web");
+    w.git(&w.dir, &["clone", "-q", "--shared", &web.to_string_lossy(), &clone.to_string_lossy()]).unwrap();
+    std::fs::create_dir_all(clone.join("target/debug")).unwrap();
+    std::fs::write(clone.join("target/debug/built"), "x").unwrap();
+    let lock = w.data().promotion_lock("web");
+    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    std::fs::write(&lock, "").unwrap();
+    w.app.daemon_start().await.unwrap();
+    let cache = w.data().cache(LineDir::Landing, "web").join("target");
+    assert_eq!(std::fs::read_to_string(cache.join("debug/built")).unwrap(), "x", "its build is the cache now");
+    assert!(!clone.exists(), "the clone is gone");
+    assert!(lock.exists());
+    // Once: a second start finds none.
+    w.app.daemon_start().await.unwrap();
+    assert!(cache.join("debug/built").exists());
 }
 
 #[tokio::test]
@@ -669,7 +665,7 @@ fn landing_or_ending_a_worker_that_is_gone_is_refused_by_the_command_itself() {
 }
 
 #[tokio::test]
-async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them() {
+async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_work_dirs() {
     let w = World::new();
     w.checkout("web").await;
     w.kit().await;
@@ -677,13 +673,10 @@ async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_
     let describe = "test ! -e DESCRIBE || git describe --tags";
     let toml = format!("[gate]\nfast = \"{describe}\"\nslow = \"{describe}\"\n");
     let clone = w.push_by_hand("web", "proving", "factorium.toml", &toml);
-    // #1 lands and is promoted while origin has no tag: the clones are made.
+    // #1 lands and is promoted while origin has no tag.
     w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
     w.tick().await;
     w.lands("web", 1, "a").await;
-    let promotion = w.data().clone_of(LineClone::Promotion, "web");
-    assert!(promotion.join(".git").is_dir(), "the promotion clone is made");
-    assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "");
     // Origin gets a tag; #2's gates describe the tip by it.
     w.git(&clone, &["tag", "-a", "v0.0.9", "-m", "v0.0.9", "HEAD"]).unwrap();
     w.git(&clone, &["push", "-q", "origin", "v0.0.9"]).unwrap();
@@ -691,34 +684,6 @@ async fn a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_
     w.tick().await;
     let landed = w.lands("web", 2, "DESCRIBE").await.commit;
     assert_eq!(w.remote_tip("web", "main"), landed, "the slow gate is green on proving");
-    assert_eq!(w.git(&promotion, &["tag"]).unwrap(), "v0.0.9", "the promotion clone has origin's tags");
-}
-
-#[tokio::test]
-async fn a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now() {
-    let w = World::new();
-    let web = w.checkout("web").await;
-    w.kit().await;
-    let at = |repo: &std::path::Path, rev: &str| w.git(repo, &["rev-parse", rev]).ok();
-    // A branch the checkout's origin has: #1's promotion makes the clone with it.
-    w.git(&web, &["update-ref", "refs/remotes/origin/gone", "HEAD"]).unwrap();
-    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.lands("web", 1, "a").await;
-    let promotion = w.data().clone_of(LineClone::Promotion, "web");
-    assert!(promotion.join(".git").is_dir(), "the promotion clone is made");
-    let made = at(&promotion, "origin/HEAD").unwrap();
-    assert!(at(&promotion, "refs/remotes/origin/gone").is_some(), "the clone has the checkout's branches");
-    // #1's promotion moved the base in the checkout; the branch goes there.
-    let base = at(&web, "origin/HEAD").unwrap();
-    assert_ne!(base, made, "the base moved after the clone was made");
-    w.git(&web, &["update-ref", "-d", "refs/remotes/origin/gone"]).unwrap();
-    // #2's promotion reuses the clone.
-    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
-    w.tick().await;
-    w.lands("web", 2, "b").await;
-    assert_eq!(at(&promotion, "origin/HEAD"), Some(base), "the reused clone's base is the checkout's new one");
-    assert_eq!(at(&promotion, "refs/remotes/origin/gone"), None, "a branch the checkout lost is pruned");
 }
 
 /// A failed cut is owed again only once a commit other than the one it was cut from is promoted.

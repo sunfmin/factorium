@@ -11,7 +11,7 @@ a fit's tasks would flood the tracker and conflict with each other.
 
 ## Decision
 
-- A checkout's `[idle]` steps run in their own clone at the base's tip while the host is idle, at most once per `every` (from the last run's start) and within `limit` for all the steps.
+- A checkout's `[idle]` steps run in a work dir of their own ([ADR 0017](0017-the-line-s-jobs-run-in-work-dirs.md)) at the base's tip while the host is idle, at most once per `every` (from the last run's start) and within `limit` for all the steps.
   It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; the first tick that finds the host no longer idle ends it, unrecorded.
 - Its tasks line runs after the steps. The first task of each kind is
   filed as an issue, unless one of that kind is open, or one for the same

@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 15962,
-      "test_lines": 16345,
-      "tests": 537,
+      "prod_lines": 16685,
+      "test_lines": 17332,
+      "tests": 567,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 9601,
+      "covered_lines": 10105,
       "uncovered_lines": 107
     }
   },
@@ -74,12 +74,6 @@
     },
     {
       "suite": "rust",
-      "test": "factorium::scenarios::line::a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now",
-      "hash": "7a7af8705fa39c67",
-      "reason": "promote/cut-by-hand asserts authors and tags; this asserts the reused promotion clone follows the checkout's moved base and prunes a lost branch"
-    },
-    {
-      "suite": "rust",
       "test": "factorium::scenarios::line::an_idle_cut_waits_until_everything_landed_is_promoted",
       "hash": "06f44b39834814ea",
       "reason": "one-landing-at-a-time asserts landing order; this asserts the busy bound, a cut withheld while unpromoted and the cut bound: different setups (#2 keeps working, a red slow gate)"
@@ -95,12 +89,6 @@
       "test": "factorium::scenarios::line::a_red_slow_gate_holds_the_base_and_is_a_finding_until_a_new_tip",
       "hash": "7c202f054f685da7",
       "reason": "the brew-update test asserts a green install; this asserts a red slow gate holds the base, is a finding, is not regated on the same tip, is regated by hand, and a fixed tip promotes"
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
-      "hash": "64073a22bfdecb7a",
-      "reason": "landing-order test checks no tags; this asserts a clone made before origin's tag sees it in later gates, which needs its own factorium.toml gate"
     },
     {
       "suite": "rust",
@@ -155,12 +143,6 @@
       "test": "factorium::scenarios::line::a_base_moved_outside_factorium_turns_promotion_red_and_stays",
       "hash": "3386895a5f87a587",
       "reason": "the long-gate test asserts no stall; this asserts a base pushed by hand turns promotion red, the base not moved over, a finding, and no retry"
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout",
-      "hash": "647ccfe821dd1a52",
-      "reason": "the lock-holder test asserts brew; this asserts an old worktree landing dir is replaced and all three line dirs are clones, the checkout keeps one worktree"
     },
     {
       "suite": "rust",
@@ -260,22 +242,13 @@
       "function": "App::issue_move (closure)",
       "hash": "69fc1f82dfca2844",
       "reason": "Only wiring left: the closure hands a failed step's refusal to factorium_domain::moved::stopped, whose wording is tested in milliseconds (moved::a_move_that_stops_part_way_says_where_and_what_it_had_done). It runs only when a step fails after the other host was checked over ssh, which only a minutes-long scenario reaches, so a fast test could not reach it at all."
-    },
-    {
-      "suite": "rust",
-      "file": "crates/host/src/git.rs",
-      "start": 243,
-      "end": 246,
-      "function": "Git::merge_from (closure)",
-      "hash": "33ad82169b4580d9",
-      "reason": "Git is the host's thin effect over the real git program: this is merge_from's abort when a conflict is not only in regenerated records (or taking them fails). Every landing is first checked by Git::merges (merge-tree) in check_waiting, which reds such a branch before land runs, so the span runs only when proving moves between that check and the landing's merge in one tick, or git fails to commit: reachable only through real git processes, a race no scenario can stage. A fast test could not reach it at all; the abort and the Err are needed for that race, so nothing to delete."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 198,
-      "test_seconds": 300.047
+      "uncovered_lines": 213,
+      "test_seconds": 312.074
     }
   }
 }

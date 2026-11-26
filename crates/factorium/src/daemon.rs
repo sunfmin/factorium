@@ -23,7 +23,7 @@ use factum::Value;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{Answer, App, LineClone, Refusal};
+use crate::{Answer, App, LineDir, Refusal};
 
 pub use process::handed_lock;
 
@@ -47,6 +47,8 @@ pub struct Tick {
     pub roles: Vec<Value>,
     /// Issues filed to bump a pin of another checkout behind its base tip.
     pub bumped: Vec<Value>,
+    /// Work dirs whose job no longer runs, removed.
+    pub work_dirs: Vec<Value>,
     /// Why nothing started, when something was ready.
     pub held: Option<String>,
     pub watch: Option<Value>,
@@ -79,6 +81,7 @@ impl Tick {
             || !self.idle.is_empty()
             || !self.resumed.is_empty()
             || !self.roles.is_empty()
+            || !self.work_dirs.is_empty()
             || self.upgrade.is_some()
     }
 }
@@ -95,6 +98,7 @@ impl App {
     /// One pass of the daemon, recorded: a failing one adds to the run of
     /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
+        self.memory.lock().unwrap().ticks = true;
         let start = self.now();
         let mut steps = Steps::at(start);
         let mut done = self.pass(&mut steps).await;
@@ -196,6 +200,9 @@ impl App {
             self.reclaim();
         }
         steps.ended("idle work's start", self.now());
+        // After every job this tick asked for asked: what none asked for is left over.
+        t.work_dirs = self.sweep_work_dirs();
+        steps.ended("sweeping work dirs", self.now());
         t.resumed = self.resume_parked().await?;
         steps.ended("resuming parked workers", self.now());
         t.watch = self.look_if_due(&settings).await?;
@@ -389,13 +396,13 @@ impl App {
         Ok(resumed)
     }
 
-    /// Frees disk: the build outputs of the line's worktrees, rebuilt when
-    /// next needed.
+    /// Frees disk: the build caches of the line's jobs, rebuilt when next
+    /// needed.
     fn reclaim(&self) {
-        for kind in LineClone::ALL {
-            let Ok(dirs) = std::fs::read_dir(self.data().clones(kind)) else { continue };
+        for kind in LineDir::ALL {
+            let Ok(dirs) = std::fs::read_dir(self.data().caches().join(kind.name())) else { continue };
             for d in dirs.flatten() {
-                let _ = std::fs::remove_dir_all(d.path().join("target"));
+                let _ = std::fs::remove_dir_all(d.path());
             }
         }
     }

@@ -143,7 +143,12 @@ impl App {
             return Ok(Next { path: PathBuf::from(st.worktree), branch: st.branch, resumed: Some(resumed) });
         }
         let branch = name.name();
-        let path = self.host.orca().worktree(Path::new(&c.path), &name.worker(), &branch, tip).map_err(fail("orca"))?;
+        let comment = format!(
+            "factorium's worker on {}#{} ({}): factorium removes this worktree when the issue lands or closes.",
+            c.name, name.number, issue.title
+        );
+        let orca = self.host.orca();
+        let path = orca.worktree(Path::new(&c.path), &name.worker(), &branch, tip, &comment).map_err(fail("orca"))?;
         Ok(Next { path, branch, resumed: None })
     }
 

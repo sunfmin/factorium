@@ -12,7 +12,7 @@ use factorium_host::{Git, Ran};
 
 use super::{Did, Moving, QUEUED, Then};
 use crate::heavy::{For, Job, Turn};
-use crate::{Answer, App, LineClone, fail};
+use crate::{Answer, App, LineDir, fail};
 
 /// A cut tagged at `tagged` and its `formula` installed, whose binary's
 /// proof (factorium#141) runs beside the daemon's ticks (factorium#242): a
@@ -34,22 +34,29 @@ impl App {
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().map_err(fail("git"))?.first().map(String::as_str));
-        let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
-        // The steps share the clone, so they take one turn of the queue.
+        let short = &base[..base.len().min(7)];
+        let about = format!(
+            "factorium's cut of {} {version} from its base {short}: its steps, then the tag and the install.",
+            c.name
+        );
+        let here = self.work_dir(c, LineDir::Cut, &format!("{} {version}", c.name), &about, &base)?;
+        // The steps share the work dir, so they take one turn of the queue.
         let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
         let turn = if by_hand {
             Turn::Wait
         } else {
             let key = Some(format!("cut:{}:{version}:{base}", c.name));
-            let (version, base, dir, steps) = (version.clone(), base.clone(), here.dir.clone(), cut.steps.clone());
-            let then = Then::Cut { version, base, dir, steps };
-            Turn::Beside { key, yields: false, of: For::Line(Box::new(Moving { checkout: c.name.clone(), then })) }
+            let then = Then::Cut { version: version.clone(), base: base.clone(), steps: cut.steps.clone() };
+            let moving = Moving { checkout: c.name.clone(), dir: here.dir.clone(), then };
+            Turn::Beside { key, yields: false, of: For::Line(Box::new(moving)) }
         };
         let Some(rans) = self.heavy(job, turn).await?.filter(|_| by_hand) else { return Ok(Err(QUEUED.into())) };
-        self.cut_ran(c, &here, &version, &base, &cut.steps, rans, false).await
+        let did = self.cut_ran(c, &here, &version, &base, &cut.steps, rans, false).await;
+        let _ = self.work_dir_done(LineDir::Cut, &c.name, &here.dir);
+        did
     }
 
-    /// Finishes the cut of `version` of `c` from `base`, whose `steps` ran in the clone `here`
+    /// Finishes the cut of `version` of `c` from `base`, whose `steps` ran in the work dir `here`
     /// so: tagged and installed once they all passed, recorded made or failed. `beside`: the
     /// daemon's, whose installed binary's proof runs beside the ticks ([`Proving`]), and a later
     /// tick records the cut once it ends ([`App::cuts_proven`]); else it is waited for.
@@ -166,7 +173,7 @@ impl App {
     /// is pushed only once they pass.
     pub(super) async fn cut_read_back(&self, c: &Checkout, version: &str) -> Answer<Option<Value>> {
         let git = self.host.git(&c.path);
-        // The checkout's tags are origin's, as fetched with its base: a cut tags in its own clone.
+        // The checkout's tags are origin's, as fetched with its base.
         git.fetch(&c.base).map_err(fail("git"))?;
         let Ok(tagged) = git.sha(&format!("refs/tags/{version}")) else { return Ok(None) };
         let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };

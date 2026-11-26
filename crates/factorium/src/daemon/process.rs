@@ -44,6 +44,7 @@ impl App {
         self.note_rules().await?;
         self.adopt_queued().await?;
         let freed = self.free_unstarted().await?;
+        self.retire_clones()?;
         Ok(json!({ "path": path, "missing": missing, "freed": freed, "moved": moved }))
     }
 

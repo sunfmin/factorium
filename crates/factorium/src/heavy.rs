@@ -161,6 +161,16 @@ impl For {
 /// A run beside the ticks and what it is for, kept as one.
 pub(crate) struct Beside(Running, For);
 
+impl Beside {
+    /// The work dir it runs in.
+    pub(crate) fn dir(&self) -> &Path {
+        match &self.1 {
+            For::Idle(idle) => idle.dir(),
+            For::Line(moving) => &moving.dir,
+        }
+    }
+}
+
 /// A job's steps running on a thread of their own, as entry `id`: beside
 /// the ticks, within `deadline` on the app's clock; ended once it must, `why`.
 pub(crate) struct Running {

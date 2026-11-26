@@ -60,6 +60,8 @@ pub type Closing = Box<dyn FnMut(&str) + Send>;
 pub struct FakeOrca {
     pub terminals: Mutex<BTreeMap<String, Terminal>>,
     pub removed: Mutex<Vec<PathBuf>>,
+    /// The worktrees it made and holds, by path: the name it shows and the comment it keeps.
+    pub made: Mutex<BTreeMap<PathBuf, (String, String)>>,
     /// Orca refuses to open terminals while set.
     pub refuse_open: Mutex<bool>,
     /// Terminals open at their shell's prompt while set, their harness not
@@ -203,13 +205,32 @@ impl FakeOrca {
             }
             ("worktree", "create") => {
                 let repo = path_of(flag(args, "--repo")).unwrap();
-                let path = root.join("worktrees").join(flag(args, "--name"));
-                let (branch, sha) = (flag(args, "--branch"), flag(args, "--base-branch"));
+                // As Orca: the dir is the name made a slug, and a taken dir or branch gets a suffix.
+                let slug: String = flag(args, "--name")
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '-' })
+                    .collect();
+                let free = |n: u32| {
+                    let s = if n == 1 { String::new() } else { format!("-{n}") };
+                    let taken = git_of(
+                        root,
+                        &repo,
+                        &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{}{s}", flag(args, "--branch"))],
+                    )
+                    .is_ok();
+                    (!root.join("worktrees").join(format!("{slug}{s}")).exists() && !taken).then_some(s)
+                };
+                let suffix = (1..).find_map(free).unwrap();
+                let path = root.join("worktrees").join(format!("{slug}{suffix}"));
+                let (branch, sha) = (format!("{}{suffix}", flag(args, "--branch")), flag(args, "--base-branch"));
+                let branch = branch.as_str();
                 if let Err(e) =
                     git_of(root, &repo, &["worktree", "add", "--quiet", "-b", branch, &path.to_string_lossy(), sha])
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
+                let shown = (flag(args, "--name").to_string(), flag(args, "--comment").to_string());
+                self.made.lock().unwrap().insert(path.clone(), shown);
                 let id = format!("wt-{}", held.len() + 1);
                 held.insert(id, path.clone());
                 // Orca opens a shell in a new workspace.
@@ -217,6 +238,30 @@ impl FakeOrca {
                     Terminal { worktree: path.clone(), title: "shell".into(), alive: true, ..Default::default() };
                 self.terminals.lock().unwrap().insert(format!("shell-{}", flag(args, "--name")), shell);
                 answer(json!({ "worktree": { "path": path, "branch": branch } }))
+            }
+            ("worktree", "set") => {
+                let path = path_of(flag(args, "--worktree")).unwrap();
+                match self.made.lock().unwrap().get_mut(&path) {
+                    Some((name, comment)) => {
+                        if args.contains(&"--comment") {
+                            *comment = flag(args, "--comment").into();
+                        }
+                        if args.contains(&"--display-name") {
+                            *name = flag(args, "--display-name").into();
+                        }
+                        answer(json!({ "worktree": { "path": path, "displayName": name, "comment": comment } }))
+                    }
+                    None => error("selector_not_found"),
+                }
+            }
+            ("worktree", "list") => {
+                let mut made = self.made.lock().unwrap();
+                made.retain(|p, _| p.exists());
+                let rows: Vec<Value> = made
+                    .iter()
+                    .map(|(p, (name, comment))| json!({ "path": p, "displayName": name, "comment": comment }))
+                    .collect();
+                answer(json!({ "worktrees": rows, "totalCount": rows.len(), "truncated": false }))
             }
             ("worktree", "rm") => {
                 let path = path_of(flag(args, "--worktree")).unwrap();
@@ -247,6 +292,7 @@ impl FakeOrca {
                 {
                     return Said { ok: false, out: String::new(), err: e };
                 }
+                self.made.lock().unwrap().remove(&path);
                 answer(json!({ "removed": true }))
             }
             ("terminal", "create") => {

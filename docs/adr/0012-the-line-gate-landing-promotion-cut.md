@@ -11,6 +11,7 @@ slow gate cannot run on every landing.
 
 ## Decision
 
+- Each landing, promotion and cut runs in a work dir of its own ([ADR 0017](0017-the-line-s-jobs-run-in-work-dirs.md)).
 - A gate is the repo's own fast and slow commands, each with its limit. A green run is recorded against the tree it ran on, so the same tree is never gated twice.
 - Landing: a worker's `done` merges its branch onto the proving tip, runs
   the fast gate on the merge, and moves proving by a push that requires the

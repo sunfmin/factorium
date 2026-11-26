@@ -43,6 +43,10 @@ pub struct Seen {
     /// Workers' worktrees that no open issue's attempt owns.
     #[serde(default)]
     pub orphaned: Vec<Orphaned>,
+    /// The line's work dirs whose job is gone, kept as they hold commits
+    /// found nowhere else.
+    #[serde(default)]
+    pub kept_dirs: Vec<KeptDir>,
     /// Ready issues no worker holds, of listed checkouts, oldest first.
     #[serde(default)]
     pub ready: Vec<ReadySeen>,
@@ -105,6 +109,15 @@ pub fn unstarted(seen: &Seen, s: &Settings, now: i64) -> Vec<String> {
         }
     }
     why
+}
+
+/// A work dir of the line whose job is gone, kept: the commits it holds
+/// that no branch, tag or remote-tracking ref holds.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeptDir {
+    pub name: String,
+    pub path: String,
+    pub commits: Vec<String>,
 }
 
 /// A worker's worktree that no open issue's attempt owns, and why.
@@ -429,6 +442,19 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             &format!(
                 "{first}remove it: `factorium discard {path}`. What it holds that is nowhere else is kept on \
                  `{kept}`"
+            ),
+        );
+    }
+    for KeptDir { name, path, commits } in &seen.kept_dirs {
+        add(
+            format!("work_dir:{path}"),
+            format!(
+                "work dir {path} ({name}) is the line's, its job is gone, and it holds commits found nowhere else: {}",
+                commits.join("; ")
+            ),
+            &format!(
+                "keep what you need of it on a branch (`git -C {path} branch <name> HEAD`), then remove it: \
+                 `orca worktree rm --worktree path:{path} --force`"
             ),
         );
     }

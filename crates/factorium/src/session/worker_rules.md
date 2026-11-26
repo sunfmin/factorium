@@ -11,6 +11,11 @@ Your brief (the file you were handed) says what the issue is.
   slimfit, builds and anything else slow are left to the full gate, your
   landing's, on the merge with proving. `factorium worker gate` runs the
   repo's fast gate on your worktree; you may, you need not.
+- Any other tree you want (a scratch worktree to time a gate, a tree to
+  compare against) is made through Orca, `orca worktree create --comment
+  "<what it is, for which issue>"`, and removed with `orca worktree rm`
+  before `factorium worker done`. Never a `git worktree add` or a `git
+  clone` of your own: what Orca makes, the owner sees.
 - Heavy commands (builds, test suites, `brew install|upgrade|reinstall`) go through
   `factorium worker exclusive -- <command>`, which waits until the machine
   has room and runs it at a gate's priority, so what it times (tests,

@@ -30,6 +30,15 @@ pub enum Delivery {
     Queued,
 }
 
+/// A worktree as Orca lists it: where it is, the name it shows, and the
+/// comment it keeps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub path: PathBuf,
+    pub name: String,
+    pub comment: String,
+}
+
 /// How long, in seconds, a delivery watches for its line to start a turn.
 const SUBMIT_WAIT: u32 = 10;
 
@@ -85,9 +94,10 @@ impl Orca<'_> {
         Ok(answer["result"].clone())
     }
 
-    /// Makes a worktree of the repo at `repo`, named `name`, on a new branch
-    /// `branch` at `sha`: its path.
-    pub fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str) -> Result<PathBuf, String> {
+    /// Makes a worktree of the repo at `repo`, named `name` and commented
+    /// `comment` (what it is for, as Orca shows it), on a new branch `branch`
+    /// at `sha`: its path.
+    pub fn worktree(&self, repo: &Path, name: &str, branch: &str, sha: &str, comment: &str) -> Result<PathBuf, String> {
         let repo_sel = format!("path:{}", repo.display());
         if self.call(&["repo", "show", "--repo", &repo_sel]).is_err() {
             self.call(&["repo", "add", "--path", &repo.to_string_lossy()])?;
@@ -106,6 +116,8 @@ impl Orca<'_> {
             "--no-parent",
             "--setup",
             "skip",
+            "--comment",
+            comment,
         ])?;
         let path = made["worktree"]["path"].as_str().map(PathBuf::from).filter(|p| p.is_dir());
         let path = path.ok_or_else(|| format!("orca worktree create returned no usable path: {made}"))?;
@@ -114,6 +126,35 @@ impl Orca<'_> {
         let sel = format!("path:{}", path.display());
         let _ = self.call(&["terminal", "close", "--worktree", &sel, "--all"]);
         Ok(path)
+    }
+
+    /// Every worktree Orca holds on this host, each repo's own among them.
+    pub fn worktrees(&self) -> Result<Vec<Listed>, String> {
+        let listed = self.call(&["worktree", "list", "--limit", "10000"])?;
+        let rows =
+            listed["worktrees"].as_array().ok_or_else(|| format!("orca worktree list gave no rows: {listed}"))?;
+        if listed["truncated"] == true {
+            return Err(format!("orca worktree list left rows out: {} of {}", rows.len(), listed["totalCount"]));
+        }
+        let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
+        let row = |w: &Value| Listed {
+            path: PathBuf::from(text(&w["path"])),
+            name: text(&w["displayName"]),
+            comment: text(&w["comment"]),
+        };
+        Ok(rows.iter().map(row).collect())
+    }
+
+    /// Shows the worktree at `worktree` as `name`, wherever it is.
+    pub fn show_as(&self, worktree: &Path, name: &str) -> Result<(), String> {
+        let sel = format!("path:{}", worktree.display());
+        self.call(&["worktree", "set", "--worktree", &sel, "--display-name", name]).map(|_| ()).map_err(String::from)
+    }
+
+    /// Sets the comment Orca keeps of the worktree at `worktree`.
+    pub fn comment(&self, worktree: &Path, comment: &str) -> Result<(), String> {
+        let sel = format!("path:{}", worktree.display());
+        self.call(&["worktree", "set", "--worktree", &sel, "--comment", comment]).map(|_| ()).map_err(String::from)
     }
 
     /// Removes a worktree and the terminals in it.
