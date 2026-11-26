@@ -409,7 +409,7 @@ fn landing_beside_a_slow_gate(started: i64) -> Vec<String> {
     use factorium_domain::doctor::{LandingSeen, Seen, findings};
     use factorium_domain::heavy::{Ask, Entry, LineJob, Queue};
     let min = 60_000;
-    let ask = LandingSeen { worker: "w".into(), checkout: "web".into(), number: 2, since: 0 };
+    let ask = LandingSeen { worker: "w".into(), checkout: "web".into(), number: 2, since: 0, urgent: false };
     let gate = Entry {
         ask: Ask { what: LineJob::Gate(Kind::Slow).of("web"), ..Ask::default() },
         started_at: Some(started * min),
