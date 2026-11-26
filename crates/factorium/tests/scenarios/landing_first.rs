@@ -1,4 +1,4 @@
-//! A landing's fast gate in the heavy-command queue (SPEC §1.9): it goes
+//! A landing's fast gate in the heavy-command queue (docs/adr/0010-admission-and-the-heavy-queue.md): it goes
 //! ahead of workers' and programs' waiting entries that are not urgent,
 //! behind a line move past its bound and an urgent issue's entry, oldest
 //! first among landings' gates; a running entry is never cut short for it.
