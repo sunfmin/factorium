@@ -178,6 +178,14 @@ pub struct Queue {
     /// The named resources given back because their holder died or its worker ended.
     #[serde(default)]
     pub given_back: Vec<GivenBack>,
+    /// The urgent issues that halt it (`web#3`), as the tick last found
+    /// them ([`crate::issue::halts`]): while any does, no entry but an
+    /// urgent one starts, on any resource.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub halt: Vec<String>,
+    /// The live workers of those issues: their entries are urgent however they were queued.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub halt_for: Vec<Uuid>,
 }
 
 /// A named resource given back by factorium, not by its holder.
@@ -224,13 +232,17 @@ pub struct Holding {
     /// Waiting, why it is not next: none, it is.
     #[serde(default)]
     pub why: Option<String>,
+    /// It is an urgent issue's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 impl From<&Entry> for Holding {
     fn from(e: &Entry) -> Holding {
         let (entry, what, worker, hold, until) = (e.ask.id, e.ask.what.clone(), e.ask.worker, e.is_hold(), e.until());
-        let (declared, window, why) = (e.ask.hold_for, e.ask.window.map(|w| w.shown()), None);
-        Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until, declared, window, why }
+        let (declared, window, why, urgent) = (e.ask.hold_for, e.ask.window.map(|w| w.shown()), None, e.ask.urgent);
+        let since = e.started_at.unwrap_or(e.queued_at);
+        Holding { entry, what, worker, hold, since, until, declared, window, why, urgent }
     }
 }
 
@@ -279,6 +291,11 @@ impl Queued for Entry {
     // A line move past its bound goes ahead of workers' and programs' entries.
     fn yields(&self) -> bool {
         self.ask.worker.is_some() || self.ask.program
+    }
+
+    // An urgent issue's worker's entry, or its landing's gate.
+    fn urgent(&self) -> bool {
+        self.ask.urgent
     }
 
     fn bound_at(&self) -> Option<i64> {
@@ -341,6 +358,9 @@ impl Queue {
     fn passed_over(&self, e: &Entry, now: i64) -> Option<String> {
         if self.stale(e) {
             return Some(format!("it asks under the rules of {}, which {} replaced", e.ask.rules, self.rules));
+        }
+        if !self.urgent(e) && !self.halt.is_empty() {
+            return Some(format!("behind urgent {}", self.halt.join(", ")));
         }
         if let Some(name) = self.full_for(e) {
             let by: Vec<String> =
@@ -436,6 +456,12 @@ impl Queue {
         Ok(())
     }
 
+    /// Whether `e` is an urgent issue's: marked so when it asked, or of a
+    /// live worker of an issue that halts the queue now.
+    pub fn urgent(&self, e: &Entry) -> bool {
+        e.ask.urgent || e.ask.worker.or(e.ask.lands).is_some_and(|w| self.halt_for.contains(&w))
+    }
+
     /// Whether `e` waits under rules older than the queue's.
     pub fn stale(&self, e: &Entry) -> bool {
         e.started_at.is_none() && older(&e.ask.rules, &self.rules)
@@ -462,11 +488,20 @@ impl Queue {
             && queue::overheld(&self.queue_of(HOST, now), id, now, bound)
     }
 
-    /// Why the running `id` must end at `now`, if it must: unqueued, held
-    /// past `bound`, or one that `yields` with anything else asking for the host.
+    /// Why the running `id` must end at `now`, if it must: unqueued, a
+    /// command not urgent holding what an urgent entry waits for while
+    /// urgent issues halt the queue, held past `bound`, or one that
+    /// `yields` with anything else asking for the host.
     pub fn ends(&self, id: Uuid, now: i64, bound: i64, yields: bool) -> Option<Ends> {
+        let wanted = |e: &Entry| {
+            let urgent = |u: &&Entry| self.urgent(u) && e.asks().iter().any(|r| u.asks_for(r));
+            !self.halt.is_empty() && self.waiting().any(|u| urgent(&u))
+        };
+        let halted = |e: &Entry| e.ask.id == id && !self.urgent(e) && !e.is_hold() && wanted(e);
         if !self.holds(id) {
             Some(Ends::Unqueued)
+        } else if self.running().any(halted) {
+            Some(Ends::Halted)
         } else if self.overheld(id, now, bound) {
             Some(Ends::Held)
         } else {
@@ -491,6 +526,8 @@ pub struct Reading {
 fn behind(next: &Entry, e: &Entry, now: i64, order: queue::Order) -> String {
     let why = if next.ask.bound_at.is_some_and(|b| now > b) {
         "a line move past its bound".to_string()
+    } else if next.ask.urgent && !e.ask.urgent {
+        "an urgent issue's".to_string()
     } else if order.starved(next, now) {
         "waiting past the starve bound".to_string()
     } else if next.ask.hold_for.is_none() && e.ask.hold_for.is_none() {
@@ -521,6 +558,8 @@ pub enum Ends {
     Held,
     /// It yields, and something else came first.
     GaveWay,
+    /// It is not urgent, and urgent issues halt the queue.
+    Halted,
 }
 
 impl std::fmt::Display for Ends {
@@ -529,6 +568,7 @@ impl std::fmt::Display for Ends {
             Ends::Unqueued => "unqueued",
             Ends::Held => "it held others up past the hold bound",
             Ends::GaveWay => "it gave way: the host is no longer idle",
+            Ends::Halted => "it was cut short: an urgent issue halts the host",
         })
     }
 }
@@ -572,6 +612,17 @@ pub enum HeavyEvent {
     /// A daemon under other rules than the queue's started.
     HeavyRules {
         version: String,
+    },
+    /// The urgent issues that halt every other start now: none, it runs as usual.
+    HeavyHalted {
+        by: Vec<String>,
+        #[serde(default)]
+        workers: Vec<Uuid>,
+    },
+    /// A waiting entry's issue was marked urgent, or no longer, since it was queued.
+    HeavyMarked {
+        id: Uuid,
+        urgent: bool,
     },
 }
 
@@ -634,6 +685,10 @@ impl Aggregate for Heavy {
                 s.entries.iter_mut().filter(|e| e.ask.id == id).for_each(|e| e.session = Some(session))
             }
             HeavyEvent::HeavyRules { version } => s.rules = version,
+            HeavyEvent::HeavyHalted { by, workers } => (s.halt, s.halt_for) = (by, workers),
+            HeavyEvent::HeavyMarked { id, urgent } => {
+                s.entries.iter_mut().filter(|e| e.ask.id == id).for_each(|e| e.ask.urgent = urgent)
+            }
         }
     }
 }
@@ -684,6 +739,12 @@ pub struct Ask {
     /// worker it lands so its record finds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lands: Option<Uuid>,
+    /// The issue of its worker, or of the landing it gates, is marked
+    /// urgent: it goes ahead of workers' and programs' waiting entries that
+    /// are not, behind a line move past its bound. Asked again, it takes
+    /// the issue's mark as it is then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -698,10 +759,15 @@ pub struct Enqueue {
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
     let a = &p.ask;
-    // Queued already under these rules: nothing to do.
-    let queued = s.entries.iter().any(|e| e.ask.id == a.id && e.ask.rules == a.rules);
-    let place = s.place(&a.what, a.worker, a.program, now.0, p.keep);
-    crate::only(!queued, HeavyEvent::HeavyQueued { ask: a.clone(), at: now.0, place })
+    // Queued already under these rules: nothing to do, but follow its issue's mark while it waits.
+    let Some(e) = s.entries.iter().find(|e| e.ask.id == a.id && e.ask.rules == a.rules) else {
+        let place = s.place(&a.what, a.worker, a.program, now.0, p.keep);
+        return Ok(vec![HeavyEvent::HeavyQueued { ask: a.clone(), at: now.0, place }]);
+    };
+    crate::only(
+        e.started_at.is_none() && e.ask.urgent != a.urgent,
+        HeavyEvent::HeavyMarked { id: a.id, urgent: a.urgent },
+    )
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -777,6 +843,19 @@ pub struct Runs {
 command!(NoteRun, "heavy.runs", Heavy, Runs, |_p| queue_id(), |s, p, _now| {
     let started = s.entries.iter().any(|e| e.ask.id == p.id && e.started_at.is_some());
     crate::only(started, HeavyEvent::HeavyRuns { id: p.id, session: p.session })
+});
+
+/// The urgent issues that halt the queue now.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Halt {
+    pub by: Vec<String>,
+    /// Their live workers.
+    pub workers: Vec<Uuid>,
+}
+
+command!(NoteHalt, "heavy.halt", Heavy, Halt, |_p| queue_id(), |s, p, _now| {
+    let (by, workers) = (p.by.clone(), p.workers.clone());
+    crate::only(s.halt != by || s.halt_for != workers, HeavyEvent::HeavyHalted { by, workers })
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

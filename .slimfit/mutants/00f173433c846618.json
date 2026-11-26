@@ -1,0 +1,39 @@
+{
+  "tree": "8ae2f905f5dc2b6d59ae8295ff55f37c2cff9986+d1fba762150c532c",
+  "picker": "codex:01a2160e-355f-7731-ba68-7a3fa21c6baa:default",
+  "author": "claude-code:58691715-0080-5530-8d9f-f98c81a7e923:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:424:21: delete match arm Some(w @(Ends::Unqueued | Ends::Halted)) in App::beside",
+        "why": "The halt scenarios check a worker command being cut short and a promotion waiting, leaving room for an interrupted line move to be recorded as a gate result instead of becoming due again.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:529:31: replace && with || in behind",
+        "why": "The queue test checks the explanation for an ordinary entry behind an urgent one, while the two-urgent case checks only order and could report the wrong reason.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/cli.rs:544:25: delete field blocked_by from struct factorium_domain::issue::Open expression in Top::answer",
+        "why": "The urgent blocking scenario sets the dependency through the app, so dropping blockers supplied to `issue add` could let an urgent issue start early.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/cli.rs:543:25: delete field why from struct factorium_domain::issue::Open expression in Top::answer",
+        "why": "The CLI urgency assertions could still pass if `issue add --waiting-for-human --why` silently lost the owner's reason.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/cli.rs:545:25: delete field on from struct factorium_domain::issue::Open expression in Top::answer",
+        "why": "The CLI urgency scenario uses default launch settings, so it could miss `issue add` dropping an explicit role, account, or model.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

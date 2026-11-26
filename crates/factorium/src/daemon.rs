@@ -13,9 +13,9 @@ use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
-use factorium_domain::issue::Author;
+use factorium_domain::issue::{Author, urgent_first};
 use factorium_domain::settings::Time;
-use factorium_domain::tracker::{self, WorkerRow};
+use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
 use factum::Value;
@@ -126,6 +126,8 @@ impl App {
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
         t.finished = self.finish_unlanded().await?;
+        // Before the lines and the starts: what an urgent issue halts, and what it no longer does.
+        let halt = self.note_halt().await?;
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
@@ -153,12 +155,29 @@ impl App {
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
         // One start, if admission allows.
-        if let Some((checkout, number)) = self.next_issue().await? {
-            let held = admission::admit(&load.admission(), &load.queue, self.now(), &settings);
+        if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
+            let reading = load.admission();
+            // Urgent, only the memory and disk floors hold it; what else held it, it went past.
+            let held = match urgent {
+                true => admission::admit_urgent(&reading, &settings),
+                false if !halt.is_empty() => Err(format!("halt: behind urgent {}", halt.join(", "))),
+                false => admission::admit(&reading, &load.queue, self.now(), &settings),
+            };
+            // What it goes ahead of, read while it is still among the ready ones.
+            let ahead_of = match (urgent, &held) {
+                (true, Ok(())) => self.ahead_of(&checkout, number).await?,
+                _ => Vec::new(),
+            };
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
-                    Ok(started) => {
+                    Ok(mut started) => {
+                        if urgent {
+                            let past = admission::holds(&reading, &load.queue, self.now(), &settings);
+                            started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
+                        }
                         t.started = Some(started);
+                        // An urgent start halts the rest from now, not from the next tick.
+                        self.note_halt().await?;
                         None
                     }
                     Err(r) if r.code == "no_harness" => Some(format!("kit: {}", r.message)),
@@ -241,16 +260,36 @@ impl App {
         Ok(filed)
     }
 
-    /// The oldest ready issue no worker holds and nothing open blocks,
+    /// The ready issues no worker holds and nothing open blocks, ahead of
+    /// which the urgent `checkout`#`number` started: those not urgent before
+    /// it in the ordinary order.
+    async fn ahead_of(&self, checkout: &str, number: u64) -> Answer<Vec<String>> {
+        let mut ahead = Vec::new();
+        for r in self.rows(tracker::untaken()).await? {
+            if (r.checkout.as_str(), r.number) == (checkout, number) {
+                break;
+            }
+            let issue = self.issue(&r.checkout, r.number).await?;
+            if !r.urgent && self.blockers(&issue).await?.iter().all(|w| w.met.is_some()) {
+                ahead.push(format!("{}#{}", r.checkout, r.number));
+            }
+        }
+        Ok(ahead)
+    }
+
+    /// The first ready issue no worker holds and nothing open blocks, the
+    /// urgent ones first, then in the ordinary order ([`tracker::untaken`]);
     /// whose account, if it names one, can start now, and whose role has
     /// what it needs of this host (each role checked once a tick).
-    async fn next_issue(&self) -> Answer<Option<(String, u64)>> {
+    async fn next_issue(&self) -> Answer<Option<IssueRow>> {
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
-        for r in self.rows(tracker::untaken()).await? {
-            let (checkout, number) = (r.checkout, r.number);
+        let mut rows = self.rows(tracker::untaken()).await?;
+        urgent_first(&mut rows, |r| r.urgent);
+        for r in rows {
+            let (checkout, number) = (r.checkout.clone(), r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;
             }
@@ -269,7 +308,7 @@ impl App {
             // checkout is pinned to at its limit) waits behind those that
             // can; with none, its start answers why it is held.
             if self.choice(&checkout, &issue.on).await.is_err() {
-                held.get_or_insert((checkout, number));
+                held.get_or_insert(r);
                 continue;
             }
             // Its role lacking what it needs of this host, it waits; doctor
@@ -281,7 +320,7 @@ impl App {
                 lacking.insert(role);
                 continue;
             }
-            return Ok(Some((checkout, number)));
+            return Ok(Some(r));
         }
         Ok(held)
     }

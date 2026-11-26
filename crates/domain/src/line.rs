@@ -31,14 +31,26 @@ impl Aggregate for Lines {
     }
 }
 
+/// A live worker of the checkout as the line sees it: its status, and
+/// whether its issue is marked urgent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seen {
+    pub worker: Uuid,
+    /// Its issue's number.
+    pub number: u64,
+    pub status: Status,
+    pub urgent: bool,
+}
+
 /// What the app sees of the checkout now, for the line to judge: its live
 /// workers and their status, oldest status first. Those waiting for the
-/// watch do not keep it busy; of those asking to land, the first lands.
-pub fn look(now: i64, settings: &Settings, workers: &[(Uuid, Status)], by_hand: bool) -> crate::neutral::landing::Look {
+/// watch do not keep it busy; of those asking to land, the first urgent
+/// one lands, else the first.
+pub fn look(now: i64, settings: &Settings, workers: &[Seen], by_hand: bool) -> crate::neutral::landing::Look {
     crate::neutral::landing::Look {
         now,
-        idle: workers.iter().all(|(_, s)| *s == Status::Waiting),
-        asks: workers.iter().find(|(_, s)| *s == Status::Landing).map(|(w, _)| *w),
+        idle: workers.iter().all(|w| w.status == Status::Waiting),
+        asks: workers.iter().filter(|w| w.status == Status::Landing).min_by_key(|w| !w.urgent).map(|w| w.worker),
         bounds: bounds(settings),
         by_hand,
     }
