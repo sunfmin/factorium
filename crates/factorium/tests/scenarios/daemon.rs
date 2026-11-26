@@ -638,6 +638,8 @@ async fn watching_ten_workers_whose_screens_orca_reads_slowly_takes_one_read_and
     let w = World::new();
     w.checkout("web").await;
     w.kit_of(&[CLAUDE]).await;
+    // Ten on one checkout: past its default cap of live workers.
+    w.app.settings_set(Some("workers_per_checkout"), Some(10)).await.unwrap();
     for n in 1..=10 {
         w.app.issue_add("web", &format!("Build part {n}"), "", false, &[]).await.unwrap();
         w.tick().await;
