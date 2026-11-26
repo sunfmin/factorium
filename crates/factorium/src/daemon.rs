@@ -131,8 +131,8 @@ impl App {
         t.idle.extend(self.idle_check().await?);
         t.closed = self.close_landed().await?;
         t.finished = self.finish_unlanded().await?;
-        // Before the lines and the starts: what an urgent issue halts, and what it no longer does.
-        let halt = self.note_halt().await?;
+        // Before the lines and the starts: which urgent issues halt heavy commands not urgent.
+        self.note_halt().await?;
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
@@ -159,9 +159,9 @@ impl App {
         if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
             let reading = load.admission();
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
+            // A halt holds no start: a start not urgent is admission's as at any other time.
             let held = match urgent {
                 true => admission::admit_urgent(&reading, &settings),
-                false if !halt.is_empty() => Err(format!("halt: behind urgent {}", halt.join(", "))),
                 false => admission::admit(&reading, &load.queue, self.now(), &settings),
             };
             // What it goes ahead of, read while it is still among the ready ones.
@@ -177,7 +177,7 @@ impl App {
                             started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
                         }
                         t.started = Some(started);
-                        // An urgent start halts the rest from now, not from the next tick.
+                        // An urgent start halts heavy commands not urgent from now, not from the next tick.
                         self.note_halt().await?;
                         None
                     }

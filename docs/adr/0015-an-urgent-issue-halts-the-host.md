@@ -1,4 +1,4 @@
-# 15. An owner's urgent issue goes first and halts every other start
+# 15. An owner's urgent issue goes first and halts heavy commands not urgent
 
 Status: accepted (the owner asked for it, 2026-11)
 
@@ -21,10 +21,16 @@ none knowing this one matters more.
   move past its bound, as its issue is marked at each ask.
 - Its landing takes the next turn of its checkout's line, never cutting a
   running gate short.
-- Once its worker starts, until the issue closes or is unmarked, no other
-  worker starts and no worker's or program's heavy command not urgent
-  starts; such a command that runs is cut short once it waits for it (the
-  halt).
+- Once its worker starts, until the issue closes or is unmarked, no
+  worker's or program's heavy command not urgent starts; such a command
+  that runs is cut short once it waits for it (the halt).
+- The halt holds no worker's start: an issue not urgent starts by the
+  ordinary order and admission, after the urgent ones. Holding starts kept
+  every other checkout from work it could do without the CPU (reading,
+  writing code, waiting its turn in the queue), while the queue already
+  keeps the CPU for the urgent issue (2026-11-26: urgent issues held the
+  host from 22:06 on, and eight issues ready since then had no worker at
+  22:30). The owner: 「改成加急期间不挡新的 worker。」
 - The halt holds no line move: other landings, promotions and cuts, on
   every checkout, go on through the heavy queue as usual and are never cut
   short by it. A line move delivers work already done and its gate is
@@ -37,5 +43,5 @@ none knowing this one matters more.
 
 - What shows an issue is urgent, and how it is marked, is `issue add
   --help`'s and `issue edit --help`'s.
-- An urgent issue the owner forgets to unmark halts the host until it
-  closes.
+- An urgent issue the owner forgets to unmark halts heavy commands not
+  urgent until it closes.

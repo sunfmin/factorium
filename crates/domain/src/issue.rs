@@ -63,7 +63,7 @@ pub fn urgent_first<T>(items: &mut [T], urgent: impl Fn(&T) -> bool) {
     items.sort_by_key(|i| !urgent(i));
 }
 
-/// The urgent issues of `issues` that halt every other start (`web#3`):
+/// The urgent issues of `issues` that halt heavy commands not urgent (`web#3`):
 /// each open one marked urgent that a worker has taken, from its first
 /// worker's start until it closes or its mark is taken off.
 pub fn halts(issues: &[Issue]) -> impl Iterator<Item = &Issue> {
