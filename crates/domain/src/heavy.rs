@@ -224,13 +224,17 @@ pub struct Holding {
     /// Waiting, why it is not next: none, it is.
     #[serde(default)]
     pub why: Option<String>,
+    /// It is an urgent issue's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 impl From<&Entry> for Holding {
     fn from(e: &Entry) -> Holding {
         let (entry, what, worker, hold, until) = (e.ask.id, e.ask.what.clone(), e.ask.worker, e.is_hold(), e.until());
-        let (declared, window, why) = (e.ask.hold_for, e.ask.window.map(|w| w.shown()), None);
-        Holding { entry, what, worker, hold, since: e.started_at.unwrap_or(e.queued_at), until, declared, window, why }
+        let (declared, window, why, urgent) = (e.ask.hold_for, e.ask.window.map(|w| w.shown()), None, e.ask.urgent);
+        let since = e.started_at.unwrap_or(e.queued_at);
+        Holding { entry, what, worker, hold, since, until, declared, window, why, urgent }
     }
 }
 
@@ -279,6 +283,11 @@ impl Queued for Entry {
     // A line move past its bound goes ahead of workers' and programs' entries.
     fn yields(&self) -> bool {
         self.ask.worker.is_some() || self.ask.program
+    }
+
+    // An urgent issue's worker's entry, or its landing's gate.
+    fn urgent(&self) -> bool {
+        self.ask.urgent
     }
 
     fn bound_at(&self) -> Option<i64> {
@@ -491,6 +500,8 @@ pub struct Reading {
 fn behind(next: &Entry, e: &Entry, now: i64, order: queue::Order) -> String {
     let why = if next.ask.bound_at.is_some_and(|b| now > b) {
         "a line move past its bound".to_string()
+    } else if next.ask.urgent && !e.ask.urgent {
+        "an urgent issue's".to_string()
     } else if order.starved(next, now) {
         "waiting past the starve bound".to_string()
     } else if next.ask.hold_for.is_none() && e.ask.hold_for.is_none() {
@@ -573,6 +584,11 @@ pub enum HeavyEvent {
     HeavyRules {
         version: String,
     },
+    /// A waiting entry's issue was marked urgent, or no longer, since it was queued.
+    HeavyMarked {
+        id: Uuid,
+        urgent: bool,
+    },
 }
 
 pub struct Heavy;
@@ -634,6 +650,9 @@ impl Aggregate for Heavy {
                 s.entries.iter_mut().filter(|e| e.ask.id == id).for_each(|e| e.session = Some(session))
             }
             HeavyEvent::HeavyRules { version } => s.rules = version,
+            HeavyEvent::HeavyMarked { id, urgent } => {
+                s.entries.iter_mut().filter(|e| e.ask.id == id).for_each(|e| e.ask.urgent = urgent)
+            }
         }
     }
 }
@@ -684,6 +703,12 @@ pub struct Ask {
     /// worker it lands so its record finds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lands: Option<Uuid>,
+    /// The issue of its worker, or of the landing it gates, is marked
+    /// urgent: it goes ahead of workers' and programs' waiting entries that
+    /// are not, behind a line move past its bound. Asked again, it takes
+    /// the issue's mark as it is then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -698,10 +723,15 @@ pub struct Enqueue {
 
 command!(EnqueueHeavy, "heavy.queue", Heavy, Enqueue, |_p| queue_id(), |s, p, now| {
     let a = &p.ask;
-    // Queued already under these rules: nothing to do.
-    let queued = s.entries.iter().any(|e| e.ask.id == a.id && e.ask.rules == a.rules);
-    let place = s.place(&a.what, a.worker, a.program, now.0, p.keep);
-    crate::only(!queued, HeavyEvent::HeavyQueued { ask: a.clone(), at: now.0, place })
+    // Queued already under these rules: nothing to do, but follow its issue's mark while it waits.
+    let Some(e) = s.entries.iter().find(|e| e.ask.id == a.id && e.ask.rules == a.rules) else {
+        let place = s.place(&a.what, a.worker, a.program, now.0, p.keep);
+        return Ok(vec![HeavyEvent::HeavyQueued { ask: a.clone(), at: now.0, place }]);
+    };
+    crate::only(
+        e.started_at.is_none() && e.ask.urgent != a.urgent,
+        HeavyEvent::HeavyMarked { id: a.id, urgent: a.urgent },
+    )
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

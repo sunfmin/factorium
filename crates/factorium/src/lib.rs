@@ -126,6 +126,7 @@ fn model() -> Model {
         .command::<issue::OpenIssue>()
         .command::<issue::EditIssue>()
         .command::<issue::NameIssueRole>()
+        .command::<issue::MarkUrgent>()
         .command::<issue::BlockIssue>()
         .command::<issue::WaitForHuman>()
         .command::<issue::ReadyIssue>()

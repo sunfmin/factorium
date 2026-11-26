@@ -64,6 +64,14 @@ pub fn holds(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Vec<String> 
     why
 }
 
+/// Whether an urgent issue may start now: only the memory and disk floors
+/// hold it, never the load (CPU, the workers' share, the queue's wait): one
+/// more session on a busy host runs slower, one on a host out of memory or
+/// disk fails.
+pub fn admit_urgent(r: &Reading, s: &Settings) -> Result<(), String> {
+    neutral::floors(&r.host(), &limits(s)).into_iter().next().map_or(Ok(()), Err)
+}
+
 /// Whether the disk is under its floor: the time to reclaim `target/`.
 pub fn disk_short(r: &Reading, s: &Settings) -> bool {
     neutral::disk_short(&r.host(), &limits(s))

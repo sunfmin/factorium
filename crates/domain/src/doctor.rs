@@ -159,6 +159,9 @@ pub struct LandingSeen {
     pub number: u64,
     /// Since when it asks, ms.
     pub since: i64,
+    /// Its issue is marked urgent: it lands ahead of those that are not.
+    #[serde(default)]
+    pub urgent: bool,
 }
 
 /// Admission held since `since`, ms, for `why`.
@@ -511,7 +514,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         }
     }
     let line_of = |c: &str| seen.lines.iter().find(|l| l.checkout == c);
-    for LandingSeen { worker: id, checkout, number, since } in &seen.landing {
+    for LandingSeen { worker: id, checkout, number, since, .. } in &seen.landing {
         let line = line_of(checkout).map(|l| &l.line);
         let held = line.is_some_and(|l| l.held.is_some());
         // Behind others on a line that moves (a landing, promotion, cut or job start) it waits its turn.

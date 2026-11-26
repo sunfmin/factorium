@@ -9,6 +9,7 @@
 use factum_core::{Aggregate, Uuid};
 use serde::{Deserialize, Serialize};
 
+use crate::issue::urgent_first;
 pub use crate::neutral::landing::{Bounds, CutFailure, Due, Landing, Line, LineEvent, Move, NotDue, Owed};
 use crate::settings::{Settings, Time};
 use crate::worker::Status;
@@ -31,14 +32,31 @@ impl Aggregate for Lines {
     }
 }
 
+/// A live worker of the checkout as the line sees it: its status, and
+/// whether its issue is marked urgent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seen {
+    pub worker: Uuid,
+    pub status: Status,
+    pub urgent: bool,
+}
+
+/// The workers of `workers` (oldest status first) asking to land, in the
+/// order they land: the urgent first ([`urgent_first`]), each part oldest first.
+pub fn in_line(workers: &[Seen]) -> Vec<Seen> {
+    let mut asking: Vec<Seen> = workers.iter().filter(|w| w.status == Status::Landing).copied().collect();
+    urgent_first(&mut asking, |w| w.urgent);
+    asking
+}
+
 /// What the app sees of the checkout now, for the line to judge: its live
 /// workers and their status, oldest status first. Those waiting for the
-/// watch do not keep it busy; of those asking to land, the first lands.
-pub fn look(now: i64, settings: &Settings, workers: &[(Uuid, Status)], by_hand: bool) -> crate::neutral::landing::Look {
+/// watch do not keep it busy; of those asking to land, the first [`in_line`] lands.
+pub fn look(now: i64, settings: &Settings, workers: &[Seen], by_hand: bool) -> crate::neutral::landing::Look {
     crate::neutral::landing::Look {
         now,
-        idle: workers.iter().all(|(_, s)| *s == Status::Waiting),
-        asks: workers.iter().find(|(_, s)| *s == Status::Landing).map(|(w, _)| *w),
+        idle: workers.iter().all(|w| w.status == Status::Waiting),
+        asks: in_line(workers).first().map(|w| w.worker),
         bounds: bounds(settings),
         by_hand,
     }

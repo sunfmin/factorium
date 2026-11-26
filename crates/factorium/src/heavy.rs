@@ -530,7 +530,13 @@ impl App {
         let (keep, rules) = (settings.ms(Time::HeavyKeep), self.rules.clone());
         let (resources, hold_for, window, lands) = (job.resources.clone(), job.hold_for, job.window, job.lands);
         let slots = settings.slots(&resources).map_err(|m| Refusal::new("unknown_resource", m))?;
-        let ask = Ask { id, what, pid, worker, program, bound_at, rules, resources, slots, hold_for, window, lands };
+        // Its issue's mark as it is now, at every ask: an edit reaches an entry that waits.
+        let urgent = match worker.or(lands) {
+            Some(w) => self.urgent_worker(w).await?,
+            None => false,
+        };
+        let ask =
+            Ask { id, what, pid, worker, program, bound_at, rules, resources, slots, hold_for, window, lands, urgent };
         let ask = Enqueue { ask, keep };
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.

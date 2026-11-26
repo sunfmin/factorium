@@ -230,6 +230,9 @@ pub enum IssueCmd {
         /// The model its worker starts on, by the id its engine starts it with (`agy models`: `claude-opus-5-5-high`): stablehand's pick is asked for it (`stablehand pick --model`), tried after the order's own where the order does not list it.
         #[arg(long, value_name = "MODEL", verbatim_doc_comment)]
         model: Option<String>,
+        /// Marks it urgent, the owner's mark (`worker file` cannot set it). Once nothing blocks it, it starts before every other ready issue, on the first tick the memory and disk floors allow (the CPU, the workers' share and `queue_wait_bound` do not hold it); its worker's heavy commands and its landing's gate go ahead of other workers' and programs' waiting entries, behind a line move past its bound; and its landing takes the next turn of its checkout's line, after a gate already running, never cutting one short. Among urgent issues the ordinary order holds. Blocks still hold it. `issue list`, `issue show`, `workers` and doctor's `landing` and `heavy` show `urgent: true`; a tick's start or landing that went ahead for it says so (`urgent`). The mark stays once it closes.
+        #[arg(long, verbatim_doc_comment)]
+        urgent: bool,
     },
     /// Answers the open issues, of one checkout or of all.
     #[command(verbatim_doc_comment)]
@@ -246,7 +249,7 @@ pub enum IssueCmd {
         #[arg(long)]
         steps: bool,
     },
-    /// Changes an issue's title, body or role. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
+    /// Changes an issue's title, body, role or urgent mark. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
     #[command(verbatim_doc_comment)]
     Edit {
         checkout: String,
@@ -264,6 +267,12 @@ pub enum IssueCmd {
         /// Takes its role away: its workers start from now with none.
         #[arg(long, verbatim_doc_comment)]
         no_role: bool,
+        /// Marks it urgent, as `issue add --urgent` says; a live worker's heavy commands and landing go ahead from their next ask.
+        #[arg(long, conflicts_with = "no_urgent", verbatim_doc_comment)]
+        urgent: bool,
+        /// Takes the urgent mark away: it goes back to the ordinary order.
+        #[arg(long, verbatim_doc_comment)]
+        no_urgent: bool,
     },
     /// Closes an issue; a worker on it ends.
     #[command(verbatim_doc_comment)]
@@ -520,20 +529,35 @@ impl Top {
                     role,
                     account,
                     model,
+                    urgent,
                 } => {
                     blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(body, body_file)?.unwrap_or_default();
                     let on = factorium_domain::issue::On { role, account, model };
-                    let waiting = waiting_for_human.then_some(why.as_deref());
-                    app.issue_add_on(&checkout, &title, &body, waiting, &waits(blocked_by, why.as_deref()), on).await
+                    let (blocked_by, why) = (waits(blocked_by, why.as_deref()), why.filter(|_| waiting_for_human));
+                    let open = factorium_domain::issue::Open {
+                        checkout,
+                        title,
+                        body,
+                        waiting_for_human,
+                        why,
+                        blocked_by,
+                        on,
+                        urgent,
+                        ..Default::default()
+                    };
+                    app.issue_file(open).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
                 IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
-                IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role } => {
+                IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role, urgent, no_urgent } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {
                         app.issue_name_role(&checkout, number, role.as_deref()).await?;
+                    }
+                    if urgent || no_urgent {
+                        app.issue_mark_urgent(&checkout, number, urgent).await?;
                     }
                     app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
                 }

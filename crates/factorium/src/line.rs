@@ -169,13 +169,13 @@ impl App {
     async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
-        let workers: Vec<_> = self
-            .live_workers()
-            .await?
-            .into_iter()
-            .filter(|w| w.checkout == c.name)
-            .map(|w| (w.worker, w.state.status))
-            .collect();
+        let mut workers = Vec::new();
+        let mut issues = std::collections::BTreeMap::new();
+        for w in self.live_workers().await?.into_iter().filter(|w| w.checkout == c.name) {
+            let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
+            issues.insert(w.worker, format!("{}#{}", w.checkout, w.number));
+            workers.push(line::Seen { worker: w.worker, status: w.state.status, urgent });
+        }
         let look = line::look(self.now(), &settings, &workers, by_hand);
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
@@ -187,7 +187,25 @@ impl App {
                 None => Ok(Err(line::why(NotDue::CutFailed { version, why }))),
             },
             Err(not) => Ok(Err(line::why(not))),
-            Ok(Due::Land(worker)) => self.land(c, worker).await,
+            Ok(Due::Land(worker)) => {
+                let did = self.land(c, worker).await?;
+                // Urgent, it went ahead of the landings that asked before it: said so.
+                let first = workers.iter().find(|w| w.status == w::Status::Landing).map(|w| w.worker);
+                if first == Some(worker) {
+                    return Ok(did);
+                }
+                let before = workers.iter().take_while(|w| w.worker != worker);
+                let ahead_of: Vec<_> = before.filter(|w| w.status == w::Status::Landing && !w.urgent).collect();
+                let ahead_of: Vec<_> = ahead_of.iter().filter_map(|w| issues.get(&w.worker)).collect();
+                let went = json!({ "ahead_of": ahead_of });
+                Ok(Ok(match did {
+                    Ok(mut v) => {
+                        v["urgent"] = went;
+                        v
+                    }
+                    Err(why) => json!({ "worker": worker, "lands": issues.get(&worker), "urgent": went, "then": why }),
+                }))
+            }
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,
             Ok(Due::Cut) => self.cut_base(c, by_hand, bound_at).await,
         }
