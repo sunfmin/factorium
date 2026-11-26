@@ -631,12 +631,17 @@ fn engine_vars(engine: &str) -> Option<(&'static str, Option<&'static str>, &'st
 }
 
 /// This machine as stablehand names it: `$STABLEHAND_MACHINE`, else
-/// `hostname -s`.
+/// `hostname -s`. Read once a run: each login a stand-in checks asks it.
 fn stablehand_machine() -> String {
-    std::env::var("STABLEHAND_MACHINE").unwrap_or_else(|_| {
-        let out = Command::new("hostname").arg("-s").output().unwrap();
-        String::from_utf8(out.stdout).unwrap().trim().to_string()
-    })
+    static MACHINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MACHINE
+        .get_or_init(|| {
+            std::env::var("STABLEHAND_MACHINE").unwrap_or_else(|_| {
+                let out = Command::new("hostname").arg("-s").output().unwrap();
+                String::from_utf8(out.stdout).unwrap().trim().to_string()
+            })
+        })
+        .clone()
 }
 
 impl FakeStablehand {
@@ -1206,10 +1211,15 @@ pub(super) fn home(root: &Path) -> PathBuf {
 
 /// Makes the home of the world at `root`. Its git config turns off git's
 /// automatic maintenance, which each fetch, commit and merge would otherwise
-/// start as one more process, left running detached (factorium#98).
+/// start as one more process, left running detached (factorium#98), and
+/// lets git reach only local paths: a scenario's origin that names a host
+/// (`git@example.com:…`) is refused at once, as one that cannot be
+/// reached, instead of waiting out ssh's connect timeout (458s of one
+/// scenario's wall time, measured 2026-11-26).
 pub(super) fn make_home(root: &Path) {
     std::fs::create_dir_all(home(root)).unwrap();
-    std::fs::write(home(root).join(".gitconfig"), "[maintenance]\n\tauto = false\n").unwrap();
+    let config = "[maintenance]\n\tauto = false\n[protocol]\n\tallow = never\n[protocol \"file\"]\n\tallow = always\n";
+    std::fs::write(home(root).join(".gitconfig"), config).unwrap();
 }
 
 /// git in `dir` as the host of the world at `root` runs it: with its home,
