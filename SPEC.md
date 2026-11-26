@@ -100,7 +100,7 @@ leaves it out: the daemon runs the look.
    `worker gate` is allowed, not required. An issue whose work changes no
    code (a publish, a measurement) it finishes, its branch holding no
    commits, with `factorium worker done --no-landing "<evidence>"`: the
-   daemon closes the issue with it, running no gate (factorium#282). What it wants kept (a measurement)
+   daemon closes the issue with it, running no gate. What it wants kept (a measurement)
    it records with `factorium worker comment`, a comment on its issue
    that changes nothing else and goes to no one (decisions go to the
    watch: `worker escalate`). A follow-up its issue asks for
@@ -112,10 +112,10 @@ leaves it out: the daemon runs the look.
    It changes no other issue.
 5. Landing (§1.12), the urgent first (§1.17). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. Its merge is checked from `done` on, not only
-   at its turn (§1.12, factorium#307). A branch that does not merge onto the proving
+   at its turn (§1.12). A branch that does not merge onto the proving
    tip is not the second red when the red before was one onto an older
    tip, which the branch now holds: proving moved since the worker merged
-   what it was told (factorium#171). It is told as for a first red, with
+   what it was told. It is told as for a first red, with
    what landed since that tip and the files that conflict; past
    `moved_reds_max` of these in a row, it counts. A red that does not reach the session's prompt
    (no turn starts and none runs) goes to the watch at once.
@@ -135,18 +135,14 @@ leaves it out: the daemon runs the look.
    worktree goes, so the next start is branched from the proving tip. The
    issue stays ready or waiting for a human as it was.
    A start and the commands that abandon a worktree (start-over, close,
-   discard) each claim the issue, one at a time: a start from taking it to
+   discard) each claim the issue, one at a time: a start from its take to
    its worker recorded started (or undone), a command from its read to its
    act's end. A start skips a claimed issue, and a command is refused while
    one is under way, so none acts on what it read while another changed
-   it; a claim whose process is gone is cleared by the next tick (or the
-   next command's claim).
-   The owner's stop always wins over a start: `issue wait-for-human` and
-   `issue close` are never refused because a start is under way (a close
-   then abandons nothing). The start, once it records its worker started,
-   reads the issue again; one that no longer holds it ready (it waits for a
-   person, or it closed) has that worker ended as the stop would have, its
-   worktree kept, and the tick's `started` says why (`ended`).
+   it; a dead process's claim is cleared by the next tick or claim. The
+   owner's stop wins: a start refuses no `close` (abandoning nothing) or
+   `wait-for-human`; its worker recorded, a start whose issue is not
+   ready ends it, worktree kept; `ended` says why.
    Closing an issue unlanded (`issue close`, by the owner or the watch)
    removes the worktree its last attempt left on disk the same way: its
    uncommitted changes are committed, its branch is kept as
