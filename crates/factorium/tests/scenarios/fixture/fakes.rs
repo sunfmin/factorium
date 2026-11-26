@@ -1215,7 +1215,7 @@ pub(super) fn home(root: &Path) -> PathBuf {
 /// lets git reach only local paths: a scenario's origin that names a host
 /// (`git@example.com:…`) is refused at once, as one that cannot be
 /// reached, instead of waiting out ssh's connect timeout (458s of one
-/// scenario's wall time, factorium#366).
+/// scenario's wall time, measured 2026-11-26).
 pub(super) fn make_home(root: &Path) {
     std::fs::create_dir_all(home(root)).unwrap();
     let config = "[maintenance]\n\tauto = false\n[protocol]\n\tallow = never\n[protocol \"file\"]\n\tallow = always\n";

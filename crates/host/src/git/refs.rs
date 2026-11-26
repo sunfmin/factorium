@@ -2,7 +2,7 @@
 //! commit a branch or remote-tracking ref names, read from the repo's ref
 //! files, and answers fixed by the object ids they name, kept once git gave
 //! them. A tick asks every checkout for its base's lag and the files its
-//! tips declare; each asked of git is one more process (factorium#366).
+//! tips declare; each asked of git is one more process (~6ms of CPU here).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
