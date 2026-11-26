@@ -94,6 +94,12 @@
     "sentence": "Until factorium#240 a cut (`packaging/release.sh cut`) built on the cutting host, for aarch64 only, and published from there: the archive to the tap's release, the formula to the tap, `depends_on arch: :arm64`. The binary was only ad hoc signed; Intel Macs could not run it and Gatekeeper rejected a copy downloaded in a browser.",
     "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:8"
   },
+  "17c103f8c25b": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is truefit's own configuration, not code that keeps a promise: the fixes (factorium#186-189) only registered the line and worktrees models, named their covers, and moved each model's pinned commit. The promises those fixes keep are already registered with model checks (model line, line-live, worktrees) whose covers name the code they stand for."
+  },
   "18135f5883da": {
     "mark": "promise",
     "sentence": "A resource is a name and a capacity rule, with one queue each, the rule of the neutral queue (`neutral/queue.rs`): the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves; one past its bound goes ahead of those that yield (factorium#286). Nobody knows how long an issue takes before it starts; a holder knows how long it holds when it asks, so the order is the resource queue's, never the issue's: it replaces hand-ordered `issue block` chains between issues that share a device.",
