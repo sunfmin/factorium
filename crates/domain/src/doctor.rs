@@ -159,6 +159,9 @@ pub struct LandingSeen {
     pub number: u64,
     /// Since when it asks, ms.
     pub since: i64,
+    /// Its issue is marked urgent: it lands ahead of those that are not.
+    #[serde(default)]
+    pub urgent: bool,
 }
 
 /// Admission held since `since`, ms, for `why`.
@@ -280,6 +283,17 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
                  holds; the next promotion of a newer commit owes the cut again, or a cut by hand tries it now",
             );
         }
+    }
+    if !seen.queue.halt.is_empty() {
+        let by = seen.queue.halt.join(", ");
+        add(
+            format!("halt:{by}"),
+            format!(
+                "urgent {by} halts every other start: no other worker, heavy command, landing, promotion or cut starts"
+            ),
+            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick resumes \
+             the rest in their order",
+        );
     }
     stalls(seen, s, now, &mut add);
     resources(seen, s, now, &mut add);
@@ -511,9 +525,11 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         }
     }
     let line_of = |c: &str| seen.lines.iter().find(|l| l.checkout == c);
-    for LandingSeen { worker: id, checkout, number, since } in &seen.landing {
+    // Halted, what waits behind the urgent issues is the halt's finding, not a stall.
+    let halted = !q.halt.is_empty();
+    for LandingSeen { worker: id, checkout, number, since, urgent } in &seen.landing {
         let line = line_of(checkout).map(|l| &l.line);
-        let held = line.is_some_and(|l| l.held.is_some());
+        let held = line.is_some_and(|l| l.held.is_some()) || (halted && !urgent);
         // Behind others on a line that moves (a landing, promotion, cut or job start) it waits its turn.
         let moved = line.and_then(|l| l.moved).max(q.started(checkout)).unwrap_or(*since).max(*since);
         if held || now - moved <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
@@ -530,7 +546,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             &format!("{unqueue}; the next tick gates the landing. If the daemon does not tick, see its daemon.log"),
         );
     }
-    for LineSeen { checkout, line, cuts, .. } in &seen.lines {
+    for LineSeen { checkout, line, cuts, .. } in seen.lines.iter().filter(|_| !halted) {
         if let (Some(o), Some(owed)) = (line.unpromoted.first(), line.owed(Move::Promote, now, &line::bounds(s)))
             && owed.overdue()
             && line.red.is_none()
