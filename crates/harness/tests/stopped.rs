@@ -49,7 +49,7 @@ fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
 }
 
 /// agy 1.5.17's quota of its Claude-and-GPT group ("Third-party", seen on
-/// horizon-labs#15's worker 2026-11-26) is a limit too, reset as its screen
+/// a horizon-labs worker 2026-11-26) is a limit too, reset as its screen
 /// says, wrapped at the terminal's width as agy 1.5.14's: the group's 5-hour
 /// window (`3p-5h`) for a reset within five hours, its weekly one past it.
 #[test]

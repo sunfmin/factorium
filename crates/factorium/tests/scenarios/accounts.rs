@@ -188,8 +188,8 @@ async fn an_engine_s_limit_with_its_reset_is_told_to_stablehand_with_that_time()
     assert_eq!(w.host.stablehand.lock().unwrap().limits["sky"], Some(until / 1000 * 1000));
 }
 
-/// agy 1.5.17's quota of its Claude-and-GPT group, as horizon-labs#15's
-/// worker's screen showed it (factorium#364), wrapped at the width: its
+/// agy 1.5.17's quota of its Claude-and-GPT group, as a horizon-labs
+/// worker's screen showed it on 2026-11-26, wrapped at the width: its
 /// account's `3p-5h` window is told to stablehand as used up until the
 /// reset, and its worker is parked, not found hung half an hour on.
 #[tokio::test]

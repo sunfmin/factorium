@@ -391,7 +391,7 @@ const ITS_ROWS: usize = 5;
 /// agy's quota on its screen (agy 1.5.14, seen on five horizon-labs
 /// workers' screens 2026-11-22: `⚠ Individual quota reached. Please upgrade
 /// your subscription to increase your limits. Resets in 2h50m4s.`; agy
-/// 1.5.17, horizon-labs#15's 2026-11-26: `⚠ Third-party quota reached.
+/// 1.5.17, a horizon-labs worker's 2026-11-26: `⚠ Third-party quota reached.
 /// Please switch to Gemini models or upgrade your subscription to increase
 /// your limits.`, `Resets in 2h17m29s.` on a row of its own; each wrapped at
 /// the width, then `Error ID: …`): its words the lines up to the error's
