@@ -950,7 +950,7 @@ check = ["test"]
 [[promise]]
 name = "worker-comment-changes-nothing"
 says = "a comment on its issue that changes nothing else and goes to no one"
-source = "docs/adr/0018-a-worker-hands-in-through-done.md:22"
+source = "docs/adr/0018-a-worker-hands-in-through-done.md:23"
 check = ["test"]
 
 [[promise]]
@@ -1298,7 +1298,7 @@ why = "factorium has no `truefit sim`, and models/Line.tla has no merge; each ti
 [[promise]]
 name = "moved-red-not-second-red"
 says = "A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds"
-source = "docs/adr/0018-a-worker-hands-in-through-done.md:27"
+source = "docs/adr/0018-a-worker-hands-in-through-done.md:28"
 check = ["test"]
 
 [[promise]]

@@ -14,10 +14,11 @@ happened only from what reaches its session's prompt.
 - Text is typed at a session only once its harness's own screen is up there: typed at a shell, a line is a command it runs.
   A question the harness opens on its own mid-session is dismissed first
   with the harness's own key.
-- The worker checks what it changed (fmt, clippy, its crates' tests,
-  through `worker exclusive`), then runs `worker done`: a change's one
-  full gate is its landing's, on the merge ([ADR 0012](0012-the-line-gate-landing-promotion-cut.md)); `worker gate` is
-  allowed, not required. Work that changes no code ends with `worker done
+- The worker runs its gate's cheap whole-repo steps (`./lines.sh`, fmt,
+  clippy, `truefit contract`, `docfit check`) and its crates' tests,
+  through `worker exclusive`, the rest left to its landing, the one full
+  gate, on the merge ([ADR 0012](0012-the-line-gate-landing-promotion-cut.md)); then `worker done` (`worker gate`
+  optional). Work that changes no code ends with `worker done
   --no-landing "<evidence>"`, and no gate runs.
 - What it wants kept it records with `worker comment`, a comment on its issue that changes nothing else and goes to no one; decisions go to the watch (`worker escalate`).
   A follow-up it files with `worker file`; it changes no other issue.
