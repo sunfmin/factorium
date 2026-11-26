@@ -2,7 +2,7 @@
 //! it (or answers as it would, where that is certain: `refs`) — with the host's home, so with the config that home holds and no
 //! other — and answers what it printed, or why it failed. The app makes one
 //! through [`crate::Host`]; a checkout's repo is one value, and what the app
-//! does to it (fetch a tip, a fresh work dir, a push that requires what it
+//! does to it (fetch a tip, a work dir detached, a push that requires what it
 //! read, a file at a rev, a tag) is a method here, not git arguments there.
 
 use std::path::{Path, PathBuf};
@@ -207,49 +207,34 @@ impl Git {
         self.run(&["push", "--quiet", &lease, "origin", &format!("{sha}:refs/heads/{branch}")]).map(|_| ())
     }
 
-    /// A work dir of this repo at `path`, detached on `rev`: a clone sharing
-    /// this repo's objects, whose `origin` is this one's origin, keeping its
-    /// ignored files (builds) from before. Each time it is made or reused it
-    /// gets this repo's tags and remote-tracking refs (`origin/*`, with
-    /// `origin/HEAD`) as this repo has them now, those it lacks pruned: a
-    /// gate there sees the refs a worktree of this repo sees, and measures
-    /// against the base this repo has (factorium#109, factorium#131).
-    /// Neither git nor Orca counts it among this repo's worktrees; one made
-    /// as a worktree before is made again as a clone.
-    pub fn fresh(&self, path: &Path, rev: &str) -> Result<Git, String> {
-        let here = self.at(path);
-        if path.join(".git").is_file() {
-            self.worktree_remove(path)?;
+    /// This worktree, detached on `rev` as git checks it out, nothing else
+    /// in it: the branch it was made on (Orca makes each on one) deleted.
+    /// A worktree of the checkout sees its tags and remote-tracking refs
+    /// as the checkout has them, so a gate here measures against the base
+    /// the checkout has.
+    pub fn detached(&self, rev: &str) -> Result<(), String> {
+        let branch = self.run(&["symbolic-ref", "--quiet", "--short", "HEAD"]).ok();
+        self.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
+        self.run(&["clean", "-fdq"])?;
+        match branch {
+            Some(b) => self.run(&["branch", "-D", &b]).map(|_| ()),
+            None => Ok(()),
         }
-        let from = self.dir.to_string_lossy();
-        if !path.join(".git").is_dir() {
-            std::fs::create_dir_all(path.parent().unwrap_or(path)).map_err(|e| e.to_string())?;
-            let origin = self.run(&["remote", "get-url", "origin"])?;
-            self.run(&["clone", "--quiet", "--shared", "--no-checkout", &from, &path.to_string_lossy()])?;
-            here.run(&["remote", "set-url", "origin", &origin])?;
-        }
-        let refs = ["+refs/tags/*:refs/tags/*", "+refs/remotes/origin/*:refs/remotes/origin/*"];
-        here.run(&["fetch", "--quiet", "--force", "--prune", &from, refs[0], refs[1]])?;
-        here.run(&["checkout", "--quiet", "--detach", "--force", rev])?;
-        here.run(&["clean", "-fdq"])?;
-        Ok(here)
     }
 
-    /// Merges `branch` of the repo at `from` here as one merge commit with
-    /// `message`; answers it and the conflicting paths it took this side's
-    /// copy of. Those are taken only when every conflicting path matches a
+    /// The commits `HEAD` holds that no branch, tag or remote-tracking ref
+    /// holds, newest first, as `<sha> <subject>`.
+    pub fn own_commits(&self) -> Result<Vec<String>, String> {
+        let listed = self.run(&["log", "--format=%H %s", "HEAD", "--not", "--branches", "--tags", "--remotes"])?;
+        Ok(listed.lines().map(str::to_string).collect())
+    }
+
+    /// Merges `branch`, of this repo (a worktree shares its branches), here
+    /// as one merge commit with `message`; answers it and the conflicting
+    /// paths it took this side's copy of. Those are taken only when every conflicting path matches a
     /// glob pathspec of `regenerated`; any other conflict aborts the merge.
-    pub fn merge_from(
-        &self,
-        from: &Path,
-        branch: &str,
-        message: &str,
-        regenerated: &[String],
-    ) -> Result<(String, Vec<String>), NoMerge> {
-        let refspec = format!("+refs/heads/{branch}:refs/heads/{branch}");
-        let merged = self
-            .run(&["fetch", "--quiet", &from.to_string_lossy(), &refspec])
-            .and_then(|_| self.run(&["merge", "--no-ff", "--no-edit", "-m", message, branch]));
+    pub fn merge(&self, branch: &str, message: &str, regenerated: &[String]) -> Result<(String, Vec<String>), NoMerge> {
+        let merged = self.run(&["merge", "--no-ff", "--no-edit", "-m", message, branch]);
         let Err(e) = merged else { return Ok((self.sha("HEAD").map_err(NoMerge::git)?, Vec::new())) };
         let unmerged = |specs: &[String]| -> Vec<String> {
             let mut args = vec!["diff", "--name-only", "--diff-filter=U", "--"];
@@ -313,10 +298,15 @@ impl Git {
         self.sha("HEAD")
     }
 
-    /// Tags `sha` as `version` and pushes the tag to origin.
+    /// Tags `sha` as `version` and pushes the tag to origin. A tag origin
+    /// refused is deleted here: a tag the repo has is one origin has.
     pub fn tag_pushed(&self, version: &str, sha: &str) -> Result<(), String> {
         self.run(&["tag", "-a", version, "-m", version, sha])?;
-        self.run(&["push", "--quiet", "origin", &format!("refs/tags/{version}")]).map(|_| ())
+        let pushed = self.run(&["push", "--quiet", "origin", &format!("refs/tags/{version}")]).map(|_| ());
+        if pushed.is_err() {
+            let _ = self.run(&["tag", "-d", version]);
+        }
+        pushed
     }
 
     /// Removes the worktree at `path`; one already gone is removed.

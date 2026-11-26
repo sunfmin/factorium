@@ -18,7 +18,7 @@ pub mod shell;
 pub use brew::Brew;
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use git::{Git, Lag, NoMerge};
-pub use orca::{Delivery, Orca, Term};
+pub use orca::{Delivery, Listed, Orca, Term};
 pub use procs::Proc;
 pub use reading::Reading;
 pub use shell::{PLACE, Priority, Programs, Ran, Said, System, end, run};

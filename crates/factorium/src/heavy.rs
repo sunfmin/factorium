@@ -99,6 +99,11 @@ impl<'a> Job<'a> {
     pub(crate) fn landing(self, worker: Option<Uuid>) -> Self {
         Job { lands: worker, ..self }
     }
+    /// The job, its steps run with `env` besides.
+    pub(crate) fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env.extend(env);
+        self
+    }
     /// The job for `worker`, or for a line move due by `bound_at`.
     pub(crate) fn of(self, worker: Option<Uuid>, bound_at: Option<i64>) -> Self {
         Job { worker, bound_at, ..self }
@@ -160,6 +165,16 @@ impl For {
 
 /// A run beside the ticks and what it is for, kept as one.
 pub(crate) struct Beside(Running, For);
+
+impl Beside {
+    /// The work dir it runs in.
+    pub(crate) fn dir(&self) -> &Path {
+        match &self.1 {
+            For::Idle(idle) => idle.dir(),
+            For::Line(moving) => moving.dir(),
+        }
+    }
+}
 
 /// A job's steps running on a thread of their own, as entry `id`: beside
 /// the ticks, within `deadline` on the app's clock; ended once it must, `why`.

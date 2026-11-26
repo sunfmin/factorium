@@ -2,8 +2,8 @@
 //! the proving tip and pushes it once the fast gate is green; a promotion
 //! fast-forwards the base branch to the proving tip once the slow gate is
 //! green; a cut makes a version from the base tip ([`cut`]). Each push
-//! requires the tip it read. Each runs in its own clone of the checkout
-//! under the data directory. The daemon runs every heavy step of a move — a
+//! requires the tip it read. Each runs in a work dir of its own, removed
+//! when it ends ([`crate::workdir`]). The daemon runs every heavy step of a move — a
 //! landing's fast gate, a promotion's slow gate, a cut's steps — beside its
 //! ticks ([`Moving`]), so no tick waits for one (factorium#231): the next
 //! tick finds how they ended and finishes the move. A checkout's moves go one at a time: none
@@ -35,7 +35,7 @@ use crate::gate::{At, Gated};
 use crate::heavy::For;
 use crate::life::End;
 use crate::lock::{self, Taken};
-use crate::{Answer, App, LineClone, Want, fail};
+use crate::{Answer, App, LineDir, Want, fail};
 
 /// Fast-forwards the checkout's local base to `tip`, never further, where
 /// nothing of it is lost; answers what it did, if it moved or failed.
@@ -71,6 +71,22 @@ pub(crate) struct Moving {
 }
 
 impl Moving {
+    /// The work dir it runs in.
+    pub(crate) fn dir(&self) -> &Path {
+        match &self.then {
+            Then::Land { dir, .. } | Then::Promote { dir, .. } | Then::Cut { dir, .. } => dir,
+        }
+    }
+
+    /// The kind of job it is.
+    fn kind(&self) -> LineDir {
+        match &self.then {
+            Then::Land { .. } => LineDir::Landing,
+            Then::Promote { .. } => LineDir::Promotion,
+            Then::Cut { .. } => LineDir::Cut,
+        }
+    }
+
     /// The worker it lands, if it is a landing.
     pub(crate) fn lands(&self) -> Option<Uuid> {
         match &self.then {
@@ -81,12 +97,12 @@ impl Moving {
 }
 
 enum Then {
-    /// The landing of a worker's branch, merged in the clone `dir`.
+    /// The landing of a worker's branch, merged in the work dir `dir`.
     Land { landing: Landing, dir: std::path::PathBuf },
-    /// The promotion of the proving `tip` over `base`, its slow gate run in the clone `dir`,
+    /// The promotion of the proving `tip` over `base`, its slow gate run in the work dir `dir`,
     /// holding the checkout's promotion lock.
     Promote { tip: String, base: String, dir: std::path::PathBuf, _lock: std::sync::Arc<std::fs::File> },
-    /// The cut of `version` from `base`, its `steps` run in the clone `dir`.
+    /// The cut of `version` from `base`, its `steps` run in the work dir `dir`.
     Cut { version: String, base: String, dir: std::path::PathBuf, steps: Vec<String> },
 }
 
@@ -144,8 +160,15 @@ impl App {
     }
 
     /// Finishes `moving`, whose steps ran beside the ticks and `ended` so: unqueued while they
-    /// ran, it is due again.
+    /// ran, it is due again. Its work dir goes either way.
     async fn moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
+        let (kind, checkout, dir) = (moving.kind(), moving.checkout.clone(), moving.dir().to_path_buf());
+        let did = self.finish_moved(moving, ended).await;
+        let _ = self.work_dir_done(kind, &checkout, &dir);
+        did
+    }
+
+    async fn finish_moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
         let c = self.checkout(&moving.checkout).await?;
         let Ok(rans) = ended else {
             return Ok(Err(format!("a move of {} ended while it ran: {}", c.name, ended.unwrap_err())));
@@ -282,27 +305,37 @@ impl App {
         let Some(st) = wk.started.clone() else { return Ok(Err("the worker never started".into())) };
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.proving).map_err(fail("git"))?;
-        let here = git.fresh(&self.data().clone_of(LineClone::Landing, &c.name), &tip).map_err(fail("git"))?;
         let issue = self.issue(&c.name, st.number).await?;
-        let message = format!("Land {}#{}: {}", c.name, st.number, issue.title);
-        // The worker's branch lives in the checkout, not in this clone. Conflicts only in the
-        // records the gate regenerates take proving's copy, rewritten by the gate below (#225).
+        let (name, short) = (format!("{}#{}", c.name, st.number), &tip[..tip.len().min(7)]);
+        let about = format!(
+            "factorium's landing of {name} ({}): its branch {} merged onto the proving tip {short}, its fast gate run here.",
+            issue.title, st.branch
+        );
+        let here = self.work_dir(c, LineDir::Landing, &name, &about, &tip)?;
+        let message = format!("Land {name}: {}", issue.title);
+        // Conflicts only in the records the gate regenerates take proving's copy, rewritten by
+        // the gate below (#225).
         let records = self.declared(&here, &tip)?.gate.regenerated;
         // Read before the merge: a branch that moves after it is merged again, never pushed unseen.
         let head = git.sha(&st.branch).map_err(fail("git"))?;
-        let (merged, regenerated) = match here.merge_from(Path::new(&c.path), &st.branch, &message, &records) {
+        let (merged, regenerated) = match here.merge(&st.branch, &message, &records) {
             Ok(merged) => merged,
-            Err(e) => return self.not_merging(&git, worker, &wk, &tip, e).await.map(Ok),
+            Err(e) => {
+                let _ = self.work_dir_done(LineDir::Landing, &c.name, &here.dir);
+                return self.not_merging(&git, worker, &wk, &tip, e).await.map(Ok);
+            }
         };
         let landing = Landing { worker, tip, head, merged, message, regenerated };
         let then = Then::Land { landing: landing.clone(), dir: here.dir.clone() };
         let moving = Box::new(Moving { checkout: c.name.clone(), then });
         let at = At::Beside { rev: &landing.merged, bound_at: None, moving };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Fast).await? else { return Ok(Err(QUEUED.into())) };
-        self.land_gated(c, &here, landing, gated).await
+        let did = self.land_gated(c, &here, landing, gated).await;
+        let _ = self.work_dir_done(LineDir::Landing, &c.name, &here.dir);
+        did
     }
 
-    /// Lands `landing` in the clone `here` as its fast gate says: red, the worker is told; green,
+    /// Lands `landing` in the work dir `here` as its fast gate says: red, the worker is told; green,
     /// proving is pushed to the merge. Not once the worker no longer asks to land, or its branch
     /// moved since the merge: it lands again on a later tick.
     async fn land_gated(&self, c: &Checkout, here: &Git, landing: Landing, gated: Gated) -> Answer<Did> {
@@ -366,8 +399,8 @@ impl App {
         by_hand: bool,
         bound_at: Option<i64>,
     ) -> Answer<Did> {
-        // One promotion of a checkout at a time: a second would reset the
-        // clone under the running one's slow gate.
+        // One promotion of a checkout at a time: a second would share the
+        // build cache with the running one's slow gate.
         let who = if by_hand { "`factorium promote`" } else { "the daemon's promotion" };
         let running = match lock::take(
             &self.data().promotion_lock(&c.name),
@@ -383,7 +416,12 @@ impl App {
             }
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
-        let here = git.fresh(&self.data().clone_of(LineClone::Promotion, &c.name), &tip).map_err(fail("git"))?;
+        let short = &tip[..tip.len().min(7)];
+        let about = format!(
+            "factorium's promotion of {}: its slow gate run on the proving tip {short}, the base {} moved to it once green.",
+            c.name, c.base
+        );
+        let here = self.work_dir(c, LineDir::Promotion, &format!("{} {short}", c.name), &about, &tip)?;
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {
@@ -393,7 +431,9 @@ impl App {
             At::Beside { rev: &tip, bound_at, moving: Box::new(moving) }
         };
         let Some(gated) = self.gate(&c.name, &here, at, Kind::Slow).await? else { return Ok(Err(QUEUED.into())) };
-        self.promote_gated(c, git, tip, base, gated).await
+        let did = self.promote_gated(c, git, tip, base, gated).await;
+        let _ = self.work_dir_done(LineDir::Promotion, &c.name, &here.dir);
+        did
     }
 
     /// Promotes the proving `tip` of `c` over `base` as its slow gate says: red, it is recorded

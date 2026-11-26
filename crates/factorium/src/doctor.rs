@@ -64,6 +64,7 @@ impl App {
         seen.human = w.reports.iter().filter(|r| r.round > w.seen).filter_map(|r| r.human.clone()).collect();
         (seen.orphans, seen.unclosed) = self.orphans(&w).await?;
         seen.orphaned = self.orphaned().await?;
+        seen.kept_dirs = self.work_dirs_kept();
         let dead = self.engine.dead_letters(factorium_domain::tracker::TRACKER).await?;
         if !dead.is_empty() {
             let projection = factorium_domain::tracker::TRACKER.into();

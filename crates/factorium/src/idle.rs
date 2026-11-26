@@ -24,20 +24,27 @@ use serde_json::json;
 
 use crate::heavy::{For, Job, Turn};
 use crate::load::Load;
-use crate::{Answer, App, LineClone, Refusal, fail};
+use crate::{Answer, App, LineDir, Refusal, fail};
 
 /// The idle work running now, of one checkout: the host runs one at a time.
 pub(crate) struct Running {
     checkout: String,
     tip: String,
     at: i64,
-    /// Its clone.
+    /// Its work dir.
     dir: std::path::PathBuf,
     /// Its steps, and their limit in all, s.
     steps: Vec<String>,
     limit: u64,
     /// Where its `tasks` line prints, if it has one.
     tasks: Option<std::path::PathBuf>,
+}
+
+impl Running {
+    /// Its work dir.
+    pub(crate) fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
 }
 
 impl App {
@@ -52,14 +59,18 @@ impl App {
         };
         match ended {
             Ok(rans) => self.idle_ran(*idle, rans).await.map(Some),
-            Err(ends) => Ok(Some(json!({ "idle": idle.checkout, "tip": idle.tip, "yielded": ends.to_string() }))),
+            Err(ends) => {
+                let _ = self.work_dir_done(LineDir::Idle, &idle.checkout, &idle.dir);
+                Ok(Some(json!({ "idle": idle.checkout, "tip": idle.tip, "yielded": ends.to_string() })))
+            }
         }
     }
 
     /// Records `idle`'s run, whose steps ran so: the tasks it printed filed
     /// first, if it was green. Answers the record, with the issues filed.
     async fn idle_ran(&self, idle: Running, rans: Vec<Ran>) -> Answer<Value> {
-        let Running { checkout, tip, at, steps, limit, tasks, .. } = idle;
+        let Running { checkout, tip, at, steps, limit, tasks, dir } = idle;
+        let removed = self.work_dir_done(LineDir::Idle, &checkout, &dir);
         let took_ms = rans.iter().map(|r| r.took_ms).sum();
         let (mut green, mut tail) = match rans.last().filter(|r| !r.ok) {
             None => (true, rans.last().map(|r| r.tail.clone()).unwrap_or_default()),
@@ -75,9 +86,11 @@ impl App {
         }
         let run = Run { tip: tip.clone(), at, green, took_ms, tail: tail.clone() };
         self.submit::<RecordIdle>(idle::Ran { checkout: checkout.clone(), run }).await?;
-        Ok(
-            json!({ "idle": checkout, "tip": tip, "at": at, "green": green, "took_ms": took_ms, "tail": tail, "filed": filed }),
-        )
+        let mut did = json!({ "idle": checkout, "tip": tip, "at": at, "green": green, "took_ms": took_ms, "tail": tail, "filed": filed });
+        if let Err(e) = removed {
+            did["work_dir"] = json!(e);
+        }
+        Ok(did)
     }
 
     /// Files as issues of `checkout` the tasks its run printed to `out` at
@@ -134,25 +147,30 @@ impl App {
         let Some(idle) = self.idle_ready(c, overdue).await? else { return Ok(None) };
         let (checkout, tip, dir, steps) =
             (idle.checkout.clone(), idle.tip.clone(), idle.dir.clone(), idle.steps.clone());
-        let job = Job::idle(idle::job(&checkout), &dir, &steps, idle.limit);
+        let job = Job::idle(idle::job(&checkout), &dir, &steps, idle.limit)
+            .with_env(self.cache_env(LineDir::Idle, &checkout));
         let turn = Turn::Beside { key: None, yields: !overdue, of: For::Idle(Box::new(idle)) };
         if self.heavy(job, turn).await?.is_none() {
+            let _ = self.work_dir_done(LineDir::Idle, &checkout, &dir);
             return Ok(None);
         }
         Ok(Some(json!({ "idle": checkout, "tip": tip, "started": true })))
     }
 
-    /// `c`'s idle work at its base's tip, fetched now, in its own clone made
-    /// afresh: its steps, then its `tasks` line; `overdue`, the tasks alone.
+    /// `c`'s idle work at its base's tip, fetched now, in a work dir of its
+    /// own: its steps, then its `tasks` line; `overdue`, the tasks alone.
     /// `None`: the tip declares no `[idle]`.
     async fn idle_ready(&self, c: &Checkout, overdue: bool) -> Answer<Option<Running>> {
         let git = self.host.git(&c.path);
         let tip = git.fetch(&c.base).map_err(fail("git"))?;
         let Some(mut work) = self.declared(&git, &tip)?.idle else { return Ok(None) };
-        let here = git.fresh(&self.data().clone_of(LineClone::Idle, &c.name), &tip).map_err(fail("git"))?;
+        let short = &tip[..tip.len().min(7)];
+        let about = format!("factorium's idle work of {} on its base {short}: its steps and tasks line.", c.name);
+        let here = self.work_dir(c, LineDir::Idle, &c.name, &about, &tip)?;
         work.steps.retain(|_| !overdue); // overdue: the tasks alone
         let tasks = work.tasks.as_ref().map(|line| {
-            let out = here.dir.with_extension("tasks");
+            let out = self.data().idle_tasks(&c.name);
+            let _ = std::fs::create_dir_all(out.parent().unwrap_or(&out));
             let _ = std::fs::remove_file(&out);
             work.steps.push(format!("( {line} ) > '{}'", out.display()));
             out
@@ -184,7 +202,8 @@ impl App {
             );
             return Err(Refusal::new("no_idle", why));
         };
-        let job = Job::idle(idle::job(&c.name), &idle.dir, &idle.steps, idle.limit);
+        let job = Job::idle(idle::job(&c.name), &idle.dir, &idle.steps, idle.limit)
+            .with_env(self.cache_env(LineDir::Idle, &c.name));
         let rans = self.heavy(job, Turn::Wait).await?.expect("a waited turn");
         self.idle_ran(idle, rans).await
     }

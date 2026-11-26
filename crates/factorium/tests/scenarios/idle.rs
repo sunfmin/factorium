@@ -102,9 +102,9 @@ async fn idle_work_waits_while_a_worker_works_or_a_heavy_command_runs() {
 }
 
 /// A tick while idle work runs starts none beside it, overdue as it is: its
-/// clone, which its line uses, is left as it made it.
+/// work dir is left as it made it.
 #[tokio::test]
-async fn a_tick_while_overdue_idle_work_runs_leaves_it_and_its_clone_be() {
+async fn a_tick_while_overdue_idle_work_runs_leaves_it_and_its_work_dir_be() {
     let w = World::new();
     let (web, answer, dir) = (w.checkout("web").await, w.dir.join("next.json"), w.dir.join("held"));
     std::fs::write(&answer, next(&[("deepen", "a.rs")])).unwrap();

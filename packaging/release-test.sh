@@ -7,6 +7,9 @@
 # is cancelled, and a tag origin already had on HEAD stays.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
+# The fake cargo builds under ./target, where the cut reads it with no
+# CARGO_TARGET_DIR: the one a gate runs with names the real cache.
+unset CARGO_TARGET_DIR
 t=$(mktemp -d)
 trap 'rm -rf "$t"' EXIT
 mkdir -p "$t/bin" "$t/repo/packaging"

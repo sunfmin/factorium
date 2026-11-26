@@ -95,6 +95,23 @@ stdin = """
 {"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
 """
 
+# A worktree made with a name and a comment, as the line's work dirs and
+# workers' worktrees are: Orca lists it with both, and once it is removed,
+# not at all.
+[[standin.case]]
+name = "commented-worktree"
+stdin = """
+{"scratch": "truefit-commented-worktree"}
+{"orca": "worktree", "args": ["{scratch}", "truefit commented#1", "truefit-commented-worktree", "{sha}", "what runs here; factorium removes it when this ends (pid 1)."], "keep": {"worktree": "/ok"}}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"orca": "comment", "args": ["{worktree}", "what ran here; kept."]}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"orca": "remove", "args": ["{worktree}"]}
+{"orca": "listed_worktree", "args": ["{worktree}"]}
+{"scratch": "truefit-commented-worktree"}
+{"run": ["orca", "repo", "hide", "--repo", "path:{scratch}", "--json"], "only": "real"}
+"""
+
 # A terminal Orca will not type at: the real one closed first.
 [[standin.case]]
 name = "send-refused"

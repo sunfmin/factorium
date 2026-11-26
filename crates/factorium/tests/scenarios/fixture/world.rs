@@ -279,6 +279,7 @@ impl World {
             t.started = t.started.or(n.started);
             t.resumed.extend(n.resumed);
             t.bumped.extend(n.bumped);
+            t.work_dirs.extend(n.work_dirs);
             (t.held, t.watch, t.restart) = (n.held, n.watch.or(t.watch), n.restart);
         }
         t

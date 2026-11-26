@@ -66,7 +66,7 @@ build() {
     slices=
     for target in $TARGETS; do
         cargo build --release --locked --quiet -p factorium --target "$target"
-        slices="$slices target/$target/release/factorium"
+        slices="$slices ${CARGO_TARGET_DIR:-target}/$target/release/factorium"
     done
     rm -rf "$2"
     mkdir -p "$2"
