@@ -1,10 +1,24 @@
 {
-  "commit": "292e77483b53b3c18af3bd1163c1603e8c114fbd",
+  "commit": "2f235c5e395b22a58b88b6580376bec735c7ddd2",
   "date": "2026-11-26",
-  "inputs": "5e073bffebd9d6883e51a5170e67d461a6be302e850b8fe3c75ea05253d2f432",
+  "inputs": "ced43493e5209cf121f98300eca398a704b572fb383d55d0d1627689019615eb",
   "result": "passes",
   "traces": {
-    "accept": [],
-    "reject": []
+    "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/line/accept/lost-answer-lands-again.jsonl",
+        "result": "allowed",
+        "step": null
+      }
+    ],
+    "reject": [
+      {
+        "breaks": "ProvingOnlyGated",
+        "file": ".truefit/traces/line/reject/red-gate-pushes.jsonl",
+        "result": "disallowed",
+        "step": 4
+      }
+    ]
   }
 }
