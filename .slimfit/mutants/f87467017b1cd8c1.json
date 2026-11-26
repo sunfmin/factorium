@@ -1,0 +1,27 @@
+{
+  "tree": "ad003f26c207bf4bc225a20356527eba11422eca+d1fba762150c532c",
+  "picker": "codex:01a21728-7cff-7882-b3b2-970b0a38c812:default",
+  "author": "claude-code:6e895117-a1d4-5470-a7d8-3ece1fe33971:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/neutral/queue.rs:75:5: replace gives -> bool with true",
+        "why": "The slow gate in the ordering test queues after the first ordinary worker, so the test may miss priority entries jumping an older slow gate whose bound has yet to expire.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/neutral/queue.rs:103:76: replace && with || in line",
+        "why": "The ordering test lacks a non-yielding gate ahead of the first ordinary worker, where the wider filter could let a landing jump that gate.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/heavy.rs:536:40: replace && with || in behind",
+        "why": "The doctor assertions cover a worker behind a landing, leaving open whether a second landing is incorrectly told it yielded to the first.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

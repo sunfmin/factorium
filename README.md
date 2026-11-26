@@ -26,7 +26,7 @@ Install it from a shell whose PATH finds git, orca, stablehand and the
 engines' programs: that PATH is written into the agent. launchd does not load it
 by itself after a reboot: a boot loads no Background agent from
 ~/Library/LaunchAgents, at boot or at a login, and only root's jobs run
-before a login (factorium#287). So the first `factorium` command run after
+before a login. So the first `factorium` command run after
 the boot loads it, unless `factorium stop` stopped it.
 
 ```sh
@@ -71,23 +71,4 @@ formula = "web"
 gate's checks without its test run), then `slimfit check`, which runs the
 tests once, instrumented, against `.slimfit/baseline.json` (no failures, no more
 uncovered lines, tests no slower than the baseline allows; SPEC.md §6).
-The loop, for a worker on factorium:
-
-1. `slimfit next`: one task (an uncovered line, a slow test, …) with its
-   files and the command that accepts it. This is how to find what to
-   test or make smaller.
-2. Do that task; run its accept command (`slimfit check`).
-3. `slimfit ratchet` locks the gain into `.slimfit/baseline.json`; commit
-   the baseline with the code, in the same commit.
-
-Any change that lowers uncovered lines or test time ratchets the same
-way. A bound is raised only by `slimfit ratchet --loosen <bound> --reason
-"<why>"`.
-
-Mutation testing (SPEC.md §6) is `slimfit check --mutants`, on a change
-only: it mutates what the change touched, and is too slow for the gate.
-In a worker run it through `factorium worker exclusive --background`, so
-gates get the CPU first. A missed mutant gets a scenario that catches it,
-or, if it cannot be reached from the outermost layer, a line in
-`.cargo/mutants.toml` saying why. Nothing mutates the whole workspace:
-that run took hours on this host.
+The loop for a worker on factorium, mutation testing among it, is `slimfit --help`'s.

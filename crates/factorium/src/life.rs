@@ -10,6 +10,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::issue::{
     Because, Claim, Claimant, Claiming, CloseIssue, Issue, ReleaseIssue, Take, TakeIssue, Taking,
 };
+use factorium_domain::mutants;
 use factorium_domain::outbox::Outcome;
 use factorium_domain::tracker;
 use factorium_domain::worker::{self as w, Started, StartedRole, Status, Workers};
@@ -247,7 +248,8 @@ impl App {
         let next = self.next_worktree(c, issue, &branch, &tip).await?;
         let (path, branch, resumed) = (next.path, next.branch, next.resumed);
         let title = format!("{}#{}", c.name, issue.number);
-        let brief = worker_brief(c, issue, &branch, resumed.as_ref());
+        let held = self.host.git(&c.path).shown(&tip, "slimfit.toml").and_then(|t| mutants::held_at(&t));
+        let brief = worker_brief(c, issue, &branch, resumed.as_ref(), held.as_deref());
         let role_for = c.role_for(issue.on.role.as_deref());
         let role = Role::Worker {
             id: worker,
@@ -289,12 +291,15 @@ pub(crate) fn brief_head(i: &factorium_domain::issue::Issue) -> String {
 }
 
 /// The brief a worker is handed: its issue, what an earlier attempt left in
-/// its worktree, and how it finishes.
+/// its worktree, and how it finishes; where its checkout's slimfit holds the
+/// record of mutants at `held_at`, that it runs none before `done`, unless
+/// its issue is the promotion's that runs them.
 fn worker_brief(
     c: &factorium_domain::checkout::Checkout,
     i: &factorium_domain::issue::Issue,
     branch: &str,
     resumed: Option<&Resumed>,
+    held_at: Option<&str>,
 ) -> String {
     let mut b = brief_head(i);
     if !i.comments.is_empty() {
@@ -342,5 +347,13 @@ fn worker_brief(
          you are reported silent 30 min after your turn ends. If you cannot go on without a \
          decision or something you lack, run `factorium worker escalate \"what you need\"` and stop.\n"
     ));
+    if let Some(at) = held_at.filter(|_| !mutants::ahead(i.task.as_ref())) {
+        b.push_str(&format!(
+            "\nThis checkout's slimfit holds the record of mutants at `{at}` (`slimfit.toml`, `[check] \
+             mutants_target`): pick and run no mutants before `done`; the promotion's mutants issue picks and runs \
+             them for everything landed since the base. The growth review (`factorium worker review-growth`), when \
+             slimfit asks for one, stays before `done`.\n"
+        ));
+    }
     b
 }

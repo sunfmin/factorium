@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use factorium_domain::declared::Kind;
+use factorium_domain::declared::Gating;
 use factorium_domain::issue::{Author, Wait};
 use factorium_domain::worker::{self as w, Started, Status, Workers};
 use factum::Uuid;
@@ -69,7 +69,7 @@ impl App {
     pub async fn worker_gate(&self, worker: Uuid) -> Answer {
         let st = self.live(worker, Want::Any).await?.started;
         let at = At::Worktree { worker, number: st.number };
-        let g = self.gate(&st.checkout, &self.host.git(&st.worktree), at, Kind::Fast).await?.expect("a waited turn");
+        let g = self.gate(&st.checkout, &self.host.git(&st.worktree), at, Gating::Fast).await?.expect("a waited turn");
         let Some(ran) = g.ran else {
             return Ok(json!({ "green": g.green, "tree": g.tree, "recorded": g.recorded, "ran": false }));
         };
