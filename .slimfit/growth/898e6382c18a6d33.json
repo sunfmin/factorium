@@ -1,0 +1,10 @@
+{
+  "tree": "f60fcba891eb940293f6f97427a916f445d1984b+d1fba762150c532c",
+  "lines": 385,
+  "serves": "factorium#383",
+  "considered": "line.rs's one-at-a-time land/land_gated (deleted, replaced by line/stack.rs); the Lines aggregate for the stack's state (kept apart: its events are the TLA model's trace); daemon memory for the stack (doctor, another process, could not read it); workdir.rs's one path and cache per kind (extended with a slot, not copied)",
+  "reviewer": "codex:01a2184b-2c32-7b82-89ef-054849547121:default",
+  "author": "claude-code:a1e65004-bce9-5cbf-a1ca-f2923cd41617:opus",
+  "cut": "In crates/factorium/src/line/stack.rs and crates/factorium/src/line.rs, delete the one-field Landing wrapper and carry Layer directly. Make ask_gate, landing_ran, and layer_gated return unit because they only record outcomes. Let stack_on return an optional immediate merge-conflict report, and collect completed gate reports through land_stack as before. In crates/domain/src/stack.rs, crates/factorium/src/lib.rs, and crates/factorium/src/line/stack.rs, delete ClearStack and StackCleared and reuse the existing Unstack command on the bottom layer at startup, which already drops the entire stack.",
+  "answer": "All four made: Layer carried directly in Then::Land; ask_gate, landing_ran and layer_gated return (); stack_on answers Option<Value>; ClearStack/StackCleared deleted, the daemon's start unstacks each stack's bottom layer. 526 scenarios green after."
+}

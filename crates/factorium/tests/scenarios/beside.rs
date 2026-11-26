@@ -1,10 +1,9 @@
 //! A line's promotion gate and cut run beside the daemon's ticks
 //! (factorium#216): while one runs, workers start and are watched, and the
 //! tick after its steps end records how it ended. A checkout's landing,
-//! promotion and cut run apart, each kind one at a time
-//! (docs/adr/0018-a-checkout-s-moves-run-apart.md): its workers land while
-//! its promotion's gate or its cut runs, and no second move of a kind starts
-//! beside the first.
+//! promotion and cut run apart (docs/adr/0018-a-checkout-s-moves-run-apart.md): its workers
+//! land while its promotion's gate or its cut runs, no second promotion or cut starts beside the
+//! first, and its landings stack (docs/adr/0019-stacked-landing-gates.md).
 
 use std::path::Path;
 
@@ -181,7 +180,7 @@ async fn two_workers_land_while_a_cut_waits_on_its_remote_step_and_their_promoti
 }
 
 #[tokio::test]
-async fn while_a_landing_runs_beside_the_ticks_no_other_of_its_checkout_starts_and_another_checkouts_does() {
+async fn while_a_landing_runs_beside_the_ticks_the_next_of_its_checkout_stacks_on_it_and_another_checkouts_lands() {
     let w = World::new();
     let dir = w.dir.join("long");
     declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
@@ -198,7 +197,7 @@ async fn while_a_landing_runs_beside_the_ticks_no_other_of_its_checkout_starts_a
         while landed.is_empty() {
             w.advance(1);
             landed.extend(w.tick_alone().await.landed);
-            assert_eq!(queued_of_web(&w).await, ["fast gate of web"], "one landing of web at a time");
+            assert_eq!(queued_of_web(&w).await, ["fast gate of web"; 2], "#2 stacked on #1, its gate asked");
             tokio::time::sleep(LOOK).await;
         }
     })

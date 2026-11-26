@@ -90,10 +90,12 @@ impl Data {
         self.0.join("cache")
     }
 
-    /// The build cache of `checkout`'s jobs of `kind`: its `target`, and the
-    /// dirs its `factorium.toml` declares `cache`, each at its own path.
-    pub fn cache(&self, kind: LineDir, checkout: &str) -> PathBuf {
-        self.caches().join(kind.name()).join(checkout)
+    /// The build cache of `checkout`'s jobs of `kind` in `slot`: its `target`, and the
+    /// dirs its `factorium.toml` declares `cache`, each at its own path. Slot 0 is every
+    /// kind's; the others, of landings stacked at once.
+    pub fn cache(&self, kind: LineDir, checkout: &str, slot: usize) -> PathBuf {
+        let at = self.caches().join(kind.name());
+        if slot == 0 { at.join(checkout) } else { at.join(format!("{checkout} {}", slot + 1)) }
     }
 
     /// The lock a promotion of `checkout` holds while it runs: it names who

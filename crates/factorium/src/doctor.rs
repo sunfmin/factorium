@@ -6,6 +6,7 @@ use factorium_domain::issue::{self, IssueEvent, Issues};
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
+use factorium_domain::stack::{Stacks, stack_id};
 use factorium_domain::{daemon, decided, doctor, heavy, next, watch, worker};
 use factorium_domain::{issue_id, tracker};
 use factum::{Aggregate, By, StreamId, Value};
@@ -14,6 +15,23 @@ use serde_json::json;
 use crate::{Answer, App, Caller};
 
 impl App {
+    /// Where the landing of `worker` (as doctor names it) is in `checkout`'s stack, if it is:
+    /// its depth, what it merged onto, its merge, and its gate's state, as the queue holds it.
+    async fn stacked(&self, checkout: &str, worker: &str, queue: &heavy::Queue) -> Answer<Value> {
+        let stack = self.state::<Stacks>(stack_id(checkout)).await?;
+        let Some(at) = stack.layers.iter().position(|l| l.worker.to_string() == worker) else { return Ok(Value::Null) };
+        let layer = &stack.layers[at];
+        let entry = queue.entries.iter().find(|e| e.ask.lands == Some(layer.worker));
+        let gate = match (&layer.green, &layer.red, entry) {
+            (Some(_), _, _) if at == 0 => "green",
+            (Some(_), _, _) => "green, waits for the gates below it",
+            (_, Some(_), _) => "red, told once the gates below it are green",
+            (None, None, Some(e)) if e.started_at.is_some() => "its gate runs",
+            (None, None, _) => "its gate waits its turn in the heavy queue",
+        };
+        Ok(json!({ "depth": at + 1, "on": layer.on, "merge": layer.merged, "gate": gate }))
+    }
+
     /// What doctor reads, from the database and a reading.
     pub(crate) async fn seen(&self) -> Answer<doctor::Seen> {
         let mut seen = doctor::Seen::default();
@@ -240,14 +258,14 @@ impl App {
                 declared.push(json!({ "worker": w.worker, "issue": issue, "why": d.why, "until": d.until }));
             }
         }
-        let landing: Vec<Value> = (seen.landing.iter())
-            .map(|l| {
-                let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
-                let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
-                let issue = format!("{}#{}", l.checkout, l.number);
-                json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count(), "urgent": l.urgent })
-            })
-            .collect();
+        let mut landing = Vec::new();
+        for l in &seen.landing {
+            let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
+            let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
+            let issue = format!("{}#{}", l.checkout, l.number);
+            let stacked = self.stacked(&l.checkout, &l.worker, &seen.queue).await?;
+            landing.push(json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count(), "urgent": l.urgent, "stack": stacked }));
+        }
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
         let now = self.now();
@@ -285,8 +303,11 @@ impl App {
             // Promotions waiting for their mutants issue (where slimfit holds them at the base): the issue, and
             // until when (ms, UTC, seconds left), `mutants_bound` after its filing; past it, they go on without it.
             "mutants": mutants,
-            // Each landing waiting, with its place in its checkout's line (1 lands next): it goes on
-            // while its checkout's promotion or cut runs (docs/adr/0018-a-checkout-s-moves-run-apart.md).
+            // Each landing waiting, with its place in its checkout's line (the urgent first, then each
+            // as it asked), and where it is in its checkout's stack: its depth (1 merged onto the proving
+            // tip), the commit it merged onto, its merge, and its gate's state; none while it waits to be
+            // stacked (docs/adr/0019-stacked-landing-gates.md). Landings go on while its checkout's
+            // promotion or cut runs (docs/adr/0018-a-checkout-s-moves-run-apart.md).
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,

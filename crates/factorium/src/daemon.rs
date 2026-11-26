@@ -87,7 +87,7 @@ impl Tick {
 }
 
 impl App {
-    async fn listed(&self) -> Answer<Vec<Checkout>> {
+    pub(crate) async fn listed(&self) -> Answer<Vec<Checkout>> {
         self.rows(tracker::listed()).await
     }
 

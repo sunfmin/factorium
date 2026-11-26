@@ -40,9 +40,11 @@ Each command's `--help` says how it works; the ADRs say why.
     finding for the watch.
 11. **Gate**: the repo's own fast and slow commands, each with its limit.
 12. **Landing**: a worker's `done`: its branch merged onto the proving tip,
-    the fast gate run on the merge, and proving moved to it. One per
-    checkout at a time
+    the fast gate run on the merge, and proving moved to it
     ([ADR 0012](docs/adr/0012-the-line-gate-landing-promotion-cut.md)).
+    A checkout's landings are a **stack**: each merged onto the one below,
+    their gates at once; proving moves to the deepest all-green merge
+    ([ADR 0019](docs/adr/0019-stacked-landing-gates.md)).
 13. **Promotion**: its gate on the proving tip, then the base branch
     fast-forwarded to it. One at a time per checkout.
 14. **Cut**: a version made from the base branch: set, push its own

@@ -45,6 +45,10 @@ const KEPT: &str = "Its job is gone; factorium kept it, as it holds commits foun
 /// of a daemon in the same process removes them.
 static HELD: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
+/// The cache of each work dir this process made, by its path: where its
+/// caches go back to when its job ends.
+static CACHES: Mutex<BTreeMap<PathBuf, PathBuf>> = Mutex::new(BTreeMap::new());
+
 /// The file in a cache that keeps each tracked file's content id and mtime,
 /// as the last job of its kind left them: path to `[id, mtime ns]`.
 const MTIMES: &str = "mtimes.json";
@@ -91,9 +95,19 @@ impl App {
     /// The work dir of `c`'s job of `kind`, `label` naming it after the kind
     /// (it starts with the checkout's name) and `about` saying what runs
     /// there: an Orca worktree of the checkout detached at `rev`, the
-    /// declared caches moved in. One of the same name this process made is
-    /// reused, reset to `rev`: a job waiting its turn asks each tick.
-    pub(crate) fn work_dir(&self, c: &Checkout, kind: LineDir, label: &str, about: &str, rev: &str) -> Answer<Git> {
+    /// declared caches of its `slot` moved in. One of the same name this process made is
+    /// reused, reset to `rev`: a job waiting its turn asks each tick. Jobs of a kind that run at
+    /// once (a checkout's stacked landings) each take a slot of their own, its path and cache;
+    /// every other job takes slot 0.
+    pub(crate) fn work_dir(
+        &self,
+        c: &Checkout,
+        kind: LineDir,
+        slot: usize,
+        label: &str,
+        about: &str,
+        rev: &str,
+    ) -> Answer<Git> {
         let (name, comment) = named(kind, label, about);
         let orca = self.host.orca();
         let listed = orca.worktrees().map_err(fail("orca"))?;
@@ -101,8 +115,11 @@ impl App {
         let path = match mine.filter(|m| m.path.is_dir()) {
             Some(m) => m.path,
             None => {
-                let (made_as, branch) =
-                    (format!("{} {}", kind.name(), c.name), format!("factorium-line/{}-{}", kind.name(), c.name));
+                let nth = if slot == 0 { String::new() } else { format!("-{}", slot + 1) };
+                let (made_as, branch) = (
+                    format!("{} {}{nth}", kind.name(), c.name),
+                    format!("factorium-line/{}-{}{nth}", kind.name(), c.name),
+                );
                 let path = orca.worktree(Path::new(&c.path), &made_as, &branch, rev, &comment).map_err(fail("orca"))?;
                 if let Err(e) = orca.show_as(&path, &name) {
                     let _ = orca.remove(&path);
@@ -113,7 +130,8 @@ impl App {
         };
         let here = self.host.git(&c.path).at(&path);
         here.detached(rev).map_err(fail("git"))?;
-        let cache = self.data().cache(kind, &c.name);
+        let cache = self.data().cache(kind, &c.name, slot);
+        CACHES.lock().unwrap().insert(path.clone(), cache.clone());
         restore_mtimes(&here, &cache);
         for dir in cached(&path) {
             let (kept, there) = (cache.join(&dir), path.join(&dir));
@@ -131,14 +149,23 @@ impl App {
         Ok(here)
     }
 
+    /// The work dir `dir` this process made is asked for again this tick, by a job that waits its
+    /// turn: the sweep leaves it.
+    pub(crate) fn work_dir_asked(&self, dir: &Path) {
+        let mut m = self.memory.lock().unwrap();
+        if m.ticks {
+            m.work_dirs.insert(dir.to_path_buf());
+        }
+    }
+
     /// Ends the work dir at `dir` of `checkout`'s job of `kind`: its caches
-    /// moved back out, the worktree removed through Orca. Answers why
-    /// it is not removed, if it is not.
+    /// moved back out, to its slot's (slot 0's for one this process did not make), the worktree
+    /// removed through Orca. Answers why it is not removed, if it is not.
     pub(crate) fn work_dir_done(&self, kind: LineDir, checkout: &str, dir: &Path) -> Result<(), String> {
         self.memory.lock().unwrap().work_dirs.remove(dir);
         HELD.lock().unwrap().remove(dir);
-        keep_mtimes(&self.host.git(dir), &self.data().cache(kind, checkout));
-        let cache = self.data().cache(kind, checkout);
+        let cache = CACHES.lock().unwrap().remove(dir).unwrap_or_else(|| self.data().cache(kind, checkout, 0));
+        keep_mtimes(&self.host.git(dir), &cache);
         for d in cached(dir) {
             let (there, kept) = (dir.join(&d), cache.join(&d));
             if there.exists() {
@@ -233,7 +260,7 @@ impl App {
             let Ok(dirs) = std::fs::read_dir(self.data().line(kind)) else { continue };
             for d in dirs.flatten().filter(|d| d.path().join(".git").is_dir()) {
                 let checkout = d.file_name().to_string_lossy().into_owned();
-                let (target, cache) = (d.path().join("target"), self.data().cache(kind, &checkout).join("target"));
+                let (target, cache) = (d.path().join("target"), self.data().cache(kind, &checkout, 0).join("target"));
                 std::fs::create_dir_all(cache.parent().unwrap_or(&cache)).map_err(io)?;
                 if target.is_dir() && !cache.exists() {
                     std::fs::rename(&target, &cache).map_err(io)?;

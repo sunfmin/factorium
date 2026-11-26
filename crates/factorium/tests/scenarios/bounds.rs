@@ -52,7 +52,7 @@ async fn each_admission_bound_has_room_at_its_value_and_none_past_it() {
 
 /// A build output in a landing's cache, as a gate leaves it.
 fn built(w: &World) -> std::path::PathBuf {
-    let target = w.data().cache(LineDir::Landing, "web-1").join("target");
+    let target = w.data().cache(LineDir::Landing, "web-1", 0).join("target");
     std::fs::create_dir_all(&target).unwrap();
     std::fs::write(target.join("out"), "built").unwrap();
     target

@@ -42,7 +42,7 @@ impl App {
             "factorium's cut of {} {version} from its base {short}: its steps, then the tag and the install.",
             c.name
         );
-        let here = self.work_dir(c, LineDir::Cut, &format!("{} {version}", c.name), &about, &base)?;
+        let here = self.work_dir(c, LineDir::Cut, 0, &format!("{} {version}", c.name), &about, &base)?;
         // The steps share the work dir, so they take one turn of the queue.
         let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
         let turn = if by_hand {

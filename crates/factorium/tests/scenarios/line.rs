@@ -521,7 +521,7 @@ async fn the_clones_the_line_ran_in_before_are_retired_as_the_daemon_starts_thei
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     std::fs::write(&lock, "").unwrap();
     w.app.daemon_start().await.unwrap();
-    let cache = w.data().cache(LineDir::Landing, "web").join("target");
+    let cache = w.data().cache(LineDir::Landing, "web", 0).join("target");
     assert_eq!(std::fs::read_to_string(cache.join("debug/built")).unwrap(), "x", "its build is the cache now");
     assert!(!clone.exists(), "the clone is gone");
     assert!(lock.exists());
@@ -558,7 +558,7 @@ async fn a_base_moved_outside_factorium_turns_promotion_red_and_stays() {
 }
 
 #[tokio::test]
-async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
+async fn a_checkouts_landings_stack_the_first_to_ask_at_the_bottom_and_land_in_one_push() {
     let w = World::new();
     w.two_at_work().await;
     for n in [2, 1] {
@@ -567,12 +567,10 @@ async fn one_landing_per_checkout_at_a_time_the_first_to_ask_first() {
         w.advance(1);
     }
     let t = w.tick().await;
-    assert_eq!(t.landed.len(), 1, "{:?}", t.landed);
-    assert_eq!(t.landed[0]["landed"], "web#2", "#2 asked first");
-    assert!(t.lines.is_empty(), "#1 waits to land: not idle, nothing promoted: {:?}", t.lines);
-    let t = w.tick().await;
-    assert_eq!(t.landed[0]["landed"], "web#1");
-    // Idle once #1 lands: one promotion takes both landings and, nothing left unpromoted, cuts.
+    let landed: Vec<_> = t.landed.iter().map(|l| l["landed"].clone()).collect();
+    assert_eq!(landed, [json!("web#2"), json!("web#1")], "#2 asked first: {:?}", t.landed);
+    assert_eq!(w.remote_tip("web", "proving"), t.landed[1]["commit"].as_str().unwrap(), "#1 merged onto #2");
+    // Idle once both land: one promotion takes both landings and, nothing left unpromoted, cuts.
     assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{:?}", t.lines);
     assert!(t.lines.iter().any(|l| l["cut"] == "web" && l["version"] == "v0.1.0"), "{:?}", t.lines);
 }
@@ -700,6 +698,6 @@ fn a_failed_cut_waits_for_a_newer_promotion() {
     l.apply(LineEvent::Promoted { tip: "b".into(), at: 3, gated: None, by_hand: None });
     assert!(l.cut_failed.is_none());
     let bounds = Bounds { promotion: 10, cut: 10, lead: 0 };
-    let look = Look { now: 4, idle: true, asks: None, bounds, by_hand: false };
+    let look = Look { now: 4, idle: true, asks: Vec::new(), bounds, by_hand: false };
     assert!(l.due(Move::Cut, &look, || Ok::<_, ()>(String::new())) == Ok(Ok(Due::Cut)));
 }

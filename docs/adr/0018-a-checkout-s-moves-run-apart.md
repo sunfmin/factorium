@@ -23,10 +23,10 @@ each push requires the tip it read.
 
 ## Decision
 
-- A checkout's landing, promotion and cut run independently, each kind one
-  at a time: no landing is carried while one of its landings runs beside
-  the ticks, no promotion while a promotion runs, no cut while a cut runs
-  or its installed binary is proven.
+- A checkout's landing, promotion and cut run independently: no promotion
+  while a promotion runs, no cut while a cut runs or its installed binary
+  is proven; its landings stack, their gates at once
+  ([ADR 0019](0019-stacked-landing-gates.md)).
 - Each goes through the heavy queue as before: the queue's room alone
   decides whether their heavy steps run together.
 - A promotion's gate is on the tip it read, and the base fast-forwards only
