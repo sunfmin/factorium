@@ -37,6 +37,13 @@ pub fn room(r: &Reading, s: &Settings) -> Result<(), String> {
     neutral::room(&r.host(), &limits(s))
 }
 
+/// Whether the reading is well under the busy limit, at most half of it:
+/// the heavy queue starts the next beside what runs on a shorter settle
+/// (`heavy_settle_idle`).
+pub fn idle(r: &Reading, s: &Settings) -> bool {
+    r.cpu_busy * 2 <= s.get(Setting::CpuBusyMax)
+}
+
 /// Whether one more worker may start at `now`: room, the workers under
 /// their share of the CPU, and no heavy command of `queue` waiting past the
 /// queue wait bound. The reading leaves out what runs in started slots, the

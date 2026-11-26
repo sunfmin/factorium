@@ -425,8 +425,9 @@ impl Queue {
             let q = self.queue_of(name, now);
             match self.rule(name) {
                 Rule::Room => {
-                    let starts = queue::Starts { last: self.last_start, settle: at.settle };
-                    queue::may_start(&q, starts, id, room.clone(), at.read_at, now, at.order)?
+                    let starts = queue::Starts { last: self.last_start, settle: at.settle, idle: at.settle_idle };
+                    let room = room.clone().map(|()| if at.idle { queue::Room::Idle } else { queue::Room::Near });
+                    queue::may_start(&q, starts, id, room, at.read_at, now, at.order)?
                 }
                 Rule::Slots(_) => match queue::next(&q, now, at.order) {
                     Some(n) if n.ask.id == id => {}
@@ -506,6 +507,14 @@ pub struct Reading {
     pub read_at: i64,
     /// How long after the last start a reading shows its load, ms.
     pub settle: i64,
+    /// How long after the last start a reading well under the busy limit
+    /// shows it, ms.
+    #[serde(default)]
+    pub settle_idle: i64,
+    /// Whether the reading was well under the busy limit
+    /// ([`crate::admission::idle`]).
+    #[serde(default)]
+    pub idle: bool,
     /// How the line is ordered: none, the oldest first.
     #[serde(default)]
     pub order: queue::Order,
