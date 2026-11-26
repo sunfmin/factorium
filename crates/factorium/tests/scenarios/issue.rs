@@ -24,6 +24,7 @@ fn the_last_wait_for_a_person_names_when_and_who() {
         task: None,
         on: On::default(),
         decided: Vec::new(),
+        urgent: false,
     };
     let wait = || IssueEvent::IssueWaitingForHuman { reason: "why".into() };
     assert_eq!(asked([(opened(true), 5, watch)]), Some((5, Asker::Added)));

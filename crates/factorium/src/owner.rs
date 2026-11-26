@@ -102,6 +102,9 @@ impl App {
             let holds: Vec<_> = resources.iter().filter(|r| mine(&r.holders)).collect();
             let waits: Vec<_> = resources.iter().filter(|r| mine(&r.waiting)).collect();
             (row["holds"], row["waits_for"]) = (json!(holds), json!(waits));
+            if let Some(me) = me {
+                row["urgent"] = json!(self.urgent_worker(me).await?);
+            }
         }
         Ok(v)
     }
