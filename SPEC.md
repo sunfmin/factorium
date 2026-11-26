@@ -92,19 +92,19 @@ leaves it out: the daemon runs the look.
    shell, a line is a command it runs. A question the harness opens on its
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
-4. The worker runs `factorium worker gate` (the fast gate) as often as it
-   likes, then `factorium worker done`; an issue whose work changes no
+4. The worker checks what it changed (fmt, clippy, its crates' tests,
+   through `worker exclusive`), then runs `factorium worker done`: a
+   change's one full gate is its landing's, on the merge (§1.12);
+   `worker gate` is allowed, not required. An issue whose work changes no
    code (a publish, a measurement) it finishes, its branch holding no
    commits, with `factorium worker done --no-landing "<evidence>"`: the
-   daemon closes the issue with that evidence as its reason, running no
-   gate (factorium#282). What it wants kept (a measurement)
-   it records with `factorium worker comment`, a comment on its issue by
-   it that changes nothing else and goes to no one: not the watch, which
-   is for decisions (`worker escalate`). A follow-up its issue asks for
+   daemon closes the issue with it, running no gate (factorium#282). What it wants kept (a measurement)
+   it records with `factorium worker comment`, a comment on its issue
+   that changes nothing else and goes to no one (decisions go to the
+   watch: `worker escalate`). A follow-up its issue asks for
    it files with `factorium worker file <checkout> <title> --body-file <f>
-   [--blocked-by …]`, as `issue add` files one (never waiting for a
-   person); on its own checkout the filed one also waits for its issue
-   to land, which a follow-up usually builds on, unless `--independent`
+   [--blocked-by …]`, as `issue add` does; on its own checkout the filed one also waits for its issue
+   to land, unless `--independent`
    (factorium#184). Both keep the record as its comments: its issue says
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
@@ -486,9 +486,9 @@ table may be left out:
 
 ```toml
 [gate]
-fast = "./gate.sh"      # every landing, and `factorium worker gate`
+fast = "./gate.sh"      # what every landing needs, on its merge
 fast_limit = 600        # seconds
-slow = "./slow.sh"      # the proving tip, before a promotion
+slow = "./slow.sh"      # the proving tip, before the base moves
 slow_limit = 3600
 regenerated = [".truefit/models/*.json"]  # git globs: records the gate rewrites (§1.12)
 
@@ -565,10 +565,10 @@ depend on nothing else of factorium.
   run in the scenarios' binary, beside them rather than after
   (factorium#98 halved the suite this way).
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
-  `./checks.sh` (the crates' lines against their targets, shown, §5; fmt, clippy) then `slimfit check`
+  `./checks.sh` (lines, §5; fmt, clippy) then `slimfit check`
   against the committed `.slimfit/`, in place of a plain `cargo test`, holding
-  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`) is
-  `./gate.sh` again, on the proving tip a promotion moves. What
+  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`,
+  the tip a promotion moves) is `./gate.sh`, the release build and the models. What
   `slimfit check` holds, a change's record of its mutants among it, is
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
   its own gate, before it reaches proving. The worker follows
