@@ -98,11 +98,6 @@
     "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:30",
     "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
-  "0fdc353f3cd2": {
-    "mark": "not",
-    "sentence": "The crate stays within its budget (SPEC §5): no step adds more than a module's header.",
-    "source": "docs/adr/0002-binary-is-the-process-edge.md:43"
-  },
   "13c2c405ea81": {
     "mark": "not",
     "sentence": "What a repo declares**, in `factorium.toml` at its root (§3); every table may be left out:",
@@ -229,11 +224,6 @@
     "mark": "not",
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its default, may name a role directory, §1.2–1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
     "source": "SPEC.md:517"
-  },
-  "2d40ee717543": {
-    "mark": "not",
-    "sentence": "The crate stays within its budget (SPEC §5).",
-    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:37"
   },
   "2eab98522a2b": {
     "mark": "not",
