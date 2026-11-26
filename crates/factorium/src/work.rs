@@ -34,6 +34,15 @@ pub(crate) struct Live {
     pub(crate) since: i64,
 }
 
+impl Live {
+    /// Whether a comment on its issue goes to its watch episode, not its
+    /// session: it waits for the watch, not on its engine's limit (which
+    /// holds the comment in its outbox). Sent back, it is typed what it heard.
+    pub(crate) fn hears_through_watch(&self) -> bool {
+        self.waiting && !self.on_limit
+    }
+}
+
 impl App {
     /// Worker `worker`, live as `want` accepts it, with its session: one read.
     pub(crate) async fn live(&self, worker: Uuid, want: Want) -> Answer<Live> {

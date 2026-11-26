@@ -309,7 +309,7 @@ pub enum IssueCmd {
         #[arg(long)]
         why: String,
     },
-    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode), never stopping its running turn, and the next worker's brief carries it. Answers `delivery`: `submitted`, `queued` or `missed` (typed at its session), `brief`, `watch`, or `none` (no worker, or delivery failed: `undelivered` says why).
+    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode, and typed with the line that sends it back to work), never stopping its running turn, and the next worker's brief carries it. Answers `delivery`: `submitted`, `queued` or `missed` (typed at its session), `brief`, `watch`, or `none` (no worker, or delivery failed: `undelivered` says why).
     #[command(verbatim_doc_comment)]
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, or in a wait it declared), back to work as soon as all it waits for is met.
@@ -476,7 +476,7 @@ pub enum WatchCmd {
         #[arg(long, verbatim_doc_comment)]
         human: Option<String>,
     },
-    /// Sends a waiting worker back to work, told `--text`, kept as a comment on its issue.
+    /// Sends a waiting worker back to work, told `--text`, kept as a comment on its issue. The owner's comments made while it waited go with it.
     #[command(verbatim_doc_comment)]
     Restart {
         worker: Uuid,
