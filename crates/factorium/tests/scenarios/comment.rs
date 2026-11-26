@@ -251,3 +251,34 @@ async fn a_worker_s_decided_record_shows_up_in_doctor_s_decided() {
     let undo: Vec<_> = decided.as_array().unwrap().iter().map(|d| (d["what"].clone(), d["undo"].clone())).collect();
     assert!(undo.contains(&(json!("bare"), json!(null))), "no field from the next record: {decided}");
 }
+
+/// A comment made while its worker waits for the watch reaches the worker
+/// when the watch sends it back: its restart line carries the comment, and
+/// the worker's outbox holds it with how it went.
+#[tokio::test]
+async fn a_comment_made_while_its_worker_waited_is_typed_with_its_restart() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let handle = wk["terminal"].as_str().unwrap();
+    w.advance(1);
+    w.app.worker_escalate(id(&wk), "which outputs?").await.unwrap();
+    w.advance(1);
+    assert_eq!(w.app.issue_comment("web", 1, "output one").await.unwrap()["delivery"], "watch");
+    w.app.issue_comment("web", 1, "output two").await.unwrap();
+    let before = w.terminal(handle).sent.len();
+
+    w.app.watch_restart(id(&wk), "The outputs are on your issue.", false).await.unwrap();
+    let sent = &w.terminal(handle).sent[before..];
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains("\"output one\" / \"output two\""), "{sent:?}");
+    let outbox = w.app.outbox_of(Some(id(&wk))).await.unwrap();
+    let last = outbox["messages"].as_array().unwrap().last().unwrap().clone();
+    assert!(last["text"].as_str().unwrap().contains("output two"), "{last}");
+    assert!(last["outcome"]["outcome"].as_str().is_some_and(|o| o == "submitted" || o == "queued"), "{last}");
+
+    // Back at work, it hears the next comment as any working worker does, once.
+    w.app.issue_comment("web", 1, "output three").await.unwrap();
+    let all = w.terminal(handle).sent[before..].join("\n");
+    assert_eq!(all.matches("output two").count(), 1, "{all}");
+    assert!(all.contains("factorium (a comment on your issue): output three"), "{all}");
+}

@@ -17,7 +17,9 @@ how to fix it. Then:
      waiting worker back to work (one whose session is gone is started again)
    - What you tell or restart with is kept as a comment on the worker's
      issue, as is what a worker escalates: `issue show` has the whole
-     record, who said what and when.
+     record, who said what and when. A restart types too the owner's
+     comments (`issue comment`) made while the worker waited: you need not
+     repeat them.
    - Both answer `delivery`: `submitted` (the worker read it), `queued`
      (it waits until the worker's running call returns, and is typed again
      at its prompt if the turn ends unread; still unread 10 min on, it is
