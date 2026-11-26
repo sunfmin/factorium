@@ -399,6 +399,13 @@ run = ["crates/factorium/tests/contract/standin", "fake"]
 real = ["crates/factorium/tests/contract/standin", "real"]
 needs = "slimfit on PATH, and cargo-mutants (its mutants list)"
 version = ["slimfit", "--version"]
+# What factorium handles after a step took effect (fakes::SLIMFIT_FAULTS):
+# a `--function` listing slimfit refuses once a picker was asked (the pick
+# is not taken; with nothing to take it against, no harness's is, and
+# nothing is kept). Its other calls come before any step of factorium's
+# (the change's listing, `help picker`, `help reviewer`: the pick or review
+# is refused, no second agent asked): no fault stands for those.
+faults = ["function-refused"]
 
 # `worker pick-mutants` and `review-growth`: the picker's and the
 # reviewer's goals, and a change's candidates, of which factorium reads
@@ -417,6 +424,25 @@ stdin = """
 {"run": ["slimfit", "help", "picker"]}
 {"run": ["slimfit", "help", "reviewer"]}
 {"run": ["slimfit", "check", "--repo", "{dir}", "--mutants"], "read": ["/candidates/*/*/name"]}
+"""
+
+# A function's listing slimfit refuses, after the change's was listed: the
+# real one of a change whose source its mutation tool then cannot parse.
+[[standin.case]]
+name = "function-refused"
+fault = "function-refused"
+dir = "crates/factorium/tests/contract/slimfit-change"
+stdin = """
+{"world": {"slimfit": {"check": "{\\"candidates\\": {\\"rust\\": [{\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with true\\"}, {\\"name\\": \\"src/lib.rs:4:27: replace a -> bool with false\\"}, {\\"name\\": \\"src/lib.rs:4:29: replace == with != in a\\"}]}}"}}}
+{"run": ["git", "init", "-q", "-b", "main"], "read": "ok"}
+{"run": ["git", "add", "-A"], "read": "ok"}
+{"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"], "read": "ok"}
+{"run": ["git", "checkout", "-q", "-b", "change"], "read": "ok"}
+{"run": ["sh", "-c", "echo 'pub fn a(x: u8) -> bool { x == 1 }' >> src/lib.rs"], "read": "ok"}
+{"run": ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "change"], "read": "ok"}
+{"run": ["slimfit", "check", "--repo", "{dir}", "--mutants"], "read": ["/candidates/*/*/name"]}
+{"run": ["sh", "-c", "echo 'pub fn b( {' >> src/lib.rs"], "only": "real"}
+{"run": ["slimfit", "check", "--repo", "{dir}", "--mutants", "--function", "src/lib.rs: a"], "read": ["/candidates", "/next"]}
 """
 
 [[standin]]

@@ -32,7 +32,8 @@
 //!
 //! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
 //! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`,
-//! `fakes::STABLEHAND_FAULTS`); `real` never reads it.
+//! `fakes::STABLEHAND_FAULTS`, `fakes::SLIMFIT_FAULTS`); `real` never
+//! reads it.
 
 #[allow(dead_code)]
 #[path = "../tests/scenarios/fixture/fakes.rs"]
@@ -202,6 +203,7 @@ fn main() {
                 Ok(f) if fakes::STABLEHAND_FAULTS.contains(&f.as_str()) => {
                     host.stablehand.lock().unwrap().fault(&f, true)
                 }
+                Ok(f) if fakes::SLIMFIT_FAULTS.contains(&f.as_str()) => host.slimfit_fault(&f, true),
                 Ok(f) => host.orca.fault(&f, true),
                 Err(_) => {}
             }
