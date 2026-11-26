@@ -899,7 +899,7 @@ why = "factorium has no `truefit sim`: the model checks every order the waiters 
 
 [[promise]]
 name = "settled"
-says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start"
+says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start, or `heavy_settle_idle` after it on a reading at most half of `cpu_busy_max`"
 source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-starts"]
 
