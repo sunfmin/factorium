@@ -82,6 +82,13 @@ fn an_urgent_entry_goes_ahead_of_workers_that_waited_longer_behind_a_line_move_p
     let v = workers(5, 3 * MIN, true);
     let q = Queue { entries: vec![a, b, u, late, v], ..Queue::default() };
     assert_eq!(ids(queue::line(&q.entries, 4 * MIN, ORDER)), [4, 3, 5, 1, 2]);
+    let whys: Vec<_> =
+        q.resources(4 * MIN, ORDER)[0].waiting.iter().map(|h| h.why.clone().unwrap_or_default()).collect();
+    assert_eq!(whys[2], "behind `4`, a line move past its bound", "{whys:?}");
+    let urgent_only =
+        Queue { entries: q.entries.iter().filter(|e| e.ask.urgent).cloned().collect(), ..Queue::default() };
+    let whys: Vec<_> = urgent_only.resources(4 * MIN, ORDER)[0].waiting.iter().map(|h| h.why.clone()).collect();
+    assert_eq!(whys, [None, Some("behind `3`, queued before it".into())], "among urgent ones, the ordinary why");
 }
 
 #[test]
