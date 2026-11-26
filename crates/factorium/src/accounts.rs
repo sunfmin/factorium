@@ -164,13 +164,22 @@ impl App {
 
     /// Tells stablehand a session on `account` met its limit
     /// (`stablehand limit`): until `resets_at` (ms), else until stablehand
-    /// next reads the account. `Err`: why it could not be told.
-    pub(crate) fn report_limit(&self, account: &str, resets_at: Option<i64>) -> Result<(), String> {
+    /// next reads the account, in its `window` (`None`: the whole account).
+    /// `Err`: why it could not be told.
+    pub(crate) fn report_limit(
+        &self,
+        account: &str,
+        resets_at: Option<i64>,
+        window: Option<&str>,
+    ) -> Result<(), String> {
         // Rounded up to the second, so the time named is never past.
         let at = resets_at.map(|ms| factorium_domain::when::utc(ms + 999));
         let mut args = vec!["limit", account];
         if let Some(at) = &at {
             args.extend(["--resets-at", at]);
+        }
+        if let Some(window) = window {
+            args.extend(["--window", window]);
         }
         self.stablehand(&args).map(|_| ()).map_err(|r| r.message)
     }
