@@ -1,0 +1,6 @@
+{
+  "tree": "64bb2c741b9c0eb9d4c4464c61920519f13b5ccf+d1fba762150c532c",
+  "picker": "codex:01a2176f-619d-71f3-908d-725693d2b60f:default",
+  "author": "claude-code:fb737e87-cba3-5886-bbd8-16cad1867703:opus",
+  "none": "The revised scenario checks that the finding appears, stays active through four quick ticks, and clears at five, so every listed mutant that builds should fail an assertion or time out."
+}

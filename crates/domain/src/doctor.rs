@@ -230,10 +230,6 @@ pub struct Stuck {
     pub dirty: bool,
 }
 
-/// How long a slow tick stays a finding, ms: long enough for the watch's
-/// looks and the owner to see it.
-const SLOW_TICK_SHOWN: i64 = 3_600_000;
-
 pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     let mut f = Vec::new();
     for WaitingSeen { worker: id, issue, why, heard, .. } in
@@ -293,7 +289,8 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             format!("halt:{by}"),
             format!(
-                "urgent {by} halts every other start: no other worker, heavy command, landing, promotion or cut starts"
+                "urgent {by} halts every other start: no other worker, and no worker's or program's heavy command \
+                 not urgent, starts; landings, promotions and cuts go on, behind the urgent issue's heavy commands"
             ),
             "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick resumes \
              the rest in their order",
@@ -361,7 +358,7 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
             "find what the error names (a program, a repo, the database) and fix it; daemon.log has every tick",
         );
     }
-    if let Some(slow) = seen.daemon.slow.as_ref().filter(|s| now - s.at < SLOW_TICK_SHOWN) {
+    if let Some(slow) = seen.daemon.slow.as_ref().filter(|s| s.stands()) {
         add(
             format!("daemon:slow-tick:{}", slow.longest.step),
             format!(
@@ -529,11 +526,10 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
         }
     }
     let line_of = |c: &str| seen.lines.iter().find(|l| l.checkout == c);
-    // Halted, what waits behind the urgent issues is the halt's finding, not a stall.
-    let halted = !q.halt.is_empty();
-    for LandingSeen { worker: id, checkout, number, since, urgent } in &seen.landing {
+    // An urgent issue's halt holds no line move: a landing that does not move is a stall during it too.
+    for LandingSeen { worker: id, checkout, number, since, .. } in &seen.landing {
         let line = line_of(checkout).map(|l| &l.line);
-        let held = line.is_some_and(|l| l.held.is_some()) || (halted && !urgent);
+        let held = line.is_some_and(|l| l.held.is_some());
         // Behind others on a line that moves (a landing, promotion, cut or job start) it waits its turn.
         let moved = line.and_then(|l| l.moved).max(q.started(checkout)).unwrap_or(*since).max(*since);
         if held || now - moved <= stall || q.runs(checkout, LineJob::Gate(Kind::Fast)) {
@@ -550,7 +546,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             &format!("{unqueue}; the next tick gates the landing. If the daemon does not tick, see its daemon.log"),
         );
     }
-    for LineSeen { checkout, line, cuts, .. } in seen.lines.iter().filter(|_| !halted) {
+    for LineSeen { checkout, line, cuts, .. } in &seen.lines {
         if let (Some(o), Some(owed)) = (line.unpromoted.first(), line.owed(Move::Promote, now, &line::bounds(s)))
             && owed.overdue()
             && line.red.is_none()
