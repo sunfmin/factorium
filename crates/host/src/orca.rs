@@ -59,23 +59,20 @@ impl From<Failed> for String {
 
 impl Orca<'_> {
     /// Runs `orca <args> --json`. An error names the subcommand alone, never
-    /// the arguments: a terminal's command line is one, and may be long.
+    /// the arguments: a terminal's command line is one, and may be long. A
+    /// screen read is given [`READ_WAIT`] to answer: past it, it failed as
+    /// `timed out`.
     fn call(&self, args: &[&str]) -> Result<Value, Failed> {
-        self.call_within(args, None)
-    }
-
-    /// As [`Orca::call`], given `limit` to answer, if any: past it, it
-    /// failed as `timed out`.
-    fn call_within(&self, args: &[&str], limit: Option<Duration>) -> Result<Value, Failed> {
         let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
         let mut all = args.to_vec();
         all.push("--json");
-        let said = match limit {
-            None => self.0.run("orca", &all),
-            Some(limit) => self.0.run_within("orca", &all, limit).ok_or_else(|| Failed {
+        let said = if what == "terminal read" {
+            self.0.run_within("orca", &all, READ_WAIT).ok_or_else(|| Failed {
                 code: Some("timed_out".into()),
-                why: format!("orca {what}: timed out after {}s", limit.as_secs()),
-            })?,
+                why: format!("orca {what}: timed out after {}s", READ_WAIT.as_secs()),
+            })?
+        } else {
+            self.0.run("orca", &all)
         };
         let Ok(answer) = serde_json::from_str::<Value>(&said.out) else {
             return Err(Failed { code: None, why: format!("orca {what}: {}", said.err.trim()) });
@@ -223,7 +220,7 @@ impl Orca<'_> {
     /// The terminal now; unreadable when Orca does not answer within [`READ_WAIT`].
     pub fn screen(&self, terminal: &str) -> Term {
         let read = ["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"];
-        let read = match self.call_within(&read, Some(READ_WAIT)) {
+        let read = match self.call(&read) {
             Ok(read) => read,
             // Orca no longer knows the handle (it restarted, say).
             Err(f) if f.code.as_deref() == Some("terminal_handle_stale") => return Term::Exited,

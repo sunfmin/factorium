@@ -64,20 +64,22 @@ impl App {
         for &worker in workers {
             lives.extend(self.live_or_none(worker, Want::Any).await?.map(|live| (worker, live)));
         }
-        let sights: Vec<Option<Sight>> = std::thread::scope(|scope| {
+        // Orca did not answer one: nothing is known of it this tick.
+        let sights: Vec<(Uuid, Live, Sight)> = std::thread::scope(|scope| {
             let reading: Vec<_> = lives
-                .iter()
-                .map(|(_, live)| {
-                    let past = live.limit.as_ref().map(|l| l.said.as_str());
-                    scope.spawn(move || self.see(&live.session, past))
+                .into_iter()
+                .map(|(worker, live)| {
+                    scope.spawn(move || {
+                        let past = live.limit.as_ref().map(|l| l.said.as_str());
+                        let sight = self.see(&live.session, past)?;
+                        Some((worker, live, sight))
+                    })
                 })
                 .collect();
-            reading.into_iter().map(|r| r.join().expect("a screen read does not panic")).collect()
+            reading.into_iter().filter_map(|r| r.join().expect("a screen read does not panic")).collect()
         });
         let mut seen = Vec::new();
-        for ((worker, live), sight) in lives.into_iter().zip(sights) {
-            // Orca did not answer: nothing is known of it this tick.
-            let Some(sight) = sight else { continue };
+        for (worker, live, sight) in sights {
             seen.extend(self.worker_health(worker, live, sight, share(worker), s).await?);
         }
         Ok(seen)
