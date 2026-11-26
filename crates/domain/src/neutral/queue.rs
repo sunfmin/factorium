@@ -1,7 +1,8 @@
 //! The heavy-command queue's start rule (SPEC.md §1.9): the shortest
 //! declared hold first, none starved past the starve bound, one start per
 //! settled reading beside what runs, the hold bound, and a line move past
-//! its bound ahead of those that yield.
+//! its bound ahead of those that yield, then an urgent one ahead of those
+//! that are not.
 
 use uuid::Uuid;
 
@@ -15,6 +16,8 @@ pub trait Queued {
     fn started_at(&self) -> Option<i64>;
     /// Whether one past its bound goes ahead of it.
     fn yields(&self) -> bool;
+    /// Whether it goes ahead of those that yield and are not, behind one past its bound.
+    fn urgent(&self) -> bool;
     /// When what it does passes its bound, ms, if it has one.
     fn bound_at(&self) -> Option<i64>;
     /// How long it declared it holds what it waits for, ms; none: the default.
@@ -72,18 +75,22 @@ pub fn oldest<E: Queued>(entries: &[E]) -> Option<&E> {
 
 /// The waiting entries in the order they start at `now`, by `order`; but
 /// one past its bound goes ahead of every entry that yields, just before
-/// the first of them.
+/// the first of them; and an urgent one ahead of every entry that yields
+/// and is not urgent, just before the first of them, behind those past
+/// their bound.
 pub fn line<E: Queued>(entries: &[E], now: i64, order: Order) -> Vec<&E> {
-    let first_yielding = waiting(entries).filter(|e| e.yields()).map(|e| order.key(e, now)).min();
+    let first = |of: fn(&E) -> bool| waiting(entries).filter(|e| of(e)).map(|e| order.key(e, now)).min();
+    let (first_yielding, first_ordinary) = (first(|e| e.yields()), first(|e| e.yields() && !e.urgent()));
     let mut line: Vec<&E> = waiting(entries).collect();
     line.sort_by_cached_key(|e| {
         let own = order.key(*e, now);
-        let late = overdue(*e, now);
-        let place = match first_yielding {
-            Some(w) if late => own.min(w),
-            _ => own,
+        // Past its bound first, then urgent, then the rest, at a place they share.
+        let (ahead_of, rank) = match (overdue(*e, now), e.urgent()) {
+            (true, _) => (first_yielding, 0),
+            (false, true) => (first_ordinary, 1),
+            (false, false) => (None, 2),
         };
-        (place, !late, own)
+        (ahead_of.map_or(own, |w| own.min(w)), rank, own)
     });
     line
 }

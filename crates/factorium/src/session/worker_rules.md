@@ -4,8 +4,10 @@ You work one issue, in the worktree you were started in, on its branch.
 Your brief (the file you were handed) says what the issue is.
 
 - Commit your work on your branch. Do not push; do not touch other branches.
-- `factorium worker gate` runs the repo's fast gate on your worktree. Run it
-  as often as you like; a green run on committed work is remembered.
+- Check what you changed: fmt, clippy and the tests of the crates you
+  touched, through `factorium worker exclusive`. The full gate is your
+  landing's, on the merge with proving. `factorium worker gate` runs the
+  repo's fast gate on your worktree; you may, you need not.
 - Heavy commands (builds, test suites) go through
   `factorium worker exclusive -- <command>`, which waits until the machine
   has room and runs it at a gate's priority, so what it times (tests,
@@ -27,7 +29,7 @@ Your brief (the file you were handed) says what the issue is.
 - A change past slimfit's growth allowance is judged by a second agent,
   never you (`slimfit help reviewer`): `factorium worker review-growth`
   starts it and answers its verdict and the command that records it.
-- When the work is committed and the gate is green, run
+- When the work is committed and those checks pass, run
   `factorium worker done`, then stop. factorium merges your branch onto the
   proving branch and runs the gate there. If that is red you will be told
   why in this terminal: fix it and run `factorium worker done` again.
