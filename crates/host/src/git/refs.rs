@@ -58,12 +58,12 @@ pub(super) fn once(
     ask: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
     let key = (dir.to_path_buf(), question.to_string());
-    if let Some(answer) = kept().lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+    if let Some(answer) = kept().lock().expect("nothing panics holding it").get(&key) {
         return answer.clone();
     }
     let answer = ask();
     if answer.as_ref().is_ok() || answer.as_ref().is_err_and(|e| fixed(e)) {
-        let mut kept = kept().lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = kept().lock().expect("nothing panics holding it");
         if kept.len() >= KEPT {
             kept.clear();
         }

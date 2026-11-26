@@ -136,7 +136,7 @@ impl World {
 
     /// A clone of its own remote; answers its path.
     pub fn repo(&self, name: &str) -> PathBuf {
-        self.repo_from(&template(), name)
+        self.repo_from(template(), name)
     }
 
     /// A clone of its own remote, both copied from the template's at `from`.

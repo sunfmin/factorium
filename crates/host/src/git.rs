@@ -172,16 +172,27 @@ impl Git {
     /// repo sees the refs a worker's worktree sees (factorium#109). A tag
     /// here that origin moved is left as it is: the branch is still fetched.
     pub fn fetch(&self, branch: &str) -> Result<String, String> {
-        let refspec = format!("+refs/heads/{branch}:refs/remotes/origin/{branch}");
-        match self.run(&["fetch", "--quiet", "--tags", "origin", &refspec]) {
+        self.fetch_all(&[branch]).map(|mut tips| tips.remove(0))
+    }
+
+    /// [`Git::fetch`] of each of `branches` at once, in one fetch; answers
+    /// their tips, in order. Refused, nothing fetched, if origin lacks one.
+    pub fn fetch_all(&self, branches: &[&str]) -> Result<Vec<String>, String> {
+        let refspecs: Vec<String> =
+            branches.iter().map(|b| format!("+refs/heads/{b}:refs/remotes/origin/{b}")).collect();
+        let fetch = |tags: &[&str]| {
+            let args = ["fetch", "--quiet"].iter().chain(tags).copied().chain(["origin"]);
+            self.run(&args.chain(refspecs.iter().map(String::as_str)).collect::<Vec<_>>())
+        };
+        match fetch(&["--tags"]) {
             // Origin has no such branch: fetching it without the tags finds none either.
             Err(e) if e.contains("couldn't find remote ref") => return Err(e),
             Err(_) => {
-                self.run(&["fetch", "--quiet", "origin", &refspec])?;
+                fetch(&[])?;
             }
             Ok(_) => {}
         }
-        self.sha(&format!("refs/remotes/origin/{branch}"))
+        branches.iter().map(|b| self.sha(&format!("refs/remotes/origin/{b}"))).collect()
     }
 
     /// Whether `a` is an ancestor of `b`.
