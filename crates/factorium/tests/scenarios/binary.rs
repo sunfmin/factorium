@@ -629,23 +629,97 @@ fn a_waiter_that_gave_up_and_asks_again_starts_before_one_queued_after_it() {
     assert_eq!(log, "first\nafter\n", "asked again, it starts before the one queued after its first ask");
 }
 
+/// A `factorium run` a test started, ended however the test ends (panicked
+/// or killed tests once left daemons ticking for hours under launchd). It runs in a process group led by its watch, an `sh`
+/// that reads a pipe only this test process holds and, once that closes,
+/// SIGKILLs the group (itself, the daemon, and what the daemon started in
+/// it). The pipe closes when this is dropped (a panic included) and when
+/// the kernel ends the test process (SIGKILL): neither leaves a daemon
+/// ticking under launchd.
+struct Daemon {
+    child: std::process::Child,
+    watch: std::process::Child,
+}
+
+impl Daemon {
+    fn spawn(cmd: &mut Command) -> Daemon {
+        use std::os::unix::process::CommandExt;
+        let watch = Command::new("sh")
+            .args(["-c", "cat >/dev/null; kill -KILL 0"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let group = i32::try_from(watch.id()).unwrap();
+        let child = cmd.process_group(group).spawn();
+        Daemon { child: child.unwrap(), watch }
+    }
+
+    /// The process group it runs in: its watch's pid.
+    fn group(&self) -> u32 {
+        self.watch.id()
+    }
+
+    /// Waits for it to exit; answers what it printed on the pipes it has.
+    fn wait_with_output(&mut self) -> std::process::Output {
+        use std::io::Read;
+        let mut stdout = Vec::new();
+        if let Some(mut o) = self.child.stdout.take() {
+            o.read_to_end(&mut stdout).unwrap();
+        }
+        let mut stderr = Vec::new();
+        if let Some(mut e) = self.child.stderr.take() {
+            e.read_to_end(&mut stderr).unwrap();
+        }
+        std::process::Output { status: self.child.wait().unwrap(), stdout, stderr }
+    }
+}
+
+impl std::ops::Deref for Daemon {
+    type Target = std::process::Child;
+    fn deref(&self) -> &std::process::Child {
+        &self.child
+    }
+}
+
+impl std::ops::DerefMut for Daemon {
+    fn deref_mut(&mut self) -> &mut std::process::Child {
+        &mut self.child
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        drop(self.watch.stdin.take());
+        let _ = self.watch.wait();
+        let _ = self.child.wait();
+    }
+}
+
+/// Whether a process `pid` lives, or (`-pgid`) any of group `pgid`, as
+/// `kill -0` sees it.
+fn alive(pid: &str) -> bool {
+    Command::new("kill").args(["-0", "--", pid]).stderr(Stdio::null()).status().unwrap().success()
+}
+
 /// Starts the daemon on `dir`, its `ps` one that counts: each tick reads the
 /// host's processes through it.
-fn ticking(dir: &Dir) -> std::process::Child {
+fn ticking(dir: &Dir) -> Daemon {
     let calls = dir.0.join("stubs/ps.calls");
     let ps = format!("#!/bin/sh\necho >> '{}'\nexec /bin/ps \"$@\"\n", calls.display());
     let _ = bin(dir);
     std::fs::write(dir.0.join("stubs/ps"), ps).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(dir.0.join("stubs/ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
-    bin(dir).arg("run").stdout(Stdio::piped()).spawn().unwrap()
+    Daemon::spawn(bin(dir).arg("run").stdout(Stdio::piped()))
 }
 
 /// Until the daemon [`ticking`] on `dir` starts its tick number `ticks`,
 /// however long a loaded host takes it there: no deadline, as a starved
 /// daemon at background priority is slow, not stuck (factorium#183). One
 /// that ends first fails it at once; a hang is the runner's to name.
-fn until_tick(dir: &Dir, daemon: &mut std::process::Child, ticks: usize) {
+fn until_tick(dir: &Dir, daemon: &mut Daemon, ticks: usize) {
     let calls = dir.0.join("stubs/ps.calls");
     while std::fs::read_to_string(&calls).map_or(0, |c| c.lines().count()) < ticks {
         let gone = daemon.try_wait().unwrap();
@@ -669,8 +743,8 @@ fn daemon_for(dir: &Dir, ticks: usize) -> std::process::Output {
 
 /// Waits, as [`until_tick`] does, for a daemon sent SIGTERM or SIGINT: it
 /// exits 0, as a normal return from main, and its pid file is gone.
-fn ended_in_order(dir: &Dir, daemon: std::process::Child) -> std::process::Output {
-    let out = daemon.wait_with_output().unwrap();
+fn ended_in_order(dir: &Dir, mut daemon: Daemon) -> std::process::Output {
+    let out = daemon.wait_with_output();
     assert!(out.status.success(), "{:?}: {}", out.status, String::from_utf8_lossy(&out.stderr));
     let pid = dir.0.join("data/factorium/daemon.pid");
     assert!(!pid.exists(), "{} stays", pid.display());
@@ -782,7 +856,7 @@ fn command_of(pid: u32) -> String {
 
 /// Until `done`, or panics past `secs` (so a daemon that never gets there
 /// fails, not hangs), as long as `daemon` lives.
-fn within(secs: u64, daemon: &mut std::process::Child, what: &str, mut done: impl FnMut() -> bool) {
+fn within(secs: u64, daemon: &mut Daemon, what: &str, mut done: impl FnMut() -> bool) {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(secs);
     while !done() {
         assert!(daemon.try_wait().unwrap().is_none(), "the daemon ended before {what}");
@@ -807,7 +881,7 @@ fn a_daemon_that_runs_a_newly_installed_binary_keeps_its_lock_and_a_second_is_re
         };
     }
     let said = std::fs::File::create(dir.0.join("daemon.err")).unwrap();
-    let mut daemon = daemon.arg("run").stdout(Stdio::null()).stderr(said).spawn().unwrap();
+    let mut daemon = Daemon::spawn(daemon.arg("run").stdout(Stdio::null()).stderr(said));
     let pid = dir.0.join("data/factorium/daemon.pid");
     let me = daemon.id();
     within(60, &mut daemon, "it ran", || std::fs::read_to_string(&pid).is_ok_and(|p| p.trim() == me.to_string()));
@@ -818,7 +892,7 @@ fn a_daemon_that_runs_a_newly_installed_binary_keeps_its_lock_and_a_second_is_re
     // The lock came through the exec: it goes on, and holds it.
     std::thread::sleep(std::time::Duration::from_secs(2));
     assert!(daemon.try_wait().unwrap().is_none(), "the new binary was refused its own lock");
-    let mut second = bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let mut second = Daemon::spawn(bin(&dir).arg("run").stdout(Stdio::piped()).stderr(Stdio::null()));
     let ended = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while second.try_wait().unwrap().is_none() {
         if std::time::Instant::now() > ended {
@@ -827,7 +901,7 @@ fn a_daemon_that_runs_a_newly_installed_binary_keeps_its_lock_and_a_second_is_re
         }
         std::thread::sleep(crate::fixture::LOOK);
     }
-    let out = second.wait_with_output().unwrap();
+    let out = second.wait_with_output();
     let refused: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(!out.status.success(), "{refused}");
     assert_eq!(refused["error"]["message"], format!("a daemon runs already, as pid {me}"), "{refused}");
@@ -892,4 +966,82 @@ fn no_daemon_running_is_doctor_s_first_finding_and_commands_say_so() {
     std::fs::write(&tick, now.to_string()).unwrap();
     let (_, doctor) = run(&dir, &["doctor"]);
     assert!(first(&doctor)["what"].as_str().unwrap().contains("does not hold its lock"), "{doctor}");
+}
+
+#[test]
+fn a_test_that_fails_after_starting_a_daemon_leaves_no_process_behind() {
+    let dir = Dir::new();
+    assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    let started = std::sync::Mutex::new(None);
+    let failed = std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut daemon = ticking(&dir);
+            *started.lock().unwrap() = Some((daemon.id(), daemon.group()));
+            until_tick(&dir, &mut daemon, 1);
+            panic!("a test fails with its daemon running");
+        })
+        .join()
+    });
+    assert!(failed.is_err());
+    let (pid, group) = started.into_inner().unwrap().unwrap();
+    assert!(!alive(&pid.to_string()), "the daemon {pid} outlived its test");
+    assert!(!alive(&format!("-{group}")), "a process of its group {group} outlived its test");
+}
+
+/// Where [`a_test_killed_outright_leaves_no_daemon_behind`] starts its test
+/// process's daemon.
+const KILLED_DIR: &str = "FACTORIUM_TEST_KILLED_DIR";
+
+/// The test process [`a_test_killed_outright_leaves_no_daemon_behind`]
+/// kills: starts a daemon on the directory [`KILLED_DIR`] names, writes its
+/// pid and group to `started` there once it ticks, and waits to be killed.
+/// Run alone (no [`KILLED_DIR`]), it does nothing.
+#[test]
+#[ignore = "the process a_test_killed_outright_leaves_no_daemon_behind kills"]
+fn a_test_process_that_waits_to_be_killed_with_its_daemon_running() {
+    let Some(path) = std::env::var_os(KILLED_DIR) else { return };
+    let dir = std::mem::ManuallyDrop::new(Dir(PathBuf::from(path)));
+    let mut daemon = ticking(&dir);
+    until_tick(&dir, &mut daemon, 1);
+    let ready = dir.0.join("started.new");
+    std::fs::write(&ready, format!("{} {}", daemon.id(), daemon.group())).unwrap();
+    std::fs::rename(ready, dir.0.join("started")).unwrap();
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+}
+
+/// A test process killed outright (SIGKILL: no Drop runs, as a mutant run or
+/// a timed-out exclusive one is ended) leaves no daemon behind: its watch
+/// sees the pipe close and ends the daemon's group.
+#[test]
+fn a_test_killed_outright_leaves_no_daemon_behind() {
+    let dir = Dir::new();
+    assert!(run(&dir, &["settings", "tick_every", "1"]).0);
+    let name = "binary::a_test_process_that_waits_to_be_killed_with_its_daemon_running";
+    let mut killed = Command::new(std::env::current_exe().unwrap())
+        .args(["--ignored", "--exact", name, "--nocapture"])
+        .env(KILLED_DIR, &dir.0)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = dir.0.join("started");
+    // No deadline for its start, as for `until_tick`: a loaded host is slow.
+    let said = loop {
+        if let Ok(s) = std::fs::read_to_string(&started) {
+            break s;
+        }
+        assert!(killed.try_wait().unwrap().is_none(), "the test process ended before its daemon ticked");
+        std::thread::sleep(crate::fixture::LOOK);
+    };
+    let (pid, group) = said.split_once(' ').unwrap();
+    assert!(alive(pid), "its daemon {pid} runs before the kill");
+    killed.kill().unwrap();
+    killed.wait().unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while alive(pid) || alive(&format!("-{group}")) {
+        assert!(std::time::Instant::now() < until, "daemon {pid} (group {group}) runs 10s after its test was killed");
+        std::thread::sleep(crate::fixture::LOOK);
+    }
 }
