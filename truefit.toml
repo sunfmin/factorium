@@ -503,7 +503,7 @@ stdin = """
 {"run": ["launchctl", "bootout", "gui/{uid}/com.github.sunfmin.factorium.truefit-{nonce}"]}
 """
 
-# The heavy queue's design (SPEC §1 row 9), model-checked by TLC
+# The heavy queue's design (docs/adr/0010-admission-and-the-heavy-queue.md), model-checked by TLC
 # (truefit ADR 0001): models/HeavyQueue.tla, one model checked under four
 # configs, each the smallest that still shows its properties fail on a
 # broken variant (`models/heavy.sh broken`), and each bounded in depth.
@@ -537,7 +537,7 @@ now = 'r.now'
 waiter = '[i \in Ids |-> r.state.waiter[i]]'
 last = 'r.last'
 
-# The queue of resources (SPEC §1.9, factorium#284, #286): the same model
+# The queue of resources (docs/adr/0011-resources-queue-shortest-hold-first.md): the same model
 # with a named resource beside "host", a worker's hold and its window, and
 # the line ordered by declared hold and the starve bound.
 [[model]]
@@ -645,7 +645,7 @@ last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
 
-# A checkout's line (SPEC §1.12-1.14, §2), model-checked by TLC:
+# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, SPEC.md §2), model-checked by TLC:
 # models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
@@ -683,6 +683,21 @@ covers = [
   { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
   { action = "OneAtATime", file = "crates/factorium/src/daemon/process.rs", function = "App::run (pid file)" },
 ]
+
+# A scenario's run (crates/factorium/tests/scenarios/fixture/line_trace.rs)
+# under the line's own constants, with proving's tip and the trees gated
+# green, so its traces (.truefit/traces/line/) reach ProvingOnlyGated. A
+# run with one worker leaves the second working.
+[model.trace]
+status = '[w \in Workers |-> IF w <= Len(r.state.status) THEN r.state.status[w] ELSE "working"]'
+asks = 'r.state.asks'
+closed = '{r.state.closed[i] : i \in DOMAIN r.state.closed}'
+unpromoted = 'r.state.unpromoted'
+uncut = 'r.state.uncut'
+promoted = 'r.state.promoted'
+red = 'r.state.red'
+proving = 'r.state.proving'
+fast = '{r.state.fast[i] : i \in DOMAIN r.state.fast}'
 
 [[model]]
 name = "line-live"
@@ -797,385 +812,385 @@ sources = ["SPEC.md", "README.md", "docs/adr/*.md"]
 [[promise]]
 name = "waiting-moves-only-by-ready"
 says = "only a person's `issue ready` moves it again"
-source = "SPEC.md:33"
+source = "docs/adr/0008-roles-and-waiting-issues.md:33"
 check = ["test"]
 
 [[promise]]
 name = "role-dir-never-written"
 says = "the role's directory read and never written"
-source = "SPEC.md:33"
+source = "docs/adr/0008-roles-and-waiting-issues.md:21"
 check = ["test"]
 
 [[promise]]
 name = "used-up-account-waits"
 says = "its issue waits, behind ready issues that can start, and holds admission (`kit: …`, the pick's reasons) only when none can"
-source = "SPEC.md:37"
+source = "docs/adr/0009-accounts-are-stablehands.md:26"
 check = ["test"]
 
 [[promise]]
 name = "admission-from-readings"
-says = "Whether one more worker may start now, from the host's readings alone"
-source = "SPEC.md:38"
+says = "whether one more worker may start now, from the host's readings alone"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:15"
 check = ["test"]
 why = "admission is a function of one tick's readings and nothing else; admission.rs drives each reading, the queue's wait among them"
 
 [[promise]]
 name = "at-once"
 says = "never starves the oldest (it starts at once when nothing runs)"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-starts"]
 why = "factorium has no `truefit sim`: the model checks every order the waiters can ask in, which is what a sim would sample"
 
 [[promise]]
 name = "settled"
 says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-starts"]
 
 [[promise]]
 name = "held-ended"
 says = "ends one that holds others up past the hold bound"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-ends"]
 
 [[promise]]
 name = "ended-whole"
 says = "A run is ended whole, by one path whoever ends it"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:22"
 check = ["test"]
 
 [[promise]]
 name = "unqueued-run-answers"
 says = "an unqueued run's waiter answers `unqueued`"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:23"
 check = ["model heavy-ends"]
 
 [[promise]]
 name = "gate-priority"
 says = "so the CPU goes to a gate before it"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:26"
 check = ["test"]
 
 [[promise]]
 name = "line-ahead"
 says = "A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:27"
 check = ["model heavy-starts"]
 
 [[promise]]
 name = "not-cut-short"
 says = "a running entry is never cut short for it"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:27"
 check = ["model heavy-ends"]
 
 [[promise]]
 name = "kept-place"
 says = "the same worker (or program) asking the same command again within it takes that place, not the back"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:29"
 check = ["model heavy-rules"]
 
 [[promise]]
 name = "gated-once-per-tree"
 says = "A green run is recorded against the tree it ran on, so the same tree is never gated twice."
-source = "SPEC.md:41"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:14"
 check = ["test"]
 why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); its scenarios drive each order the system can be in"
 
 [[promise]]
 name = "promotion-within-bound"
 says = "does not push the promotion past its bound"
-source = "SPEC.md:43"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:24"
 check = ["test"]
 
 [[promise]]
 name = "base-follows-never-further"
 says = "on every tick to origin's base as last fetched, never further"
-source = "SPEC.md:43"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:25"
 check = ["test"]
 
 [[promise]]
 name = "base-never-reset-over-work"
 says = "One with commits of its own, or checked out over changes not committed, is never reset"
-source = "SPEC.md:43"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:26"
 check = ["test"]
 
 [[promise]]
 name = "one-round-per-episode"
 says = "an episode starts at most one **round**"
-source = "SPEC.md:45"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:18"
 check = ["test"]
 
 [[promise]]
 name = "rules-change-between-rounds"
 says = "closes that session between rounds, never in one"
-source = "SPEC.md:45"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:22"
 check = ["test"]
 
 [[promise]]
 name = "idle-only-when-idle"
 says = "at most once per `every` (from the last run's start) and within `limit` for all the steps"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:14"
 check = ["test"]
 why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); its scenarios drive each order the system can be in; idle.rs runs it against a worker, a heavy command and its limit"
 
 [[promise]]
 name = "idle-gives-way"
 says = "so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:15"
 check = ["test"]
 why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); its scenarios drive each order the system can be in; idle.rs queues a command beside running idle work"
 
 [[promise]]
 name = "one-open-per-kind"
 says = "So each kind has at most one open issue"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:18"
 check = ["test"]
 
 [[promise]]
 name = "tasks-within-bound"
 says = "its tasks line runs without an idle host"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:19"
 check = ["test"]
 
 [[promise]]
 name = "cut-blocker-met-on-install"
 says = "`<checkout>#N@cut` is met only once a cut of that checkout holds its landing"
-source = "SPEC.md:56"
+source = "SPEC.md:30"
 check = ["test"]
 
 [[promise]]
 name = "typed-only-when-up"
 says = "Text is typed at a session only once its harness's own screen is up there"
-source = "SPEC.md:68"
+source = "SPEC.md:56"
 check = ["test"]
 
 [[promise]]
 name = "worker-comment-changes-nothing"
 says = "a comment on its issue by it that changes nothing else and goes to no one"
-source = "SPEC.md:73"
+source = "SPEC.md:68"
 check = ["test"]
 
 [[promise]]
 name = "work-never-lost"
 says = "its worktree is removed unless it holds work that is nowhere else"
-source = "SPEC.md:93"
+source = "SPEC.md:86"
 check = ["model worktrees"]
 
 [[promise]]
 name = "no-start-over-under-worker"
 says = "only while no worker is on the issue"
-source = "SPEC.md:102"
+source = "SPEC.md:96"
 check = ["model worktrees"]
 
 [[promise]]
 name = "off-path-to-watch"
 says = "Off the path, everything goes to the watch"
-source = "SPEC.md:136"
+source = "SPEC.md:135"
 check = ["test"]
 
 [[promise]]
 name = "landing-moves"
-says = "a landing no gate runs for past `stall_bound`"
-source = "SPEC.md:140"
+says = "a landing no gate runs for on a line that has not moved for `stall_bound`"
+source = "SPEC.md:145"
 check = ["model line-live"]
 
 [[promise]]
 name = "promotion-moves"
 says = "the oldest unpromoted landing past `promotion_bound` with no promotion running"
-source = "SPEC.md:140"
+source = "SPEC.md:149"
 check = ["model line-live"]
 
 [[promise]]
 name = "stalled-queue-found"
 says = "a heavy queue that starts nothing past `stall_bound`"
-source = "SPEC.md:140"
+source = "SPEC.md:143"
 check = ["test"]
 why = "the finding is read from the queue's records by one doctor pass; stall.rs holds the queue still and past the hold bound"
 
 [[promise]]
 name = "guard-worker-only"
 says = "the guard lets a worker run only"
-source = "SPEC.md:174"
+source = "SPEC.md:250"
 check = ["test"]
 
 [[promise]]
 name = "promote-refused-while-running"
 says = "while a promotion of that checkout runs, the daemon's or another `promote`, it is refused"
-source = "SPEC.md:180"
+source = "SPEC.md:256"
 check = ["test"]
 why = "the refusal reads the promotion's one running record (Running::take); line.rs runs `promote` by hand beside the daemon's"
 
 [[promise]]
 name = "nothing-ahead-of-brief"
 says = "Nothing is typed before the harness is up, nor ahead of the brief."
-source = "SPEC.md:184"
+source = "SPEC.md:270"
 check = ["test"]
 why = "each session's outbox is one record, typed in order by one daemon; outbox.rs holds the brief and what comes after it"
 
 [[promise]]
 name = "comment-never-stops-turn"
 says = "never stopping its running turn"
-source = "SPEC.md:198"
+source = "SPEC.md:293"
 check = ["test"]
 why = "delivery goes through the one outbox; outbox.rs and comment.rs type behind a running turn"
 
 [[promise]]
 name = "told-at-most-once"
 says = "Each reaches the worker at most once"
-source = "SPEC.md:211"
+source = "SPEC.md:305"
 check = ["test"]
 why = "the line `tell` or `restart` types is its one delivery, written once; comment.rs checks each is typed once"
 
 [[promise]]
 name = "exec-only-proven"
 says = "once that binary is proven to open this host's database"
-source = "SPEC.md:220"
+source = "SPEC.md:357"
 check = ["test"]
 
 [[promise]]
 name = "help-is-the-manual"
 says = "every command's `--help` says what it does and what it answers"
-source = "SPEC.md:252"
+source = "SPEC.md:420"
 kept = "no test reads every command's --help; the help is kept the manual by review of each command's change"
 
 [[promise]]
 name = "lines-never-fail"
 says = "and never fails"
-source = "SPEC.md:264"
+source = "SPEC.md:438"
 kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn every gate red"
 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:362"
+source = "SPEC.md:542"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:371"
+source = "SPEC.md:555"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:431"
+source = "SPEC.md:620"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:438"
+source = "SPEC.md:625"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:441"
+source = "SPEC.md:627"
 check = ["model line"]
 
 [[promise]]
 name = "checkout-role-is-a-directory"
-says = "each refused unless it is such a directory (factorium#249)"
-source = "SPEC.md:32"
+says = "each refused unless it is such a directory"
+source = "docs/adr/0008-roles-and-waiting-issues.md:28"
 check = ["test"]
 
 [[promise]]
 name = "issue-role-wins"
 says = "an issue's own role always wins over it"
-source = "SPEC.md:33"
+source = "docs/adr/0008-roles-and-waiting-issues.md:25"
 check = ["test"]
 
 [[promise]]
 name = "stale-holds-none"
 says = "an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up"
-source = "SPEC.md:39"
+source = "docs/adr/0010-admission-and-the-heavy-queue.md:28"
 check = ["model heavy-rules"]
 why = "factorium has no `truefit sim`: the model checks every order the waiters can ask in, which is what a sim would sample"
 
 [[promise]]
 name = "regenerated-conflicts-not-red"
-says = "A merge whose only conflicts are records the gate regenerates (`regenerated`, §5: slimfit's baseline, truefit's models) is not red"
-source = "SPEC.md:42"
+says = "A merge whose only conflicts are records the gate regenerates (`[gate] regenerated` in `factorium.toml`) is not red"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:17"
 check = ["test"]
 
 [[promise]]
 name = "other-conflicts-red"
-says = "Any other conflict is red, naming every conflicting file (factorium#225)."
-source = "SPEC.md:42"
+says = "Any other conflict is red, naming every conflicting file."
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:18"
 check = ["test"]
 
 [[promise]]
 name = "idle-by-hand-outlasts-busy-tick"
 says = "a tick that finds the host busy does not end it, and `unqueue` ends it whole"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:20"
 check = ["test"]
 why = "it is decided by one daemon tick or one command from what the database holds, and ticks run one at a time (one daemon, the pid lock, §1); idle.rs runs `idle` by hand on a busy host, a tick beside it, and `unqueue` of it"
 
 [[promise]]
 name = "idle-by-hand-one-open-task"
 says = "so it never files a second open issue of a kind"
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:21"
 check = ["test"]
 
 [[promise]]
 name = "daemon-runs-reading"
 says = "its pid file names a live process that holds its lock, and that one ticked (`daemon.tick`) within five `tick_every`, never under two minutes"
-source = "SPEC.md:50"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:23"
 check = ["test"]
 
 [[promise]]
 name = "no-daemon-said-everywhere"
 says = "every other command but `run`, `stop` and `service` says so in one line on stderr"
-source = "SPEC.md:53"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:24"
 check = ["test"]
 
 [[promise]]
 name = "doctor-asks-every-wait"
 says = "every issue of every checkout that waits for a person"
-source = "SPEC.md:191"
+source = "SPEC.md:175"
 check = ["test"]
 
 [[promise]]
 name = "decided-records-only-first-line"
 says = "a comment is one only when its first line starts `Decided (`"
-source = "SPEC.md:213"
+source = "SPEC.md:194"
 check = ["test"]
 
 [[promise]]
 name = "decided-last-seven-days"
 says = "answers those of the last 7 days, read or not"
-source = "SPEC.md:218"
+source = "SPEC.md:198"
 check = ["test"]
 
 [[promise]]
 name = "old-records-numbered-once"
 says = "Records made before numbers were given take theirs once, oldest first by when they were made"
-source = "SPEC.md:230"
+source = "SPEC.md:210"
 check = ["test"]
 
 [[promise]]
 name = "usage-read-once-by-id"
 says = "each assistant message's `usage` once, by its id"
-source = "SPEC.md:294"
+source = "SPEC.md:303"
 check = ["test"]
 
 [[promise]]
 name = "older-daemon-swaps-on-failed-tick"
 says = "a failed tick still starts that proof and swaps once it passed"
-source = "SPEC.md:315"
+source = "SPEC.md:368"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-heavy"
 says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
-source = "SPEC.md:339"
+source = "SPEC.md:402"
 check = ["test"]
 
 [[promise]]
 name = "slow-step-a-finding"
 says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
-source = "SPEC.md:342"
+source = "SPEC.md:406"
 check = ["test"]
 
 [[promise]]
@@ -1187,7 +1202,7 @@ kept = "where the secrets live is sunfmin/homebrew-tap's settings, which no run 
 [[promise]]
 name = "build-checks-cargo-version"
 says = "`build` at the tag only checks Cargo.toml says the tag's version"
-source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:26"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:32"
 check = ["test"]
 
 [[promise]]
@@ -1199,83 +1214,83 @@ check = ["test"]
 [[promise]]
 name = "shortest-hold-first"
 says = "the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves"
-source = "SPEC.md:39"
+source = "docs/adr/0011-resources-queue-shortest-hold-first.md:15"
 check = ["test"]
 why = "factorium has no `truefit sim`, and models/HeavyQueue.tla orders oldest first only; the order is one pure function (neutral/queue.rs next) of the entries one tick reads, and order.rs and resource.rs drive short, long and starved holds through it"
 
 [[promise]]
 name = "slots-at-most-n"
 says = "`slots = n`: n holders at most (1 is a mutex)"
-source = "SPEC.md:39"
+source = "docs/adr/0011-resources-queue-shortest-hold-first.md:19"
 check = ["test"]
 why = "factorium has no `truefit sim`, and models/HeavyQueue.tla has no named resource; a start is decided by one tick under the daemon's lock from the held entries (neutral/queue.rs may_start), and resource.rs runs two asking for one slot one after the other"
 
 [[promise]]
 name = "resources-all-or-none"
 says = "granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another"
-source = "SPEC.md:39"
+source = "docs/adr/0011-resources-queue-shortest-hold-first.md:23"
 check = ["test"]
 why = "factorium has no `truefit sim`, and models/HeavyQueue.tla has no named resource; the grant is one decision of one tick over every resource asked for, and resource.rs runs one asking for two while another holds one of them"
 
 [[promise]]
 name = "hold-window-and-release"
 says = "with `--between 22:00-07:00` (the host's local time, every day; an overnight run on the charger) it is passed over outside its window, joining the line only inside it, its starve bound counted from the window's opening; granted, it outlives its waiter until `worker release <name>` or its worker ends, and the worker's own commands asking for what it holds run inside it, taking no slot of their own"
-source = "SPEC.md:39"
+source = "docs/adr/0011-resources-queue-shortest-hold-first.md:24"
 check = ["test"]
 
 [[promise]]
 name = "hold-never-cut-short"
 says = "A hold is never cut short, whatever the hold bound; past its declared until it is a finding for the watch, as a silent worker is."
-source = "SPEC.md:39"
+source = "docs/adr/0011-resources-queue-shortest-hold-first.md:25"
 check = ["test"]
 
 [[promise]]
 name = "failed-cut-holds-later-cuts"
-says = "until then none of the checkout's other moves is carried (factorium#242). A failed cut holds every later cut of its checkout until one of three"
-source = "SPEC.md:44"
+says = "A failed cut holds every later cut of its checkout until one of three"
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:30"
 check = ["test"]
 
 [[promise]]
 name = "no-finding-unlooked"
 says = "No finding stays standing after its round with nobody looking at it"
-source = "SPEC.md:45"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:19"
 check = ["test"]
 
 [[promise]]
 name = "tell-ends-the-wait"
-says = "a word that sends the worker back to work never leaves it waiting, its `done` refused (factorium#268)"
-source = "SPEC.md:45"
+says = "a word that sends the worker back to work never leaves it waiting, its `done` refused"
+source = "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:20"
 check = ["test"]
 why = "`watch tell` to a waiting worker is one command that ends the wait and types the word in one step, whatever the daemon's ticks do; watch.rs tells a waiting worker and lands its `done`"
 
 [[promise]]
 name = "idle-by-hand-refused"
 says = "It is refused when the base declares no `[idle]`, and while idle work of any checkout runs or waits on the host, naming that entry and `factorium unqueue <id>`."
-source = "SPEC.md:46"
+source = "docs/adr/0014-idle-work.md:22"
 check = ["test"]
 
 [[promise]]
 name = "every-block-says-why"
 says = "`--blocked-by` and `issue block --by` are refused without `--why <text>`"
-source = "SPEC.md:66"
+source = "SPEC.md:33"
 check = ["test"]
 
 [[promise]]
 name = "old-block-no-reason-given"
 says = "A block made before whys were asked for reads \"(no reason given)\"."
-source = "SPEC.md:71"
+source = "SPEC.md:37"
 check = ["test"]
 
 [[promise]]
 name = "older-store-read-as-it-is"
 says = "A store written by an older binary is read by a newer one as it is: no script is run by hand"
-source = "SPEC.md:268"
+source = "SPEC.md:230"
 check = ["test"]
 
 [[promise]]
 name = "installs-only-at-its-cut"
 says = "a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then"
-source = "SPEC.md:368"
+source = "SPEC.md:375"
 check = ["test"]
 
 [[promise]]
@@ -1287,38 +1302,56 @@ check = ["test"]
 [[promise]]
 name = "without-stablehand-claude-code-alone"
 says = "With stablehand missing or failing, claude-code alone starts, by `claude --dangerously-skip-permissions` (built in, for that case only), on the host user's own login."
-source = "SPEC.md:36"
+source = "docs/adr/0009-accounts-are-stablehands.md:27"
 check = ["test"]
 
 [[promise]]
 name = "merge-checked-from-done"
-says = "One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since, §2 step 5), and leaves the line; one that merges keeps its place."
-source = "SPEC.md:42"
+says = "One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since), and leaves the line; one that merges keeps its place."
+source = "docs/adr/0012-the-line-gate-landing-promotion-cut.md:20"
 check = ["test"]
 why = "factorium has no `truefit sim`, and models/Line.tla has no merge; each tick's check is one pass over the line under the daemon's lock, and in_line.rs drives a branch that stops merging once another lands, one that conflicts while another gates, and one conflicting only in a regenerated record"
 
 [[promise]]
 name = "moved-red-not-second-red"
 says = "A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds"
-source = "SPEC.md:112"
+source = "SPEC.md:79"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-typing"
 says = "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all"
-source = "SPEC.md:317"
+source = "SPEC.md:278"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
 
 [[promise]]
 name = "typing-beside-ends-before-retry-or-swap"
 says = "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs"
-source = "SPEC.md:323"
+source = "SPEC.md:284"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; on.rs ticks again while seven are typed (none typed twice) and holds the restart until the typing's outcome is recorded"
 
 [[promise]]
 name = "spent-stores-nothing"
 says = "`spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing."
-source = "SPEC.md:374"
+source = "SPEC.md:335"
+check = ["test"]
+
+[[promise]]
+name = "urgent-only-the-owners"
+says = "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it."
+source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:14"
+check = ["test"]
+
+[[promise]]
+name = "urgent-start-held-only-by-floors"
+says = "Its start goes before every other ready issue, held only by the memory and disk floors, never by the load."
+source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:18"
+check = ["test"]
+
+[[promise]]
+name = "urgent-landing-next-never-cuts-a-gate"
+says = "Its landing takes the next turn of its checkout's line, never cutting a running gate short."
+source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:22"
 check = ["test"]

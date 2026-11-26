@@ -285,7 +285,8 @@ impl App {
     }
 
     /// The first ready issue no worker holds and nothing open blocks, the
-    /// urgent ones first, then in the ordinary order ([`tracker::untaken`]);
+    /// urgent ones first, then those that start ahead (a promotion's mutants
+    /// issue), then in the ordinary order ([`tracker::untaken`]);
     /// whose account, if it names one, can start now, and whose role has
     /// what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
@@ -294,6 +295,8 @@ impl App {
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
         let mut rows = self.rows(tracker::untaken()).await?;
+        // Those that start ahead (a promotion's mutants issue), then the urgent before all.
+        urgent_first(&mut rows, |r| r.ahead);
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
             let (checkout, number) = (r.checkout.clone(), r.number);

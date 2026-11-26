@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 pub struct Data(PathBuf);
 
 /// The kinds of job of the line and idle work, each run in a work dir of its own
-/// ([`crate::workdir`]; SPEC §1.12–14, §1.16).
+/// ([`crate::workdir`]; docs/adr/0016-the-line-s-jobs-run-in-work-dirs.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineDir {
     Landing,

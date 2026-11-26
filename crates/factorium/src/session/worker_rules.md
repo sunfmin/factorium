@@ -30,7 +30,9 @@ Your brief (the file you were handed) says what the issue is.
   shows who holds it, and why each waiter is not next.
 - A change's mutants are picked by a second agent, never you (`slimfit help
   picker`): `factorium worker pick-mutants` starts it and answers the picks
-  and the commands that run and record them.
+  and the commands that run and record them. Where your brief says your
+  checkout holds the record of mutants at its base, you run none before
+  `done`: a promotion's mutants issue runs them for every landing since.
 - A change past slimfit's growth allowance is judged by a second agent,
   never you (`slimfit help reviewer`): `factorium worker review-growth`
   starts it and answers its verdict and the command that records it.

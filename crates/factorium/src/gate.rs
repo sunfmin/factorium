@@ -3,7 +3,7 @@
 //! same tree is never gated twice. The one writer of gate records, and of
 //! the files that keep each run's whole output.
 
-use factorium_domain::declared::Kind;
+use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::gate::{Gates, Ran as GateRan, RecordGate, record_id, record_key};
 use factorium_domain::heavy;
 use factorium_domain::named;
@@ -53,9 +53,10 @@ impl Gated {
 }
 
 impl App {
-    /// Runs the `kind` gate of `checkout` on `at` in `here`, unless that tree
+    /// Runs what `gating` runs of `checkout` on `at` in `here`, unless that tree's `kind` gate
     /// is green already. `None`: not its turn yet; ask again next tick.
-    pub(crate) async fn gate(&self, checkout: &str, here: &Git, at: At<'_>, kind: Kind) -> Answer<Option<Gated>> {
+    pub(crate) async fn gate(&self, checkout: &str, here: &Git, at: At<'_>, gating: Gating) -> Answer<Option<Gated>> {
+        let kind = gating.kind();
         let (rev, dirty) = match at {
             At::Commit { rev, .. } | At::Beside { rev, .. } => (rev, false),
             At::Worktree { .. } => ("HEAD", here.dirty().map_err(fail("git"))?),
@@ -64,7 +65,7 @@ impl App {
         if !dirty && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
             return Ok(Some(Gated { green: true, tree, recorded: true, ran: None, kept: String::new() }));
         }
-        let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(kind).map(|(c, l)| (c.to_string(), l)) else {
+        let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(&gating) else {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: String::new() }));
         };
         let steps = [cmd];

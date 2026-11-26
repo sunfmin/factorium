@@ -44,6 +44,12 @@
     "sentence": "**Scenarios through `App`.** `App` is the program's one entry: every CLI command is one method of it, and the daemon's tick is one too.",
     "source": "SPEC.md:307"
   },
+  "0a8473ac7d81": {
+    "mark": "not",
+    "sentence": "A worker that wants room waits at most a tick for idle work.",
+    "source": "docs/adr/0014-idle-work.md:29",
+    "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
+  },
   "0a8e7890f25f": {
     "mark": "not",
     "sentence": "`owner.rs` was the binary's biggest, busiest file (459 lines, 35 commits in 90 days). Its history shows why: most of those commits only added a line to `model()`, the list of every aggregate and command the engine runs.",
@@ -164,6 +170,12 @@
     "sentence": "A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed.",
     "source": "SPEC.md:33"
   },
+  "2792c6a294c2": {
+    "mark": "not",
+    "sentence": "A concept added in passing, to fit one change, is a word only that change knows, and the next reader guesses at it.",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:11",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
   "287daf6d0a6f": {
     "mark": "promise",
     "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts a **round**: a brief, an hour (`round_bound`), and a report the watch files with `factorium watch report`. No finding stays standing after its round with nobody looking at it: an episode still found `round_again` (30 min) after its round ended — reported, or past its bound — starts another, whose brief carries the last report (\"last time you reported …; the finding is still there\"), up to `rounds_max` (3) rounds; past them it starts none, and doctor lists it under `unresolved`, with its rounds and last report, for the owner, while it stands.",
@@ -204,16 +216,34 @@
     "sentence": "A command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run.",
     "source": "SPEC.md:39"
   },
+  "2f8acd77bdca": {
+    "mark": "not",
+    "sentence": "factorium runs agents while nobody watches, and every concept it has is one more thing the watch, a worker and the operator must read the same way: in doctor's findings, in each command's `--help`, in the database.",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:8",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
   "32420616b492": {
     "mark": "not",
     "sentence": "A cut's change (steps, tagging, the install) edits `line/cut.rs` only.",
     "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:43"
+  },
+  "399c04d04bc6": {
+    "mark": "not",
+    "sentence": "A word used inside a concept (a role, a hold, an episode) is listed under \"Words within them\": it adds no concept.",
+    "source": "docs/adr/0007-the-concepts-are-fixed.md:19",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "3e7d0c2902c4": {
     "mark": "not",
     "sentence": "The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; where a session on an account keeps its files (the account itself is stablehand's). Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
     "source": "SPEC.md:420",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "41b5dfe25d3e": {
+    "mark": "not",
+    "sentence": "The order is the resource queue's, never the issue's.",
+    "source": "docs/adr/0011-resources-queue-shortest-hold-first.md:16",
+    "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "43d8855f5275": {
     "mark": "promise",
@@ -225,10 +255,22 @@
     "sentence": "The first tick after `done`, and each tick after that while it waits its turn on which its branch or the proving tip moved since it last merged, checks the merge of every branch waiting in line onto the proving tip, without a work tree or a gate (`git merge-tree`), by the same rules (a conflict only in `regenerated` records merges). One that does not merge is red on that tick, in the words of the red at its turn (the conflicting files, and what landed since, §2 step 5), and leaves the line; one that merges keeps its place.",
     "source": "SPEC.md:42"
   },
+  "4c5f1533dfe4": {
+    "mark": "not",
+    "sentence": "The load that hurts comes from heavy commands (builds, test suites, gates), and a time a gate compares (slimfit's test time) is only true if every gate is measured alike.",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:9",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
   "51ffe0033cd4": {
     "mark": "promise",
     "sentence": "**Where a checkout's issues spent their time**: `spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing.",
     "source": "SPEC.md:374"
+  },
+  "526edceff2c8": {
+    "mark": "not",
+    "sentence": "A role a worker could write to would change the rules of every worker after it.",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:10",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "535e8408a8fd": {
     "mark": "promise",
@@ -245,6 +287,12 @@
     "sentence": "Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound.",
     "source": "SPEC.md:43"
   },
+  "595ea124f43d": {
+    "mark": "promise",
+    "sentence": "Its landing takes the next turn of its checkout's line, never cutting a running gate short.",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:22",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "5afb14fcaae7": {
     "mark": "promise",
     "sentence": "**A landing waits for no review** (factorium#167). It lands on the fast gate alone and reaches only proving, which is promoted after the slow gate; verdicts and rework stay out of factorium (§7). Review comes after landing, from outside: Guild's warden, and control's job on a proving branch, file what they find as new issues.",
@@ -260,6 +308,12 @@
     "sentence": "A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it.",
     "source": "SPEC.md:39"
   },
+  "5c464b905bd5": {
+    "mark": "not",
+    "sentence": "A named resource is declared in the host's settings (`settings --resource <name> --slots <n>`), never in a checkout's `factorium.toml`: a phone serves every checkout on the host.",
+    "source": "docs/adr/0011-resources-queue-shortest-hold-first.md:17",
+    "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
+  },
   "5fe2ffcddf67": {
     "mark": "promise",
     "sentence": "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all: the tick gives it to the outboxes of every worker it is owed and goes on, and it is typed at them at once beside the ticks, on a store connection of its own; the tick's `roles` answers each worker told, its changed files and its delivery as it stood when the tick ended (`queued` while it is typed), and the outbox records how it went.",
@@ -274,6 +328,12 @@
     "mark": "not",
     "sentence": "The checkouts pinned to one engine (`kit pin`). The split (factorium#291, stablehand#24, factorium#306): which engine, model and account a session starts on is stablehand's, its order (`stablehand order set`) and its pick its one home, and so is each engine's command, its program and the flags it always takes (`stablehand command set\\",
     "source": "SPEC.md:36"
+  },
+  "698ad6e0c7fa": {
+    "mark": "not",
+    "sentence": "A checkout may have a default role, kept in the host's checkout list and not in the repo's `factorium.toml`, since the path holds only on this host.",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:23",
+    "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   },
   "6b3236f11c1f": {
     "mark": "promise",
@@ -301,6 +361,12 @@
     "sentence": "Promotion and cut (one per checkout, which the daemon orders itself), the issue claim and the accounts' windows are not resources: each could become a rule when a second need shows (factorium#284). The resource `host`: a command a worker runs through `factorium worker exclusive -- <cmd>`, one a program of the owner's that is not a worker (Guild's instances, guildd) runs through `factorium heavy run [--background] -- <cmd>` (its entry marked `program`), and every gate run.",
     "source": "SPEC.md:39",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "78ef83ba2321": {
+    "mark": "not",
+    "sentence": "An agent looking at every finding all the time would spend its model on what fixes itself, and a session briefed once keeps rules the next cut may change.",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:8",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
   "7b6a22997151": {
     "mark": "not",
@@ -347,6 +413,12 @@
     "sentence": "A repo factorium manages has its base moved only by promotion; anything else that moves the base turns promotion red.",
     "source": "SPEC.md:438"
   },
+  "8d14bdd7a59e": {
+    "mark": "not",
+    "sentence": "One resident agent session, the watch, deals with every finding: escalations, failed, hot and silent workers, red promotions, red idle work, failed cuts, resource holds.",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:15",
+    "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
+  },
   "91db289c1891": {
     "kind": "fixed-often",
     "mark": "not",
@@ -363,6 +435,12 @@
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its default, may name a role directory, §1.2–1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports: `issue move`, §4, is not that, for no state is shared between hosts and nothing is read from the other host afterwards: one owner command hands one issue over by filing it there); Jira deliveries; the asking session; remote refs as state; caches as state.",
     "source": "SPEC.md:572",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "941db9f0ac35": {
+    "mark": "not",
+    "sentence": "A look (no model) every five minutes reads doctor's findings.",
+    "source": "docs/adr/0013-the-watch-and-the-daemon-it-reads.md:17",
+    "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
   },
   "946dbe0dbd8b": {
     "mark": "promise",
@@ -384,6 +462,12 @@
     "sentence": "Each reaches the worker at most once: the line `tell` or `restart` types is its delivery, nothing types it again, and a worker's own escalation is typed back at no one.",
     "source": "SPEC.md:211"
   },
+  "9a3f3bf5194f": {
+    "mark": "not",
+    "sentence": "The queue holds the busy share near the limit, and the load it holds back shows only in its wait, which admission reads.",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:33",
+    "why": "restates a registered promise beside it (admission-from-readings, shortest-hold-first, off-path-to-watch, no-finding-unlooked, idle-gives-way)"
+  },
   "9b9c3f581a08": {
     "mark": "promise",
     "sentence": "So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind.",
@@ -404,6 +488,12 @@
     "sentence": "It works by the rules of the factorium that runs: its session records which rules (their hash) it was briefed with, and a look that finds them other than the running binary's — a cut installed a version that changed them — closes that session between rounds, never in one, and starts a fresh one briefed with the new rules before the next round.",
     "source": "SPEC.md:45"
   },
+  "a2fc0e488c35": {
+    "mark": "promise",
+    "sentence": "Its start goes before every other ready issue, held only by the memory and disk floors, never by the load.",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:18",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "a7685f55d299": {
     "mark": "promise",
     "sentence": "So does a line that stopped: whatever it owes is done within its bound or is a finding — a heavy queue that starts nothing past `stall_bound` (or whose oldest waits past `hold_bound` and `stall_bound` more), a landing no gate runs for past `stall_bound`, the oldest unpromoted landing past `promotion_bound` with no promotion running, the oldest uncut promotion past `cut_bound` with no cut running.",
@@ -419,10 +509,22 @@
     "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
     "source": "SPEC.md:45"
   },
+  "aa1f9f891da1": {
+    "mark": "promise",
+    "sentence": "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it.",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:14",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "aae476d382e9": {
     "mark": "promise",
     "sentence": "A crate's target is a trend, not a gate (factorium#163): `./lines.sh`, which `checks.sh` runs, prints each crate's lines against its target here and an overage, and never fails.",
     "source": "SPEC.md:264"
+  },
+  "aae4e201ca85": {
+    "mark": "not",
+    "sentence": "Each start asks `stablehand pick`, counting factorium's own live sessions on each account, and starts the engine, model and account it answers, by the command stablehand keeps for that engine (`stablehand command set`); factorium adds only its own arguments, the guard and the session.",
+    "source": "docs/adr/0009-accounts-are-stablehands.md:20",
+    "why": "how a start is made; its outcomes are the registered promises used-up-account-waits and without-stablehand-claude-code-alone"
   },
   "ac68931ab705": {
     "mark": "promise",
@@ -542,6 +644,12 @@
     "sentence": "Only spending money is left to the owner, in the report's `human` part, which `doctor` shows.",
     "source": "SPEC.md:153"
   },
+  "d9626120c10c": {
+    "mark": "not",
+    "sentence": "The base branch is what every host and every release builds from, so nothing may reach it that a gate has not passed on that very tree, and a slow gate cannot run on every landing.",
+    "source": "docs/adr/0012-the-line-gate-landing-promotion-cut.md:8",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
   "dab3e8e2ad2f": {
     "mark": "promise",
     "sentence": "The rules are those of the daemon that runs, set as it starts (a newer binary swapped to, or an older one a rollback went back to), never by another process that asks: a newer binary whose proof failed does not run the daemon, which would else be refused its own gates (factorium#241). A waiter of an older binary is refused, and execs the installed one (its own binary found before it waits, so an upgrade meanwhile does not hide it), keeping its place; an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up.",
@@ -595,6 +703,12 @@
     "source": "SPEC.md:561",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
+  "e9d3297614e2": {
+    "mark": "not",
+    "sentence": "In the ordinary order it waits behind admission's load reading, the heavy queue and its checkout's line, each fair to every issue and none knowing this one matters more.",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:8",
+    "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "ea300ca7d549": {
     "mark": "promise",
     "sentence": "**By hand**: `factorium idle <checkout>` runs it now, as `promote` and `cut` move the line now: the steps, then the tasks line, in its own clone at the base's tip, without waiting for an idle host or `every`. It takes the heavy queue's one path at background priority and, as the `tasks_bound` run, yields to nothing but the hold bound: a tick that finds the host busy does not end it, and `unqueue` ends it whole.",
@@ -625,6 +739,12 @@
     "sentence": "It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick.",
     "source": "SPEC.md:46"
   },
+  "f473f0af0031": {
+    "mark": "not",
+    "sentence": "That directory's path holds only on this host.",
+    "source": "docs/adr/0008-roles-and-waiting-issues.md:10",
+    "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
   "f4743d2d491c": {
     "mark": "promise",
     "sentence": "It is refused when the base declares no `[idle]`, and while idle work of any checkout runs or waits on the host, naming that entry and `factorium unqueue <id>`. **Off on a host**: `[idle]` lives in the repo, so every host with a checkout of it would run it and file the same tasks into its own tracker.",
@@ -654,5 +774,11 @@
     "mark": "promise",
     "sentence": "Doctor answers `decided`: every record, in any issue body or comment (a comment is one only when its first line starts `Decided (`; a line inside a fenced code block, ``` or ~~~, quotes the shape and is none) of any checkout, made since the owner last ran `decided --read`, newest first, each with its checkout and number, who, what, options, chose, undo and when.",
     "source": "SPEC.md:213"
+  },
+  "fc674610f666": {
+    "mark": "not",
+    "sentence": "`[idle]` lives in the repo, so every host with a checkout of it would file the same tasks: `checkout edit --no-idle` turns it off on this host alone.",
+    "source": "docs/adr/0014-idle-work.md:23",
+    "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   }
 }

@@ -222,6 +222,10 @@ pub struct LineSeen {
     /// Its idle work is off on this host: a red last run is no finding.
     #[serde(default)]
     pub idle_off: bool,
+    /// The mutants issue its promotion waits for, while it is open: its
+    /// number, and when the wait ends (ms), `mutants_bound` after its filing.
+    #[serde(default)]
+    pub mutants: Option<(u64, i64)>,
 }
 
 /// A checkout's local base behind origin's that is not fast-forwarded,
@@ -577,6 +581,7 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             && owed.overdue()
             && line.red.is_none()
             && !q.runs(checkout, LineJob::Gate(Kind::Slow))
+            && !waits_for_mutants(seen, checkout, now)
         {
             add(
                 format!("unpromoted:{checkout}"),
@@ -608,6 +613,12 @@ fn stalls(seen: &Seen, s: &Settings, now: i64, add: &mut impl FnMut(String, Stri
             );
         }
     }
+}
+
+/// Whether `checkout`'s promotion waits for its mutants issue at `now`:
+/// open, and within its bound, it holds the promotion back on purpose.
+fn waits_for_mutants(seen: &Seen, checkout: &str, now: i64) -> bool {
+    seen.lines.iter().any(|l| l.checkout == checkout && l.mutants.is_some_and(|(_, until)| now < until))
 }
 
 /// No daemon runs, for `why` ([`crate::daemon::down`]): nothing lands,

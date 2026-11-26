@@ -28,10 +28,14 @@ impl App {
     /// every picker fails, the last one's refusal, and nothing is kept.
     /// When slimfit lists no candidates of a change that needs no record of
     /// its mutants, no picker is asked: none, and why; one that adds source
-    /// lines still has its picker say why none (factorium#247).
-    pub async fn worker_pick_mutants(&self, worker: Uuid) -> Answer {
-        let (st, diff) = self.change(worker).await?;
-        let args = ["check", "--repo", &st.worktree, "--mutants"];
+    /// lines still has its picker say why none (factorium#247). With
+    /// `target`, the change is the range since HEAD's merge base with it,
+    /// and so are slimfit's listing and the commands answered: a
+    /// promotion's mutants issue.
+    pub async fn worker_pick_mutants(&self, worker: Uuid, target: Option<&str>) -> Answer {
+        let (st, diff) = self.change(worker, target).await?;
+        let on = target.into_iter().flat_map(|t| ["--target", t]);
+        let args: Vec<&str> = ["check", "--repo", &st.worktree, "--mutants"].into_iter().chain(on).collect();
         let said = self.host.programs().run("slimfit", &args);
         let listed = pick::listing(said.ok, &said.out)
             .map_err(|e| Refusal::new("slimfit", format!("slimfit {}: {e} {}", args.join(" "), said.err.trim())))?;
@@ -44,12 +48,12 @@ impl App {
         let question = pick::question(&goal, &diff, &listing);
         let quote = factorium_harness::quoted;
         let full = |functions: &[String]| {
-            let mut args = vec!["check", "--repo", &st.worktree, "--mutants"];
+            let mut args = args.clone();
             args.extend(functions.iter().flat_map(|f| ["--function", f.as_str()]));
             let out = self.slimfit(&args).map_err(|r| r.message)?;
             serde_json::from_str(&out).map_err(|e| format!("slimfit {}: {e}: {out}", args.join(" ")))
         };
-        let take = |text: &str, t: &Taken| Ok(pick::answer(&pick::read(text, &listed, full)?, t, quote));
+        let take = |text: &str, t: &Taken| Ok(pick::answer(&pick::read(text, &listed, full)?, t, target, quote));
         self.second(&st, worker, "picker", &question, &pick::form(), take).await
     }
 
@@ -57,7 +61,7 @@ impl App {
     /// whom, with the command that writes its growth record; when every
     /// reviewer fails, the last one's refusal, and nothing is kept.
     pub async fn worker_review_growth(&self, worker: Uuid) -> Answer {
-        let (st, diff) = self.change(worker).await?;
+        let (st, diff) = self.change(worker, None).await?;
         let question = review::question(&self.slimfit(&["help", "reviewer"])?, &diff);
         let (serves, quote) = (format!("{}#{}", st.checkout, st.number), factorium_harness::quoted);
         self.second(&st, worker, "reviewer", &question, review::FORM, |text, t| {
@@ -66,12 +70,12 @@ impl App {
         .await
     }
 
-    /// The live worker and its change's diff, from where it leaves origin's proving.
-    async fn change(&self, worker: Uuid) -> Answer<(Started, String)> {
+    /// The live worker and its change's diff, from where it leaves `target`, else origin's proving.
+    async fn change(&self, worker: Uuid, target: Option<&str>) -> Answer<(Started, String)> {
         let st = self.live(worker, Want::Any).await?.started;
         let proving = self.checkout(&st.checkout).await?.fetched_proving();
         let git = self.host.git(&st.worktree);
-        let from = git.run(&["merge-base", "HEAD", &proving]).map_err(fail("git"))?;
+        let from = git.run(&["merge-base", "HEAD", target.unwrap_or(&proving)]).map_err(fail("git"))?;
         let diff = git.run(&["diff", from.trim()]).map_err(fail("git"))?;
         Ok((st, diff))
     }

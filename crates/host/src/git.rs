@@ -259,7 +259,7 @@ impl Git {
     }
 
     /// Whether `branch` merges onto `tip` here, without a work tree or a
-    /// commit (`git merge-tree`), as [`Git::merge_from`] would merge it: one
+    /// commit (`git merge-tree`), as [`Git::merge`] would merge it: one
     /// whose every conflicting path matches a glob pathspec of `regenerated`
     /// merges. Answers why not, naming every conflicting file.
     pub fn merges(&self, tip: &str, branch: &str, regenerated: &[String]) -> Result<(), NoMerge> {

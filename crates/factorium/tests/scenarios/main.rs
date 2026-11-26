@@ -46,6 +46,7 @@ mod line;
 mod lines;
 mod manual;
 mod moved;
+mod mutants;
 mod needs;
 mod not_before;
 mod on;
