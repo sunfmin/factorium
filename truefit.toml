@@ -487,7 +487,7 @@ stdin = """
 """
 
 # The heavy queue's design (SPEC §1 row 9), model-checked by TLC
-# (truefit ADR 0001): models/HeavyQueue.tla, one model checked under four
+# (truefit ADR 0001): models/HeavyQueue.tla, one model checked under five
 # configs, each the smallest that still shows its properties fail on a
 # broken variant (`models/heavy.sh broken`), and each bounded in depth.
 # A scenario's run is checked as its trace (`models/heavy.sh trace`).
@@ -501,14 +501,8 @@ covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
-  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over, Queue::urgent" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over" },
   { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "may_start, next, line, oldest, overdue" },
-  { action = "Marks", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
-  { action = "Marks", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy (HeavyMarked), Heavy::evolve (HeavyMarked)" },
-  { action = "NoteHalt", file = "crates/factorium/src/issues.rs", function = "App::note_halt" },
-  { action = "NoteHalt", file = "crates/domain/src/heavy.rs", function = "NoteHalt, Heavy::evolve (HeavyHalted)" },
-  { action = "UrgentAhead", file = "crates/domain/src/neutral/queue.rs", function = "line" },
-  { action = "HaltHolds", file = "crates/domain/src/heavy.rs", function = "Queue::passed_over, Queue::urgent" },
   { action = "AtOnce", file = "crates/domain/src/neutral/queue.rs", function = "may_start" },
   { action = "InOrder", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
   { action = "LineAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
@@ -525,6 +519,29 @@ rules = 'r.state.rules'
 now = 'r.now'
 waiter = '[i \in Ids |-> r.state.waiter[i]]'
 last = 'r.last'
+
+# The owner's urgent mark (SPEC §1.9, §1.17, factorium#361): the same
+# model with entries marked urgent as they ask and again while they wait,
+# and the queue halted by urgent issues; heavy-starts' waiters, in less time.
+[[model]]
+name = "heavy-urgent"
+spec = "models/HeavyQueue.tla"
+config = "models/HeavyUrgent.cfg"
+limit = 120
+commit = "98198170092e13bd1d8e8e8dd931d3e4c75d2b75"
+covers = [
+  { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
+  { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
+  { action = "Marks", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
+  { action = "Marks", file = "crates/factorium/src/issues.rs", function = "App::urgent_worker" },
+  { action = "Marks", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy (HeavyMarked), Heavy::evolve (HeavyMarked)" },
+  { action = "NoteHalt", file = "crates/factorium/src/issues.rs", function = "App::note_halt" },
+  { action = "NoteHalt", file = "crates/domain/src/heavy.rs", function = "NoteHalt, Heavy::evolve (HeavyHalted)" },
+  { action = "Ask", file = "crates/domain/src/heavy.rs", function = "Queue::may_start, Queue::passed_over, Queue::urgent" },
+  { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
+  { action = "UrgentAhead", file = "crates/domain/src/neutral/queue.rs", function = "line" },
+  { action = "HaltHolds", file = "crates/domain/src/heavy.rs", function = "Queue::passed_over, Queue::urgent" },
+]
 
 # The queue of resources (SPEC §1.9, factorium#284, #286): the same model
 # with a named resource beside "host", a worker's hold and its window, and
@@ -825,13 +842,13 @@ check = ["model heavy-starts"]
 name = "urgent-ahead"
 says = "behind a line move past its bound, an urgent issue's entry goes ahead of workers' and programs' waiting entries"
 source = "SPEC.md:39"
-check = ["model heavy-starts"]
+check = ["model heavy-urgent"]
 
 [[promise]]
 name = "halt"
 says = "once an urgent issue's worker starts, until it closes or is unmarked, nothing else starts"
 source = "SPEC.md:47"
-check = ["model heavy-starts"]
+check = ["model heavy-urgent"]
 
 [[promise]]
 name = "held-ended"

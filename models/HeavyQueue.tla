@@ -338,7 +338,7 @@ NoteHalt ==
         /\ w # {} => h
         /\ <<h, w>> # <<halt, halt_for>>
         /\ halt' = h /\ halt_for' = w /\ now' = t /\ Did("halt", 0, t)
-    /\ UNCHANGED <<q, last_start, rules, waiter, ask, halt, halt_for>>
+    /\ UNCHANGED <<q, last_start, rules, waiter, ask>>
 
 \* take_turn, each poll after its first ask: a waiter whose waiting entry
 \* was taken off (an unqueue) answers `unqueued`, and is not queued again.
