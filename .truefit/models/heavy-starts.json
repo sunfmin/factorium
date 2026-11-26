@@ -1,10 +1,16 @@
 {
-  "commit": "a9315f3349225a5109ede0bfe92655f7b35bd44c",
+  "commit": "f673a11e8b18d476de2ee36cff95256f528358a9",
   "date": "2026-11-26",
-  "inputs": "aa3dfbcbb38b83016ca8d157376da74d19da374512e177d7e0b25b5e3a1af453",
+  "inputs": "4ceb84ff1f5225d1d684bc1c1a5ca5604c9ddde772aa2bf137e6144aa4d1f434",
   "result": "passes",
   "traces": {
     "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-starts/accept/idle-settled-beside.jsonl",
+        "result": "allowed",
+        "step": null
+      },
       {
         "breaks": null,
         "file": ".truefit/traces/heavy-starts/accept/line-move-ahead.jsonl",
@@ -19,6 +25,12 @@
       }
     ],
     "reject": [
+      {
+        "breaks": "Settled",
+        "file": ".truefit/traces/heavy-starts/reject/near-on-idle-settle.jsonl",
+        "result": "disallowed",
+        "step": 6
+      },
       {
         "breaks": "AtOnce",
         "file": ".truefit/traces/heavy-starts/reject/oldest-waits.jsonl",

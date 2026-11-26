@@ -1,6 +1,6 @@
 #!/bin/sh
-# Each crate's source lines against its target in SPEC.md §5: a trend and a
-# source of tasks, never a gate (factorium#163).
+# Each crate's source lines against its target: a trend and a source of
+# tasks, never a gate (docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md).
 #
 #   ./lines.sh          prints each crate's lines, target, and overage; exits 0
 #   ./lines.sh --tasks  prints a tasks answer (as `slimfit next --all` does) with
@@ -8,17 +8,22 @@
 #                       grew at each of its last RISES landings that changed it,
 #                       naming the files that grew most
 #
-# The targets live in SPEC.md §5's table, one row per crate, and nowhere
+# The targets live in `targets` below, one line per crate, and nowhere
 # else. A landing is a first-parent commit of HEAD.
 set -eu
 cd "$(dirname "$0")"
 RISES=${RISES:-5}
 WINDOW=${WINDOW:-40}
 
-# `dir target` of each crate, read from SPEC.md §5's table.
+# `dir target` of each crate under crates/: its target in source lines. A
+# target changes only with its reason in the issue that changes it.
 targets() {
-  sed -n 's/^| `\(factorium[a-z-]*\)` |.*| \([0-9][0-9,]*\) |$/\1 \2/p' SPEC.md |
-    sed 's/^factorium-//; s/,//g'
+  cat <<'EOF'
+domain 6240
+harness 8000
+host 4000
+factorium 4830
+EOF
 }
 
 # Each `.rs` file's lines under crates/$1/src at revision $2, as `lines path`.
@@ -87,7 +92,7 @@ targets | while read -r crate target; do
   first=0
   printf '{"kind":"crate-lines","crate":"%s","lines":%s,"target":%s,' "$crate" "$lines" "$target"
   printf '"files":[%s],"summary":"crates/%s: %s",' "$files" "$crate" "$why"
-  printf '"steps":"Deepen crates/%s where it grew, starting with these files: fewer, deeper modules; no budget moves. Its target in SPEC.md §5 changes only with a reason in this issue.",' "$crate"
+  printf '"steps":"Deepen crates/%s where it grew, starting with these files: fewer, deeper modules; no budget moves. Its target in lines.sh changes only with a reason in this issue.",' "$crate"
   printf '"accept":"./gate.sh"}'
 done
 printf ']}\n'

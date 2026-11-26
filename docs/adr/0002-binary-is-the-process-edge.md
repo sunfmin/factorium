@@ -7,7 +7,7 @@ Status: accepted (factorium#92, slimfit `deepen` of `crates/factorium/src/main.r
 `main.rs` was the binary's whole source (439 lines, 26 commits in 90 days),
 holding three concepts in one file:
 
-- the command line: the clap types, which are the manual (SPEC §4), and the
+- the command line: the clap types, which are the manual (ADR 0026), and the
   one `App` call each command makes, with the readings of its arguments
   (`--body-file`, the words of `worker exclusive`);
 - the guard hook: which harness asks, its tool call read from stdin, the
@@ -41,7 +41,7 @@ the guard, and had to be threaded through the dispatch: `Top::Guard` was an
 `App`'s interface is unchanged: the scenarios and the CLI keep calling the
 same methods, and `tests/scenarios/binary.rs` tests the binary end to end,
 so every step is tested as it lands. The crate stays within its budget
-(SPEC §5): no step adds more than a module's header.
+(its target in `lines.sh`, ADR 0031): no step adds more than a module's header.
 
 ## Consequences
 

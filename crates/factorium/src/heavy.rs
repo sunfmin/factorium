@@ -569,9 +569,11 @@ impl App {
         self.submit::<EnqueueHeavy>(ask).await?;
         // Stamped before the host is read: a start after it is not in it.
         let read_at = self.now();
-        let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
-        let (settle, rules, order) = (settings.ms(Time::HeavySettle), self.rules.clone(), settings.order());
-        let at = Reading { read_at, settle, order };
+        let reading = crate::load::Load::queue(&*self.host);
+        let (room, idle) = (admission::room(&reading, &settings), admission::idle(&reading, &settings));
+        let (settle, settle_idle) = (settings.ms(Time::HeavySettle), settings.ms(Time::HeavySettleIdle));
+        let (rules, order) = (self.rules.clone(), settings.order());
+        let at = Reading { read_at, settle, settle_idle, idle, order };
         match self.submit::<StartHeavy>(Begin { id, room, at, rules }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
@@ -631,7 +633,9 @@ impl App {
             self.submit::<NoteRun>(Runs { id: r.id, session }).await?;
         }
         let q = self.state::<Heavy>(queue_id()).await?;
-        let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields).or((r.yields && busy).then_some(Ends::GaveWay));
+        // The host's room, as a start reads it: an urgent entry with room starts, and cuts nothing short.
+        let room = admission::room(&crate::load::Load::queue(&*self.host), &self.settings().await?);
+        let ends = q.ends(r.id, self.now(), r.hold_ms, r.yields, room).or((r.yields && busy).then_some(Ends::GaveWay));
         // Steps that ended on their own keep how they ran: the halt cuts nothing that ended.
         let ends = ends.filter(|e| *e != Ends::Halted || !r.steps_ended());
         r.why = r.why.or(ends);

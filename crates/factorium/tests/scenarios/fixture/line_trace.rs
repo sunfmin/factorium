@@ -1,21 +1,21 @@
 //! A checkout's line's own records of a run, as a trace of its model
 //! (models/Line.tla; `models/line.sh trace` checks one with `truefit model
-//! line-run --trace`): each record of a landing, a promotion or a cut, in
-//! the order it was recorded, with the line after it as the line's own
-//! `apply` makes it, the workers' landing status and the closed issues,
-//! proving's tip and the trees whose fast gate went green.
+//! line-run --trace`): each record of a landing, its stack, a promotion or a
+//! cut, in the order it was recorded, with the line after it as the line's
+//! own `apply` makes it, the workers' landing status and the closed issues,
+//! proving's tip and the commits whose fast gate went green.
 //!
 //! The model's steps the code records nothing of are put in where the
-//! records say they were taken: the tip read before a gate's record, a
-//! gate green already (no record) before a landing's or a promotion's, a
-//! push before what is recorded after it. A tick that ends with a gated
-//! landing or promotion unpushed had its push answer an error (refused, or
-//! lost after it took effect: it took effect when proving's first-parent
-//! history holds its tree); one that ends mid-way, with the landing pushed
-//! or recorded, died there.
+//! records say they were taken: a push before what is recorded after it
+//! (the first landing it records, or the stack let go when it answered an
+//! error: refused, or lost after it took effect, when proving's
+//! first-parent history holds the commit it pushed), a promotion's read and
+//! gate before its record. A tick that ends in the middle of a push's
+//! records or of a red stopped there (`Fail`).
 //!
 //! A commit is named as the model names it: the workers' slots (by issue
-//! number) merged in the order they landed; `[0]` is none.
+//! number) merged in the order they stacked, a 0 after a merge whose gate
+//! amended regenerated records into it; `[0]` is none.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,6 +30,17 @@ const TRACE: &str = "FACTORIUM_LINE_TRACE";
 /// What the trace reads of the store: each event's seq, stream, kind and data.
 type Row = (i64, String, String, Value);
 
+/// A layer of the stack, as the model names it.
+#[derive(Clone)]
+struct Layer {
+    slot: usize,
+    on: Vec<usize>,
+    merged: Vec<usize>,
+    /// Once its gate is green: the commit it lands as, and its name.
+    green: Option<(String, Vec<usize>)>,
+    red: bool,
+}
+
 #[derive(Default)]
 struct Trace {
     line: Line,
@@ -40,19 +51,19 @@ struct Trace {
     status: Vec<&'static str>,
     asks: Vec<usize>,
     closed: Vec<usize>,
-    /// Each landed commit's name, and the last one's.
+    /// Each commit's name.
     names: HashMap<String, Vec<usize>>,
-    last: Vec<usize>,
-    /// Proving's tip, the trees whose fast gate went green, and the landing
-    /// in flight's merge (its tree, when its gate ran), as the model names them.
+    /// Proving's tip and the commits whose fast gate went green, as the
+    /// model names them; and every commit proving's tip ever held, on the remotes.
     proving: Vec<usize>,
     fast: Vec<Vec<usize>>,
-    merge: Vec<usize>,
-    merge_tree: Option<String>,
-    /// Every tree proving's tip ever held, on the remotes.
-    proving_trees: HashSet<String>,
-    /// Where the landing and the promotion in flight are, as the model's steps.
-    land: &'static str,
+    proving_commits: HashSet<String>,
+    stack: Vec<Layer>,
+    /// The daemon's push in flight (or its red), as the model's steps: the
+    /// layers it pushed, and the one being recorded.
+    push: &'static str,
+    pushed: Vec<Layer>,
+    at: usize,
     prom: &'static str,
     out: Vec<Value>,
 }
@@ -86,32 +97,31 @@ impl Trace {
         self.out.push(json!({ "step": step, "event": action, "state": state }));
     }
 
-    /// The landing's steps up to `to`, from where it is, none of them recorded.
-    fn land_to(&mut self, to: &'static str) {
-        let order = ["idle", "merged", "gated", "pushed"];
-        let at = |p: &str| order.iter().position(|o| *o == p);
-        while let (Some(i), Some(j)) = (at(self.land), at(to))
-            && i < j
-        {
-            match i {
-                0 => self.read_merge(),
-                2 => self.proving = self.merge.clone(),
-                _ => {}
-            }
-            self.step(["LandRead", "LandGate", "LandPush"][i]);
-            self.land = order[i + 1];
-        }
+    /// Stack::landable: from the bottom, each layer whose gate is green.
+    fn landable(&self) -> usize {
+        self.stack.iter().take_while(|l| l.green.is_some()).count()
     }
 
-    /// Line::landing: the first asking's branch merged onto proving's tip
-    /// (proving itself when it holds the branch already).
-    fn read_merge(&mut self) {
-        let w = self.asks.first().copied().unwrap_or(0);
-        self.merge = self.proving.clone();
-        if !self.merge.contains(&w) {
-            self.merge.push(w);
+    fn layer_of(&self, data: &Value) -> Option<usize> {
+        let slot = self.slots.get(data["worker"].as_str()?)?;
+        self.stack.iter().position(|l| l.slot == *slot)
+    }
+
+    /// The push's steps up to `to`, from where it is, none of them recorded:
+    /// the push itself, of what is landable, and the record of a landing
+    /// held already.
+    fn push_to(&mut self, to: &'static str) {
+        if self.push == "idle" && to != "idle" {
+            self.pushed = self.stack[..self.landable()].to_vec();
+            self.at = 0;
+            self.proving = self.pushed.last().and_then(|l| l.green.clone()).map(|g| g.1).unwrap_or_default();
+            self.step("StackPush");
+            self.push = "pushed";
         }
-        self.merge_tree = None;
+        if self.push == "pushed" && to == "recorded" {
+            self.step("LandRecord");
+            self.push = "recorded";
+        }
     }
 
     fn prom_to(&mut self, to: &'static str) {
@@ -141,49 +151,66 @@ impl Trace {
                 (self.status[w - 1], self.asks) = ("landing", [&self.asks[..], &[w]].concat());
                 self.step("Done");
             }
-            "LandingRed" => {
-                let Some(w) = self.slot(stream) else { return };
-                self.land_to("merged");
-                self.status[w - 1] = "working";
-                self.asks.retain(|a| *a != w);
-                self.step("LandGate");
-                self.land = "idle";
-            }
-            "GateRan" if data["green"] == true && data["kind"] == "fast" => {
-                self.land_to("merged");
-                self.merge_tree = data["tree"].as_str().map(String::from);
-                if !self.fast.contains(&self.merge) {
-                    self.fast.push(self.merge.clone());
+            "Stacked" => self.stacked(data),
+            "LayerGreen" | "LayerRed" => {
+                let Some(i) = self.layer_of(data) else { return };
+                if kind == "LayerRed" {
+                    self.stack[i].red = true;
+                } else {
+                    let commit = data["commit"].as_str().unwrap().to_string();
+                    let l = &self.stack[i];
+                    let gated = !self.fast.contains(&l.merged);
+                    let mut name = l.merged.clone();
+                    if self.names.get(&commit) != Some(&l.merged) {
+                        name.push(0);
+                    }
+                    if gated && !self.fast.contains(&name) {
+                        self.fast.push(name.clone());
+                    }
+                    self.names.insert(commit.clone(), name.clone());
+                    self.stack[i].green = Some((commit, name));
                 }
-                self.land_to("gated");
+                self.step("StackGate");
             }
-            "GateRan" if data["green"] == true => self.prom_to("gated"),
-            "GateRan" if data["kind"] == "fast" => self.land_to("merged"),
-            "GateRan" => self.prom_to("read"),
+            "Unstacked" => self.unstacked(data),
             "Landed" => {
-                let commit = data["commit"].as_str().unwrap().to_string();
-                let slot = data["number"].as_u64().unwrap() as usize;
-                if !self.names.contains_key(&commit) {
-                    self.last.push(slot);
-                    self.names.insert(commit, self.last.clone());
-                }
-                self.land_to("pushed");
+                self.push_to("pushed");
                 self.line(kind, data);
                 self.step("LandRecord");
-                self.land = "recorded";
+                self.push = "recorded";
             }
             "WorkerLanded" => {
                 let Some(w) = self.slot(stream) else { return };
+                self.push_to("recorded");
                 self.status[w - 1] = "landed";
                 self.asks.retain(|a| *a != w);
                 self.step("LandEnd");
-                self.land = "ended";
+                self.push = "ended";
             }
-            "IssueClosed" if self.land == "ended" => {
+            "IssueClosed" if self.push == "ended" => {
                 self.closed.extend(self.issues.get(stream));
                 self.step("LandClose");
-                self.land = "idle";
+                self.at += 1;
+                self.push = if self.at < self.pushed.len() { "pushed" } else { "landed" };
             }
+            "StackLanded" => {
+                let n = self.layer_of(data).map_or(0, |i| i + 1);
+                self.stack.drain(..n);
+                let pushed = self.proving.clone();
+                let stale = self.stack.first().is_some_and(|l| l.on != pushed);
+                self.push = if stale { "stale" } else { "idle" };
+                self.step("StackLanded");
+            }
+            "LandingRed" => {
+                let Some(w) = self.slot(stream) else { return };
+                self.status[w - 1] = "working";
+                self.asks.retain(|a| *a != w);
+                self.step("TellRed");
+                self.push = "idle";
+            }
+            "GateRan" if data["kind"] == "fast" => {}
+            "GateRan" if data["green"] == true => self.prom_to("gated"),
+            "GateRan" => self.prom_to("read"),
             "PromotionRed" => {
                 // Red at its gate, or at its push: the base moved outside factorium.
                 let gated = self.prom == "gated";
@@ -207,24 +234,55 @@ impl Trace {
         }
     }
 
-    /// A tick ended: a push it did not record answered an error; a landing
-    /// left mid-way died there.
-    fn tick_ended(&mut self) {
-        if self.land == "gated" {
-            // Lost after it took effect, or refused (a tree green already, of no record, is refused).
-            if self.merge_tree.as_ref().is_some_and(|t| self.proving_trees.contains(t)) {
-                self.proving = self.merge.clone();
+    /// StackLanding: the worker's branch merged onto the top's merge, or
+    /// onto proving's tip on an empty stack (that commit itself, when it
+    /// holds the branch already).
+    fn stacked(&mut self, data: &Value) {
+        let slot = data["number"].as_u64().unwrap() as usize;
+        let on = self.stack.last().map_or(self.proving.clone(), |l| l.merged.clone());
+        let mut merged = on.clone();
+        if !merged.contains(&slot) {
+            merged.push(slot);
+        }
+        self.names.insert(data["merged"].as_str().unwrap().into(), merged.clone());
+        self.stack.push(Layer { slot, on, merged, green: None, red: false });
+        self.step("StackOn");
+    }
+
+    /// Unstacked: the layer of a worker and those above it left the stack,
+    /// as the step the model names for why: on a stale merge after a push,
+    /// a red told next, or a push that answered an error.
+    fn unstacked(&mut self, data: &Value) {
+        let Some(i) = self.layer_of(data) else { return };
+        let landable = self.landable();
+        let action = if self.push == "stale" {
+            "StackStale"
+        } else if i == landable && self.stack[i].red {
+            self.push = "red";
+            "StackRed"
+        } else if i < landable && self.status[self.stack[i].slot - 1] != "landing" {
+            "StackPush"
+        } else {
+            // Refused, or lost after it took effect.
+            let tip = self.stack[..landable].last().and_then(|l| l.green.clone());
+            if let Some((commit, name)) = tip.filter(|t| self.proving_commits.contains(&t.0)) {
+                self.proving = name;
+                self.names.insert(commit, self.proving.clone());
             }
-            self.step("LandPush");
-            self.land = "idle";
+            "StackPush"
+        };
+        if action == "StackStale" {
+            self.push = "idle";
         }
-        if self.prom == "gated" {
-            self.step("PromPush");
-            self.prom = "idle";
-        }
-        if self.land != "idle" || self.prom != "idle" {
-            self.step("Die");
-            (self.land, self.prom) = ("idle", "idle");
+        self.stack.truncate(i);
+        self.step(action);
+    }
+
+    /// A tick ended: a push's records or a red it left mid-way stopped there.
+    fn tick_ended(&mut self) {
+        if self.push != "idle" {
+            self.step("Fail");
+            self.push = "idle";
         }
     }
 }
@@ -246,7 +304,7 @@ impl World {
             .map(|(seq, stream, kind, data)| (seq, stream, kind, serde_json::from_str(&data).unwrap()))
             .collect();
         // Each worker's slot: the number of the issue it took.
-        let mut t = Trace { land: "idle", prom: "idle", proving_trees: self.proving_trees(), ..Trace::default() };
+        let mut t = Trace { push: "idle", prom: "idle", proving_commits: self.proving_commits(), ..Trace::default() };
         for (_, stream, _, data) in rows.iter().filter(|r| r.2 == "IssueOpened") {
             t.issues.insert(stream.clone(), data["number"].as_u64().unwrap() as usize);
         }
@@ -268,11 +326,11 @@ impl World {
         t.out.iter().map(|r| r.to_string() + "\n").collect()
     }
 
-    /// Every tree proving's tip held, on each remote: its first-parent history.
-    fn proving_trees(&self) -> HashSet<String> {
+    /// Every commit proving's tip held, on each remote: its first-parent history.
+    fn proving_commits(&self) -> HashSet<String> {
         let remotes = std::fs::read_dir(self.dir.join("remotes")).into_iter().flatten().flatten();
         remotes
-            .filter_map(|r| self.git(&r.path(), &["log", "--first-parent", "--format=%T", "proving"]).ok())
+            .filter_map(|r| self.git(&r.path(), &["log", "--first-parent", "--format=%H", "proving"]).ok())
             .flat_map(|out| out.lines().map(String::from).collect::<Vec<_>>())
             .collect()
     }

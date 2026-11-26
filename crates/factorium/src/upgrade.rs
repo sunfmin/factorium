@@ -2,7 +2,7 @@
 //! current (factorium#269): each `upgrade_every`, while no line move runs,
 //! the daemon upgrades its formula from the tap, beside the ticks. The
 //! daemon swaps to what that links by the rule every link is swapped to by
-//! (§4): once it proves on a copy of this host's database.
+//! (docs/adr/0030): once it proves on a copy of this host's database.
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteUpgrade, Upgraded};

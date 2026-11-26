@@ -154,10 +154,12 @@ pub struct Queue {
     #[serde(default)]
     pub given_back: Vec<GivenBack>,
     /// The urgent issues that halt it (`web#3`), as the tick last found
-    /// them ([`crate::issue::halts`]): while any does, no worker's or
-    /// program's entry but an urgent one starts, on any resource. A line
-    /// move's is not halted: it delivers work already done, and its gate is
-    /// short.
+    /// them ([`crate::issue::halts`]): while any does, a worker's or a
+    /// program's command not urgent that runs is cut short once an urgent
+    /// entry waits with no room for what it holds ([`Queue::ends`]). None
+    /// is passed over for it: the line puts the urgent first. A line
+    /// move's is never cut short: it delivers work already done, and its
+    /// gate is short.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub halt: Vec<String>,
     /// The live workers of those issues: their entries are urgent however they were queued.
@@ -327,22 +329,26 @@ impl Queue {
     /// one is: it waits for that one, and is passed over in every queue, so
     /// it never holds one resource while it waits for another.
     pub fn full_for<'e>(&self, e: &'e Entry) -> Option<&'e str> {
-        let full = |r: &&str| match self.rule(r) {
-            Rule::Slots(n) => !self.covered(e, r) && self.holders(r).count() as u64 >= n,
+        e.started_at.is_none().then(|| e.asks().into_iter().find(|r| self.full(e, r))).flatten()
+    }
+
+    /// Whether named resource `name`'s slots are all held, for `e`: none
+    /// is, inside its worker's hold of it, nor ever [`HOST`].
+    fn full(&self, e: &Entry, name: &str) -> bool {
+        match self.rule(name) {
+            Rule::Slots(n) => !self.covered(e, name) && self.holders(name).count() as u64 >= n,
             Rule::Room => false,
-        };
-        e.started_at.is_none().then(|| e.asks().into_iter().find(full)).flatten()
+        }
     }
 
     /// Why the waiting `e` is passed over in every queue at `now`, if it
     /// is: it waits under replaced rules (factorium#241), for a full
-    /// resource, or for its window.
+    /// resource, or for its window. Urgent issues pass none over
+    /// (ADR 0015, 2026-11-27): the line puts their entries first, and with none
+    /// of them waiting the rest start by the ordinary order and room.
     fn passed_over(&self, e: &Entry, now: i64) -> Option<String> {
         if self.stale(e) {
             return Some(format!("it asks under the rules of {}, which {} replaced", e.ask.rules, self.rules));
-        }
-        if self.halted(e) {
-            return Some(format!("behind urgent {}", self.halt.join(", ")));
         }
         if let Some(name) = self.full_for(e) {
             let by: Vec<String> =
@@ -425,8 +431,9 @@ impl Queue {
             let q = self.queue_of(name, now);
             match self.rule(name) {
                 Rule::Room => {
-                    let starts = queue::Starts { last: self.last_start, settle: at.settle };
-                    queue::may_start(&q, starts, id, room.clone(), at.read_at, now, at.order)?
+                    let starts = queue::Starts { last: self.last_start, settle: at.settle, idle: at.settle_idle };
+                    let room = room.clone().map(|()| if at.idle { queue::Room::Idle } else { queue::Room::Near });
+                    queue::may_start(&q, starts, id, room, at.read_at, now, at.order)?
                 }
                 Rule::Slots(_) => match queue::next(&q, now, at.order) {
                     Some(n) if n.ask.id == id => {}
@@ -444,10 +451,22 @@ impl Queue {
         e.ask.urgent || e.ask.worker.or(e.ask.lands).is_some_and(|w| self.halt_for.contains(&w))
     }
 
-    /// Whether urgent issues halt `e` now: a worker's or a program's entry
-    /// not urgent. A line move's never is (it is no worker's command).
-    fn halted(&self, e: &Entry) -> bool {
-        !self.halt.is_empty() && e.yields() && !self.urgent(e)
+    /// Whether the waiting urgent `u` has no room for resource `name`
+    /// that `e` holds: the host's reading `room` found none, or a named
+    /// one's slots are all held.
+    fn no_room(&self, u: &Entry, name: &str, room: &Result<(), String>) -> bool {
+        if name == HOST { room.is_err() } else { self.full(u, name) }
+    }
+
+    /// Whether urgent issues cut the running `e` short now: a worker's or
+    /// a program's command not urgent (a line move's never is, nor a
+    /// worker's hold), holding a resource an urgent entry waits for with
+    /// no room for it there, by `room`, the host's reading. With room the
+    /// urgent entry starts next, and nothing is cut (ADR 0015).
+    fn halted(&self, e: &Entry, room: &Result<(), String>) -> bool {
+        let wants =
+            |u: &Entry| self.urgent(u) && e.asks().into_iter().any(|r| u.asks_for(r) && self.no_room(u, r, room));
+        !self.halt.is_empty() && e.yields() && !self.urgent(e) && !e.is_hold() && self.waiting().any(wants)
     }
 
     /// Whether `e` waits under rules older than the queue's.
@@ -477,18 +496,15 @@ impl Queue {
     }
 
     /// Why the running `id` must end at `now`, if it must: unqueued, a
-    /// command not urgent holding what an urgent entry waits for while
-    /// urgent issues halt the queue, held past `bound`, or one that
-    /// `yields` with anything else asking for the host.
-    pub fn ends(&self, id: Uuid, now: i64, bound: i64, yields: bool) -> Option<Ends> {
-        let wanted = |e: &Entry| {
-            let urgent = |u: &&Entry| self.urgent(u) && e.asks().iter().any(|r| u.asks_for(r));
-            !self.halt.is_empty() && self.waiting().any(|u| urgent(&u))
-        };
-        let halted = |e: &Entry| e.ask.id == id && self.halted(e) && !e.is_hold() && wanted(e);
+    /// command not urgent holding what an urgent entry waits for with no
+    /// room for it, by `room`, the host's reading, taken as
+    /// [`Queue::may_start`] takes it, while urgent issues halt the queue;
+    /// held past `bound`; or one that `yields` with anything else asking
+    /// for the host.
+    pub fn ends(&self, id: Uuid, now: i64, bound: i64, yields: bool, room: Result<(), String>) -> Option<Ends> {
         if !self.holds(id) {
             Some(Ends::Unqueued)
-        } else if self.running().any(halted) {
+        } else if self.running().any(|e| e.ask.id == id && self.halted(e, &room)) {
             Some(Ends::Halted)
         } else if self.overheld(id, now, bound) {
             Some(Ends::Held)
@@ -506,6 +522,14 @@ pub struct Reading {
     pub read_at: i64,
     /// How long after the last start a reading shows its load, ms.
     pub settle: i64,
+    /// How long after the last start a reading well under the busy limit
+    /// shows it, ms.
+    #[serde(default)]
+    pub settle_idle: i64,
+    /// Whether the reading was well under the busy limit
+    /// ([`crate::admission::idle`]).
+    #[serde(default)]
+    pub idle: bool,
     /// How the line is ordered: none, the oldest first.
     #[serde(default)]
     pub order: queue::Order,
@@ -550,7 +574,8 @@ pub enum Ends {
     Held,
     /// It yields, and something else came first.
     GaveWay,
-    /// A worker's or a program's, not urgent, and urgent issues halt the queue.
+    /// A worker's or a program's, not urgent, holding what an urgent
+    /// entry waits for with no room for it.
     Halted,
 }
 
@@ -560,7 +585,7 @@ impl std::fmt::Display for Ends {
             Ends::Unqueued => "unqueued",
             Ends::Held => "it held others up past the hold bound",
             Ends::GaveWay => "it gave way: the host is no longer idle",
-            Ends::Halted => "it was cut short: an urgent issue halts the host",
+            Ends::Halted => "it was cut short: an urgent issue's command waits with no room for it",
         })
     }
 }

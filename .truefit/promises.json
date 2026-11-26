@@ -34,6 +34,12 @@
     "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a worker starts on the account with the most left, and a login that refreshes is bound to one machine; admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
     "source": "SPEC.md:390"
   },
+  "069f3f6c4ddf": {
+    "mark": "not",
+    "sentence": "The crate stays within its budget (its target in `lines.sh`, ADR 0031).",
+    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:37",
+    "why": "a module-split ADR's note on its own size; the line targets themselves are ADR 0031's"
+  },
   "078d4b2ca043": {
     "mark": "promise",
     "sentence": "`watch tell` to a worker that waits for the watch is `watch restart`: it ends the wait, so a word that sends the worker back to work never leaves it waiting, its `done` refused (factorium#268). Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
@@ -92,11 +98,6 @@
     "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:30",
     "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
-  "0fdc353f3cd2": {
-    "mark": "not",
-    "sentence": "The crate stays within its budget (SPEC §5): no step adds more than a module's header.",
-    "source": "docs/adr/0002-binary-is-the-process-edge.md:43"
-  },
   "13c2c405ea81": {
     "mark": "not",
     "sentence": "What a repo declares**, in `factorium.toml` at its root (§3); every table may be left out:",
@@ -127,6 +128,12 @@
     "mark": "promise",
     "sentence": "A resource is a name and a capacity rule, with one queue each, the rule of the neutral queue (`neutral/queue.rs`): the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves; one past its bound goes ahead of those that yield (factorium#286). Nobody knows how long an issue takes before it starts; a holder knows how long it holds when it asks, so the order is the resource queue's, never the issue's: it replaces hand-ordered `issue block` chains between issues that share a device.",
     "source": "SPEC.md:39"
+  },
+  "19a4f25d796a": {
+    "mark": "not",
+    "sentence": "A start shows in the reading (a minute's busy share) only slowly: near the limit a burst could pass it unseen, so `heavy_settle` (30s) holds; well under it, `heavy_settle_idle` (5s). Nine cargo builds on this host emptied in 111-116s, not 147-158s, never past 75%; at 1s, 92%.",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:22",
+    "why": "the reason and measurement behind heavy_settle_idle; the rule itself is the promise settled"
   },
   "1da033da2bee": {
     "mark": "not",
@@ -218,10 +225,11 @@
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its default, may name a role directory, §1.2–1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
     "source": "SPEC.md:517"
   },
-  "2d40ee717543": {
+  "2eab98522a2b": {
     "mark": "not",
-    "sentence": "The crate stays within its budget (SPEC §5).",
-    "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:37"
+    "sentence": "Its worker deepens the crate; a target changes only with its reason in the issue that changes it.",
+    "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:17",
+    "why": "a rule for whoever edits lines.sh, kept by review; nothing a run could break"
   },
   "2f36ea462be4": {
     "mark": "not",
@@ -251,6 +259,12 @@
     "source": "SPEC.md:420",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
+  "407c91ee65b3": {
+    "mark": "not",
+    "sentence": "A target that failed the gate would hold every landing up on lines that a later landing could take away, and turn a worker's change into one about the budget instead of its issue.",
+    "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:8",
+    "why": "the ADR's context: why a target exists and why it is not a gate"
+  },
   "41b5dfe25d3e": {
     "mark": "not",
     "sentence": "The order is the resource queue's, never the issue's.",
@@ -272,6 +286,12 @@
     "sentence": "The load that hurts comes from heavy commands (builds, test suites, gates), and a time a gate compares (slimfit's test time) is only true if every gate is measured alike.",
     "source": "docs/adr/0010-admission-and-the-heavy-queue.md:9",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
+  },
+  "4f5b6739494e": {
+    "mark": "not",
+    "sentence": "The crate stays within its budget (its target in `lines.sh`, ADR 0031): no step adds more than a module's header.",
+    "source": "docs/adr/0002-binary-is-the-process-edge.md:43",
+    "why": "a module-split ADR's note on its own size; the line targets themselves are ADR 0031's"
   },
   "51ffe0033cd4": {
     "mark": "promise",
@@ -533,6 +553,12 @@
     "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
     "source": "SPEC.md:45"
   },
+  "a8ff180697da": {
+    "mark": "not",
+    "sentence": "A landing over its crate's target is green; the crate's growth is filed once, by idle work, not argued at every landing.",
+    "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:22",
+    "why": "restates lines-never-fail and the idle tasks line's filing (ADR 0014)"
+  },
   "aa1f9f891da1": {
     "mark": "promise",
     "sentence": "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it.",
@@ -612,6 +638,12 @@
     "mark": "not",
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue may name a role directory, §1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
     "source": "SPEC.md:401"
+  },
+  "c39ad7df5ff9": {
+    "mark": "not",
+    "sentence": "Each crate has a target for its source lines, so that one that only grows is seen and deepened.",
+    "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:7",
+    "why": "the ADR's context: why a target exists and why it is not a gate"
   },
   "c70957a90cc9": {
     "mark": "promise",

@@ -1,5 +1,5 @@
-//! The command line: what the binary parses, which is its manual (SPEC
-//! §4), assembled by agent-help from the doc comments here ([`manual`]), and the one [`App`] call each command makes, with the readings of
+//! The command line: what the binary parses, which is its manual
+//! (docs/adr/0026), assembled by agent-help from the doc comments here ([`manual`]), and the one [`App`] call each command makes, with the readings of
 //! its arguments. A new command or flag lands here and in the module behind
 //! its call; how the process runs is `main.rs`'s (docs/adr/0002).
 
@@ -35,7 +35,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
+    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. A failing tick is recorded, and `tick_failures_max` of them in a row is a finding; the watch still looks when a tick fails. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Run,
     /// Stops the daemon; run as the service, unloads the service, and no command loads it back until `service install`.
@@ -56,7 +56,7 @@ pub enum Top {
         #[arg(long)]
         all: bool,
     },
-    /// Answers what was passed to a worker's session (`--worker`) or the watch's, oldest first: who from, the line typed, and how its delivery went (typed, submitted, queued, brief, not_typed, missed).
+    /// Answers what was passed to a worker's session (`--worker`) or the watch's, oldest first: who from, the line typed, and how its delivery went: `typed` (a brief), `submitted` (it started a turn), `queued` (it waits behind the running turn; found taken in the session file on a later look, it was submitted), `brief` (written into a brief still to be typed), `not_typed` (the harness was not up, the terminal gone, Orca refused), or `missed` (typed, it started no turn and none runs: a dialog took it; or still unread 10 min after it was given).
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Outbox {
         #[arg(long)]
@@ -88,7 +88,7 @@ pub enum Top {
     /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Discard { worktree: PathBuf },
-    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`.
+    /// Promotes a checkout's proving branch to its base now: its gate, then a fast-forward. A tip a green landing pushed runs the slow steps alone (none when `slow` is absent or is `fast`); any other, the fast gate then the slow steps. Answers which ran in `gated`. Whatever the bound or a red tip says; but while a promotion of that checkout runs, the daemon's or another `promote`, it is refused, its answer naming the running one, which is left be.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Promote { checkout: String },
     /// Cuts a version of a checkout now, as its factorium.toml declares. A checkout has one cut at a time: while one of it, the daemon's or another by hand, waits in the heavy queue or runs, it cuts nothing and answers `cut` null and `why` naming who holds it and its pid; doctor's heavy shows it as `cut of <checkout>`. Once that cut is recorded, run it again if a cut is still owed.
@@ -137,7 +137,7 @@ pub enum Top {
     /// A worker's commands.
     #[command(subcommand, next_help_heading = "Run by a worker", verbatim_doc_comment)]
     Worker(WorkerCmd),
-    /// The watch's commands.
+    /// The watch's commands. The watch runs every owner command too, but `stop`.
     #[command(subcommand, next_help_heading = "Run by the watch", verbatim_doc_comment)]
     Watch(WatchCmd),
     /// The hook a session runs before each tool call: refuses what its session may not run.
@@ -185,7 +185,7 @@ pub enum CheckoutCmd {
         /// Its idle work runs on this host, as the repo's `[idle]` declares.
         #[arg(long, conflicts_with = "no_idle", verbatim_doc_comment)]
         idle: bool,
-        /// Its idle work runs not on this host: no idle run, no `tasks_bound` run, no task filed; `factorium idle` by hand still runs it.
+        /// Its idle work runs not on this host: no idle run, no `tasks_bound` run, no task filed; `factorium idle` by hand still runs it. `list` shows it as `idle_off`.
         #[arg(long, verbatim_doc_comment)]
         no_idle: bool,
     },
@@ -230,7 +230,7 @@ pub enum IssueCmd {
         /// The model its worker starts on, by the id its engine starts it with (`agy models`: `claude-opus-5-5-high`): stablehand's pick is asked for it (`stablehand pick --model`), tried after the order's own where the order does not list it.
         #[arg(long, value_name = "MODEL", verbatim_doc_comment)]
         model: Option<String>,
-        /// Marks it urgent, the owner's mark (`worker file` cannot set it). Once nothing blocks it, it starts before every other ready issue, on the first tick the memory and disk floors allow (the CPU, the workers' share and `queue_wait_bound` do not hold it); its worker's heavy commands and its landing's gate go ahead of other workers' and programs' waiting entries, behind a line move past its bound; and its landing takes the next turn of its checkout's line. Among urgent issues the ordinary order holds. Blocks still hold it. From its first worker's start until it closes or `--no-urgent`, it halts heavy commands not urgent: no worker's or program's heavy entry not urgent starts on any resource (past `starve_bound` too; each waits with why `behind urgent web#3`). A worker's or program's heavy command not urgent that runs is cut short once an urgent one waits for a resource it holds (`ended: it was cut short: an urgent issue halts the host`); a `worker hold` is not. Line moves are not halted: other landings, promotions and cuts, on every checkout, go on through the queue as usual and are never cut short by it, since a line move delivers work already done and its gate is short; the urgent issue's own heavy commands still go ahead of a landing's waiting gate. The halt holds no worker's start: an issue not urgent starts as admission and the order allow at any other time, after the urgent ones, since holding starts kept every other checkout from work it could do without the CPU (reading, writing code, waiting its turn in the queue), while the queue already keeps the CPU for the urgent issue. Once the halt lifts the waiting heavy entries start in their old order. doctor shows the halt as a finding naming the urgent issues. `issue list`, `issue show`, `workers` and doctor's `landing` and `heavy` show `urgent: true`; a tick's start or landing that went ahead for it says so (`urgent`). The mark stays once it closes.
+        /// Marks it urgent, the owner's mark (`worker file` cannot set it). Once nothing blocks it, it starts before every other ready issue, on the first tick the memory and disk floors allow (the CPU, the workers' share and `queue_wait_bound` do not hold it); its worker's heavy commands and its landing's gate go ahead of other workers' and programs' waiting entries, behind a line move past its bound; and its landing takes the next turn of its checkout's line. Among urgent issues the ordinary order holds. Blocks still hold it. From its first worker's start until it closes or `--no-urgent`, it halts the host for its heavy commands: a worker's or program's heavy command not urgent that runs is cut short once an urgent one waits with no room for a resource it holds (the host's reading finds no room, or a named resource's slots are all held: `ended: it was cut short: an urgent issue's command waits with no room for it`); with room the urgent one starts next and nothing is cut short; a `worker hold` is not cut short. The halt holds no command back: while no urgent one waits (its worker reading, writing code, or running a command of its own), heavy commands not urgent start by the ordinary order and room, and one waits `behind `fast gate of web#3`, an urgent issue's` only while an urgent one is next ahead of it. Line moves are not halted: other landings, promotions and cuts, on every checkout, go on through the queue as usual and are never cut short by it, since a line move delivers work already done and its gate is short; the urgent issue's own heavy commands still go ahead of a landing's waiting gate. The halt holds no worker's start: an issue not urgent starts as admission and the order allow at any other time, after the urgent ones, since holding starts kept every other checkout from work it could do without the CPU (reading, writing code, waiting its turn in the queue), while the queue already keeps the CPU for the urgent issue. doctor shows the halt as a finding naming the urgent issues. `issue list`, `issue show`, `workers` and doctor's `landing` and `heavy` show `urgent: true`; a tick's start or landing that went ahead for it says so (`urgent`). The mark stays once it closes.
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
@@ -293,7 +293,7 @@ pub enum IssueCmd {
     /// Readies an issue that waits for a person.
     #[command(verbatim_doc_comment)]
     Ready { checkout: String, number: u64 },
-    /// Moves an issue to another host's factorium, reached by ssh (`--to`, as ssh names it; run there in a login shell). Checks first that its factorium lists a checkout of this name with this one's origin, changing nothing here until it does. Then: its worker here ends, its worktree kept, as `wait-for-human`; what that worktree holds that origin does not (its commits, and its changes not committed as one commit on top) is pushed to origin's `factorium/move/<checkout>-<n>`; it is filed there (its body, where it came from, the branch to continue from, then its comments; its role, account and blockers, this host's, are named, not carried); and it is closed here with a comment naming the issue there. Answers the issue there (`moved_to`) and the branch. A step that fails answers what was done before it; the issue here stays open.
+    /// Moves an issue to another host's factorium, reached by ssh (`--to`, as ssh names it; run there in a login shell). Checks first that its factorium lists a checkout of this name with this one's origin, changing nothing here until it does. Then: its worker here ends, its worktree kept, as `wait-for-human`; what that worktree holds that origin does not (its commits, and its changes not committed as one commit on top) is pushed to origin's `factorium/move/<checkout>-<n>`; it is filed there with `issue add` (its body, where it came from, the branch to merge first, then its comments with who and when; its role, account and blockers, this host's, are named, not carried; one that waited for a person here is filed `--waiting-for-human`, its `--why` naming where it waited and why, so no worker there takes it before a person decides; a ready one arrives ready); and it is closed here with a comment naming the issue there. Answers the issue there (`moved_to`) and the branch. A step that fails answers what was done before it; the issue here stays open.
     #[command(verbatim_doc_comment)]
     Move {
         checkout: String,
@@ -309,7 +309,7 @@ pub enum IssueCmd {
         #[arg(long)]
         why: String,
     },
-    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode), and the next worker's brief carries it.
+    /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode, and typed with the line that sends it back to work), never stopping its running turn, and the next worker's brief carries it. Answers `delivery`: `submitted`, `queued` or `missed` (typed at its session), `brief`, `watch`, or `none` (no worker, or delivery failed: `undelivered` says why).
     #[command(verbatim_doc_comment)]
     Comment { checkout: String, number: u64, text: String },
     /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, or in a wait it declared), back to work as soon as all it waits for is met.
@@ -457,7 +457,7 @@ pub enum HeavyCmd {
         #[arg(trailing_var_arg = true, required = true)]
         command: Vec<String>,
     },
-    /// Answers the queue's depth: how many run and wait, and each entry.
+    /// Answers the queue's depth: how many run and wait (`running`, `waiting`), each entry, and each resource.
     #[command(verbatim_doc_comment)]
     Depth,
 }
@@ -476,7 +476,7 @@ pub enum WatchCmd {
         #[arg(long, verbatim_doc_comment)]
         human: Option<String>,
     },
-    /// Sends a waiting worker back to work, told `--text`, kept as a comment on its issue.
+    /// Sends a waiting worker back to work, told `--text`, kept as a comment on its issue. The owner's comments made while it waited go with it.
     #[command(verbatim_doc_comment)]
     Restart {
         worker: Uuid,

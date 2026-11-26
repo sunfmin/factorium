@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use factorium_domain::settings::{Settings, Time};
 use serde_json::json;
 
 use crate::fixture::{CLAUDE, OPENS_ONCE, POLL, STUCK, World, finding_keys, id, until_file, worker};
@@ -338,12 +339,25 @@ async fn the_daemon_starts_no_promotion_while_promote_by_hand_runs() {
 /// that could not yet show each other's load.
 #[tokio::test]
 async fn beside_what_runs_asks_in_one_second_start_one_per_settled_reading() {
+    // Room near the busy limit: the whole `heavy_settle`.
+    one_per_settled_reading(60, Settings::default().ms(Time::HeavySettle)).await;
+}
+
+/// On a reading well under the busy limit (at most half of it), a start's
+/// load leaves room to spare: the next starts `heavy_settle_idle` after it.
+#[tokio::test]
+async fn beside_what_runs_on_an_idle_reading_start_one_per_shorter_settle() {
+    one_per_settled_reading(10, Settings::default().ms(Time::HeavySettleIdle)).await;
+}
+
+/// Three ask in the same second beside a running entry, on a reading of
+/// `cpu_busy`: one starts per reading taken `settle` ms after the last start.
+async fn one_per_settled_reading(cpu_busy: u64, settle: i64) {
     let w = World::new();
     w.running_on().await;
-    let settle = 30_000;
     // The running one started a settle interval ago; the host has room.
     w.clock.advance(settle);
-    w.host.reading.lock().unwrap().cpu_busy = 10;
+    w.host.reading.lock().unwrap().cpu_busy = cpu_busy;
     let dirs: Vec<_> = (0..3).map(|k| w.dir.join(format!("ask{k}"))).collect();
     let lines: Vec<_> = dirs.iter().map(|d| w.holds(d)).collect();
     let clis: Vec<_> = (0..3).map(|_| w.run()).collect();

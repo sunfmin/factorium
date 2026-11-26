@@ -18,7 +18,11 @@ heavy commands (builds, test suites, gates), and a time a gate compares
   turn past `queue_wait_bound`). No concurrency number.
 - The resource `host` is the heavy queue: every gate run, a worker's
   `worker exclusive`, a program's `heavy run`. It starts each when the
-  host has room, by the same readings as admission; it never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start, and ends one that holds others up past the hold bound.
+  host has room, by the same readings as admission; it never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start, or `heavy_settle_idle` after it on a reading at most half of `cpu_busy_max`, and ends one that holds others up past the hold bound, an urgent issue's too; a worker's `worker hold` never (ADR 0011).
+- A start shows in the reading (a minute's busy share) only slowly: near
+  the limit a burst could pass it unseen, so `heavy_settle` (30s) holds;
+  well under it, `heavy_settle_idle` (5s). Nine cargo builds on this host
+  emptied in 111-116s, not 147-158s, never past 75%; at 1s, 92%.
 - A run is ended whole, by one path whoever ends it: each step in a
   session of its own, TERM then KILL; an unqueued run's waiter answers `unqueued`.
 - Gates first: a gate and a worker's `worker exclusive` run at

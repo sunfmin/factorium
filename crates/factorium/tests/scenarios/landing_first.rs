@@ -65,7 +65,7 @@ fn a_landings_gate_queued_after_workers_starts_next_behind_an_urgent_entry_and_a
     let (a, b, gate) = (workers(1, 0, false), workers(2, MIN, false), landing(3, "web", 2 * MIN));
     let q = Queue { entries: vec![a.clone(), b, gate.clone()], ..Queue::default() };
     let now = 3 * MIN;
-    let at = Reading { read_at: now, settle: 0, order: ORDER };
+    let at = Reading { read_at: now, settle: 0, order: ORDER, ..Reading::default() };
     assert_eq!(q.may_start(gate.ask.id, Ok(()), at, now), Ok(()));
     assert_eq!(q.may_start(a.ask.id, Ok(()), at, now).unwrap_err(), "waits behind fast gate of web");
     let whys: Vec<_> = q.resources(now, ORDER)[0].waiting.iter().map(|h| h.why.clone()).collect();
@@ -74,12 +74,12 @@ fn a_landings_gate_queued_after_workers_starts_next_behind_an_urgent_entry_and_a
     // A running entry is never cut short for it.
     let running = Entry { started_at: Some(0), ..workers(8, 0, false) };
     let busy = Queue { entries: [q.entries.clone(), vec![running.clone()]].concat(), ..Queue::default() };
-    assert_eq!(busy.ends(running.ask.id, now, i64::MAX, false), None);
+    assert_eq!(busy.ends(running.ask.id, now, i64::MAX, false, Ok(())), None);
     // An urgent worker's entry and a line move past its bound go ahead of it.
     let (urgent, late) = (workers(4, 4 * MIN, true), overdue(5, 4 * MIN));
     let q = Queue { entries: [q.entries.clone(), vec![urgent.clone(), late.clone()]].concat(), ..Queue::default() };
     let now = 5 * MIN;
-    let at = Reading { read_at: now, settle: 0, order: ORDER };
+    let at = Reading { read_at: now, settle: 0, order: ORDER, ..Reading::default() };
     assert_eq!(q.may_start(late.ask.id, Ok(()), at, now), Ok(()));
     let without =
         |id: Uuid| Queue { entries: q.entries.iter().filter(|e| e.ask.id != id).cloned().collect(), ..q.clone() };

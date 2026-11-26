@@ -30,10 +30,10 @@ async fn declares(w: &World, dir: &Path, toml: &str) {
     w.kit().await;
     let long = format!("pwd -P > {}/where; {}", dir.display(), w.holds(dir));
     let toml = toml.replace("{long}", &long);
-    let clone = w.push_by_hand("web", "main", "factorium.toml", &toml);
-    // Proving takes that one commit: two of their own, made a second apart
-    // under load, would leave the base no ancestor of proving.
-    w.git(&clone, &["push", "-q", "origin", "main:proving"]).unwrap();
+    // One commit on both: two by-hand commits differ once a second passes
+    // between them, and the base is then no ancestor of proving.
+    let by_hand = w.push_by_hand("web", "main", "factorium.toml", &toml);
+    w.git(&by_hand, &["push", "-q", "origin", "main:proving"]).unwrap();
     w.git(&web, &["fetch", "-q", "origin"]).unwrap();
 }
 

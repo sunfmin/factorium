@@ -153,7 +153,18 @@ impl App {
 
     /// Sends a waiting worker back to work, told `text`, kept as `by`'s comment.
     pub(crate) async fn restart(&self, worker: Uuid, by: Author, text: &str, now: bool) -> Answer {
-        let Live { started: st, session, .. } = self.live(worker, Want::Any).await?;
+        let live = self.live(worker, Want::Any).await?;
+        // What the owner said while it waited went to the watch, not to it: it goes with this line.
+        let heard: Vec<String> = match live.hears_through_watch() {
+            true => self
+                .issue(&live.started.checkout, live.started.number)
+                .await?
+                .heard_since(live.since)
+                .map(|n| format!("\"{}\"", n.text))
+                .collect(),
+            false => Vec::new(),
+        };
+        let Live { started: st, session, .. } = live;
         let from = if by == Author::Watch { Sender::Watch } else { Sender::Factorium };
         // Kept on its issue as it is typed: this line is its delivery.
         self.note(&st.checkout, st.number, by, text).await?;
@@ -162,7 +173,11 @@ impl App {
             let issue = format!("{}#{}", st.checkout, st.number);
             return Ok(json!({ "worker": worker, "ended": true, "issue": issue }));
         }
-        let line = format!("{text} Then go on, and run `factorium worker done` when the work is committed.");
+        let heard = match heard.as_slice() {
+            [] => String::new(),
+            said => format!(" Comments on your issue while you waited: {}.", said.join(" / ")),
+        };
+        let line = format!("{text}{heard} Then go on, and run `factorium worker done` when the work is committed.");
         // A brief never handed goes first: the word is about its work.
         let delivery = self.tell(&session, from, &line, now).await.and_then(crate::session::heard)?;
         if let Outcome::Missed { why } = &delivery {
@@ -195,7 +210,8 @@ impl App {
 
     /// A comment on a worker's issue, passed to the worker exactly once.
     /// Waiting for the watch, it is not typed at: its watch episode reads
-    /// the comment from the issue (`Issue::heard_since`); parked on its
+    /// the comment from the issue (`Issue::heard_since`), and the line that
+    /// sends it back carries it ([`App::restart`]); parked on its
     /// engine's limit, it is held, typed once the limit resets. Else it goes
     /// through its session's outbox: into its brief while that is still to be typed, or typed behind any running
     /// turn. Answers how (`submitted`, `queued`, `brief`, `held`, `missed`, `watch`,
@@ -204,7 +220,7 @@ impl App {
     pub(crate) async fn pass_comment(&self, worker: Uuid, text: &str) -> Answer<(&'static str, Option<String>)> {
         let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(("none", None)) };
         // Parked on its engine's limit, it is held and typed at the reset.
-        if live.waiting && !live.on_limit {
+        if live.hears_through_watch() {
             return Ok(("watch", None));
         }
         let d = self.tell(&live.session, Sender::Comment, text, false).await?;
@@ -241,7 +257,7 @@ impl App {
         if let Err(why) = rewritten {
             return Ok(Some(("none", Some(format!("its brief {brief}: {why}")))));
         }
-        if live.waiting && !live.on_limit {
+        if live.hears_through_watch() {
             return Ok(Some(("brief", None)));
         }
         let text = format!(

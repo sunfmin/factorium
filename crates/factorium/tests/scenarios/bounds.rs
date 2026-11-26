@@ -131,3 +131,13 @@ async fn a_worker_sent_back_to_work_is_hot_only_after_holding_over_again() {
     let wk = worker(&w.app).await;
     assert!(wk["status"] == "waiting" && wk["why"].as_str().unwrap().starts_with("hot: cpu 51%"), "{wk}");
 }
+
+/// The heavy queue's shorter settle: a reading at half the busy limit is
+/// idle, one past it is not (the default limit 75%: 37% is, 38% is not).
+#[test]
+fn a_reading_at_half_the_busy_limit_is_idle_and_one_past_it_is_not() {
+    use factorium_domain::admission::{Reading, idle};
+    let (s, busy) = (Default::default(), |cpu_busy| Reading { cpu_busy, ..Reading::default() });
+    assert!(idle(&busy(37), &s));
+    assert!(!idle(&busy(38), &s));
+}

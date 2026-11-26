@@ -491,7 +491,7 @@ needs = "ssh to localhost with no password asked (Remote Login on, a key it take
 ready = ["ssh", "-o", "BatchMode=yes", "localhost", "true"]
 version = ["sh", "-c", "ssh -V 2>&1"]
 
-# `issue move` (SPEC §4): each command runs in the target user's login
+# `issue move` (`issue move --help`): each command runs in the target user's login
 # shell, as `exec "$SHELL" -lc '<command>'`, a quote in it as `'\''`;
 # factorium reads its stdout and whether it exited 0. A target not reached
 # fails as a command there that fails does: neither changes anything here.
@@ -540,7 +540,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "a9315f3349225a5109ede0bfe92655f7b35bd44c"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -567,14 +567,15 @@ last = 'r.last'
 # The owner's urgent mark (docs/adr/0015-an-urgent-issue-halts-the-host.md)
 # and a landing's gate (docs/adr/0010-admission-and-the-heavy-queue.md): the
 # same model with entries marked urgent as they ask and again while they
-# wait, the queue halted by urgent issues, and a line move that is a
+# wait, the queue halted by urgent issues (cutting short only with no room
+# for the urgent, ADR 0015 since 2026-11-27), and a line move that is a
 # landing's gate; heavy-starts' waiters, in less time.
 [[model]]
 name = "heavy-urgent"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyUrgent.cfg"
 limit = 180
-commit = "a9315f3349225a5109ede0bfe92655f7b35bd44c"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -599,7 +600,7 @@ name = "heavy-resources"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyResources.cfg"
 limit = 120
-commit = "ce89ebed2a61b342434d5b46c4866b0cda7e4735"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy), App::worker_hold, App::exclusive" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy, Heavy::evolve (HeavyQueued)" },
@@ -618,7 +619,7 @@ name = "heavy-ends"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyEnds.cfg"
 limit = 120
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "NoteRun", file = "crates/domain/src/heavy.rs", function = "NoteRun" },
   { action = "NoteRun", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::look_at (NoteRun)" },
@@ -652,7 +653,7 @@ name = "heavy-rules"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRules.cfg"
 limit = 60
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules" },
@@ -686,7 +687,7 @@ name = "heavy-run"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRun.cfg"
 limit = 60
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Next", file = "crates/domain/src/heavy.rs", function = "Heavy::evolve" },
 ]
@@ -699,7 +700,8 @@ last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
 
-# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
+# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0019-stacked-landing-gates.md,
+# docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
 # models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
@@ -709,19 +711,28 @@ name = "line"
 spec = "models/Line.tla"
 config = "models/Line.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "Done", file = "crates/domain/src/worker.rs", function = "AskLanding" },
-  { action = "LandRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::carry, App::land (fetch, fresh, merge_from)" },
-  { action = "LandRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::due, Line::landing" },
-  { action = "LandRead", file = "crates/domain/src/line.rs", function = "look" },
-  { action = "LandGate", file = "crates/factorium/src/gate.rs", function = "App::gate (Kind::Fast)" },
-  { action = "LandGate", file = "crates/factorium/src/line.rs", function = "App::land (red), App::red" },
-  { action = "LandPush", file = "crates/factorium/src/line.rs", function = "App::land (push_requiring)" },
-  { action = "LandPush", file = "crates/host/src/git.rs", function = "Git::push_requiring" },
+  { action = "StackOn", file = "crates/factorium/src/line/stack.rs", function = "App::landings, App::due_landings, App::stack_on" },
+  { action = "StackOn", file = "crates/domain/src/neutral/landing.rs", function = "Line::due, Line::landing" },
+  { action = "StackOn", file = "crates/domain/src/line.rs", function = "look" },
+  { action = "StackOn", file = "crates/domain/src/stack.rs", function = "StackLanding, Stack::top" },
+  { action = "StackGate", file = "crates/factorium/src/gate.rs", function = "App::gate (Kind::Fast)" },
+  { action = "StackGate", file = "crates/factorium/src/line/stack.rs", function = "App::ask_gate, App::landing_ran, App::layer_gated" },
+  { action = "StackGate", file = "crates/domain/src/stack.rs", function = "GreenLayer, RedLayer" },
+  { action = "StackPush", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (push_requiring, unstack)" },
+  { action = "StackPush", file = "crates/domain/src/stack.rs", function = "Stack::landable, Unstack" },
+  { action = "StackPush", file = "crates/host/src/git.rs", function = "Git::push_requiring" },
   { action = "LandRecord", file = "crates/domain/src/line.rs", function = "RecordLanding" },
   { action = "LandEnd", file = "crates/factorium/src/life.rs", function = "App::end_worker, App::finish (GreenLanding)" },
   { action = "LandClose", file = "crates/factorium/src/life.rs", function = "App::finish (CloseIssue)" },
+  { action = "StackLanded", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (LandStack)" },
+  { action = "StackLanded", file = "crates/domain/src/stack.rs", function = "LandStack" },
+  { action = "StackStale", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (rest not on the pushed commit), App::unstack" },
+  { action = "StackRed", file = "crates/factorium/src/line/stack.rs", function = "App::land_stack, App::unstack" },
+  { action = "StackRed", file = "crates/domain/src/stack.rs", function = "Stack::red, Unstack" },
+  { action = "TellRed", file = "crates/factorium/src/line.rs", function = "App::red" },
   { action = "PromRead", file = "crates/factorium/src/line.rs", function = "App::carry, App::promote_tip (Running::take, fetch base), App::promote" },
   { action = "PromRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::promotable, Line::on_tip" },
   { action = "PromGate", file = "crates/factorium/src/line.rs", function = "App::promote_tip (slow gate, red)" },
@@ -734,8 +745,9 @@ covers = [
   { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
   { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
   { action = "CutMake", file = "crates/domain/src/line.rs", function = "RecordCut" },
-  { action = "Die", file = "crates/factorium/src/daemon/process.rs", function = "App::run" },
-  { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
+  { action = "Die", file = "crates/factorium/src/daemon/process.rs", function = "App::run, App::daemon_start (clear_stacks)" },
+  { action = "Die", file = "crates/factorium/src/line/stack.rs", function = "App::clear_stacks" },
+  { action = "Fail", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
   { action = "OneAtATime", file = "crates/factorium/src/daemon/process.rs", function = "App::run (pid file)" },
 ]
 
@@ -759,7 +771,7 @@ name = "line-live"
 spec = "models/Line.tla"
 config = "models/LineLive.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
@@ -774,26 +786,39 @@ name = "line-end"
 spec = "models/Line.tla"
 config = "models/LineEnd.cfg"
 limit = 60
-commit = "0f6ce74b1da900b78019d5f4f3d60b25bf3bc1c4"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "LandSweep", file = "crates/factorium/src/life.rs", function = "App::close_landed" },
 ]
 
+# A merge that takes regenerated records, amended into it as its gate ends
+# green: the layers on the unamended merge stack again on what was pushed.
+[[model]]
+name = "line-amend"
+spec = "models/Line.tla"
+config = "models/LineAmend.cfg"
+limit = 60
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
+covers = [
+  { action = "StackGate", file = "crates/factorium/src/line/stack.rs", function = "App::stack_on (regenerated), App::layer_gated (amend)" },
+  { action = "StackStale", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (rest not on the pushed commit)" },
+]
+
 # A scenario's run, as the line records it (crates/factorium/tests/
-# scenarios/fixture/line_trace.rs): one worker, the code's two steps for
-# its end; its own check is one step deep.
+# scenarios/fixture/line_trace.rs): two workers, the code's two steps for
+# their end; its own check is one step deep.
 [[model]]
 name = "line-run"
 spec = "models/Line.tla"
 config = "models/LineRun.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
-  { action = "Next", file = "crates/factorium/src/line.rs", function = "App::land, App::promote_tip, App::cut_base" },
+  { action = "Next", file = "crates/factorium/src/line.rs", function = "App::landings, App::promote_tip, App::cut_base" },
 ]
 
 [model.trace]
-status = '[w \in Workers |-> r.state.status[w]]'
+status = '[w \in Workers |-> IF w <= Len(r.state.status) THEN r.state.status[w] ELSE "working"]'
 asks = 'r.state.asks'
 closed = '{r.state.closed[i] : i \in DOMAIN r.state.closed}'
 unpromoted = 'r.state.unpromoted'
@@ -899,7 +924,7 @@ why = "factorium has no `truefit sim`: the model checks every order the waiters 
 
 [[promise]]
 name = "settled"
-says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start"
+says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start, or `heavy_settle_idle` after it on a reading at most half of `cpu_busy_max`"
 source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-starts"]
 
@@ -917,7 +942,7 @@ check = ["model heavy-urgent"]
 
 [[promise]]
 name = "halt"
-says = "once its worker starts, until the issue closes or is unmarked, nothing else starts"
+says = "once its worker starts, until the issue closes or is unmarked, a worker's or program's heavy command not urgent that runs is cut short once an urgent one waits with no room for what it holds"
 source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:24"
 check = ["model heavy-urgent"]
 
@@ -1084,83 +1109,83 @@ why = "the finding is read from the queue's records by one doctor pass; stall.rs
 [[promise]]
 name = "guard-worker-only"
 says = "the guard lets a worker run only"
-source = "SPEC.md:26"
+source = "docs/adr/0026-three-groups-by-who-runs-them-and-the-help-is-the-manual.md:19"
 check = ["test"]
 
 [[promise]]
 name = "promote-refused-while-running"
 says = "while a promotion of that checkout runs, the daemon's or another `promote`, it is refused"
-source = "SPEC.md:32"
+source = "docs/adr/0018-a-checkout-s-moves-run-apart.md:30"
 check = ["test"]
 why = "the refusal reads the promotion's one running record (Running::take); line.rs runs `promote` by hand beside the daemon's"
 
 [[promise]]
 name = "nothing-ahead-of-brief"
 says = "Nothing is typed before the harness is up, nor ahead of the brief."
-source = "SPEC.md:46"
+source = "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:19"
 check = ["test"]
 why = "each session's outbox is one record, typed in order by one daemon; outbox.rs holds the brief and what comes after it"
 
 [[promise]]
 name = "comment-never-stops-turn"
 says = "never stopping its running turn"
-source = "SPEC.md:69"
+source = "docs/adr/0028-an-issue-s-comments-are-its-one-record.md:18"
 check = ["test"]
 why = "delivery goes through the one outbox; outbox.rs and comment.rs type behind a running turn"
 
 [[promise]]
 name = "told-at-most-once"
 says = "Each reaches the worker at most once"
-source = "SPEC.md:81"
+source = "docs/adr/0028-an-issue-s-comments-are-its-one-record.md:19"
 check = ["test"]
 why = "the line `tell` or `restart` types is its one delivery, written once; comment.rs checks each is typed once"
 
 [[promise]]
 name = "exec-only-proven"
 says = "once that binary is proven to open this host's database"
-source = "SPEC.md:133"
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:14"
 check = ["test"]
 
 [[promise]]
 name = "help-is-the-manual"
 says = "every command's `--help` says what it does and what it answers"
-source = "SPEC.md:196"
+source = "docs/adr/0026-three-groups-by-who-runs-them-and-the-help-is-the-manual.md:24"
 kept = "no test reads every command's --help; the help is kept the manual by review of each command's change"
 
 [[promise]]
 name = "lines-never-fail"
 says = "and never fails"
-source = "SPEC.md:214"
+source = "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:15"
 kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn every gate red"
 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:318"
+source = "SPEC.md:88"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:331"
+source = "SPEC.md:101"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:396"
+source = "SPEC.md:166"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:401"
+source = "SPEC.md:171"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:403"
+source = "SPEC.md:173"
 check = ["model line"]
 
 [[promise]]
@@ -1246,25 +1271,25 @@ check = ["test"]
 [[promise]]
 name = "usage-read-once-by-id"
 says = "each assistant message's `usage` once, by its id"
-source = "SPEC.md:79"
+source = "docs/adr/0029-what-an-attempt-took-is-read-not-kept-twice.md:18"
 check = ["test"]
 
 [[promise]]
 name = "older-daemon-swaps-on-failed-tick"
 says = "a failed tick still starts that proof and swaps once it passed"
-source = "SPEC.md:144"
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:20"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-heavy"
 says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
-source = "SPEC.md:178"
+source = "docs/adr/0005-the-tick-and-the-process-that-ticks.md:34"
 check = ["test"]
 
 [[promise]]
 name = "slow-step-a-finding"
-says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
-source = "SPEC.md:182"
+says = "is kept, and for an hour is a finding naming how long it took and that step."
+source = "docs/adr/0005-the-tick-and-the-process-that-ticks.md:38"
 check = ["test"]
 
 [[promise]]
@@ -1364,7 +1389,7 @@ check = ["test"]
 [[promise]]
 name = "installs-only-at-its-cut"
 says = "a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then"
-source = "SPEC.md:151"
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:21"
 check = ["test"]
 
 [[promise]]
@@ -1395,21 +1420,21 @@ check = ["test"]
 [[promise]]
 name = "no-tick-waits-for-typing"
 says = "And no tick waits for its typing at all"
-source = "SPEC.md:55"
+source = "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:29"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
 
 [[promise]]
 name = "typing-beside-ends-before-retry-or-swap"
 says = "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs"
-source = "SPEC.md:60"
+source = "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:30"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; on.rs ticks again while seven are typed (none typed twice) and holds the restart until the typing's outcome is recorded"
 
 [[promise]]
 name = "spent-stores-nothing"
 says = "`spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing."
-source = "SPEC.md:111"
+source = "docs/adr/0029-what-an-attempt-took-is-read-not-kept-twice.md:26"
 check = ["test"]
 
 [[promise]]

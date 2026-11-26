@@ -1,4 +1,4 @@
-//! SPEC.md §5, "For Guild": the domain's neutral parts — admission, the
+//! What Guild depends on (`factorium_domain::neutral`): the domain's neutral parts — admission, the
 //! queue's start rule, the hot rule, landing onto a proving branch — name
 //! no issue, worker, watch or checkout, and depend on nothing else of
 //! factorium. This reads their source from outside and fails on each leak.

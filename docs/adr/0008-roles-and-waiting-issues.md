@@ -30,6 +30,14 @@ answered.
   doctor` before a worker starts with it, and what it lacks installed
   first; while it still lacks anything, no worker starts with it and
   doctor names what it lacks.
+- A role directory is linked live, so a role changed while a worker runs
+  changes what it reads. On each tick, a live worker whose role directory
+  holds other content than it last knew of is told so once, through its
+  outbox (ADR 0027), naming each file under the role's directory that
+  changed, was added or went, and asking it to re-read the role's core
+  skill and those files; where the rules changed, its session's rules are
+  written again. One waiting for the watch, unless parked on its engine's
+  limit, is told once it works again.
 - An issue waiting for a human stays so: only a person's `issue ready`
   moves it again.
 
