@@ -23,6 +23,7 @@ pub mod moved;
 pub mod mutants;
 pub mod needs;
 pub mod neutral;
+pub mod next;
 pub mod outage;
 pub mod outbox;
 pub mod pick;

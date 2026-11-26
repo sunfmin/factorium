@@ -14,6 +14,7 @@ use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::{Author, urgent_first};
+use factorium_domain::next;
 use factorium_domain::settings::Time;
 use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
@@ -260,12 +261,19 @@ impl App {
         Ok(filed)
     }
 
+    /// The ready issues no worker holds, in the ordinary order they start
+    /// ([`next::order`]): the checkout with the fewest live workers first.
+    async fn ready(&self) -> Answer<Vec<IssueRow>> {
+        let live = self.live_workers().await?;
+        Ok(next::order(self.rows(tracker::untaken()).await?, live.iter().map(|w| w.checkout.as_str())))
+    }
+
     /// The ready issues no worker holds and nothing open blocks, ahead of
     /// which the urgent `checkout`#`number` started: those not urgent before
-    /// it in the ordinary order.
+    /// it in the ordinary order ([`App::ready`]).
     async fn ahead_of(&self, checkout: &str, number: u64) -> Answer<Vec<String>> {
         let mut ahead = Vec::new();
-        for r in self.rows(tracker::untaken()).await? {
+        for r in self.ready().await? {
             if (r.checkout.as_str(), r.number) == (checkout, number) {
                 break;
             }
@@ -279,7 +287,7 @@ impl App {
 
     /// The first ready issue no worker holds and nothing open blocks, the
     /// urgent ones first, then those that start ahead (a promotion's mutants
-    /// issue), then in the ordinary order ([`tracker::untaken`]);
+    /// issue), then in the ordinary order ([`App::ready`]);
     /// whose account, if it names one, can start now, and whose role has
     /// what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
@@ -287,7 +295,7 @@ impl App {
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
-        let mut rows = self.rows(tracker::untaken()).await?;
+        let mut rows = self.ready().await?;
         // Those that start ahead (a promotion's mutants issue), then the urgent before all.
         urgent_first(&mut rows, |r| r.ahead);
         urgent_first(&mut rows, |r| r.urgent);
