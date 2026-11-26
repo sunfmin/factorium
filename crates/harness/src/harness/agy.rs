@@ -375,24 +375,42 @@ fn spent(text: &str) -> (u64, u64) {
     })
 }
 
-/// What agy prints when its account's quota is spent, and its reset after it.
-const QUOTA: &str = "Individual quota reached.";
+/// What agy prints when a quota of its account is spent, each with the
+/// stablehand window it spends: the account's own (agy 1.5.14), none named,
+/// so the whole account; its Claude-and-GPT group's (agy 1.5.17), whose
+/// 5-hour window or weekly one a reset within five hours or past it names.
+const QUOTAS: [(&str, Option<Windows>); 2] =
+    [("Individual quota reached.", None), ("Third-party quota reached.", Some(("3p-5h", "3p-weekly")))];
 const RESETS: &str = "Resets in ";
+/// A group's 5-hour window and its weekly one, as stablehand names them.
+type Windows = (&'static str, &'static str);
+const FIVE_HOURS_MS: i64 = 5 * 3_600_000;
+/// The rows after a quota's first that may still hold its words, wrapped.
+const ITS_ROWS: usize = 5;
 
 /// agy's quota on its screen (agy 1.5.14, seen on five horizon-labs
 /// workers' screens 2026-11-22: `⚠ Individual quota reached. Please upgrade
-/// your subscription to increase your limits. Resets in 2h50m4s.`, wrapped
-/// at the width, then `Error ID: …`): its words the lines up to the error's
+/// your subscription to increase your limits. Resets in 2h50m4s.`; agy
+/// 1.5.17, a horizon-labs worker's 2026-11-26: `⚠ Third-party quota reached.
+/// Please switch to Gemini models or upgrade your subscription to increase
+/// your limits.`, `Resets in 2h17m29s.` on a row of its own; each wrapped at
+/// the width, then `Error ID: …`): its words the lines up to the error's
 /// own id, so the same screen read again after the reset is told from a new
-/// limit. With its reset, the engine's limit until then; without, the
-/// account is used up.
+/// limit. With its reset, the engine's limit until then, in the window it
+/// spends; without, the account is used up.
 fn quota(screen: &[String]) -> Option<Stop> {
-    let at = screen.iter().rposition(|line| line.contains(QUOTA))?;
-    let rest: Vec<&str> = screen[at..].iter().take(3).map(|l| l.trim()).collect();
-    let upto = rest.iter().position(|l| l.starts_with("Error ID")).map_or(1, |id| id + 1);
-    let said = rest[..upto].join(" ");
-    Some(match rest.join(" ").split(RESETS).nth(1).and_then(duration_ms) {
-        Some(resets_in_ms) => Stop::Limit { said, resets_in_ms },
+    let (at, windows) = screen.iter().enumerate().rev().find_map(|(at, line)| {
+        QUOTAS.iter().find(|(words, _)| line.contains(words)).map(|(_, windows)| (at, *windows))
+    })?;
+    let rest: Vec<&str> = screen[at..].iter().take(ITS_ROWS).map(|l| l.trim()).collect();
+    let id = rest.iter().position(|l| l.starts_with("Error ID"));
+    let said = rest[..id.map_or(1, |id| id + 1)].join(" ");
+    let its = &rest[..id.unwrap_or(rest.len())];
+    Some(match its.join(" ").split(RESETS).nth(1).and_then(duration_ms) {
+        Some(resets_in_ms) => {
+            let window = windows.map(|(five, week)| if resets_in_ms <= FIVE_HOURS_MS { five } else { week });
+            Stop::Limit { said, resets_in_ms, window }
+        }
         None => Stop::Quota(said),
     })
 }
