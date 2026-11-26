@@ -50,6 +50,24 @@ pub struct Issue {
     /// What its worker plays and where it runs, as the one who filed it
     /// decided: none, the kit's and the host's choice.
     pub on: On,
+    /// The owner's urgent mark ([`urgent_first`]): kept after it closes, as a record.
+    #[serde(default)]
+    pub urgent: bool,
+}
+
+/// `items` in the order the urgent mark gives: the urgent ones first, each
+/// part in the order it had. The one step urgency adds in front of an
+/// ordinary order: which ready issue starts, which landing of a checkout
+/// lands next.
+pub fn urgent_first<T>(items: &mut [T], urgent: impl Fn(&T) -> bool) {
+    items.sort_by_key(|i| !urgent(i));
+}
+
+/// The urgent issues of `issues` that halt every other start (`web#3`):
+/// each open one marked urgent that a worker has taken, from its first
+/// worker's start until it closes or its mark is taken off.
+pub fn halts(issues: &[Issue]) -> impl Iterator<Item = &Issue> {
+    issues.iter().filter(|i| i.urgent && i.status != Status::Closed && i.attempts > 0)
 }
 
 /// The role an issue's worker plays and the account and model it starts on, each
@@ -322,6 +340,13 @@ pub enum IssueEvent {
         /// The numbers of the Decided records its body holds.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         decided: Vec<Mark>,
+        /// Marked urgent by the owner from the start.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        urgent: bool,
+    },
+    /// The owner marked it urgent, or took the mark away.
+    UrgentMarked {
+        urgent: bool,
     },
     /// Its title and body now; `decided`, the numbers of the body's records.
     IssueEdited {
@@ -429,9 +454,10 @@ impl Aggregate for Issues {
     fn evolve(s: &mut Issue, event: IssueEvent) {
         let standing = event.standing();
         match event {
-            IssueEvent::IssueOpened { checkout, number, title, body, task, on, decided, .. } => {
-                *s = Issue { checkout, number, title, body, task, on, decided, ..Issue::default() };
+            IssueEvent::IssueOpened { checkout, number, title, body, task, on, decided, urgent, .. } => {
+                *s = Issue { checkout, number, title, body, task, on, decided, urgent, ..Issue::default() };
             }
+            IssueEvent::UrgentMarked { urgent } => s.urgent = urgent,
             IssueEvent::IssueEdited { title, body, decided } => (s.title, s.body, s.decided) = (title, body, decided),
             IssueEvent::RoleNamed { role } => s.on.role = role,
             // An own-checkout issue waited for until it closes is written as
@@ -515,6 +541,9 @@ pub struct Open {
     /// The numbers for the Decided records its body holds, in order.
     #[serde(default)]
     pub decided: Vec<u64>,
+    /// The owner's urgent mark, from the start (`issue add --urgent`).
+    #[serde(default)]
+    pub urgent: bool,
 }
 
 command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.number), |s, p, now| {
@@ -540,6 +569,7 @@ command!(OpenIssue, "issue.open", Issues, Open, |p| issue_id(&p.checkout, p.numb
         task: p.task.clone(),
         on: p.on.clone(),
         decided,
+        urgent: p.urgent,
     }];
     let mut opened = Issue::default();
     Issues::evolve(&mut opened, events[0].clone());
@@ -611,6 +641,18 @@ pub struct NameRole {
 
 on_issue!(NameIssueRole, "issue.name_role", NameRole, |s, p, now| {
     only(s.on.role != p.role, IssueEvent::RoleNamed { role: p.role.clone() })
+});
+
+/// Issue `number` of `checkout` marked urgent by the owner, or no longer.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Urgency {
+    pub checkout: String,
+    pub number: u64,
+    pub urgent: bool,
+}
+
+on_issue!(MarkUrgent, "issue.mark_urgent", Urgency, |s, p, now| {
+    only(s.urgent != p.urgent, IssueEvent::UrgentMarked { urgent: p.urgent })
 });
 
 /// Issue `number` of `checkout` waits for `by`, for `why`, or, with
