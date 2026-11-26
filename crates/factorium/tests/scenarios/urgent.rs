@@ -307,7 +307,7 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     assert_eq!(ids(queue::line(&q.entries, now, ORDER)), [3, 2, 1, 7], "lifted: as before");
 }
 
-/// Halted by app#2, urgent: no other worker starts, but another
+/// Halted by issue 2 of the fixture checkout app, urgent: no other worker starts, but another
 /// checkout's done worker lands, and a third checkout's landing is
 /// promoted and cut, all during the halt.
 #[tokio::test]
@@ -344,7 +344,7 @@ async fn halted_other_checkouts_land_promote_and_cut_while_no_other_worker_start
         .unwrap_or_else(|| panic!("cut during the halt: {:?}", cut_tick.lines));
     assert_eq!(cut["failed"], Value::Null, "{cut}");
     assert_eq!(cut_tick.held.as_deref(), Some("halt: behind urgent app#2"), "still halted");
-    // app#1, of the urgent issue's own checkout, lands too.
+    // Issue 1 of the fixture checkout app, the urgent issue's own checkout, lands too.
     let own = w.lands("app", 1, "a").await.tick;
     assert!(own.started.is_none(), "{:?}", own.started);
 }

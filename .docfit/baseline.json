@@ -73,7 +73,7 @@
     "local_refs": 13
   },
   "crates/factorium/tests/scenarios/admission.rs": {
-    "local_refs": 1
+    "local_refs": 2
   },
   "crates/factorium/tests/scenarios/answers.rs": {
     "local_refs": 1
@@ -211,7 +211,7 @@
     "local_refs": 1
   },
   "crates/factorium/tests/scenarios/watch.rs": {
-    "local_refs": 5
+    "local_refs": 6
   },
   "crates/harness/src/harness/claude_code.rs": {
     "local_refs": 2
