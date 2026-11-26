@@ -37,4 +37,6 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0029-what-an-attempt-took-is-read-not-kept-twice.md" = "adr"
 "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md" = "adr"
 "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md" = "adr"
+"docs/adr/0032-tests-only-at-the-outermost-layer.md" = "adr"
+"docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md" = "adr"
 "GLOSSARY.md" = "glossary"

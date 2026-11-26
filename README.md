@@ -69,10 +69,9 @@ default 6, [ADR 0016](docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout
 
 ## Develop
 
-`./gate.sh`: fmt, clippy, the per-crate lines against their targets (shown, not held, [ADR 0031](docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md)), and the tests under slimfit (SPEC.md §6).
+`./gate.sh`: fmt, clippy, the per-crate lines against their targets (shown, not held, [ADR 0031](docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md)), and the tests under `slimfit check`, which runs them once, instrumented,
+against `.slimfit/baseline.json` (no failures, no more uncovered lines, tests
+no slower than the baseline allows; [ADR 0032](docs/adr/0032-tests-only-at-the-outermost-layer.md)).
 
-`./slow.sh`: the slow gate, before a promotion: `./checks.sh` (the fast
-gate's checks without its test run), then `slimfit check`, which runs the
-tests once, instrumented, against `.slimfit/baseline.json` (no failures, no more
-uncovered lines, tests no slower than the baseline allows; SPEC.md §6).
+`./slow.sh`: the slow gate, before a promotion: the release build and the models.
 The loop for a worker on factorium, mutation testing among it, is `slimfit --help`'s.

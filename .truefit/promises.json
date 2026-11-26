@@ -45,11 +45,6 @@
     "sentence": "`watch tell` to a worker that waits for the watch is `watch restart`: it ends the wait, so a word that sends the worker back to work never leaves it waiting, its `done` refused (factorium#268). Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
     "source": "SPEC.md:45"
   },
-  "09fb6e467023": {
-    "mark": "not",
-    "sentence": "**Scenarios through `App`.** `App` is the program's one entry: every CLI command is one method of it, and the daemon's tick is one too.",
-    "source": "SPEC.md:307"
-  },
   "0a8473ac7d81": {
     "mark": "not",
     "sentence": "A worker that wants room waits at most a tick for idle work.",
@@ -102,6 +97,12 @@
     "mark": "not",
     "sentence": "What a repo declares**, in `factorium.toml` at its root (§3); every table may be left out:",
     "source": "SPEC.md:273"
+  },
+  "13fda5b2acdc": {
+    "mark": "not",
+    "sentence": "A refactor beneath `App` changes no test; a scenario fails only when what the CLI prints changes.",
+    "source": "docs/adr/0032-tests-only-at-the-outermost-layer.md:30",
+    "why": "how factorium's own tests are written, not what factorium does for a user; held by checks.sh and the scenarios' fixture"
   },
   "14adc684df39": {
     "mark": "promise",
@@ -304,6 +305,12 @@
     "source": "docs/adr/0008-roles-and-waiting-issues.md:10",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
+  "53061ab36c7c": {
+    "mark": "not",
+    "sentence": "`App` is the program's one entry: every CLI command and the daemon's tick are each one method of it.",
+    "source": "docs/adr/0032-tests-only-at-the-outermost-layer.md:14",
+    "why": "how factorium's own tests are written, not what factorium does for a user; held by checks.sh and the scenarios' fixture"
+  },
   "535e8408a8fd": {
     "mark": "promise",
     "sentence": "Every block says why (factorium#285): `--blocked-by` and `issue block --by` are refused without `--why <text>` (one why serves all the `--blocked-by` of one `add`), kept with the block; `issue show` answers each thing it waits for in `waits`, with its why and how it was met, and doctor's `parked` names each unmet one with its why.",
@@ -361,6 +368,12 @@
     "mark": "promise",
     "sentence": "Off the path, everything goes to the watch: `worker escalate`, a worker whose session died, never came up (five minutes after it started, a fixed bound), went silent past its bound, or hung past it (its turn open, its processes next to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held for one reason past the host's span.",
     "source": "SPEC.md:136"
+  },
+  "68387f4337df": {
+    "mark": "not",
+    "sentence": "The programs the app runs cannot run in every test, yet what the app makes of their answers must.",
+    "source": "docs/adr/0032-tests-only-at-the-outermost-layer.md:8",
+    "why": "how factorium's own tests are written, not what factorium does for a user; held by checks.sh and the scenarios' fixture"
   },
   "693b615771a0": {
     "mark": "not",
@@ -452,6 +465,12 @@
     "sentence": "`issue comment` records the comment and reaches the live worker on the issue at once, through the same outbox as `watch tell`, never stopping its running turn: a working worker gets one line typed at its session (`delivery: submitted`, `queued`, or `missed`); one whose brief is not yet handed gets it in that brief (`brief`); a waiting one is not typed at, its watch episode carries it (`watch`); with no worker, or when delivery fails (`undelivered` says why), `none`. The next brief carries every comment.",
     "source": "SPEC.md:198"
   },
+  "8c3d7e463594": {
+    "mark": "not",
+    "sentence": "No crate has unit or doc tests (`[lib] test = false`; `checks.sh` fails one in `crates/domain`). The effect crates' tests (`crates/host/tests`, `crates/harness/tests`) hold only their edge: the real program, file or process.",
+    "source": "docs/adr/0032-tests-only-at-the-outermost-layer.md:15",
+    "why": "how factorium's own tests are written, not what factorium does for a user; held by checks.sh and the scenarios' fixture"
+  },
   "8c88e1798a4d": {
     "mark": "promise",
     "sentence": "A repo factorium manages has its base moved only by promotion; anything else that moves the base turns promotion red.",
@@ -516,11 +535,6 @@
     "mark": "promise",
     "sentence": "So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind.",
     "source": "SPEC.md:46"
-  },
-  "a18d33a2f6ad": {
-    "mark": "not",
-    "sentence": "Mutation testing (SPEC.md §6) is `slimfit check --mutants`, on a change only: it mutates what the change touched, and is too slow for the gate.",
-    "source": "README.md:79"
   },
   "a1bfd7edb63c": {
     "mark": "promise",
@@ -597,6 +611,12 @@
     "sentence": "The owner, 2026-11-22: 「把所有的工具都变成 universal。」「把公开的工具全部在 GitHub CI 上签。」「这个密钥的环境变量可以统一配置到账号上面吗？」 A personal account has no account-wide secrets; slimfit#100 put the one copy of them in sunfmin/homebrew-tap, whose `release` workflow signs every tool (its contract: the tap's `.github/workflows/README.md`).",
     "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:14"
   },
+  "b12fef398804": {
+    "mark": "not",
+    "sentence": "One whose answer is no JSON object, or not one as asked, is asked once more in the same session (Claude Code and Grok by `--resume`, agy by `--conversation`; Codex's session is ephemeral, so it is not), told only what was wrong and the one form the answer takes; both asks' time and tokens count, and the record says it was \"answered as asked when asked again\".",
+    "source": "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:15",
+    "why": "restates a registered promise beside it (pick-within-bound, never-a-pick-without-picker) or the harness crate's asked tests"
+  },
   "b3024e962d14": {
     "mark": "promise",
     "sentence": "One with commits of its own, or checked out over changes not committed, is never reset: it is left, and is a doctor finding naming the checkout and how far behind it is.",
@@ -606,6 +626,12 @@
     "mark": "promise",
     "sentence": "Text is typed at a session only once its harness's own screen is up there: typed at a shell, a line is a command it runs.",
     "source": "SPEC.md:68"
+  },
+  "b71544e4f2f6": {
+    "mark": "not",
+    "sentence": "A worker no second agent answers gets a refusal, never a pick of its own.",
+    "source": "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:23",
+    "why": "restates a registered promise beside it (pick-within-bound, never-a-pick-without-picker) or the harness crate's asked tests"
   },
   "b7f0f3769a08": {
     "mark": "promise",
@@ -650,6 +676,12 @@
     "sentence": "Claude Code's files say (each assistant message's `usage` once, by its id), Codex's (its last `token_count`), pi's (each assistant message's `usage`) and agy's (each `PLANNER_RESPONSE` of its `transcript.jsonl`: `input_tokens` and `cache_read_tokens` given, `output_tokens` written); DSH's, Kimi Code's and Grok's are not read, their tokens `null`. Each attempt also answers the role it started with, as `role` (`dir`, its directory, and `from`, `issue` or `checkout`, as `role_from` says, §3), and as `role_hash` a hash of what that role gave it, taken at its start: its rules and every file under its skills, read through the link, each file by its path under the skills and its bytes.",
     "source": "SPEC.md:294"
   },
+  "c85093d9125e": {
+    "mark": "not",
+    "sentence": "Claude Code, Codex, Grok and agy can be asked, each in a user directory of its own that holds only its login (agy's, its HOME, also an agent with no tools).",
+    "source": "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:14",
+    "why": "restates a registered promise beside it (pick-within-bound, never-a-pick-without-picker) or the harness crate's asked tests"
+  },
   "c9fb8371b646": {
     "mark": "promise",
     "sentence": "One binary, `factorium`. Three groups, by who uses them; the guard lets a worker run only `factorium worker …` and lets only the watch run `factorium watch …`.",
@@ -664,11 +696,6 @@
     "mark": "promise",
     "sentence": "It is recorded as any run is, its start beginning `every` again, and its tasks are filed by the same rule, so it never files a second open issue of a kind.",
     "source": "SPEC.md:46"
-  },
-  "cf392e0ef816": {
-    "mark": "not",
-    "sentence": "**Every scenario is held to account**, by two mechanisms and no whole-workspace mutation run (factorium#114): a change's mutants, and slimfit's coverage-plus-review task, which finds a scenario that only repeats another, or shares its setup, to delete or merge.",
-    "source": "SPEC.md:331"
   },
   "d14d1e374722": {
     "mark": "promise",
@@ -712,6 +739,12 @@
     "source": "docs/adr/0012-the-line-gate-landing-promotion-cut.md:8",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
+  "d9e140e70705": {
+    "mark": "not",
+    "sentence": "`./gate.sh`: fmt, clippy, the per-crate lines against their targets (shown, not held, [ADR 0031](docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md)), and the tests under `slimfit check`, which runs them once, instrumented, against `.slimfit/baseline.json` (no failures, no more uncovered lines, tests no slower than the baseline allows; [ADR 0032](docs/adr/0032-tests-only-at-the-outermost-layer.md)).",
+    "source": "README.md:72",
+    "why": "says what ./gate.sh runs; gate.sh and slimfit check --help say it"
+  },
   "dab3e8e2ad2f": {
     "mark": "promise",
     "sentence": "The rules are those of the daemon that runs, set as it starts (a newer binary swapped to, or an older one a rollback went back to), never by another process that asks: a newer binary whose proof failed does not run the daemon, which would else be refused its own gates (factorium#241). A waiter of an older binary is refused, and execs the installed one (its own binary found before it waits, so an upgrade meanwhile does not hide it), keeping its place; an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up.",
@@ -731,6 +764,12 @@
     "mark": "promise",
     "sentence": "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs (factorium#311). A prompt Claude Code took is read from its session file as typed, or in the block it writes a long paste in (`<pasted_content id=\"…\">`). `factorium outbox [--worker <id>]` answers the record.",
     "source": "SPEC.md:323"
+  },
+  "e04a653d1535": {
+    "mark": "not",
+    "sentence": "Every scenario drives `App` as the CLI does and reads only what the CLI could print (`crates/factorium/tests/scenarios/fixture.rs`).",
+    "source": "docs/adr/0032-tests-only-at-the-outermost-layer.md:15",
+    "why": "how factorium's own tests are written, not what factorium does for a user; held by checks.sh and the scenarios' fixture"
   },
   "e104154232ae": {
     "mark": "not",

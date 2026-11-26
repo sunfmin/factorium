@@ -1,5 +1,5 @@
 //! The one fixture every scenario uses. It drives `App` as the CLI does and
-//! reads only what the CLI would print (SPEC.md §6). Git is real — a bare
+//! reads only what the CLI would print (docs/adr/0032). Git is real — a bare
 //! remote and a clone per repo, copied from one made per run. The readings
 //! and the processes are stand-ins the scenario moves; orca, brew and
 //! stablehand are programs whose answers it gives, so what the app makes of

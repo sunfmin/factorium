@@ -6,7 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
-# Tested only from the outermost layer (SPEC §6): no unit or doc tests of its own.
+# Tested only from the outermost layer (docs/adr/0032): no unit or doc tests of its own.
 [lib]
 test = false
 doctest = false

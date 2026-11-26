@@ -1137,31 +1137,31 @@ kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:88"
+source = "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:13"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:101"
+source = "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:16"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:166"
+source = "SPEC.md:73"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:171"
+source = "SPEC.md:78"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:173"
+source = "SPEC.md:80"
 check = ["model line"]
 
 [[promise]]

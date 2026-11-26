@@ -1,4 +1,4 @@
-//! A store the daemon cannot read (SPEC §6): the watch is reached outside
+//! A store the daemon cannot read: the watch is reached outside
 //! it. Each look that reads the store through keeps, in the data directory,
 //! where the watch's session is; a look that fails on the store briefs that
 //! session directly, as [`Outage`] decides, and keeps the outage there too.
