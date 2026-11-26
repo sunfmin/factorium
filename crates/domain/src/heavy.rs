@@ -179,8 +179,10 @@ pub struct Queue {
     #[serde(default)]
     pub given_back: Vec<GivenBack>,
     /// The urgent issues that halt it (`web#3`), as the tick last found
-    /// them ([`crate::issue::halts`]): while any does, no entry but an
-    /// urgent one starts, on any resource.
+    /// them ([`crate::issue::halts`]): while any does, no worker's or
+    /// program's entry but an urgent one starts, on any resource. A line
+    /// move's is not halted: it delivers work already done, and its gate is
+    /// short.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub halt: Vec<String>,
     /// The live workers of those issues: their entries are urgent however they were queued.
@@ -364,7 +366,7 @@ impl Queue {
         if self.stale(e) {
             return Some(format!("it asks under the rules of {}, which {} replaced", e.ask.rules, self.rules));
         }
-        if !self.urgent(e) && !self.halt.is_empty() {
+        if self.halted(e) {
             return Some(format!("behind urgent {}", self.halt.join(", ")));
         }
         if let Some(name) = self.full_for(e) {
@@ -467,6 +469,12 @@ impl Queue {
         e.ask.urgent || e.ask.worker.or(e.ask.lands).is_some_and(|w| self.halt_for.contains(&w))
     }
 
+    /// Whether urgent issues halt `e` now: a worker's or a program's entry
+    /// not urgent. A line move's never is (it is no worker's command).
+    fn halted(&self, e: &Entry) -> bool {
+        !self.halt.is_empty() && e.yields() && !self.urgent(e)
+    }
+
     /// Whether `e` waits under rules older than the queue's.
     pub fn stale(&self, e: &Entry) -> bool {
         e.started_at.is_none() && older(&e.ask.rules, &self.rules)
@@ -502,7 +510,7 @@ impl Queue {
             let urgent = |u: &&Entry| self.urgent(u) && e.asks().iter().any(|r| u.asks_for(r));
             !self.halt.is_empty() && self.waiting().any(|u| urgent(&u))
         };
-        let halted = |e: &Entry| e.ask.id == id && !self.urgent(e) && !e.is_hold() && wanted(e);
+        let halted = |e: &Entry| e.ask.id == id && self.halted(e) && !e.is_hold() && wanted(e);
         if !self.holds(id) {
             Some(Ends::Unqueued)
         } else if self.running().any(halted) {
@@ -565,7 +573,7 @@ pub enum Ends {
     Held,
     /// It yields, and something else came first.
     GaveWay,
-    /// It is not urgent, and urgent issues halt the queue.
+    /// A worker's or a program's, not urgent, and urgent issues halt the queue.
     Halted,
 }
 
