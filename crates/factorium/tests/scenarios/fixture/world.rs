@@ -64,6 +64,14 @@ fn template() -> &'static Path {
         git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
         git(&t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
         git(&t, &["clone", "--quiet", "--template=", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
+        // The same, its remote also holding `proving` at main, as `checkout add`
+        // leaves a repo it put on the list: made once, not by each world.
+        let proving = t.join("proving");
+        copy_tree(&t.join("remote.git"), &proving.join("remote.git"));
+        git(&t, &["clone", "--quiet", "--template=", &proving.join("remote.git").to_string_lossy(), "proving/clone"])
+            .unwrap();
+        git(&proving.join("clone"), &["push", "--quiet", "origin", "main:proving"]).unwrap();
+        git(&proving.join("clone"), &["fetch", "--quiet", "origin"]).unwrap();
         t
     })
 }
@@ -128,22 +136,28 @@ impl World {
 
     /// A clone of its own remote; answers its path.
     pub fn repo(&self, name: &str) -> PathBuf {
+        self.repo_from(&template(), name)
+    }
+
+    /// A clone of its own remote, both copied from the template's at `from`.
+    fn repo_from(&self, from: &Path, name: &str) -> PathBuf {
         let remote = self.dir.join("remotes").join(format!("{name}.git"));
-        copy_tree(&template().join("remote.git"), &remote);
+        copy_tree(&from.join("remote.git"), &remote);
         // The template's clone, its origin this remote: as `git clone` of it makes.
         let path = self.dir.join("repos").join(name);
-        copy_tree(&template().join("clone"), &path);
+        copy_tree(&from.join("clone"), &path);
         let config = path.join(".git/config");
-        let was = template().join("remote.git").to_string_lossy().into_owned();
+        let was = from.join("remote.git").to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&config).unwrap();
         assert!(text.contains(&was), "the clone's origin is the template's remote: {text}");
         std::fs::write(&config, text.replace(&was, &remote.to_string_lossy())).unwrap();
         path
     }
 
-    /// A repo on the checkout list, with the usual branches.
+    /// A repo on the checkout list, with the usual branches: its remote
+    /// holds `proving` already, as one put on the list does.
     pub async fn checkout(&self, name: &str) -> PathBuf {
-        let path = self.repo(name);
+        let path = self.repo_from(&template().join("proving"), name);
         self.app.checkout_add(name, &path, "main", "proving", None).await.unwrap();
         path
     }
