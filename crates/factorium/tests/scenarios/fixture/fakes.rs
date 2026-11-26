@@ -36,6 +36,10 @@ pub struct Terminal {
     /// Its harness opened a dialog of its own: a line typed with Enter
     /// answers it and starts no turn; Escape dismisses it, back to its prompt.
     pub dialog: bool,
+    /// How long Orca takes to read its screen (factorium#363: one slow
+    /// Orca answer held a tick 55 s); reads of other terminals are not
+    /// held up by it.
+    pub reads_take: Option<std::time::Duration>,
 }
 
 /// A terminal's screen at its shell's prompt, as zsh draws it.
@@ -137,6 +141,12 @@ impl FakeOrca {
         *flag.lock().unwrap() = on;
     }
 
+    /// How long `orca <args>` takes, if it is a slow screen read.
+    fn read_takes(&self, args: &[&str]) -> Option<std::time::Duration> {
+        let t = self.terminals.lock().unwrap();
+        (args[..2] == ["terminal", "read"]).then(|| t.get(flag(args, "--terminal"))?.reads_take).flatten()
+    }
+
     fn answer(&self, root: &Path, args: &[&str]) -> Said {
         if let Some(why) = &*self.down.lock().unwrap() {
             return Said { ok: false, out: String::new(), err: why.clone() };
@@ -173,6 +183,9 @@ impl FakeOrca {
             && args.contains(&"--wait-submit")
             && no_turn()
         {
+            std::thread::sleep(takes);
+        }
+        if let Some(takes) = self.read_takes(args) {
             std::thread::sleep(takes);
         }
         let mut held = self.held.lock().unwrap();
@@ -1053,6 +1066,17 @@ impl FakeHost {
 }
 
 impl Programs for FakeHost {
+    /// A screen read that takes past `limit` is waited for until `limit`,
+    /// then given up, as the real one is ended.
+    fn run_within(&self, program: &str, args: &[&str], limit: std::time::Duration) -> Option<Said> {
+        if program == "orca" && self.orca.read_takes(args).is_some_and(|t| t > limit) {
+            self.ran.lock().unwrap().push(format!("{program} {}", args.join(" ")));
+            std::thread::sleep(limit);
+            return None;
+        }
+        Some(self.run(program, args))
+    }
+
     fn run(&self, program: &str, args: &[&str]) -> Said {
         self.ran.lock().unwrap().push(format!("{program} {}", args.join(" ")));
         if !self.found(program) {

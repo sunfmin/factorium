@@ -20,6 +20,7 @@ use serde_json::json;
 use super::Session;
 use crate::life::End;
 use crate::load::Share;
+use crate::work::Live;
 use crate::{Answer, App, Want};
 
 /// How long before its limit is first seen a message its engine took may
@@ -37,7 +38,7 @@ impl App {
     }
 
     /// Tries again what each live worker's session holds, the sessions at
-    /// once (factorium#279), before [`App::worker_health`] looks at them:
+    /// once (factorium#279), before [`App::workers_health`] looks at them:
     /// a brief held is tried again even while its worker waits, as it is
     /// its brief.
     pub(crate) async fn retry_workers(&self, workers: &[Uuid]) -> Answer<()> {
@@ -48,14 +49,46 @@ impl App {
         self.retry(&sessions.iter().collect::<Vec<_>>()).await
     }
 
-    /// Looks at one live worker, with its `share` of the host: the
-    /// observation is recorded and decided on in one command, and what it
-    /// decided is carried out. One waiting for the watch is looked at too:
-    /// its engine may be spent. Answers what it found, if anything.
-    pub(crate) async fn worker_health(&self, worker: Uuid, share: Share, s: &Settings) -> Answer<Option<Value>> {
-        let Some(live) = self.live_or_none(worker, Want::Any).await? else { return Ok(None) };
-        let past = live.limit.as_ref().map(|l| l.said.as_str());
-        let Some(sight) = self.see(&live.session, past) else { return Ok(None) };
+    /// Looks at each live worker of `workers`, with its `share` of the
+    /// host: their screens read at once (factorium#363), each on a thread of
+    /// its own, so one Orca is slow to answer holds up the tick by one read,
+    /// not by all; then each in turn, in `workers`' order, as
+    /// [`App::worker_health`] decides. Answers what it found, if anything.
+    pub(crate) async fn workers_health(
+        &self,
+        workers: &[Uuid],
+        share: impl Fn(Uuid) -> Share,
+        s: &Settings,
+    ) -> Answer<Vec<Value>> {
+        let mut lives = Vec::new();
+        for &worker in workers {
+            lives.extend(self.live_or_none(worker, Want::Any).await?.map(|live| (worker, live)));
+        }
+        let sights: Vec<Option<Sight>> = std::thread::scope(|scope| {
+            let reading: Vec<_> = lives
+                .iter()
+                .map(|(_, live)| {
+                    let past = live.limit.as_ref().map(|l| l.said.as_str());
+                    scope.spawn(move || self.see(&live.session, past))
+                })
+                .collect();
+            reading.into_iter().map(|r| r.join().expect("a screen read does not panic")).collect()
+        });
+        let mut seen = Vec::new();
+        for ((worker, live), sight) in lives.into_iter().zip(sights) {
+            // Orca did not answer: nothing is known of it this tick.
+            let Some(sight) = sight else { continue };
+            seen.extend(self.worker_health(worker, live, sight, share(worker), s).await?);
+        }
+        Ok(seen)
+    }
+
+    /// Decides on one live worker, `live`, as its screen showed `sight`,
+    /// with its `share` of the host: the observation is recorded and
+    /// decided on in one command, and what it decided is carried out. One
+    /// waiting for the watch is looked at too: its engine may be spent.
+    /// Answers what it found, if anything.
+    async fn worker_health(&self, worker: Uuid, live: Live, sight: Sight, share: Share, s: &Settings) -> Answer<Option<Value>> {
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
         let issue = self.issue(&live.started.checkout, live.started.number).await?;

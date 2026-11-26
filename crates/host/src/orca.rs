@@ -3,6 +3,7 @@
 //! mean is read here and nowhere else.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -36,6 +37,10 @@ const SUBMIT_WAIT: u32 = 10;
 /// program back to idle.
 const PRESS_WAIT: u32 = 5;
 
+/// How long a terminal's screen is given to be read: past it, nothing is
+/// known of the terminal, and the tick that asked goes on (factorium#363).
+pub const READ_WAIT: Duration = Duration::from_secs(5);
+
 /// Orca, reached through the programs the host runs.
 pub struct Orca<'a>(pub &'a dyn Programs);
 
@@ -56,10 +61,22 @@ impl Orca<'_> {
     /// Runs `orca <args> --json`. An error names the subcommand alone, never
     /// the arguments: a terminal's command line is one, and may be long.
     fn call(&self, args: &[&str]) -> Result<Value, Failed> {
+        self.call_within(args, None)
+    }
+
+    /// As [`Orca::call`], given `limit` to answer, if any: past it, it
+    /// failed as `timed out`.
+    fn call_within(&self, args: &[&str], limit: Option<Duration>) -> Result<Value, Failed> {
         let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
         let mut all = args.to_vec();
         all.push("--json");
-        let said = self.0.run("orca", &all);
+        let said = match limit {
+            None => self.0.run("orca", &all),
+            Some(limit) => self.0.run_within("orca", &all, limit).ok_or_else(|| Failed {
+                code: Some("timed_out".into()),
+                why: format!("orca {what}: timed out after {}s", limit.as_secs()),
+            })?,
+        };
         let Ok(answer) = serde_json::from_str::<Value>(&said.out) else {
             return Err(Failed { code: None, why: format!("orca {what}: {}", said.err.trim()) });
         };
@@ -203,9 +220,10 @@ impl Orca<'_> {
         Ok(if stages.iter().any(|s| s == "turn_started") { Delivery::Submitted } else { Delivery::Queued })
     }
 
-    /// The terminal now.
+    /// The terminal now; unreadable when Orca does not answer within [`READ_WAIT`].
     pub fn screen(&self, terminal: &str) -> Term {
-        let read = match self.call(&["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"]) {
+        let read = ["terminal", "read", "--terminal", terminal, "--screen", "--limit", "200"];
+        let read = match self.call_within(&read, Some(READ_WAIT)) {
             Ok(read) => read,
             // Orca no longer knows the handle (it restarted, say).
             Err(f) if f.code.as_deref() == Some("terminal_handle_stale") => return Term::Exited,
