@@ -297,11 +297,14 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     stalls(seen, s, now, &mut add);
     resources(seen, s, now, &mut add);
+    // Held behind the urgent halt is the halt doing its work: its own finding says so.
     if let Some(HeldSeen { since, why }) = &seen.held
         && now - since >= s.ms(Time::HeldFor)
+        && let kind = why.split(':').next().unwrap_or(why)
+        && kind != "halt"
     {
         add(
-            format!("held:{}", why.split(':').next().unwrap_or(why)),
+            format!("held:{kind}"),
             format!("admission held for {} min: {why}", (now - since) / 60_000),
             "find what holds the resource: a hot process, a full disk; free it",
         );
