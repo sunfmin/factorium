@@ -47,7 +47,13 @@ impl App {
             let stuck = crate::line::stuck_base(&c, &git);
             let idle = self.state::<Idles>(idle_id(&c.name)).await?;
             let idle_off = c.idle_off;
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off });
+            let mutants = match line.awaited {
+                Some(f) if self.issue(&c.name, f.number).await?.status != issue::Status::Closed => {
+                    Some((f.number, f.at + self.settings().await?.ms(factorium_domain::settings::Time::MutantsBound)))
+                }
+                _ => None,
+            };
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off, mutants });
         }
         seen.ready = self.ready_seen().await?;
         seen.stablehand = self.stablehand_seen().await?;
@@ -222,6 +228,14 @@ impl App {
             .collect();
         let idle: Vec<Value> =
             seen.lines.iter().map(|l| json!({ "checkout": l.checkout, "last": l.idle.last })).collect();
+        let now = self.now();
+        let mutants: Vec<Value> = (seen.lines.iter())
+            .filter_map(|l| {
+                let (number, until) = l.mutants.filter(|(_, until)| now < *until)?;
+                let (issue, utc) = (format!("{}#{number}", l.checkout), factorium_domain::when::utc(until));
+                Some(json!({ "checkout": l.checkout, "issue": issue, "until": until, "utc": utc, "left_s": (until - now) / 1000 }))
+            })
+            .collect();
         let promoted: Vec<Value> = (seen.lines.iter().filter(|l| l.line.promoted.is_some()))
             .map(|l| json!({ "checkout": l.checkout, "tip": l.line.promoted, "gated": l.line.gated }))
             .collect();
@@ -246,6 +260,9 @@ impl App {
             // What deciders decided for the owner since `decided --read`, newest first.
             "decided": self.decided(w.decided_read).await?,
             "holds": holds,
+            // Promotions waiting for their mutants issue (where slimfit holds them at the base): the issue, and
+            // until when (ms, UTC, seconds left), `mutants_bound` after its filing; past it, they go on without it.
+            "mutants": mutants,
             // Each landing waiting, with its place in its checkout's line (1 lands next).
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.

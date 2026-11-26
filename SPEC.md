@@ -566,8 +566,8 @@ depend on nothing else of factorium.
   the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`)
   is the release build and the models. What
   `slimfit check` holds, a change's record of its mutants among it, is
-  slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
-  its own gate, before it reaches proving. The worker follows
+  slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here; factorium
+  holds it at the base, once per promotion (ADR 0006). The worker follows
   `slimfit next`; what is factorium's is the priority: a mutants run goes
   through `factorium worker exclusive --background`, a run whose baseline
   it ratchets through `factorium worker exclusive` (§1, row 9). And the
