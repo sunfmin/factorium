@@ -11,7 +11,7 @@ use factum::Uuid;
 use serde_json::Value;
 
 use super::fakes::{FakeHost, git_of, make_home};
-use super::{Terminal, worker};
+use super::{Terminal, bounded, worker};
 
 pub const GIB: u64 = 1 << 30;
 
@@ -266,11 +266,11 @@ impl World {
     /// is then in its outbox.
     pub async fn tick(&self) -> Tick {
         let mut t = self.tick_alone().await;
-        self.app.typing_ended().await;
+        bounded("its typing ending", self.app.typing_ended()).await;
         while self.app.moves_run() {
-            self.app.moves_ended().await;
+            bounded("its line move ending", self.app.moves_ended()).await;
             let n = self.tick_alone().await;
-            self.app.typing_ended().await;
+            bounded("its typing ending", self.app.typing_ended()).await;
             t.seen.extend(n.seen);
             t.landed.extend(n.landed);
             t.closed.extend(n.closed);
@@ -290,7 +290,7 @@ impl World {
     pub async fn gated(&self) {
         let t = self.tick_alone().await;
         assert!(t.landed.is_empty(), "the landing's gate runs beside the ticks: {t:?}");
-        tokio::time::timeout(super::STUCK, self.app.moves_ended()).await.expect("its gate ends");
+        bounded("its gate ending", self.app.moves_ended()).await;
     }
 
     /// One tick, as the daemon ticks.
