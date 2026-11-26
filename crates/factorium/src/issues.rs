@@ -66,11 +66,6 @@ impl App {
         blocked_by: &[Wait],
         on: On,
     ) -> Answer {
-        self.checkout(checkout).await?;
-        self.on_here(&on)?;
-        for w in blocked_by {
-            self.blocker(checkout, w.by.clone()).await?;
-        }
         let (title, body) = (title.into(), body.into());
         let open = Open {
             checkout: checkout.into(),
@@ -82,7 +77,47 @@ impl App {
             on,
             ..Open::default()
         };
+        self.issue_file(open).await
+    }
+
+    /// `issue add` as `open` says it, its urgent mark among it: checked as
+    /// [`App::issue_add_on`], filed, and answered.
+    pub async fn issue_file(&self, open: Open) -> Answer {
+        self.checkout(&open.checkout).await?;
+        self.on_here(&open.on)?;
+        for w in &open.blocked_by {
+            self.blocker(&open.checkout, w.by.clone()).await?;
+        }
+        let checkout = open.checkout.clone();
         let number = self.open_issue(open).await?;
+        self.issue_show(&checkout, number).await
+    }
+
+    /// Whether `worker`'s issue is marked urgent now: none started, no.
+    pub(crate) async fn urgent_worker(&self, worker: factum::Uuid) -> Answer<bool> {
+        let Some(st) = self.state::<Workers>(worker).await?.started else { return Ok(false) };
+        Ok(self.issue(&st.checkout, st.number).await.is_ok_and(|i| i.urgent))
+    }
+
+    /// Records which urgent issues halt every other start now (SPEC §1.17),
+    /// read from the open issues; answers them.
+    pub(crate) async fn note_halt(&self) -> Answer<Vec<String>> {
+        let mut urgent = Vec::new();
+        for r in self.rows(tracker::issues(None, false)).await?.into_iter().filter(|r| r.urgent) {
+            urgent.push(self.issue(&r.checkout, r.number).await?);
+        }
+        let by: Vec<String> = halts(&urgent).map(|i| format!("{}#{}", i.checkout, i.number)).collect();
+        let workers = halts(&urgent).filter_map(|i| i.worker).collect();
+        let halt = factorium_domain::heavy::Halt { by: by.clone(), workers };
+        self.submit::<factorium_domain::heavy::NoteHalt>(halt).await?;
+        Ok(by)
+    }
+
+    /// `issue edit --urgent`/`--no-urgent`: the owner's mark, which puts its
+    /// start, its worker's heavy commands and its landing ahead (SPEC §1).
+    pub async fn issue_mark_urgent(&self, checkout: &str, number: u64, urgent: bool) -> Answer {
+        self.issue(checkout, number).await?;
+        self.submit::<MarkUrgent>(Urgency { checkout: checkout.into(), number, urgent }).await?;
         self.issue_show(checkout, number).await
     }
 
@@ -133,6 +168,7 @@ impl App {
             "title": i.title,
             "body": i.body,
             "status": i.status,
+            "urgent": i.urgent,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),
             "waits": self.blockers(&i).await?,

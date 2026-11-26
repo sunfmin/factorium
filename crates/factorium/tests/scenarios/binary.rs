@@ -94,6 +94,23 @@ fn the_default_database_is_under_xdg_data_home_else_under_home_s_local_share() {
 }
 
 #[test]
+fn the_owner_marks_an_issue_urgent_from_the_start_and_by_an_edit_either_way() {
+    let dir = Dir::new();
+    sh(
+        &dir.0,
+        "git init -q -b main seed && cd seed && git commit -q --allow-empty -m start && cd .. && git clone -q seed web",
+    );
+    assert!(run(&dir, &["checkout", "add", "web", dir.0.join("web").to_str().unwrap()]).0);
+    let (ok, marked) = run(&dir, &["issue", "add", "web", "Fix it now", "--urgent"]);
+    assert_eq!((ok, marked["urgent"].clone()), (true, json!(true)), "{marked}");
+    assert_eq!(run(&dir, &["issue", "add", "web", "Later"]).1["urgent"], json!(false));
+    assert_eq!(run(&dir, &["issue", "edit", "web", "1", "--no-urgent"]).1["urgent"], json!(false));
+    assert_eq!(run(&dir, &["issue", "edit", "web", "2", "--urgent"]).1["urgent"], json!(true));
+    let (_, list) = run(&dir, &["issue", "list", "web"]);
+    assert_eq!((list[0]["urgent"].clone(), list[1]["urgent"].clone()), (json!(false), json!(true)), "{list}");
+}
+
+#[test]
 fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let dir = Dir::new();
     sh(
@@ -112,7 +129,7 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!((issue["number"].clone(), issue["body"].clone()), (json!(1), json!("how")));
     let (ok, list) = run(&dir, &["issue", "list", "web"]);
     assert!(ok);
-    assert_eq!(list[0]["title"], "Fix it");
+    assert_eq!((list[0]["title"].clone(), list[0]["urgent"].clone()), (json!("Fix it"), json!(false)));
     let (_, checkouts) = run(&dir, &["checkout", "list"]);
     assert_eq!(checkouts[0]["proving"], "proving");
     // A default role named, then taken away, through the CLI.

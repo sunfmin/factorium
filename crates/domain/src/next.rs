@@ -13,8 +13,6 @@ pub fn order<'a>(mut ready: Vec<IssueRow>, live: impl IntoIterator<Item = &'a st
         *workers.entry(checkout).or_default() += 1;
     }
     let on = |r: &IssueRow| workers.get(r.checkout.as_str()).copied().unwrap_or(0);
-    ready.sort_by(|x, y| {
-        (on(x), x.ready_at, &x.checkout, x.number).cmp(&(on(y), y.ready_at, &y.checkout, y.number))
-    });
+    ready.sort_by(|x, y| (on(x), x.ready_at, &x.checkout, x.number).cmp(&(on(y), y.ready_at, &y.checkout, y.number)));
     ready
 }

@@ -20,8 +20,8 @@ steps = ["packaging/release.sh cut $FACTORIUM_VERSION"]
 formula = "sunfmin/tap/factorium"
 limit = 1800
 
-# No steps: nothing here is too slow for the gates (slow.sh is gate.sh
-# again). The tasks line files slimfit's tasks and a sample of 5 mutants
+# No steps: nothing here is too slow for the gates (slow.sh is gate.sh,
+# then the release build and the models: 1800s holds them with room). The tasks line files slimfit's tasks and a sample of 5 mutants
 # of what landed (`slimfit help sample`). Measured 2026-11-20 at load
 # 5-32: `slimfit next --all` 350s, `--sample 5` 1631s; the limit is ~3.6x.
 [idle]

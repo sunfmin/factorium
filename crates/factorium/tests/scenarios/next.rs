@@ -17,6 +17,7 @@ fn ready(checkout: &str, number: u64, ready_at: i64) -> IssueRow {
         ready_at,
         standing: Standing::default(),
         holder: Holder { taken: false, worker: None },
+        urgent: false,
     }
 }
 
