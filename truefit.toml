@@ -693,6 +693,21 @@ covers = [
   { action = "OneAtATime", file = "crates/factorium/src/daemon/process.rs", function = "App::run (pid file)" },
 ]
 
+# A scenario's run (crates/factorium/tests/scenarios/fixture/line_trace.rs)
+# under the line's own constants, with proving's tip and the trees gated
+# green, so its traces (.truefit/traces/line/) reach ProvingOnlyGated. A
+# run with one worker leaves the second working.
+[model.trace]
+status = '[w \in Workers |-> IF w <= Len(r.state.status) THEN r.state.status[w] ELSE "working"]'
+asks = 'r.state.asks'
+closed = '{r.state.closed[i] : i \in DOMAIN r.state.closed}'
+unpromoted = 'r.state.unpromoted'
+uncut = 'r.state.uncut'
+promoted = 'r.state.promoted'
+red = 'r.state.red'
+proving = 'r.state.proving'
+fast = '{r.state.fast[i] : i \in DOMAIN r.state.fast}'
+
 [[model]]
 name = "line-live"
 spec = "models/Line.tla"

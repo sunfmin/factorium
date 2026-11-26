@@ -1,0 +1,15 @@
+{
+  "tree": "be5db9bee08171b76b273a6202177c300e42e127+d1fba762150c532c",
+  "picker": "codex:01a2174a-30db-73f2-8141-f67c45db5692:default",
+  "author": "claude-code:ceee677b-805e-5330-8718-104ae73d3f44:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/declared.rs:146:18: replace == with != in Gating::kind",
+        "why": "Swapping the cache keys can preserve the expected command sequence on a fresh tree while breaking reuse of green records across synchronous and deferred gates.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}

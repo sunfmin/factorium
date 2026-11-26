@@ -78,15 +78,20 @@ pub fn listing(ok: bool, out: &str) -> Result<Option<Value>, String> {
     let said: Value = serde_json::from_str(out).map_err(|e| format!("{e}: {out}"))?;
     let unlisted = |e: &Value| e["fault"].as_str().is_some_and(|f| f.contains("listed no mutants of the change"));
     let faults = said["error"].as_array().filter(|f| !f.is_empty());
-    let landing = &said["landing"];
-    let removes = landing["removed_tests"].as_object().is_some_and(|r| r.values().any(|t| t != &json!([])));
-    let due = landing["lines"].as_u64() != Some(0) || removes;
+    let due = due(&said["landing"]);
     match ok {
         true if names(&said).is_empty() && !due => Ok(None),
         true => Ok(Some(said)),
         false if faults.is_some_and(|f| f.iter().all(unlisted)) => Ok(Some(said)),
         false => Err(out.trim().to_string()),
     }
+}
+
+/// Whether slimfit's `landing` of a change, or of a range, wants a record of
+/// its mutants: it adds source lines, or removes tests.
+pub fn due(landing: &Value) -> bool {
+    let removes = landing["removed_tests"].as_object().is_some_and(|r| r.values().any(|t| t != &json!([])));
+    landing["lines"].as_u64() != Some(0) || removes
 }
 
 /// The worker's answer when slimfit lists no candidates of a change that
@@ -226,10 +231,12 @@ impl Taken<'_> {
 
 /// The worker's answer — what was picked, by whom, what it took, and the
 /// commands that run the picks and record them, each word put in by
-/// `quote` — and the line its issue keeps of what picking took.
-pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, String) {
+/// `quote`, each taken against `target` when given (a range, `--target`) —
+/// and the line its issue keeps of what picking took.
+pub fn answer(picked: &Picked, t: &Taken, target: Option<&str>, quote: fn(&str) -> String) -> (Value, String) {
+    let on = target.map_or(String::new(), |r| format!(" --target {}", quote(r)));
     let ids = format!("--picker {} --author {}", quote(&t.id()), quote(&t.author));
-    let ratchet = format!("factorium worker exclusive -- slimfit ratchet {ids}");
+    let ratchet = format!("factorium worker exclusive -- slimfit ratchet{on} {ids}");
     let mut said = t.said("picker");
     let what = match picked {
         Picked::Picks(picks) => {
@@ -237,7 +244,7 @@ pub fn answer(picked: &Picked, t: &Taken, quote: fn(&str) -> String) -> (Value, 
             let whys: Vec<String> = picks.iter().map(|(_, w)| quote(w)).collect();
             let (names, whys) = (names.join(" "), whys.join(" "));
             let run =
-                format!("factorium worker exclusive --background -- slimfit check --mutants {names} --why {whys}");
+                format!("factorium worker exclusive --background -- slimfit check{on} --mutants {names} --why {whys}");
             said["picks"] = picks.iter().map(|(name, why)| json!({ "name": name, "why": why })).collect();
             said["next"] = format!("{run}; kill any survivor, then {ratchet}; commit .slimfit/ with the change").into();
             format!("{} picked", picks.len())

@@ -66,7 +66,7 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
             books.accounts.get_mut("claude-code").unwrap().off = true;
             books.portable("team", "claude-code", "sk-it's");
         }
-        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+        let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
 
         // Run on Claude Code: the other harness, or the worker's own anew.
         let picker_id = "claude-code:s-1:claude-opus-5-5";
@@ -100,10 +100,29 @@ async fn a_worker_s_mutants_are_picked_by_a_fresh_session_on_the_kit_s_other_har
     });
 }
 
+/// A promotion's mutants issue: the change is the range since a base, given.
+#[tokio::test]
+async fn picked_against_a_target_the_diff_listing_and_commands_are_of_the_range_since_it() {
+    let picks = r#"{"picks": [{"name": "src/a.rs:1:9: replace == with != in a", "why": "the one decision"}]}"#;
+    let (w, wk, picker) = changed(None, "", picks).await;
+    let tree = worktree(&wk);
+    let base = w.git(&tree, &["rev-parse", "HEAD~1"]).unwrap();
+    let base = base.trim();
+    w.commit(&tree, "b.rs", "fn b() {}\n");
+    let answer = w.app.worker_pick_mutants(id(&wk), Some(base)).await.unwrap();
+    let next = answer["next"].as_str().unwrap();
+    assert!(next.contains(&format!("slimfit check --target '{base}' --mutants '{KILLS}'")), "{next}");
+    assert!(next.contains(&format!("slimfit ratchet --target '{base}' --picker")), "{next}");
+    let ran = w.host.ran.lock().unwrap().join("\n");
+    assert!(ran.contains(&format!("--mutants --target {base}")), "{ran}");
+    let (asked, _, _) = picker.asked();
+    assert!(asked.contains("+fn a(x: u8)") && asked.contains("+fn b() {}"), "the range's diff: {asked}");
+}
+
 #[tokio::test]
 async fn a_picker_that_says_none_is_worth_one_answers_the_record_of_that() {
     let (w, wk, _) = changed(None, "", "```json\n{\"none\": \"only a log line\"}\n```").await;
-    let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+    let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
     assert_eq!(answer["none"], "only a log line");
     assert!(answer["next"].as_str().unwrap().contains("--no-mutants 'only a log line'"), "{answer}");
 }
@@ -126,7 +145,7 @@ async fn a_change_slimfit_lists_no_candidates_of_starts_no_picker_and_records_no
         let wk = crate::fixture::worker(&w.app).await;
         w.commit(&worktree(&wk), "a_test.rs", "#[test]\nfn a() {}\n");
         w.commit(&worktree(&wk), "slimfit.toml", "[check]\n");
-        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+        let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
 
         assert_eq!(answer["none"], "slimfit lists no candidates", "{answer}");
         assert_eq!(answer["picker"], Value::Null, "nothing pretends a second agent judged it: {answer}");
@@ -161,7 +180,7 @@ async fn a_change_that_adds_source_lines_slimfit_lists_no_candidates_of_has_its_
         let none = r#"{"none": "a bound on a return type: nothing a mutant can flip"}"#;
         let (w, wk, picker) = changed(None, "", none).await;
         w.slimfit(GOAL, listing);
-        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+        let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
 
         // Asked the goal, the diff and what slimfit listed.
         let (asked, _, _) = picker.asked();
@@ -184,7 +203,7 @@ async fn a_change_that_adds_source_lines_slimfit_lists_no_candidates_of_has_its_
 async fn a_listing_slimfit_refuses_otherwise_is_refused_and_no_picker_is_asked() {
     let (w, wk, picker) = changed(None, "", PICKS).await;
     w.slimfit(GOAL, r#"{"error": [{"fault": "no target found", "fix": "f"}]}"#);
-    refused(w.app.worker_pick_mutants(id(&wk)).await, "slimfit");
+    refused(w.app.worker_pick_mutants(id(&wk), None).await, "slimfit");
     assert_eq!(picker.asked(), Default::default());
     assert_eq!(kept(&w).await, Vec::<Value>::new());
 }
@@ -207,7 +226,7 @@ async fn a_picker_that_fails_passes_its_bound_or_answers_off_the_form_is_refused
         let (w, wk, _) = changed(None, then, text).await;
         w.host.stablehand.lock().unwrap().portable("team", "claude-code", "sk-1");
         w.app.settings_set(Some("pick_bound"), Some(1)).await.unwrap();
-        refused(w.app.worker_pick_mutants(id(&wk)).await, code);
+        refused(w.app.worker_pick_mutants(id(&wk), None).await, code);
         assert_eq!(kept(&w).await, Vec::<Value>::new(), "{code}: nothing is kept of it");
         assert!(no_secrets_left(&w), "{code}: no secrets file outlives the ask");
         assert!(!worktree(&wk).join(".slimfit").exists(), "{code}");
@@ -240,7 +259,7 @@ async fn on_a_grouped_listing_a_pick_slimfit_lists_only_under_its_function_is_ta
                 // Only the function the pick's file holds is asked for.
                 said.insert(format!("check --repo {dir} --mutants --function src/a.rs: a"), full);
             }
-            let answer = w.app.worker_pick_mutants(id(&wk)).await;
+            let answer = w.app.worker_pick_mutants(id(&wk), None).await;
             if *taken {
                 assert_eq!(answer.unwrap()["picks"], json!([{ "name": name, "why": "w" }]));
             } else {
@@ -260,7 +279,7 @@ async fn no_account_of_an_engine_that_can_be_asked_refuses_to_pick() {
     let w = World::new();
     let wk = w.working("pi=pi", "t").await;
     w.slimfit(GOAL, LISTING);
-    let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
+    let none = w.app.worker_pick_mutants(id(&wk), None).await.unwrap_err();
     assert_eq!(none.code, "no_harness");
     let why = "no harness that can pick mutants: stablehand picks none (no agy account is kept";
     assert!(none.message.starts_with(why), "{none}");
@@ -318,7 +337,7 @@ async fn an_opus_worker_s_mutants_are_picked_on_codex_grok_or_agy_and_the_record
     crate::fixture::each(&cases, |(other, model, user_dir)| async move {
         let (w, wk, picker) = beside(*other, model, "", PICKS, PICKS).await;
         assert_eq!(wk["harness"], "claude-code");
-        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+        let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
 
         let picker_id = format!("{}:t-1:{model}", other.key());
         assert_eq!(answer["picker"], picker_id, "{answer}");
@@ -354,7 +373,7 @@ async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_an
     let cases = [("exit 3", PICKS), ("", "You have hit your usage limit.")];
     crate::fixture::each(&cases, |(then, said)| async move {
         let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", then, said, PICKS).await;
-        let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+        let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
 
         assert_eq!(answer["picker"], "claude-code:s-1:claude-opus-5-5", "{answer}");
         let fell = answer["fell_back"].as_array().unwrap();
@@ -373,12 +392,12 @@ async fn a_picker_on_another_harness_that_fails_hands_the_pick_to_claude_code_an
 async fn a_picker_stablehand_picks_none_of_the_other_harnesses_for_runs_on_the_worker_s_own() {
     let (w, wk, _) = beside(Harness::Codex, "gpt-6.2-sol", "", PICKS, PICKS).await;
     w.host.stablehand.lock().unwrap().accounts.get_mut("codex").unwrap().off = true;
-    let answer = w.app.worker_pick_mutants(id(&wk)).await.unwrap();
+    let answer = w.app.worker_pick_mutants(id(&wk), None).await.unwrap();
     assert_eq!(answer["picker"], "claude-code:s-1:claude-opus-5-5", "{answer}");
     assert!(answer["fell_back"].as_array().is_none_or(|f| f.is_empty()), "none failed: {answer}");
 
     w.host.stablehand.lock().unwrap().accounts.get_mut("claude-code").unwrap().off = true;
-    let none = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
+    let none = w.app.worker_pick_mutants(id(&wk), None).await.unwrap_err();
     let why = none.message.as_str();
     assert!(why.starts_with("no harness that can pick mutants: stablehand picks none"), "{why}");
     assert_eq!(why.matches("stablehand picks none").count(), 2, "one for codex, one for claude-code: {why}");
@@ -470,7 +489,7 @@ async fn a_second_agent_that_answers_prose_is_asked_once_more_and_its_json_then_
         grok.then_answers(Harness::Grok, &again("grok-4.7-build", json));
         let began = std::time::Instant::now();
         let answer = match *role {
-            "picker" => w.app.worker_pick_mutants(id(&wk)).await,
+            "picker" => w.app.worker_pick_mutants(id(&wk), None).await,
             _ => w.app.worker_review_growth(id(&wk)).await,
         }
         .unwrap();
@@ -518,7 +537,7 @@ async fn a_second_agent_that_answers_prose_twice_hands_the_question_to_the_next_
     crate::fixture::each(&cases, |(role, claude_says, then, twice)| async move {
         let (w, wk, grok) = beside(Harness::Grok, "grok-4.7-build", then, prose, claude_says).await;
         let answer = match *role {
-            "picker" => w.app.worker_pick_mutants(id(&wk)).await,
+            "picker" => w.app.worker_pick_mutants(id(&wk), None).await,
             _ => w.app.worker_review_growth(id(&wk)).await,
         }
         .unwrap();
