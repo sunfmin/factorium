@@ -8,7 +8,7 @@
   },
   "SPEC.md": {
     "local_refs": 59,
-    "rehome": 73711
+    "rehome": 73592
   },
   "checks.sh": {
     "local_refs": 2
@@ -276,7 +276,7 @@
     ]
   },
   "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md": {
-    "bytes": 3213,
+    "bytes": 3212,
     "local_refs": 4,
     "pointers": [
       ".github/workflows/README.md",
