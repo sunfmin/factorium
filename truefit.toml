@@ -567,7 +567,8 @@ last = 'r.last'
 # The owner's urgent mark (docs/adr/0015-an-urgent-issue-halts-the-host.md)
 # and a landing's gate (docs/adr/0010-admission-and-the-heavy-queue.md): the
 # same model with entries marked urgent as they ask and again while they
-# wait, the queue halted by urgent issues, and a line move that is a
+# wait, the queue halted by urgent issues (cutting short only with no room
+# for the urgent, ADR 0015 since 2026-11-27), and a line move that is a
 # landing's gate; heavy-starts' waiters, in less time.
 [[model]]
 name = "heavy-urgent"
@@ -917,7 +918,7 @@ check = ["model heavy-urgent"]
 
 [[promise]]
 name = "halt"
-says = "once its worker starts, until the issue closes or is unmarked, nothing else starts"
+says = "once its worker starts, until the issue closes or is unmarked, a worker's or program's heavy command not urgent that runs is cut short once an urgent one waits with no room for what it holds"
 source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:24"
 check = ["model heavy-urgent"]
 

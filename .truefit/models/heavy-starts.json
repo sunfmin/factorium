@@ -1,7 +1,7 @@
 {
-  "commit": "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2",
+  "commit": "f673a11e8b18d476de2ee36cff95256f528358a9",
   "date": "2026-11-26",
-  "inputs": "c1a4a2fb6da80f427f16fd45d01e272e6e51b538dc2777575ab0994559cf6d73",
+  "inputs": "4ceb84ff1f5225d1d684bc1c1a5ca5604c9ddde772aa2bf137e6144aa4d1f434",
   "result": "passes",
   "traces": {
     "accept": [

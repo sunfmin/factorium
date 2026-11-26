@@ -302,12 +302,13 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
         add(
             format!("halt:{by}"),
             format!(
-                "urgent {by} halts heavy commands not urgent: no worker's or program's heavy command not urgent \
-                 starts; workers start as admission allows, and landings, promotions and cuts go on, behind the urgent \
-                 issue's heavy commands"
+                "urgent {by} goes first: its heavy commands start ahead of those not urgent, and one not urgent \
+                 that runs is cut short only while an urgent one waits with no room for it; with none waiting the \
+                 rest start by the ordinary order and room; workers start as admission allows, and landings, \
+                 promotions and cuts go on, behind the urgent issue's heavy commands"
             ),
-            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick lets \
-             the waiting heavy commands start in their order",
+            "nothing to do while it works: once it lands, or is closed or `issue edit --no-urgent`, the next tick \
+             lifts it",
         );
     }
     stalls(seen, s, now, &mut add);

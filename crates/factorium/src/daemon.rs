@@ -177,7 +177,7 @@ impl App {
                             started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
                         }
                         t.started = Some(started);
-                        // An urgent start halts heavy commands not urgent from now, not from the next tick.
+                        // An urgent start halts the host from now, not from the next tick.
                         self.note_halt().await?;
                         None
                     }

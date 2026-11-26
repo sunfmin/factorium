@@ -56,9 +56,9 @@ Each command's `--help` says how it works; the ADRs say why.
     for any gate, run while the host is idle, then its tasks line
     ([ADR 0014](docs/adr/0014-idle-work.md)).
 17. **Urgent**: the owner's mark on an issue, which puts its start, its
-    worker's heavy commands and its landing ahead, and halts every other
-    worker's or program's heavy command, not starts or line moves, while its
-    worker lives
+    worker's heavy commands and its landing ahead, and, while its worker
+    lives, cuts short another worker's or program's heavy command, never a
+    start or a line move, when its own waits with no room (the halt)
     ([ADR 0015](docs/adr/0015-an-urgent-issue-halts-the-host.md)).
 
 ## Words within them
