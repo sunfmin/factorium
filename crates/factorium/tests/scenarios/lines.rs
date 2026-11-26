@@ -1,4 +1,4 @@
-//! The repo's own gate on a crate's lines (SPEC §5, factorium#163): a
+//! The repo's own gate on a crate's lines (docs/adr/0031): a
 //! target is a trend shown by `./gate.sh`, never a red, and a crate that
 //! keeps growing is a task its idle work files. Run on a copy of the repo's
 //! `gate.sh`, `checks.sh` and `lines.sh`, in a repo of one crate, with
@@ -32,11 +32,11 @@ fn repo() -> (PathBuf, PathBuf) {
     ] {
         std::fs::write(dir.join(stub), "#!/bin/sh\nexit 0\n").unwrap();
     }
-    std::fs::write(
-        dir.join("SPEC.md"),
-        "| Crate | Holds | Target (source lines) |\n|---|---|---|\n| `factorium-web` | The web. | 10 |\n",
-    )
-    .unwrap();
+    // The copy's `targets` hold this repo's one crate instead of the repo's.
+    let lines = std::fs::read_to_string(dir.join("lines.sh")).unwrap();
+    let (head, rest) = lines.split_once("cat <<'EOF'\n").expect("lines.sh's targets");
+    let (_, tail) = rest.split_once("EOF\n").expect("the end of lines.sh's targets");
+    std::fs::write(dir.join("lines.sh"), format!("{head}cat <<'EOF'\nweb 10\nEOF\n{tail}")).unwrap();
     sh(&dir, &stubs, "chmod +x stubs/* packaging/* && git init -q && git add -A && git commit -qm specs");
     (dir, stubs)
 }

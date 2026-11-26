@@ -289,7 +289,7 @@ async fn idle_work_files_each_kinds_next_task_once_none_of_its_kind_is_open() {
     let answer = finds_tasks(&w).await;
     // slimfit's answer, then, after a line of its own (as `truefit --version`
     // prints before `truefit next --all`), one that names what read it
-    // (`./lines.sh --tasks`, SPEC §5).
+    // (`./lines.sh --tasks`, ADR 0031).
     let lines = json!({ "by": "lines.sh", "tasks": [{ "kind": "crate-lines", "files": ["c/a.rs"], "summary": "crates/c: rose" }] });
     let said = next(&[("deepen", "a.rs"), ("deepen", "b.rs"), ("redundant-test", "t.rs")]);
     std::fs::write(&answer, format!("{said}\ntruefit 0.1.5\n{lines}\n")).unwrap();

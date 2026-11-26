@@ -1131,37 +1131,37 @@ kept = "no test reads every command's --help; the help is kept the manual by rev
 [[promise]]
 name = "lines-never-fail"
 says = "and never fails"
-source = "SPEC.md:35"
+source = "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:15"
 kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn every gate red"
 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:139"
+source = "SPEC.md:88"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:152"
+source = "SPEC.md:101"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:217"
+source = "SPEC.md:166"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:222"
+source = "SPEC.md:171"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:224"
+source = "SPEC.md:173"
 check = ["model line"]
 
 [[promise]]

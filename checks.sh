@@ -1,11 +1,11 @@
 #!/bin/sh
 # The checks ./gate.sh runs before the tests: the crates' lines (shown, not
-# held), fmt, clippy (SPEC.md §5, §6).
+# held), fmt, clippy (docs/adr/0031, SPEC.md §6).
 set -eu
 cd "$(dirname "$0")"
 
-# Each crate's source lines against its target (SPEC.md §5): a trend and a
-# source of idle tasks, never a gate (factorium#163).
+# Each crate's source lines against its target: a trend and a source of
+# idle tasks, never a gate (docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md).
 ./lines.sh
 
 # The domain is tested only from the outermost layer (SPEC.md §6; its

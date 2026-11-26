@@ -118,7 +118,7 @@ pub struct ToFile {
 /// The issues to file from what the tasks line `said` at `tip`: the lines
 /// before its JSON name what read the tasks (`slimfit --version`), then come
 /// answers listing `tasks`: `slimfit next --all`'s, and any other's that
-/// names itself in `by` (`./lines.sh --tasks`, SPEC §5; `truefit next
+/// names itself in `by` (`./lines.sh --tasks`, ADR 0031; `truefit next
 /// --all`), each maybe after lines of its own (`truefit --version`).
 /// `issues` are the checkout's, open and closed; `in_tip` tells whether a
 /// commit is an ancestor of `tip`.
