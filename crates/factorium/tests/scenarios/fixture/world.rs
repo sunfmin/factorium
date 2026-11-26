@@ -42,38 +42,66 @@ fn open_files_enough() {
     });
 }
 
+/// What a template clone's config names its origin by: each world's copy
+/// names its own remote there instead.
+const TEMPLATE_REMOTE: &str = "factorium-template-remote";
+
 /// The repo every scenario starts from, made once per run: a bare remote
 /// whose main holds a factorium.toml whose fast gate is red while `RED`
-/// exists and whose slow gate is red while `SLOWRED` exists.
+/// exists and whose slow gate is red while `SLOWRED` exists. Under nextest
+/// each test is a process of its own: the run's processes share the one
+/// the first of them made (`NEXTEST_RUN_ID`), not each make its own.
 fn template() -> &'static Path {
     static T: OnceLock<PathBuf> = OnceLock::new();
     T.get_or_init(|| {
-        let t = std::env::temp_dir().join("factorium-template").join(Uuid::now_v7().to_string());
-        let work = t.join("work");
-        std::fs::create_dir_all(&work).unwrap();
-        make_home(&t);
-        let git = |dir: &Path, args: &[&str]| git_of(&t, dir, args);
-        git(&work, &["init", "--quiet", "--template=", "-b", "main"]).unwrap();
-        std::fs::write(work.join("README"), "a repo\n").unwrap();
-        std::fs::write(
-            work.join("factorium.toml"),
-            "[gate]\nfast = \"test ! -e RED\"\nslow = \"test ! -e SLOWRED\"\n\n[cut]\nsteps = [\"echo $FACTORIUM_VERSION > VERSION\"]\nformula = \"web\"\n",
-        )
-        .unwrap();
-        git(&work, &["add", "."]).unwrap();
-        git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
-        git(&t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
-        git(&t, &["clone", "--quiet", "--template=", &t.join("remote.git").to_string_lossy(), "clone"]).unwrap();
-        // The same, its remote also holding `proving` at main, as `checkout add`
-        // leaves a repo it put on the list: made once, not by each world.
-        let proving = t.join("proving");
-        copy_tree(&t.join("remote.git"), &proving.join("remote.git"));
-        git(&t, &["clone", "--quiet", "--template=", &proving.join("remote.git").to_string_lossy(), "proving/clone"])
-            .unwrap();
-        git(&proving.join("clone"), &["push", "--quiet", "origin", "main:proving"]).unwrap();
-        git(&proving.join("clone"), &["fetch", "--quiet", "origin"]).unwrap();
+        let root = std::env::temp_dir().join("factorium-template");
+        let run = std::env::var("NEXTEST_RUN_ID").unwrap_or_else(|_| Uuid::now_v7().to_string());
+        let t = root.join(&run);
+        if t.exists() {
+            return t;
+        }
+        let made = root.join(format!("{run}.{}", Uuid::now_v7()));
+        make_template(&made);
+        // Another process of the run may have made it first: theirs is kept.
+        if std::fs::rename(&made, &t).is_err() {
+            assert!(t.exists(), "the run's template is at {}", t.display());
+            let _ = std::fs::remove_dir_all(&made);
+        }
         t
     })
+}
+
+/// Makes the template at `t`: [`template`]'s remote and a clone of it, and
+/// the same again with the remote holding `proving` at main, as `checkout
+/// add` leaves a repo it put on the list.
+fn make_template(t: &Path) {
+    let work = t.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    make_home(t);
+    let git = |dir: &Path, args: &[&str]| git_of(t, dir, args);
+    git(&work, &["init", "--quiet", "--template=", "-b", "main"]).unwrap();
+    std::fs::write(work.join("README"), "a repo\n").unwrap();
+    std::fs::write(
+        work.join("factorium.toml"),
+        "[gate]\nfast = \"test ! -e RED\"\nslow = \"test ! -e SLOWRED\"\n\n[cut]\nsteps = [\"echo $FACTORIUM_VERSION > VERSION\"]\nformula = \"web\"\n",
+    )
+    .unwrap();
+    git(&work, &["add", "."]).unwrap();
+    git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
+    git(t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
+    let proving = t.join("proving");
+    copy_tree(&t.join("remote.git"), &proving.join("remote.git"));
+    for (at, proves) in [(t.to_path_buf(), false), (proving, true)] {
+        let remote = at.join("remote.git");
+        git(t, &["clone", "--quiet", "--template=", &remote.to_string_lossy(), &at.join("clone").to_string_lossy()])
+            .unwrap();
+        if proves {
+            git(&at.join("clone"), &["push", "--quiet", "origin", "main:proving"]).unwrap();
+        }
+        let config = at.join("clone/.git/config");
+        let text = std::fs::read_to_string(&config).unwrap();
+        std::fs::write(&config, text.replace(&*remote.to_string_lossy(), TEMPLATE_REMOTE)).unwrap();
+    }
 }
 
 /// Copies the tree at `from` to `to`, in-process: a scenario's repos are
@@ -147,10 +175,9 @@ impl World {
         let path = self.dir.join("repos").join(name);
         copy_tree(&from.join("clone"), &path);
         let config = path.join(".git/config");
-        let was = from.join("remote.git").to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&config).unwrap();
-        assert!(text.contains(&was), "the clone's origin is the template's remote: {text}");
-        std::fs::write(&config, text.replace(&was, &remote.to_string_lossy())).unwrap();
+        assert!(text.contains(TEMPLATE_REMOTE), "the clone's origin is the template's remote: {text}");
+        std::fs::write(&config, text.replace(TEMPLATE_REMOTE, &remote.to_string_lossy())).unwrap();
         path
     }
 
