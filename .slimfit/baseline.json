@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 15575,
-      "test_lines": 15598,
+      "prod_lines": 15594,
+      "test_lines": 15676,
       "tests": 516,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 9355,
+      "covered_lines": 9364,
       "uncovered_lines": 107
     }
   },
@@ -96,6 +96,14 @@
       "commits_90d": 39,
       "commits_total": 39,
       "reason": "Deep already: one input record (Seen) and three pure functions (findings, unstarted, no_daemon) hide every finding's rule, key, wording and fix; callers in the effect crate and tests (scenarios/stall.rs, admission.rs) only cross that interface. Its churn is each new finding added in its one home, which is the locality the module exists for; splitting it by finding would spread one concept over many shallow modules with the same interface."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/cli.rs",
+      "prod_lines": 539,
+      "commits_90d": 48,
+      "commits_total": 48,
+      "reason": "Already deep: it is the clap command tree (the manual, SPEC §4, as agent-help reads it) and the one App call each command makes; docs/adr/0002 settles that the manual and its dispatch are one concept with one home. Its churn is commands and flags being added, which land here by design; each arm is a one-line reading of arguments into an App call whose behaviour lives in the library. Splitting it per command group would spread one concept over many files and leave each piece a pass-through."
     }
   ],
   "kept_spans": [
@@ -112,8 +120,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 190,
-      "test_seconds": 383.125
+      "uncovered_lines": 191,
+      "test_seconds": 397.847
     }
   }
 }

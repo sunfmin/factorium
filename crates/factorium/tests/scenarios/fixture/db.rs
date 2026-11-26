@@ -62,6 +62,17 @@ impl World {
         );
     }
 
+    /// Each stream of `aggregate` has a snapshot kept by its code, "1",
+    /// whose state does not read as its aggregate's: a field of another
+    /// type, as a stored shape of another version would have it.
+    pub fn snapshots_that_do_not_read(&self, aggregate: &str) {
+        self.migrate(&format!(
+            "INSERT OR REPLACE INTO snapshots (stream, version, code, state) \
+             SELECT stream, MAX(version), '1', json_object('name', 5) \
+             FROM events WHERE stream LIKE '{aggregate}/%' GROUP BY stream;"
+        ));
+    }
+
     /// Each line has a snapshot kept by code `code` that says it last moved
     /// at `moved`, ms, and holds nothing.
     pub fn line_snapshots_kept_by(&self, code: &str, moved: i64) {
