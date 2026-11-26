@@ -179,8 +179,8 @@ impl App {
         Ok(self.last_started(issue).await?.filter(|st| Path::new(&st.worktree).exists()))
     }
 
-    /// The worktrees of workers that no open issue's attempt owns (SPEC
-    /// §2.6): on a worker's branch, `factorium/<checkout>-<n>-<attempt>`,
+    /// The worktrees of workers that no open issue's attempt owns: on a
+    /// worker's branch, `factorium/<checkout>-<n>-<attempt>`,
     /// of an issue that is closed or this database does not hold, or not its
     /// last started attempt's (which may resume an older attempt's branch).
     pub(crate) async fn orphaned(&self) -> Answer<Vec<Orphaned>> {

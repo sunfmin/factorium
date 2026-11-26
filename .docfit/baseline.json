@@ -1,7 +1,4 @@
 {
-  "SPEC.md": {
-    "rehome": 0
-  },
   "checks.sh": {
     "local_refs": 1
   },

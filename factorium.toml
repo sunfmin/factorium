@@ -6,8 +6,8 @@ fast_limit = 900
 slow = "./slow.sh"  # only what gate.sh lacks
 slow_limit = 1800
 # What every landing's gate rewrites: a landing whose only conflicts are
-# these takes proving's copy and lands them as its gate left them (SPEC.md
-# §1.12). slimfit's baseline only `slimfit ratchet` writes, so it lands as
+# these takes proving's copy and lands them as its gate left them
+# (docs/adr/0012). slimfit's baseline only `slimfit ratchet` writes, so it lands as
 # proving's.
 regenerated = [".slimfit/baseline.json", ".truefit/models/*.json", ".docfit/baseline.json"]
 

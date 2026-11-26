@@ -7,8 +7,7 @@ that branch to the base once the slow gate passes, cuts versions, and keeps
 the machine healthy. A resident watch agent deals with everything that goes
 wrong.
 
-- Its decisions and why: [docs/adr/](docs/adr/), and those not moved there
-  yet in [SPEC.md](SPEC.md)
+- Its decisions and why: [docs/adr/](docs/adr/)
 - It succeeds afkconvoy; what it left behind: [docs/dropped.md](docs/dropped.md)
 
 ## Install
