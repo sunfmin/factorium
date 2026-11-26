@@ -23,8 +23,10 @@ happened only from what reaches its session's prompt.
 - What it wants kept it records with `worker comment`, a comment on its issue that changes nothing else and goes to no one; decisions go to the watch (`worker escalate`).
   A follow-up it files with `worker file`; it changes no other issue.
 - Red: the worker is told why and goes on; red twice in a row goes to the
-  watch. A red that does not reach the session's prompt goes to the watch
+  watch, never to a second worker in a new worktree. A red that does not reach the session's prompt goes to the watch
   at once.
 - A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds: proving moved since the worker merged what it was told.
   It is told as for a first red, with what landed since that tip and the
-  files that conflict; past `moved_reds_max` of these in a row, it counts.
+  files that conflict. `moved_reds_max` bounds how many in a row are let off.
+  Before this, in one day eight watch rounds only said "merge the new tip"
+  (commit 2d19b762).

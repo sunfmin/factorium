@@ -39,4 +39,7 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md" = "adr"
 "docs/adr/0032-tests-only-at-the-outermost-layer.md" = "adr"
 "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md" = "adr"
+"docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md" = "adr"
+"docs/adr/0035-no-flux-scenarios-and-mutation-hold-the-rules.md" = "adr"
+"docs/adr/0036-a-landing-waits-for-no-review.md" = "adr"
 "GLOSSARY.md" = "glossary"

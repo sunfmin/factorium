@@ -180,6 +180,12 @@
     "sentence": "The app runs them through one port (run a program, get its answer), and a scenario stands in there with answers shaped as the real programs gave them — Orca's keeping terminals and what was sent to them — so what the app makes of their answers runs in every scenario.",
     "source": "SPEC.md:312"
   },
+  "2453b743fa72": {
+    "mark": "not",
+    "sentence": "Before this, in one day eight watch rounds only said \"merge the new tip\" (commit 2d19b762).",
+    "source": "docs/adr/0022-a-worker-hands-in-through-done.md:31",
+    "why": "context, evidence or a reopen condition, not behaviour a check can hold"
+  },
   "250a0f5ca414": {
     "mark": "promise",
     "sentence": "The worker runs `factorium worker gate` (the fast gate) as often as it likes, then `factorium worker done`. What it wants kept (a measurement) it records with `factorium worker comment`, a comment on its issue by it that changes nothing else and goes to no one: not the watch, which is for decisions (`worker escalate`). A follow-up its issue asks for it files with `factorium worker file <checkout> <title> --body-file <f> [--blocked-by …]`, as `issue add` files one (never waiting for a person); on its own checkout the filed one also waits for its issue to land, which a follow-up usually builds on, unless `--independent` (factorium#184). Both keep the record as its comments: its issue says \"filed <checkout>#<n>\", the filed one which issue and worker filed it.",
@@ -276,6 +282,12 @@
     "mark": "promise",
     "sentence": "With stablehand missing or failing, claude-code alone starts, by `claude --dangerously-skip-permissions` (built in, for that case only), on the host user's own login.",
     "source": "SPEC.md:36"
+  },
+  "447dd6cca792": {
+    "mark": "not",
+    "sentence": "A base branch is what every host and every release builds from.",
+    "source": "docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md:7",
+    "why": "context, evidence or a reopen condition, not behaviour a check can hold"
   },
   "459f1dc753d4": {
     "mark": "promise",
@@ -401,6 +413,12 @@
     "sentence": "While a named account is used up its issue waits, behind ready issues that can start, and holds admission (`kit: …`) only when none can.",
     "source": "SPEC.md:37"
   },
+  "6f9b7685594c": {
+    "mark": "not",
+    "sentence": "Workers finish at any hour, and a review before each landing would make every landing wait for a reviewer.",
+    "source": "docs/adr/0036-a-landing-waits-for-no-review.md:7",
+    "why": "context, evidence or a reopen condition, not behaviour a check can hold"
+  },
   "71da3ec544b3": {
     "kind": "fixed-often",
     "mark": "not",
@@ -488,6 +506,12 @@
     "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
     "why": "truefit.toml is the check ladder's own registry, not code that keeps a promise: these fixes added the worktrees and line models with their covers (factorium#187, #188, #189) and moved each model's commit to the one it describes. The promises those models keep (WorkNeverLost, OneOwner, a landing at most once, ...) are checked by those models against the code they cover; the config's edits are bookkeeping of that, with no behaviour of their own to check."
   },
+  "921e1ee70fef": {
+    "mark": "not",
+    "sentence": "Its fast gate, which runs on every landing, spent 65 of its 138 seconds in Flux (measured on afkconvoy's gate when factorium was specified, 2026-11-17). factorium's rules are already held by its scenarios, run on the real binary, and by each change's mutants ([ADR 0032](0032-tests-only-at-the-outermost-layer.md)).",
+    "source": "docs/adr/0035-no-flux-scenarios-and-mutation-hold-the-rules.md:7",
+    "why": "context, evidence or a reopen condition, not behaviour a check can hold"
+  },
   "926c047b4d0d": {
     "mark": "promise",
     "sentence": "Which host installs factorium, and when (factorium#269): a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then; every other host's daemon, Homebrew's, upgrades its formula from the tap itself, each `upgrade_every` (an hour) since its last try, while no line move runs beside the ticks: `brew update`, then `brew upgrade`, on a thread beside the ticks, recorded on the tick after it ended.",
@@ -535,6 +559,12 @@
     "mark": "promise",
     "sentence": "So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind.",
     "source": "SPEC.md:46"
+  },
+  "a0277da0c989": {
+    "mark": "not",
+    "sentence": "What would reopen it: a landing that harms before review can catch it (secrets, data loss, something externally visible), and then a finding that holds promotion (`factorium hold`), not an approval on every landing; or measured evidence that findings after landing cost more than review before it.",
+    "source": "docs/adr/0036-a-landing-waits-for-no-review.md:20",
+    "why": "context, evidence or a reopen condition, not behaviour a check can hold"
   },
   "a1bfd7edb63c": {
     "mark": "promise",
@@ -797,6 +827,12 @@
     "mark": "promise",
     "sentence": "It may name the **role** its worker plays and the **account** it starts on, as whoever filed it decided (Guild, which keeps roles and accounts' quotas across hosts; guild ADR 0051): a role is a directory, by its absolute path, holding the role's rules (`CLAUDE.md`) and skills (`.claude/skills`), say lore checked out at a rev; its worker starts in a directory of its own whose rules are factorium's worker rules and then the role's, and whose skills are the role's, linked, the role's directory read and never written.",
     "source": "SPEC.md:33"
+  },
+  "e8a33e699ca0": {
+    "mark": "not",
+    "sentence": "Every checkout has a proving branch: one path for every repo.",
+    "source": "docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md:14",
+    "why": "structure: a checkout is registered with its proving branch; base-moved-only-by-promotion holds the rule"
   },
   "e923ae7a4aa5": {
     "mark": "not",
