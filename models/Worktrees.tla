@@ -1,6 +1,6 @@
 ------------------------------ MODULE Worktrees ------------------------------
 (***************************************************************************)
-(* An issue's attempts and their worktrees (ADR 0017), as                  *)
+(* An issue's attempts and their worktrees (ADR 0021), as                  *)
 (* factorium keeps them: crates/factorium/src/kept.rs decides what a      *)
 (* worktree holds, which one a start resumes, which one an open issue     *)
 (* owns and how one is abandoned; life.rs starts and ends a worker;       *)
@@ -115,7 +115,7 @@ Orphaned(S, t) ==
           /\ t # (IF Bug = "orphan_by_attempt" THEN LastStarted(S) ELSE LastTree(S))
           /\ S.taken # t
 
-\* ADR 0017: an open issue owns one worktree, its last started attempt's.
+\* ADR 0021: an open issue owns one worktree, its last started attempt's.
 Owner(S, t) == S.status # "closed" /\ t # 0 /\ t = LastTree(S)
 
 \* remove_worktree: Orca removes it with its terminals, git forgets it and
@@ -347,7 +347,7 @@ TraceNext ==
     \/ Whole([s EXCEPT !.tipok = ~@])
 
 -----------------------------------------------------------------------------
-(* The properties, in ADR 0017's words.                                    *)
+(* The properties, in ADR 0021's words.                                    *)
 
 \* Work is never lost: what a worker made, and that is nowhere else, is in
 \* a worktree on disk, on a branch, or on a kept `-abandoned` branch.

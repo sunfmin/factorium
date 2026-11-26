@@ -1,4 +1,4 @@
-# 16. An issue waits for the issues and the time it names, each block with its why
+# 20. An issue waits for the issues and the time it names, each block with its why
 
 Status: accepted
 

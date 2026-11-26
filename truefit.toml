@@ -654,7 +654,7 @@ last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
 
-# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0019-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
+# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
 # models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
@@ -754,7 +754,7 @@ uncut = 'r.state.uncut'
 promoted = 'r.state.promoted'
 red = 'r.state.red'
 
-# An issue's worktrees and attempts (docs/adr/0017-a-worktree-that-holds-work-is-kept.md),
+# An issue's worktrees and attempts (docs/adr/0021-a-worktree-that-holds-work-is-kept.md),
 # model-checked by TLC: models/Worktrees.tla, under the gate's config, in full (every
 # state it reaches). Its properties each fail on a broken variant
 # (`models/worktrees.sh broken`).
@@ -964,55 +964,55 @@ check = ["test"]
 [[promise]]
 name = "cut-blocker-met-on-install"
 says = "`<checkout>#N@cut` is met only once a cut of that checkout holds its landing"
-source = "docs/adr/0016-an-issue-waits-with-a-why.md:18"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:18"
 check = ["test"]
 
 [[promise]]
 name = "typed-only-when-up"
 says = "Text is typed at a session only once its harness's own screen is up there"
-source = "docs/adr/0018-a-worker-hands-in-through-done.md:14"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:14"
 check = ["test"]
 
 [[promise]]
 name = "worker-comment-changes-nothing"
 says = "a comment on its issue that changes nothing else and goes to no one"
-source = "docs/adr/0018-a-worker-hands-in-through-done.md:23"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:23"
 check = ["test"]
 
 [[promise]]
 name = "work-never-lost"
 says = "its worktree is removed unless it holds work that is nowhere else"
-source = "docs/adr/0017-a-worktree-that-holds-work-is-kept.md:20"
+source = "docs/adr/0021-a-worktree-that-holds-work-is-kept.md:20"
 check = ["model worktrees"]
 
 [[promise]]
 name = "no-start-over-under-worker"
 says = "only while no worker is on the issue"
-source = "docs/adr/0017-a-worktree-that-holds-work-is-kept.md:24"
+source = "docs/adr/0021-a-worktree-that-holds-work-is-kept.md:24"
 check = ["model worktrees"]
 
 [[promise]]
 name = "off-path-to-watch"
 says = "Off the path, everything goes to the watch"
-source = "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:14"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:14"
 check = ["test"]
 
 [[promise]]
 name = "landing-moves"
 says = "a landing no gate runs for on a line that has not moved for `stall_bound`"
-source = "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:17"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["model line-live"]
 
 [[promise]]
 name = "promotion-moves"
 says = "the oldest unpromoted landing past `promotion_bound` with no promotion running"
-source = "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:17"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["model line-live"]
 
 [[promise]]
 name = "stalled-queue-found"
 says = "a heavy queue that starts nothing past `stall_bound`"
-source = "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:17"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["test"]
 why = "the finding is read from the queue's records by one doctor pass; stall.rs holds the queue still and past the hold bound"
 
@@ -1157,25 +1157,25 @@ check = ["test"]
 [[promise]]
 name = "doctor-asks-every-wait"
 says = "every issue of every checkout that waits for a person"
-source = "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:26"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:26"
 check = ["test"]
 
 [[promise]]
 name = "decided-records-only-first-line"
 says = "a record only when its first line starts `Decided (`"
-source = "docs/adr/0020-decisions-are-decided-records.md:21"
+source = "docs/adr/0024-decisions-are-decided-records.md:21"
 check = ["test"]
 
 [[promise]]
 name = "decided-last-seven-days"
 says = "answers those of the last 7 days, read or not"
-source = "docs/adr/0020-decisions-are-decided-records.md:24"
+source = "docs/adr/0024-decisions-are-decided-records.md:24"
 check = ["test"]
 
 [[promise]]
 name = "old-records-numbered-once"
 says = "Records made before numbers were given take theirs once, oldest first by when they were made"
-source = "docs/adr/0020-decisions-are-decided-records.md:30"
+source = "docs/adr/0024-decisions-are-decided-records.md:30"
 check = ["test"]
 
 [[promise]]
@@ -1281,13 +1281,13 @@ check = ["test"]
 [[promise]]
 name = "every-block-says-why"
 says = "`--blocked-by` and `issue block --by` are refused without `--why <text>`"
-source = "docs/adr/0016-an-issue-waits-with-a-why.md:19"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:19"
 check = ["test"]
 
 [[promise]]
 name = "old-block-no-reason-given"
 says = "A block made before whys were asked for reads \"(no reason given)\"."
-source = "docs/adr/0016-an-issue-waits-with-a-why.md:20"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:20"
 check = ["test"]
 
 [[promise]]
@@ -1324,7 +1324,7 @@ why = "factorium has no `truefit sim`, and models/Line.tla has no merge; each ti
 [[promise]]
 name = "moved-red-not-second-red"
 says = "A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds"
-source = "docs/adr/0018-a-worker-hands-in-through-done.md:28"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:28"
 check = ["test"]
 
 [[promise]]

@@ -1,4 +1,4 @@
-# 17. A worktree that holds work nowhere else is kept, and resumed
+# 21. A worktree that holds work nowhere else is kept, and resumed
 
 Status: accepted
 

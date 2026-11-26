@@ -42,7 +42,7 @@ pub struct Issue {
     pub attempts: u32,
     /// The one record of what was said about it, oldest first.
     pub comments: Vec<Note>,
-    /// The numbers of the Decided records its body holds (ADR 0020).
+    /// The numbers of the Decided records its body holds (ADR 0024).
     #[serde(default)]
     pub decided: Vec<Mark>,
     /// The task it was filed for, by idle work (§1.16).

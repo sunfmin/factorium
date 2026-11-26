@@ -1,4 +1,4 @@
-//! Kept worktrees (ADR 0017): for an issue, the worktree its next start
+//! Kept worktrees (ADR 0021): for an issue, the worktree its next start
 //! uses (the one its last attempt kept, or a fresh one) and what it holds;
 //! whether a worker's worktree stays when the worker ends; how a kept one
 //! is discarded on purpose, or once its issue closes; and the worktrees no

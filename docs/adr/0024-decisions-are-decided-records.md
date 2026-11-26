@@ -1,4 +1,4 @@
-# 20. A decision made without the owner is a Decided record in its issue, numbered once
+# 24. A decision made without the owner is a Decided record in its issue, numbered once
 
 Status: accepted
 

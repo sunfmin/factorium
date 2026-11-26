@@ -1,6 +1,6 @@
 -------------------------------- MODULE Line --------------------------------
 (***************************************************************************)
-(* One checkout's line (ADR 0012 and ADR 0019), as factorium moves it.     *)
+(* One checkout's line (ADR 0012 and ADR 0023), as factorium moves it.     *)
 (*                                                                         *)
 (* The remote (GitHub) holds `proving` and `base`. A commit is named by    *)
 (* what it holds: the workers' branches merged onto the start tip, in      *)

@@ -1,4 +1,4 @@
-# 18. A worker hands in through `done`, and its landing's gate is its one full gate
+# 22. A worker hands in through `done`, and its landing's gate is its one full gate
 
 Status: accepted
 

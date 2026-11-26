@@ -1,4 +1,4 @@
-# 19. Off the path, everything goes to the watch, and a stopped line is a finding
+# 23. Off the path, everything goes to the watch, and a stopped line is a finding
 
 Status: accepted
 
