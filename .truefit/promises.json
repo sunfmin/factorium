@@ -262,7 +262,7 @@
     "mark": "promise",
     "sentence": "Its landing takes the next turn of its checkout's line, never cutting a running gate short.",
     "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:22",
-    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "5afb14fcaae7": {
     "mark": "promise",
@@ -463,7 +463,7 @@
     "mark": "promise",
     "sentence": "Its start goes before every other ready issue, held only by the memory and disk floors, never by the load.",
     "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:18",
-    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "a7685f55d299": {
     "mark": "promise",
@@ -484,7 +484,7 @@
     "mark": "promise",
     "sentence": "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it.",
     "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:14",
-    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "aae476d382e9": {
     "mark": "promise",
@@ -666,7 +666,7 @@
     "mark": "not",
     "sentence": "In the ordinary order it waits behind admission's load reading, the heavy queue and its checkout's line, each fair to every issue and none knowing this one matters more.",
     "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:8",
-    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+    "why": "ADR 0014 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "ea300ca7d549": {
     "mark": "promise",
