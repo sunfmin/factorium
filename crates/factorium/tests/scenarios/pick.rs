@@ -574,7 +574,7 @@ async fn a_function_listing_slimfit_refuses_after_the_pick_is_refused_with_its_w
     w.host.slimfit.lock().unwrap().insert("check".into(), grouped.to_string());
     w.host.slimfit_fault("function-refused", true);
 
-    let why = w.app.worker_pick_mutants(id(&wk)).await.unwrap_err();
+    let why = w.app.worker_pick_mutants(id(&wk), None).await.unwrap_err();
     assert_eq!(why.code, "picker_answer", "{why}");
     assert!(why.message.contains("its mutation tool listed no mutants of the change"), "{why}");
     // Each picker was asked, and each answer met slimfit's refusal.
