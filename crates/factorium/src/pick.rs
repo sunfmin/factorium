@@ -34,8 +34,8 @@ impl App {
     /// promotion's mutants issue.
     pub async fn worker_pick_mutants(&self, worker: Uuid, target: Option<&str>) -> Answer {
         let (st, diff) = self.change(worker, target).await?;
-        let on: Vec<&str> = target.into_iter().flat_map(|t| ["--target", t]).collect();
-        let args: Vec<&str> = ["check", "--repo", &st.worktree, "--mutants"].into_iter().chain(on.clone()).collect();
+        let on = target.into_iter().flat_map(|t| ["--target", t]);
+        let args: Vec<&str> = ["check", "--repo", &st.worktree, "--mutants"].into_iter().chain(on).collect();
         let said = self.host.programs().run("slimfit", &args);
         let listed = pick::listing(said.ok, &said.out)
             .map_err(|e| Refusal::new("slimfit", format!("slimfit {}: {e} {}", args.join(" "), said.err.trim())))?;
@@ -48,8 +48,7 @@ impl App {
         let question = pick::question(&goal, &diff, &listing);
         let quote = factorium_harness::quoted;
         let full = |functions: &[String]| {
-            let mut args = vec!["check", "--repo", &st.worktree, "--mutants"];
-            args.extend(on.iter().copied());
+            let mut args = args.clone();
             args.extend(functions.iter().flat_map(|f| ["--function", f.as_str()]));
             let out = self.slimfit(&args).map_err(|r| r.message)?;
             serde_json::from_str(&out).map_err(|e| format!("slimfit {}: {e}: {out}", args.join(" ")))

@@ -10,6 +10,7 @@
 use serde_json::Value;
 
 use crate::idle::Task;
+use crate::neutral::landing::Awaited;
 
 /// The task kind of a promotion's mutants issue: it starts ahead of the
 /// ordinary ones ([`ahead`]), and one is open per checkout at a time.
@@ -39,38 +40,12 @@ pub fn owes(listing: &Value) -> bool {
     crate::pick::due(landing) && !records
 }
 
-/// A promotion's mutants issue, as its line keeps it: its number, and when it
-/// was filed (ms), from which `mutants_bound` counts.
-pub use crate::neutral::landing::Awaited as Filed;
-
-/// What a promotion does about its mutants before its slow gate.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Before {
-    /// Ask slimfit whether the range owes a record: file the issue if it does.
-    Ask,
-    /// Wait for the open issue `number`, at most until `until` (ms).
-    Wait { number: u64, until: i64 },
-    /// Go on without it, the issue `number` staying open, for `why`.
-    Without { number: u64, why: String },
-}
-
-/// What a promotion does at `now` about its mutants, given the line's last
-/// filed issue, if it is still open, and whether a worker holds it or can
-/// start it: with none open, it asks; with one open, it waits for it within
-/// `bound` of its filing, and goes on without it past that, or when no
-/// worker can start it. One is open per checkout at a time: a later
-/// promotion files none while it is.
-pub fn before(open: Option<Filed>, startable: bool, now: i64, bound: i64) -> Before {
-    let Some(Filed { number, at }) = open else { return Before::Ask };
-    let until = at + bound;
-    if now >= until {
-        let why = format!("its mutants issue #{number} has waited past mutants_bound ({}s)", bound / 1000);
-        return Before::Without { number, why };
-    }
-    if !startable {
-        return Before::Without { number, why: format!("no worker can start its mutants issue #{number}") };
-    }
-    Before::Wait { number, until }
+/// Until when (ms) a promotion waits at `now` for its open mutants issue
+/// `filed`: within `bound` of its filing, while a worker holds it or can
+/// start it; `None`, it goes on without it, the issue staying open.
+pub fn waits(filed: Awaited, startable: bool, now: i64, bound: i64) -> Option<i64> {
+    let until = filed.at + bound;
+    (startable && now < until).then_some(until)
 }
 
 /// The mutants issue of the promotion of `proving` at `tip`, owing the

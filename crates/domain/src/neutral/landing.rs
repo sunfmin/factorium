@@ -58,38 +58,14 @@ pub struct CutFailure {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
-    Landed {
-        number: u64,
-        commit: String,
-        at: i64,
-    },
-    PromotionRed {
-        tip: String,
-        why: String,
-    },
-    Promoted {
-        tip: String,
-        at: i64,
-    },
-    CutMade {
-        version: String,
-        commit: String,
-        at: Option<i64>,
-    },
-    CutFailed {
-        version: String,
-        why: String,
-        commit: Option<String>,
-    },
-    LandingsHeld {
-        why: String,
-    },
+    Landed { number: u64, commit: String, at: i64 },
+    PromotionRed { tip: String, why: String },
+    Promoted { tip: String, at: i64 },
+    CutMade { version: String, commit: String, at: Option<i64> },
+    CutFailed { version: String, why: String, commit: Option<String> },
+    LandingsHeld { why: String },
     LandingsReleased,
-    /// Work asked for that a promotion waits for first.
-    Awaited {
-        number: u64,
-        at: i64,
-    },
+    Awaited { number: u64, at: i64 },
 }
 
 impl Line {

@@ -9,7 +9,7 @@ use factorium_domain::checkout::Checkout;
 use factorium_domain::issue::{Open, Status};
 use factorium_domain::line::{self, Lines};
 use factorium_domain::line_id;
-use factorium_domain::mutants::{self, Before};
+use factorium_domain::mutants;
 use factorium_domain::settings::Time;
 use factorium_domain::when::utc;
 use factorium_host::Git;
@@ -28,26 +28,21 @@ impl App {
         let Some(target) = here.shown(tip, "slimfit.toml").and_then(|t| mutants::held_at(&t)) else {
             return Ok(None);
         };
-        let l = self.state::<Lines>(line_id(&c.name)).await?;
-        let (mut open, mut startable) = (None, false);
-        if let Some(filed) = l.awaited {
+        // One mutants issue open per checkout: while it is, the promotion waits for it or goes on.
+        if let Some(filed) = self.state::<Lines>(line_id(&c.name)).await?.awaited {
             let i = self.issue(&c.name, filed.number).await?;
             if i.status != Status::Closed {
-                open = Some(filed);
-                startable = i.worker.is_some() || self.choice(&c.name, &i.on).await.is_ok();
+                let startable = i.worker.is_some() || self.choice(&c.name, &i.on).await.is_ok();
+                let bound = self.settings().await?.ms(Time::MutantsBound);
+                return Ok(mutants::waits(filed, startable, self.now(), bound).map(|until| {
+                    Err(format!(
+                        "waits for its mutants issue {}#{}, at most until {}",
+                        c.name,
+                        filed.number,
+                        utc(until)
+                    ))
+                }));
             }
-        }
-        let bound = self.settings().await?.ms(Time::MutantsBound);
-        match mutants::before(open, startable, self.now(), bound) {
-            Before::Wait { number, until } => {
-                return Ok(Some(Err(format!(
-                    "waits for its mutants issue {}#{number}, at most until {}",
-                    c.name,
-                    utc(until)
-                ))));
-            }
-            Before::Without { .. } => return Ok(None),
-            Before::Ask => {}
         }
         if self.memory.lock().unwrap().owes_none.get(&c.name).is_some_and(|t| t == tip) {
             return Ok(None);
