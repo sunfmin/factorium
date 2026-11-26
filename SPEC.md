@@ -1,39 +1,3 @@
-# factorium — specification (draft 1, 2026-11-17)
-
-factorium runs AI coding agents on one machine while nobody watches: it
-takes issues from a local tracker, gives each to a worker in its own
-worktree, lands what passes the repo's gate onto a proving branch,
-promotes the proving branch to the base branch once the slow gate passes,
-cuts versions, and keeps the machine healthy. A resident **watch** agent
-deals with everything that goes wrong.
-
-It succeeds afkconvoy and is built on factum. Guild depends on its crates.
-
-Status: approved 2026-11-17. Phases 1–6 are done. Their real runs: one
-Claude Code worker on a throwaway repo, one real watch round, and
-factorium cut its own v0.1.0 through Homebrew. Phase 3 had real runs for
-Claude Code, and for DSH and Kimi Code: each worker started by
-a daemon from its kit entry, refused by the real guard when it pushed, landed;
-and for agy: the same, its tokens read from its real
-transcript, and a real headless ask read; codex, pi and grok have had no
-such run on this host. Phase 7 waits
-on the owner: which repo moves first, and how Guild moves its gate and landing dependencies, since factorium has no
-counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
-and factorium does not is in `docs/dropped.md`.
-
-## 8. Phases
-
-| # | What | Done when |
-|---|---|---|
-| 0 | This spec | The owner approves it |
-| 1 | Skeleton: crates, factum, `App`, the stand-ins, `gate.sh` with budgets, CI | Gate green |
-| 2 | The path with one harness: issue → worker → `done` → landing on proving → promotion → issue closed | Its scenarios pass; one real Claude Code smoke run |
-| 3 | All six harnesses, the kit, accounts and their windows | Scenarios; a smoke run per harness |
-| 4 | Admission, the heavy-command queue, hot workers, the disk floor | Scenarios |
-| 5 | The watch and `doctor` | Scenarios; a real watch round |
-| 6 | Cut and self-upgrade through Homebrew | factorium cuts its own version |
-| 7 | Move repos from afkconvoy one at a time (a repo belongs to one); Guild moves its dependencies from afkconvoy's crates to factorium's | First repo landed by factorium; Guild builds against it |
-
 ## 9. Decisions, and why
 
 1. **Repo declarations live in the repo** (`factorium.toml`): they change
