@@ -34,8 +34,11 @@ impl App {
         }
         for w in self.rows(tracker::workers(Some(worker::Status::Landing), false)).await? {
             let (worker, since) = (w.worker.to_string(), w.state.since);
-            seen.landing.push(doctor::LandingSeen { worker, checkout: w.checkout, number: w.number, since });
+            let urgent = self.issue(&w.checkout, w.number).await?.urgent;
+            seen.landing.push(doctor::LandingSeen { worker, checkout: w.checkout, number: w.number, since, urgent });
         }
+        // In the order they land: the urgent first, as the line takes them.
+        factorium_domain::issue::urgent_first(&mut seen.landing, |l| l.urgent);
         for c in self.rows(tracker::listed()).await? {
             let line = self.state::<Lines>(line_id(&c.name)).await?;
             // What the base declares, as last fetched: doctor fetches nothing.
@@ -214,7 +217,7 @@ impl App {
                 let line = seen.landing.iter().filter(|o| o.checkout == l.checkout);
                 let place = line.clone().position(|o| o.worker == l.worker).map_or(0, |i| i + 1);
                 let issue = format!("{}#{}", l.checkout, l.number);
-                json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count() })
+                json!({ "worker": l.worker, "issue": issue, "place": place, "of": line.count(), "urgent": l.urgent })
             })
             .collect();
         let idle: Vec<Value> =

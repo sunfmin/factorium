@@ -1,0 +1,15 @@
+{
+  "tree": "1ca116540d68254e1248cc02707084c1603b52e9+d1fba762150c532c",
+  "picker": "codex:01a215d8-a2c3-7903-9c5a-bd3d20706d7a:default",
+  "author": "claude-code:fa5b26ff-2ec4-56b1-919e-73e1601055d3:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/life.rs:299:5: replace worker_brief -> String with \"xyzzy\".into()",
+        "why": "A nonempty placeholder can pass checks that only verify the brief was written, even though it drops the new landing instructions.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
