@@ -90,7 +90,14 @@ impl App {
     /// decided on in one command, and what it decided is carried out. One
     /// waiting for the watch is looked at too: its engine may be spent.
     /// Answers what it found, if anything.
-    async fn worker_health(&self, worker: Uuid, live: Live, sight: Sight, share: Share, s: &Settings) -> Answer<Option<Value>> {
+    async fn worker_health(
+        &self,
+        worker: Uuid,
+        live: Live,
+        sight: Sight,
+        share: Share,
+        s: &Settings,
+    ) -> Answer<Option<Value>> {
         let evidence = self.data().evidence(worker, self.now()).to_string_lossy().into_owned();
         let Share { load, quiet, heavy } = share;
         let issue = self.issue(&live.started.checkout, live.started.number).await?;
