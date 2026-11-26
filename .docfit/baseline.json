@@ -1,10 +1,7 @@
 {
-  "Cargo.toml": {
-    "local_refs": 1
-  },
   "SPEC.md": {
     "local_refs": 40,
-    "rehome": 47938
+    "rehome": 47895
   },
   "checks.sh": {
     "local_refs": 2
