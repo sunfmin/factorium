@@ -1,14 +1,7 @@
-//! The heavy-command queue's start rule: one host-wide line of the commands
-//! that load the machine. The shortest declared hold waiting starts first
-//! (one that declares none is read as the default, so a line where none
-//! declares one is oldest first), when the host has room, or when nothing
-//! runs; one that has waited past the starve bound goes ahead of all those
-//! that have not, oldest first, so none starves; beside what runs, one start
-//! per reading taken a settle interval after the last start, so the load
-//! that start brings is read before another; and one that holds others up
-//! past the hold bound is ended. An entry past its bound takes the place of
-//! the first entry that yields waiting ahead of it: those keep their order,
-//! and a running one is never cut short.
+//! The heavy-command queue's start rule (SPEC.md §1.9): the shortest
+//! declared hold first, none starved past the starve bound, one start per
+//! settled reading beside what runs, the hold bound, and a line move past
+//! its bound ahead of those that yield.
 
 use uuid::Uuid;
 

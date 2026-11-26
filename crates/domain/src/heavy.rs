@@ -1,34 +1,7 @@
-//! The heavy-command queue: one host-wide line of the commands that load
-//! the machine — every gate run, what a worker runs through
-//! `factorium worker exclusive`, and what a program of the owner's that is
-//! not a worker runs through `factorium heavy run`. The oldest waiting starts when the host
-//! has room, or when nothing runs, so it never starves; one start per
-//! reading settled after the last start; and one that holds others up past the hold bound is ended. A
-//! line move past its bound goes ahead of workers' waiting entries. The
-//! rules are those of the daemon that runs, set as it starts: a binary
-//! older than it is refused, however long it has waited (factorium#106),
-//! and its waiting entry is passed over, so it holds none up. Not those of
-//! any newer binary that asks: one whose proof failed never runs the
-//! daemon, which would be refused its own gates (factorium#241). A worker's or a
-//! program's entry that left the queue unstarted (its waiter refused, or
-//! gone) keeps its place for the keep bound: the same asker asking the same
-//! command again takes it (factorium#193).
-//! It is the queue of resources (factorium#284): each entry asks for one
-//! or more, granted all at once, each by its capacity rule — [`HOST`], the
-//! host's load, by room as above; a named one (a device), by its slots,
-//! as the host's settings declare them. One waiting for a resource whose
-//! slots are all held is passed over in every queue, so it holds none up
-//! and never holds one resource while it waits for another. A worker's
-//! hold across commands outlives its waiter, and covers the worker's own
-//! commands asking for it. Only a command holding the host is ended by the
-//! hold bound; a named resource is never cut short.
-//! Each resource's queue puts the shortest declared hold first (a command
-//! declares none, and is read as `hold_default`), never starves one past
-//! `starve_bound`, and passes over a hold outside the daily window it
-//! named, so it joins the line only inside it (factorium#286). [`HOST`]'s
-//! entries declare none, so its queue is oldest first as it was.
-//! That start rule is neutral: [`crate::neutral::queue`]; here are the
-//! queue's stream, the worker an entry is for, and the line jobs' names.
+//! The heavy-command queue of resources, whose rules SPEC.md §1.9 holds:
+//! its stream, its entries and what each asks, each resource's line and
+//! why one waits, and the line jobs' names. The start rule is neutral:
+//! [`crate::neutral::queue`].
 
 use std::collections::BTreeMap;
 
@@ -477,12 +450,14 @@ impl Queue {
 
 /// When a start's reading was taken and how the line is ordered: what
 /// [`Queue::may_start`] reads besides the queue.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct Reading {
     /// When the host's reading was taken, ms: before the host was read.
     pub read_at: i64,
     /// How long after the last start a reading shows its load, ms.
     pub settle: i64,
+    /// How the line is ordered: none, the oldest first.
+    #[serde(default)]
     pub order: queue::Order,
 }
 
@@ -709,16 +684,11 @@ pub struct Begin {
     pub id: Uuid,
     /// Whether the host had room, and why not.
     pub room: Result<(), String>,
-    /// When that reading was taken, ms: before the host was read.
-    pub read_at: i64,
-    /// How long after the last start a reading shows its load, ms.
-    pub settle: i64,
+    #[serde(flatten)]
+    pub at: Reading,
     /// The rules it asks under: [`RULES`] of the binary that asks.
     #[serde(default)]
     pub rules: String,
-    /// How the line is ordered: none, the oldest first.
-    #[serde(default)]
-    pub order: queue::Order,
 }
 
 command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
@@ -726,8 +696,7 @@ command!(StartHeavy, "heavy.start", Heavy, Begin, |_p| queue_id(), |s, p, now| {
         let why = format!("asks under the rules of {}, which {} replaced", p.rules, s.rules);
         return no("stale", why);
     }
-    let at = Reading { read_at: p.read_at, settle: p.settle, order: p.order };
-    match s.may_start(p.id, p.room.clone(), at, now.0) {
+    match s.may_start(p.id, p.room.clone(), p.at, now.0) {
         Ok(()) => Ok(vec![HeavyEvent::HeavyStarted { id: p.id, at: now.0 }]),
         Err(why) => no("wait", why),
     }
