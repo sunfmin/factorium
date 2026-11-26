@@ -496,7 +496,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "2f235c5e395b22a58b88b6580376bec735c7ddd2"
+commit = "677718fba9ba5b80547147713e351d487b80c435"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -528,7 +528,7 @@ name = "heavy-urgent"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyUrgent.cfg"
 limit = 120
-commit = "98198170092e13bd1d8e8e8dd931d3e4c75d2b75"
+commit = "677718fba9ba5b80547147713e351d487b80c435"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
