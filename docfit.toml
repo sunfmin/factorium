@@ -21,4 +21,5 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0013-the-watch-and-the-daemon-it-reads.md" = "adr"
 "docs/adr/0014-idle-work.md" = "adr"
 "docs/adr/0015-an-urgent-issue-halts-the-host.md" = "adr"
+"docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md" = "adr"
 "GLOSSARY.md" = "glossary"

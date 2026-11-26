@@ -6,7 +6,7 @@ use factorium_domain::issue::{self, IssueEvent, Issues};
 use factorium_domain::kit::{Kits, kit_id};
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
-use factorium_domain::{daemon, decided, doctor, heavy, watch, worker};
+use factorium_domain::{daemon, decided, doctor, heavy, next, watch, worker};
 use factorium_domain::{issue_id, tracker};
 use factum::{Aggregate, By, StreamId, Value};
 use serde_json::json;
@@ -97,6 +97,27 @@ impl App {
             ready.push(doctor::ReadySeen { issue: format!("{}#{}", r.checkout, r.number), waits, kit });
         }
         Ok(ready)
+    }
+
+    /// Each checkout at its cap (`workers_per_checkout`) that holds ready
+    /// issues: its live workers, the cap, and those issues (none urgent, none
+    /// waiting for a blocker, its time or a claim), in the order they start.
+    async fn capped(&self, ready: &[doctor::ReadySeen], cap: u64) -> Answer<Vec<Value>> {
+        let workers = self.live_workers().await?;
+        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
+        let mut held = std::collections::BTreeMap::<String, Vec<String>>::new();
+        for r in next::order(self.rows(tracker::untaken()).await?, std::iter::empty()) {
+            let issue = format!("{}#{}", r.checkout, r.number);
+            let waits = ready.iter().find(|s| s.issue == issue).is_none_or(|s| s.waits);
+            if !waits && next::capped(&live, &r.checkout, r.urgent, cap) {
+                held.entry(r.checkout).or_default().push(issue);
+            }
+        }
+        let at = |c: &str| live.get(c).copied().unwrap_or(0);
+        Ok(held
+            .into_iter()
+            .map(|(c, waiting)| json!({ "checkout": c, "live": at(&c), "cap": cap, "waiting": waiting }))
+            .collect())
     }
 
     /// Every issue that waits for a person, oldest wait first: its title,
@@ -267,6 +288,9 @@ impl App {
             "landing": landing,
             // Waiting workers the watch parked behind what their issues wait for, not yet met.
             "parked": parked,
+            // Each checkout at its cap of live workers (`workers_per_checkout`, those in landing among them),
+            // with the ready issues waiting for one of them to end; an urgent one is not held.
+            "capped": self.capped(&seen.ready, settings.get(factorium_domain::settings::Setting::WorkersPerCheckout)).await?,
             // Ready issues parked until their time (ms, and in UTC): none starts before it.
             "not_before": timed,
             // Waiting workers parked until their engine's limit resets, until when (ms).
