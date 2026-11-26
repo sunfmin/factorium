@@ -107,6 +107,15 @@
       "function": "App::issue_move (closure)",
       "hash": "69fc1f82dfca2844",
       "reason": "Only wiring left: the closure hands a failed step's refusal to factorium_domain::moved::stopped, whose wording is tested in milliseconds (moved::a_move_that_stops_part_way_says_where_and_what_it_had_done). It runs only when a step fails after the other host was checked over ssh, which only a minutes-long scenario reaches, so a fast test could not reach it at all."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/host/src/git.rs",
+      "start": 243,
+      "end": 246,
+      "function": "Git::merge_from (closure)",
+      "hash": "33ad82169b4580d9",
+      "reason": "Git is the host's thin effect over the real git program: this is merge_from's abort when a conflict is not only in regenerated records (or taking them fails). Every landing is first checked by Git::merges (merge-tree) in check_waiting, which reds such a branch before land runs, so the span runs only when proving moves between that check and the landing's merge in one tick, or git fails to commit: reachable only through real git processes, a race no scenario can stage. A fast test could not reach it at all; the abort and the Err are needed for that race, so nothing to delete."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
