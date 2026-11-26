@@ -172,7 +172,6 @@ fn model() -> Model {
         .command::<stack::RedLayer>()
         .command::<stack::Unstack>()
         .command::<stack::LandStack>()
-        .command::<stack::ClearStack>()
         .aggregate::<kit::Kits>()
         .command::<kit::MoveCommands>()
         .command::<kit::PinCheckout>()

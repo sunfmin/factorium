@@ -90,7 +90,7 @@ impl Moving {
     /// The worker it lands, if it is a landing.
     pub(crate) fn lands(&self) -> Option<Uuid> {
         match &self.then {
-            Then::Land { landing } => Some(landing.layer.worker),
+            Then::Land { layer } => Some(layer.worker),
             _ => None,
         }
     }
@@ -98,7 +98,7 @@ impl Moving {
 
 enum Then {
     /// The stacked landing of a worker's branch, merged in the work dir.
-    Land { landing: stack::Landing },
+    Land { layer: factorium_domain::stack::Layer },
     /// The promotion of the proving `tip` over `base`, its gate run as `gating` says, holding
     /// the checkout's promotion lock.
     Promote { tip: String, base: String, gating: Gating, _lock: std::sync::Arc<std::fs::File> },
@@ -155,9 +155,9 @@ impl App {
 
     async fn finish_moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
         let c = self.checkout(&moving.checkout).await?;
-        if let Then::Land { landing } = moving.then {
-            let did = self.landing_ran(&c, &self.host.git(&c.path).at(&moving.dir), landing, ended).await?;
-            return Ok(did.ok_or_else(|| "a stacked landing's gate ended: it lands with the stack".to_string()));
+        if let Then::Land { layer } = moving.then {
+            self.landing_ran(&c, &self.host.git(&c.path).at(&moving.dir), layer, ended).await?;
+            return Ok(Err("a stacked landing's gate ended: it lands with the stack".to_string()));
         }
         let Ok(rans) = ended else {
             return Ok(Err(format!("a move of {} ended while it ran: {}", c.name, ended.unwrap_err())));

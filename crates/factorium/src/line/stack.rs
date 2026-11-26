@@ -15,8 +15,7 @@ use factorium_domain::heavy::Ends;
 use factorium_domain::line::{self, Due, Lines, Move};
 use factorium_domain::line_id;
 use factorium_domain::stack::{
-    self as s, Green, GreenLayer, LandStack, Layer, OfLayer, Red, RedLayer, StackLanding, Stacking, Stacks, Unstack,
-    stack_id,
+    Green, GreenLayer, LandStack, Layer, OfLayer, Red, RedLayer, StackLanding, Stacking, Stacks, Unstack, stack_id,
 };
 use factorium_domain::worker::{self as w, Workers};
 use factorium_host::{Git, Ran};
@@ -28,12 +27,6 @@ use crate::gate::{At, Gated};
 use crate::heavy::For;
 use crate::life::End;
 use crate::{Answer, App, LineDir, fail};
-
-/// A stacked landing whose fast gate runs beside the ticks: its layer as stacked.
-#[derive(Clone)]
-pub(super) struct Landing {
-    pub(super) layer: Layer,
-}
 
 impl App {
     /// The tick's pass over `c`'s landing stack: each gate that waits its turn asks again; each
@@ -59,7 +52,7 @@ impl App {
                 self.unstack(&c.name, layer.worker).await?;
                 break;
             }
-            did.extend(Box::pin(self.ask_gate(c, layer)).await?);
+            Box::pin(self.ask_gate(c, layer)).await?;
         }
         if let Some(asks) = asks {
             let stacked = self.state::<Stacks>(stack_id(&c.name)).await?;
@@ -107,9 +100,10 @@ impl App {
     /// Merges `worker`'s branch onto the top of `c`'s stack (the proving `tip`, empty) in a work
     /// dir of its own, stacks it and asks for its gate. One that does not merge there waits while
     /// it merges onto the tip; one that does not merge onto the tip is red.
-    async fn stack_on(&self, c: &Checkout, git: &Git, tip: &str, worker: Uuid) -> Answer<Vec<Value>> {
+    /// Answers the red of one that does not merge onto the tip.
+    async fn stack_on(&self, c: &Checkout, git: &Git, tip: &str, worker: Uuid) -> Answer<Option<Value>> {
         let wk = self.state::<Workers>(worker).await?;
-        let Some(st) = wk.started.clone() else { return Ok(Vec::new()) };
+        let Some(st) = wk.started.clone() else { return Ok(None) };
         let stack = self.state::<Stacks>(stack_id(&c.name)).await?;
         let below = stack.layers.last();
         let on = below.map_or(tip, |l| l.merged.as_str()).to_string();
@@ -134,9 +128,9 @@ impl App {
                 let _ = self.work_dir_done(LineDir::Landing, &c.name, &here.dir);
                 // It conflicts with a landing below it, not with proving: it waits for them.
                 if below.is_some() && git.merges(tip, &st.branch, &records).is_ok() {
-                    return Ok(Vec::new());
+                    return Ok(None);
                 }
-                return Ok(vec![self.not_merging(git, worker, &wk, tip, e).await?]);
+                return self.not_merging(git, worker, &wk, tip, e).await.map(Some);
             }
         };
         // Its merge checked, onto the tip and the landings stacked on it.
@@ -150,27 +144,26 @@ impl App {
         let (number, green, red) = (st.number, None, None);
         let layer = Layer { worker, number, on, head, merged, message, regenerated, dir, slot, green, red };
         self.submit::<StackLanding>(Stacking { checkout: c.name.clone(), layer: layer.clone() }).await?;
-        self.ask_gate(c, layer).await
+        self.ask_gate(c, layer).await.map(|()| None)
     }
 
     /// Asks for the fast gate of `layer` of `c` in its work dir: it runs beside the ticks once
     /// the queue gives it room. One whose tree is green already is green now. One whose work dir
     /// is gone leaves the stack, with those above it.
-    async fn ask_gate(&self, c: &Checkout, layer: Layer) -> Answer<Vec<Value>> {
+    async fn ask_gate(&self, c: &Checkout, layer: Layer) -> Answer<()> {
         let dir = std::path::PathBuf::from(&layer.dir);
         if !dir.is_dir() {
-            self.unstack(&c.name, layer.worker).await?;
-            return Ok(Vec::new());
+            return self.unstack(&c.name, layer.worker).await;
         }
         self.work_dir_asked(&dir);
         let here = self.host.git(&c.path).at(&dir);
-        let then = Then::Land { landing: Landing { layer: layer.clone() } };
-        let moving = Box::new(Moving { checkout: c.name.clone(), dir: dir.clone(), then });
+        let moving =
+            Box::new(Moving { checkout: c.name.clone(), dir: dir.clone(), then: Then::Land { layer: layer.clone() } });
         let at = At::Beside { rev: &layer.merged, bound_at: None, moving };
-        let Some(gated) = self.gate(&c.name, &here, at, Gating::Fast).await? else { return Ok(Vec::new()) };
+        let Some(gated) = self.gate(&c.name, &here, at, Gating::Fast).await? else { return Ok(()) };
         let did = self.layer_gated(c, &here, layer, Ok(gated)).await;
         let _ = self.work_dir_done(LineDir::Landing, &c.name, &dir);
-        Ok(did?.into_iter().collect())
+        did
     }
 
     /// Finishes the gate of a stacked landing, whose steps `ended` so beside the ticks.
@@ -178,10 +171,9 @@ impl App {
         &self,
         c: &Checkout,
         here: &Git,
-        landing: Landing,
+        layer: Layer,
         ended: Result<Vec<Ran>, Ends>,
-    ) -> Answer<Option<Value>> {
-        let layer = landing.layer;
+    ) -> Answer<()> {
         let gated = match ended {
             Ok(rans) => {
                 let ran = rans.into_iter().next().expect("one step");
@@ -198,16 +190,10 @@ impl App {
     /// no longer to land (its worker no longer asks, or its branch moved), it leaves the stack
     /// with every layer above it, and lands again later. A layer that left the stack while its
     /// gate ran is let be.
-    async fn layer_gated(
-        &self,
-        c: &Checkout,
-        here: &Git,
-        layer: Layer,
-        gated: Result<Gated, Ends>,
-    ) -> Answer<Option<Value>> {
+    async fn layer_gated(&self, c: &Checkout, here: &Git, layer: Layer, gated: Result<Gated, Ends>) -> Answer<()> {
         let stack = self.state::<Stacks>(stack_id(&c.name)).await?;
         if stack.of(layer.worker).is_none_or(|l| l.merged != layer.merged) {
-            return Ok(None);
+            return Ok(());
         }
         let worker = layer.worker;
         let wk = self.state::<Workers>(worker).await?;
@@ -215,10 +201,7 @@ impl App {
         let moved = self.host.git(&c.path).sha(branch).ok().as_deref() != Some(layer.head.as_str());
         let gated = match gated {
             Ok(gated) if wk.status == w::Status::Landing && !moved => gated,
-            _ => {
-                self.unstack(&c.name, worker).await?;
-                return Ok(None);
-            }
+            _ => return self.unstack(&c.name, worker).await,
         };
         if !gated.green {
             let why = format!("the fast gate is red on your branch merged onto the proving tip:\n{}", gated.why());
@@ -227,8 +210,7 @@ impl App {
                 _ if !layer.regenerated.is_empty() => w::RedKind::Regenerated,
                 _ => w::RedKind::GateRed,
             };
-            self.submit::<RedLayer>(Red { checkout: c.name.clone(), worker, why, kind }).await?;
-            return Ok(None);
+            return self.submit::<RedLayer>(Red { checkout: c.name.clone(), worker, why, kind }).await;
         }
         let commit = if layer.regenerated.is_empty() {
             layer.merged
@@ -240,8 +222,7 @@ impl App {
             );
             here.amend(&layer.regenerated, &message).map_err(fail("git"))?
         };
-        self.submit::<GreenLayer>(Green { checkout: c.name.clone(), worker, commit }).await?;
-        Ok(None)
+        self.submit::<GreenLayer>(Green { checkout: c.name.clone(), worker, commit }).await
     }
 
     /// Lands what of `c`'s stack is landable, then tells the red above it: proving pushed, in one
@@ -341,7 +322,9 @@ impl App {
     /// the daemon that ran them; each landing is stacked again.
     pub(crate) async fn clear_stacks(&self) -> Answer<()> {
         for c in self.listed().await? {
-            self.submit::<s::ClearStack>(s::Clear { checkout: c.name }).await?;
+            if let Some(bottom) = self.state::<Stacks>(stack_id(&c.name)).await?.layers.first() {
+                self.submit::<Unstack>(OfLayer { checkout: c.name, worker: bottom.worker }).await?;
+            }
         }
         Ok(())
     }
@@ -366,5 +349,5 @@ impl App {
 /// Whether `f` is the gate of `layer` of `checkout`.
 fn of_layer(f: &For, checkout: &str, layer: &Layer) -> bool {
     matches!(f, For::Line(m) if m.checkout == checkout
-        && matches!(&m.then, Then::Land { landing } if landing.layer.worker == layer.worker && landing.layer.merged == layer.merged))
+        && matches!(&m.then, Then::Land { layer: l } if l.worker == layer.worker && l.merged == layer.merged))
 }

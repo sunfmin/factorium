@@ -119,8 +119,6 @@ pub enum StackEvent {
     StackLanded {
         worker: Uuid,
     },
-    /// Every layer left: the daemon that ran their gates is gone.
-    StackCleared,
 }
 
 pub struct Stacks;
@@ -152,7 +150,6 @@ impl Aggregate for Stacks {
                 let n = at(s, worker).map_or(0, |i| i + 1);
                 s.layers.drain(..n);
             }
-            StackEvent::StackCleared => s.layers.clear(),
         }
     }
 }
@@ -220,13 +217,4 @@ command!(LandStack, "stack.landed", Stacks, OfLayer, |p| stack_id(&p.checkout), 
         return no("not_landable", "the layer or one below it is not green");
     }
     Ok(vec![StackEvent::StackLanded { worker: p.worker }])
-});
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Clear {
-    pub checkout: String,
-}
-
-command!(ClearStack, "stack.clear", Stacks, Clear, |p| stack_id(&p.checkout), |s, p, now| {
-    Ok(if s.layers.is_empty() { Vec::new() } else { vec![StackEvent::StackCleared] })
 });
