@@ -141,6 +141,12 @@ leaves it out: the daemon runs the look.
    one is under way, so none acts on what it read while another changed
    it; a claim whose process is gone is cleared by the next tick (or the
    next command's claim).
+   The owner's stop always wins over a start: `issue wait-for-human` and
+   `issue close` are never refused because a start is under way (a close
+   then abandons nothing). The start, once it records its worker started,
+   reads the issue again; one that no longer holds it ready (it waits for a
+   person, or it closed) has that worker ended as the stop would have, its
+   worktree kept, and the tick's `started` says why (`ended`).
    Closing an issue unlanded (`issue close`, by the owner or the watch)
    removes the worktree its last attempt left on disk the same way: its
    uncommitted changes are committed, its branch is kept as

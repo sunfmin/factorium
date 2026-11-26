@@ -245,6 +245,17 @@ impl Issue {
         self.reason.as_deref().filter(|_| self.status == Status::Closed)?.strip_prefix(LANDED_AS)
     }
 
+    /// Why a worker on it ends, once it holds none to work: it waits for a
+    /// person, or it closed. `None` while it is ready.
+    pub fn left_why(&self) -> Option<String> {
+        let reason = self.reason.as_deref().unwrap_or_default();
+        match self.status {
+            Status::Ready => None,
+            Status::WaitingForHuman => Some(format!("its issue waits for a person: {reason}")),
+            Status::Closed => Some(format!("its issue closed: {reason}")),
+        }
+    }
+
     /// Whether `a` is an issue of its own checkout, waited for until it
     /// closes: the CLI names it `N`.
     fn here(&self, a: &Across) -> bool {
