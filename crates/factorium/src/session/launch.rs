@@ -149,7 +149,7 @@ impl Caller {
                 }
                 // A worker's brew runs under `worker exclusive`, which is a factorium
                 // line, so this sees only a brew the heavy queue would not: one that
-                // installs may build a toolchain from source (factorium#375).
+                // installs may build a toolchain from source.
                 Some("brew") if matches!(self, Caller::Worker(_)) => {
                     let sub = words.find(|w| !w.starts_with('-')).unwrap_or("");
                     if ["install", "upgrade", "reinstall"].contains(&sub) {

@@ -348,7 +348,9 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
 }
 
 /// A worker's `brew install` can build a toolchain from source: it runs in
-/// the heavy queue, under `worker exclusive`, never beside it (factorium#375).
+/// the heavy queue, under `worker exclusive`, never beside it. On 2026-11-26 a
+/// worker's `brew install zig` compiled LLVM 22 outside the queue, which read
+/// the host as busy and started nothing for 13 min.
 #[test]
 fn the_guard_hook_sends_a_workers_brew_install_through_the_heavy_queue() {
     let hook = |line: &str, worker: bool| -> (Option<i32>, String) {
