@@ -27,7 +27,7 @@
 (* granted, stays held after its waiter answers, until released, and its   *)
 (* worker's own commands asking for what it holds take no slot of theirs.  *)
 (*                                                                         *)
-(* An owner's urgent mark (factorium#361): an entry of an urgent issue's   *)
+(* An owner's urgent mark (docs/adr/0015): an entry of an urgent issue's *)
 (* worker, or of its landing's gate, is marked so as it asks, and asked    *)
 (* again while it waits it takes the mark as it is then. In each line it   *)
 (* goes ahead of workers' and programs' entries not marked, behind a line  *)
@@ -37,7 +37,7 @@
 (* command holding what an urgent one waits for is ended; a line move's    *)
 (* entry is never halted.                                                  *)
 (* A landing's fast gate goes ahead of workers' and programs' entries not  *)
-(* marked, behind those marked (factorium#372).                            *)
+(* marked, behind those marked (docs/adr/0010).                           *)
 (*                                                                         *)
 (* Time: `now` is the time of the last step, in the config's units. A     *)
 (* step happens at any time from `now` to `now + MaxStep`, up to Horizon.  *)
@@ -759,9 +759,9 @@ BrokenVariants == [
     no_window        |-> "InWindow",     \* a hold's window is not waited for (#286)
     by_age           |-> "InOrder",      \* declared holds are not read: oldest first
     no_starve        |-> "InOrder",      \* none goes ahead for waiting past the starve bound
-    no_halt          |-> "HaltHolds",    \* a halt passes none over (factorium#361)
+    no_halt          |-> "HaltHolds",    \* a halt passes none over
     no_urgent        |-> "UrgentAhead",  \* the urgent mark is not read in the line
     urgent_first     |-> "LineAhead",    \* an urgent one goes ahead of a line move past its bound
-    no_lands         |-> "LandsAhead"    \* a landing's gate is ranked as another line move (#372)
+    no_lands         |-> "LandsAhead"    \* a landing's gate is ranked as another line move
 ]
 =============================================================================
