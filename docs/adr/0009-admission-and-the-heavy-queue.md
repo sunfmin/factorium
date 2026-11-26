@@ -24,7 +24,7 @@ heavy commands (builds, test suites, gates), and a time a gate compares
 - Gates first: a gate and a worker's `worker exclusive` run at
   factorium's own priority; heavy work whose time no gate compares runs
   at background priority, its whole process tree, so the CPU goes to a gate before it.
-- A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it.
+- A line move (promotion, cut) past its bound goes ahead of workers' and programs' waiting entries, taking the next free slot; a running entry is never cut short for it. Behind it, an urgent issue's ([ADR 0014](0014-an-urgent-issue-halts-the-host.md)).
 - The rules are the running daemon's: an entry waiting under replaced rules is passed over until its asker asks again under the daemon's, so it holds none up.
   An entry that leaves unstarted keeps its place for `heavy_keep`: the same worker (or program) asking the same command again within it takes that place, not the back.
 

@@ -46,7 +46,8 @@ and factorium does not is in `docs/dropped.md`.
    answers it (`not_before`, in ms and UTC), and doctor lists a ready issue
    waiting for its time under `not_before`, with the time.
 2. A tick (the daemon's loop) finds the ready issues nothing blocks and
-   no worker holds; admission admits one start per reading.
+   no worker holds; admission admits one start per reading. Urgent ones
+   (§1.17) first; only the memory and disk floors hold one, never the load.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its
@@ -58,23 +59,23 @@ and factorium does not is in `docs/dropped.md`.
    shell, a line is a command it runs. A question the harness opens on its
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
-4. The worker runs `factorium worker gate` (the fast gate) as often as it
-   likes, then `factorium worker done`; an issue whose work changes no
+4. The worker checks what it changed (fmt, clippy, its crates' tests,
+   through `worker exclusive`), then runs `factorium worker done`: a
+   change's one full gate is its landing's, on the merge (§1.12);
+   `worker gate` is allowed, not required. An issue whose work changes no
    code (a publish, a measurement) it finishes, its branch holding no
    commits, with `factorium worker done --no-landing "<evidence>"`: the
-   daemon closes the issue with that evidence as its reason, running no
-   gate (factorium#282). What it wants kept (a measurement)
-   it records with `factorium worker comment`, a comment on its issue by
-   it that changes nothing else and goes to no one: not the watch, which
-   is for decisions (`worker escalate`). A follow-up its issue asks for
+   daemon closes the issue with it, running no gate (factorium#282). What it wants kept (a measurement)
+   it records with `factorium worker comment`, a comment on its issue
+   that changes nothing else and goes to no one (decisions go to the
+   watch: `worker escalate`). A follow-up its issue asks for
    it files with `factorium worker file <checkout> <title> --body-file <f>
-   [--blocked-by …]`, as `issue add` files one (never waiting for a
-   person); on its own checkout the filed one also waits for its issue
-   to land, which a follow-up usually builds on, unless `--independent`
+   [--blocked-by …]`, as `issue add` does; on its own checkout the filed one also waits for its issue
+   to land, unless `--independent`
    (factorium#184). Both keep the record as its comments: its issue says
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
-5. Landing (§1.12). Red: the worker is told why and goes on; red twice in
+5. Landing (§1.12), the urgent first (§1.17). Red: the worker is told why and goes on; red twice in
    a row goes to the watch. Its merge is checked from `done` on, not only
    at its turn (§1.12, factorium#307). A branch that does not merge onto the proving
    tip is not the second red when the red before was one onto an older
@@ -172,13 +173,8 @@ next reads it; the host's own login, used up, rests its harness the hour,
 a fixed bound, not a setting.
 The watch fixes, restarts, re-briefs, leaves an issue to a person (`issue wait-for-human`, for a decision only a person can make) or closes, and reports.
 Only spending money is left to the owner, in the report's `human` part,
-which `doctor` shows. Beside it doctor answers `asks`: every issue of every
-checkout that waits for a person (added `--waiting-for-human`, or left so by
-`issue wait-for-human`, the watch's or a session's), oldest first, each with
-its checkout and number, its title, its question (the first line of its body
-after any "Based on …" line), why, when it started waiting and who left it
-so. The owner answers one with `issue ready` (do it), `issue close` (don't),
-or `issue comment` then `issue ready`.
+which `doctor` shows. Beside it doctor answers `asks`: every issue of every checkout that
+waits for a person, answered as `doctor --help` says.
 Everything else is decided without the owner, and each decision is kept
 once, in the issue it belongs to (its body when filed, a comment after), as
 a **Decided record**:
@@ -217,9 +213,8 @@ was filed), before any new one takes the next: an open issue's as an event
 of its issue; a closed one takes no event (its stream has ended), so the
 sequence's stream places them, each named by its issue and its place in it
 (a comment's index, a body record's head), never copied. Doctor's
-`decided` and `decided` answer each record's `id`; `decided D17` (or `17`)
-answers that one record, whatever its age and whether it was read, and one
-that names no record is refused. `issue show` answers `decided` on each
+`decided` and `decided` answer each record's `id`; `decided D17` answers one
+(`decided --help`). `issue show` answers `decided` on each
 comment that is a record, and the body's records' numbers as `decided`.
 
 ## 3. One database
@@ -452,9 +447,9 @@ table may be left out:
 
 ```toml
 [gate]
-fast = "./gate.sh"      # every landing, and `factorium worker gate`
+fast = "./gate.sh"      # what every landing needs, on its merge
 fast_limit = 600        # seconds
-slow = "./slow.sh"      # the proving tip, before a promotion
+slow = "./slow.sh"      # the proving tip, before the base moves
 slow_limit = 3600
 regenerated = [".truefit/models/*.json"]  # git globs: records the gate rewrites (§1.12)
 
@@ -531,10 +526,10 @@ depend on nothing else of factorium.
   run in the scenarios' binary, beside them rather than after
   (factorium#98 halved the suite this way).
 - **slimfit holds the suite, in the fast gate.** `./gate.sh` is
-  `./checks.sh` (the crates' lines against their targets, shown, §5; fmt, clippy) then `slimfit check`
+  `./checks.sh` (lines, §5; fmt, clippy) then `slimfit check`
   against the committed `.slimfit/`, in place of a plain `cargo test`, holding
-  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`) is
-  `./gate.sh` again, on the proving tip a promotion moves. What
+  the tests' time as above, then `truefit contract`; the slow gate (`./slow.sh`,
+  the tip a promotion moves) is `./gate.sh`, the release build and the models. What
   `slimfit check` holds, a change's record of its mutants among it, is
   slimfit's ([`slimfit help mutants-scope`](https://github.com/sunfmin/slimfit/blob/main/src/help/mutants-scope.md)), not restated here: a landing short of it is stopped at
   its own gate, before it reaches proving. The worker follows

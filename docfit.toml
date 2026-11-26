@@ -19,4 +19,5 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0011-the-line-gate-landing-promotion-cut.md" = "adr"
 "docs/adr/0012-the-watch-and-the-daemon-it-reads.md" = "adr"
 "docs/adr/0013-idle-work.md" = "adr"
+"docs/adr/0014-an-urgent-issue-halts-the-host.md" = "adr"
 "GLOSSARY.md" = "glossary"

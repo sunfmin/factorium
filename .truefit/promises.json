@@ -258,6 +258,12 @@
     "sentence": "Started when the host is idle, or once the oldest unpromoted landing has waited the promotion bound less the hold bound: its slow gate then goes ahead of workers' waiting heavy commands, so a heavy command running then, held at most the hold bound, does not push the promotion past its bound.",
     "source": "SPEC.md:43"
   },
+  "595ea124f43d": {
+    "mark": "promise",
+    "sentence": "Its landing takes the next turn of its checkout's line, never cutting a running gate short.",
+    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:22",
+    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "5afb14fcaae7": {
     "mark": "promise",
     "sentence": "**A landing waits for no review** (factorium#167). It lands on the fast gate alone and reaches only proving, which is promoted after the slow gate; verdicts and rework stay out of factorium (§7). Review comes after landing, from outside: Guild's warden, and control's job on a proving branch, file what they find as new issues.",
@@ -453,6 +459,12 @@
     "sentence": "It works by the rules of the factorium that runs: its session records which rules (their hash) it was briefed with, and a look that finds them other than the running binary's — a cut installed a version that changed them — closes that session between rounds, never in one, and starts a fresh one briefed with the new rules before the next round.",
     "source": "SPEC.md:45"
   },
+  "a2fc0e488c35": {
+    "mark": "promise",
+    "sentence": "Its start goes before every other ready issue, held only by the memory and disk floors, never by the load.",
+    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:18",
+    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
+  },
   "a7685f55d299": {
     "mark": "promise",
     "sentence": "So does a line that stopped: whatever it owes is done within its bound or is a finding — a heavy queue that starts nothing past `stall_bound` (or whose oldest waits past `hold_bound` and `stall_bound` more), a landing no gate runs for past `stall_bound`, the oldest unpromoted landing past `promotion_bound` with no promotion running, the oldest uncut promotion past `cut_bound` with no cut running.",
@@ -467,6 +479,12 @@
     "mark": "promise",
     "sentence": "A **look** (no model) every five minutes, and on the next tick once a worker starts waiting for the watch, reads `doctor`'s findings; each condition is an **episode**, and an episode starts at most one **round**: a brief, an hour, and a report the watch files with `factorium watch report`. Escalations, failed workers, hot workers, red promotions, red idle work, failed cuts and resource holds all go to it.",
     "source": "SPEC.md:45"
+  },
+  "aa1f9f891da1": {
+    "mark": "promise",
+    "sentence": "Urgent is the owner's mark on an issue, never a worker's: `worker file` cannot set it.",
+    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:14",
+    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "aae476d382e9": {
     "mark": "promise",
@@ -643,6 +661,12 @@
     "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a login that refreshes is bound to one machine (which account a worker starts on is stablehand's pick now, §1.7); admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
     "source": "SPEC.md:561",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "e9d3297614e2": {
+    "mark": "not",
+    "sentence": "In the ordinary order it waits behind admission's load reading, the heavy queue and its checkout's line, each fair to every issue and none knowing this one matters more.",
+    "source": "docs/adr/0014-an-urgent-issue-halts-the-host.md:8",
+    "why": "ADR 0014 (urgent, rehomed from SPEC §1 row 17): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
   "ea300ca7d549": {
     "mark": "promise",

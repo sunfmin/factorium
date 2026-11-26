@@ -53,6 +53,10 @@ Each command's `--help` says how it works; the ADRs say why.
 16. **Idle work**: what a checkout declares under `[idle]`: steps too slow
     for any gate, run while the host is idle, then its tasks line
     ([ADR 0013](docs/adr/0013-idle-work.md)).
+17. **Urgent**: the owner's mark on an issue, which puts its start, its
+    worker's heavy commands and its landing ahead, and halts every other
+    start while its worker lives
+    ([ADR 0014](docs/adr/0014-an-urgent-issue-halts-the-host.md)).
 
 ## Words within them
 

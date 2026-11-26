@@ -50,7 +50,7 @@ pub enum Top {
     /// The host's issues.
     #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Issue(IssueCmd),
-    /// Answers the live workers (`--all`: the ended ones too).
+    /// Answers the live workers (`--all`: the ended ones too), each with `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Workers {
         #[arg(long)]
@@ -230,6 +230,9 @@ pub enum IssueCmd {
         /// The model its worker starts on, by the id its engine starts it with (`agy models`: `claude-opus-5-5-high`): stablehand's pick is asked for it (`stablehand pick --model`), tried after the order's own where the order does not list it.
         #[arg(long, value_name = "MODEL", verbatim_doc_comment)]
         model: Option<String>,
+        /// Marks it urgent, the owner's mark (`worker file` cannot set it). Once nothing blocks it, it starts before every other ready issue, on the first tick the memory and disk floors allow (the CPU, the workers' share and `queue_wait_bound` do not hold it); its worker's heavy commands and its landing's gate go ahead of other workers' and programs' waiting entries, behind a line move past its bound; and its landing takes the next turn of its checkout's line. Among urgent issues the ordinary order holds. Blocks still hold it. From its first worker's start until it closes or `--no-urgent`, it halts the host: no worker of an issue not urgent starts, no heavy entry not urgent starts on any resource (past `starve_bound` or a line move's bound too; each waits with why `behind urgent web#3`), and no landing not urgent, promotion or cut starts. A heavy command not urgent that runs is cut short once an urgent one waits for a resource it holds (`ended: it was cut short: an urgent issue halts the host`); a `worker hold` is not, and a line move cut short is due again after. Once the halt lifts the rest start in their old order. doctor shows the halt as a finding naming the urgent issues. `issue list`, `issue show`, `workers` and doctor's `landing` and `heavy` show `urgent: true`; a tick's start or landing that went ahead for it says so (`urgent`). The mark stays once it closes.
+        #[arg(long, verbatim_doc_comment)]
+        urgent: bool,
     },
     /// Answers the open issues, of one checkout or of all.
     #[command(verbatim_doc_comment)]
@@ -246,7 +249,7 @@ pub enum IssueCmd {
         #[arg(long)]
         steps: bool,
     },
-    /// Changes an issue's title, body or role. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
+    /// Changes an issue's title, body, role or urgent mark. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
     #[command(verbatim_doc_comment)]
     Edit {
         checkout: String,
@@ -264,6 +267,12 @@ pub enum IssueCmd {
         /// Takes its role away: its workers start from now with none.
         #[arg(long, verbatim_doc_comment)]
         no_role: bool,
+        /// Marks it urgent, as `issue add --urgent` says; a live worker's heavy commands and landing go ahead from their next ask.
+        #[arg(long, conflicts_with = "no_urgent", verbatim_doc_comment)]
+        urgent: bool,
+        /// Takes the urgent mark away: it goes back to the ordinary order.
+        #[arg(long, verbatim_doc_comment)]
+        no_urgent: bool,
     },
     /// Closes an issue; a worker on it ends.
     #[command(verbatim_doc_comment)]
@@ -520,20 +529,35 @@ impl Top {
                     role,
                     account,
                     model,
+                    urgent,
                 } => {
                     blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(body, body_file)?.unwrap_or_default();
                     let on = factorium_domain::issue::On { role, account, model };
-                    let waiting = waiting_for_human.then_some(why.as_deref());
-                    app.issue_add_on(&checkout, &title, &body, waiting, &waits(blocked_by, why.as_deref()), on).await
+                    let (blocked_by, why) = (waits(blocked_by, why.as_deref()), why.filter(|_| waiting_for_human));
+                    let open = factorium_domain::issue::Open {
+                        checkout,
+                        title,
+                        body,
+                        waiting_for_human,
+                        why,
+                        blocked_by,
+                        on,
+                        urgent,
+                        ..Default::default()
+                    };
+                    app.issue_file(open).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
                 IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
-                IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role } => {
+                IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role, urgent, no_urgent } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {
                         app.issue_name_role(&checkout, number, role.as_deref()).await?;
+                    }
+                    if urgent || no_urgent {
+                        app.issue_mark_urgent(&checkout, number, urgent).await?;
                     }
                     app.issue_edit(&checkout, number, title.as_deref(), body.as_deref()).await
                 }
@@ -626,7 +650,6 @@ impl Top {
     }
 }
 
-/// Each of `blocked_by`, waited for for the one `why` its command gives.
 /// An issue's number, `12`, or a range of them, `198..222`, as its ends.
 fn numbers(s: &str) -> Result<(u64, u64), String> {
     let n =
@@ -641,6 +664,7 @@ fn numbers(s: &str) -> Result<(u64, u64), String> {
     Ok((from, to))
 }
 
+/// Each of `blocked_by`, waited for for the one `why` its command gives.
 fn waits(blocked_by: Vec<Blocker>, why: Option<&str>) -> Vec<Wait> {
     blocked_by.into_iter().map(|by| Wait { by, why: why.map(String::from) }).collect()
 }

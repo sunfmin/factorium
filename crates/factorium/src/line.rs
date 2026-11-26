@@ -21,7 +21,7 @@ use std::path::Path;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::Kind;
 use factorium_domain::doctor::Stuck;
-use factorium_domain::heavy::Ends;
+use factorium_domain::heavy::{Ends, Heavy, queue_id};
 use factorium_domain::line::{self, Due, Lines, Move, NotDue};
 use factorium_domain::line_id;
 use factorium_domain::outbox::Sender;
@@ -147,7 +147,9 @@ impl App {
     /// ran, it is due again.
     async fn moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
         let c = self.checkout(&moving.checkout).await?;
-        let Ok(rans) = ended else { return Ok(Err(format!("a move of {} was unqueued while it ran", c.name))) };
+        let Ok(rans) = ended else {
+            return Ok(Err(format!("a move of {} ended while it ran: {}", c.name, ended.unwrap_err())));
+        };
         match moving.then {
             Then::Land { landing, dir } => {
                 let (ran, here) = (rans.into_iter().next().expect("one step"), self.host.git(&dir));
@@ -169,14 +171,18 @@ impl App {
     async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
-        let workers: Vec<_> = self
-            .live_workers()
-            .await?
-            .into_iter()
-            .filter(|w| w.checkout == c.name)
-            .map(|w| (w.worker, w.state.status))
-            .collect();
+        let mut workers = Vec::new();
+        for w in self.live_workers().await?.into_iter().filter(|w| w.checkout == c.name) {
+            let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
+            workers.push(line::Seen { worker: w.worker, number: w.number, status: w.state.status, urgent });
+        }
         let look = line::look(self.now(), &settings, &workers, by_hand);
+        // Halted by an urgent issue (docs/adr/0014-an-urgent-issue-halts-the-host.md), only an urgent landing goes.
+        let halt = self.state::<Heavy>(queue_id()).await?.halt;
+        let urgent_lands = mv == Move::Land && workers.iter().any(|w| look.asks == Some(w.worker) && w.urgent);
+        if !halt.is_empty() && !urgent_lands {
+            return Ok(Err(format!("halted: behind urgent {}", halt.join(", "))));
+        }
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
         let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);
@@ -187,7 +193,28 @@ impl App {
                 None => Ok(Err(line::why(NotDue::CutFailed { version, why }))),
             },
             Err(not) => Ok(Err(line::why(not))),
-            Ok(Due::Land(worker)) => self.land(c, worker).await,
+            Ok(Due::Land(worker)) => {
+                let did = self.land(c, worker).await?;
+                // Urgent, it went ahead of the landings that asked before it: said so.
+                let first = workers.iter().find(|w| w.status == w::Status::Landing).map(|w| w.worker);
+                if first == Some(worker) {
+                    return Ok(did);
+                }
+                let named = |n: u64| format!("{}#{n}", c.name);
+                let ahead = workers.iter().take_while(|w| w.worker != worker);
+                let ahead_of: Vec<_> =
+                    ahead.filter(|w| w.status == w::Status::Landing && !w.urgent).map(|w| named(w.number)).collect();
+                let went = json!({ "ahead_of": ahead_of });
+                Ok(Ok(match did {
+                    Ok(mut v) => {
+                        v["urgent"] = went;
+                        v
+                    }
+                    Err(why) => {
+                        json!({ "worker": worker, "lands": workers.iter().find(|w| w.worker == worker).map(|w| named(w.number)), "urgent": went, "then": why })
+                    }
+                }))
+            }
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,
             Ok(Due::Cut) => self.cut_base(c, by_hand, bound_at).await,
         }

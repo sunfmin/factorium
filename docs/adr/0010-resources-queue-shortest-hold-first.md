@@ -28,7 +28,7 @@ knows how long it holds when it asks.
 
 - A named resource is given back by one path: its command ends,
   `release`, or its holder is gone, which the next tick gives back.
-- doctor's `resources` shows each queue in the order it starts, and why
-  each waiter is not next.
+- What doctor's `resources` and `workers` show of each resource is their
+  `--help`'s.
 - Promotion, cut, the issue claim and the accounts' windows are not
   resources; each becomes a rule when a second need shows.
