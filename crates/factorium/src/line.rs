@@ -178,13 +178,8 @@ impl App {
             let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
             workers.push(line::Seen { worker: w.worker, number: w.number, status: w.state.status, urgent });
         }
+        // An urgent issue's halt (SPEC §1.17) holds no line move: its gate waits in the queue as usual.
         let look = line::look(self.now(), &settings, &workers, by_hand);
-        // Halted by an urgent issue (SPEC §1.17), only an urgent landing goes.
-        let halt = self.state::<Heavy>(queue_id()).await?.halt;
-        let urgent_lands = mv == Move::Land && workers.iter().any(|w| look.asks == Some(w.worker) && w.urgent);
-        if !halt.is_empty() && !urgent_lands {
-            return Ok(Err(format!("halted: behind urgent {}", halt.join(", "))));
-        }
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
         let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);
