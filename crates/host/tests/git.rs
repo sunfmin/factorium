@@ -129,3 +129,30 @@ fn a_fetch_with_tags_refused_fetches_the_branch_without_them() {
     assert_eq!(fetched.iter().filter(|c| *c == "fetch").count(), 1, "not again without tags: {fetched:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_tag_already_on_the_commit_is_kept_and_one_on_another_is_refused_naming_both() {
+    let (home, dir) = scratch("tag");
+    let origin = Git::new(&home, dir.join("origin"));
+    origin.init("one").unwrap();
+    Git::new(&home, &dir).run(&["clone", "--quiet", &origin.dir.to_string_lossy(), "here"]).unwrap();
+    let here = Git::new(&home, dir.join("here"));
+    let one = head(&here);
+    // A tag this clone has already on the commit: kept, and taken to origin.
+    here.run(&["tag", "v0.1.0", &one]).unwrap();
+    here.tag_pushed("v0.1.0", &one).unwrap();
+    assert_eq!(origin.run(&["rev-parse", "v0.1.0^{commit}"]).unwrap(), one);
+    // Tagged again, here and on origin: nothing to do.
+    here.tag_pushed("v0.1.0", &one).unwrap();
+    // Origin's tag on the commit, none here: kept.
+    origin.run(&["tag", "v0.1.1", &one]).unwrap();
+    here.tag_pushed("v0.1.1", &one).unwrap();
+    // A tag on another commit, here or on origin: refused, naming both.
+    let two = commit(&here, "f", "at two\n");
+    let why = here.tag_pushed("v0.1.0", &two).unwrap_err();
+    assert!(why.contains(&one) && why.contains(&two), "{why}");
+    here.run(&["tag", "--delete", "v0.1.1"]).unwrap();
+    let why = here.tag_pushed("v0.1.1", &two).unwrap_err();
+    assert!(why.contains("origin") && why.contains(&one) && why.contains(&two), "{why}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -185,6 +185,14 @@ impl Said {
 pub trait Programs: Send + Sync {
     fn run(&self, program: &str, args: &[&str]) -> Said;
 
+    /// As [`Programs::run`], but answers by `limit`: `None` when the
+    /// program had not ended by then, and it is ended. One whose answers
+    /// come at once (a stand-in that holds none up) needs no other way.
+    fn run_within(&self, program: &str, args: &[&str], limit: Duration) -> Option<Said> {
+        let _ = limit;
+        Some(self.run(program, args))
+    }
+
     /// Whether `program` is found on `PATH`: a file there that may be run.
     fn found(&self, program: &str) -> bool {
         use std::os::unix::fs::PermissionsExt;
@@ -211,6 +219,43 @@ impl Programs for System {
             Err(e) => Said { ok: false, out: String::new(), err: format!("{program}: {e}") },
         }
     }
+
+    fn run_within(&self, program: &str, args: &[&str], limit: Duration) -> Option<Said> {
+        let mut cmd = Command::new(program);
+        cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => return Some(Said { ok: false, out: String::new(), err: format!("{program}: {e}") }),
+        };
+        let (out, err) = (drain(child.stdout.take()), drain(child.stderr.take()));
+        let at = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) if at.elapsed() < limit => std::thread::sleep(Duration::from_millis(5)),
+                _ => break None,
+            }
+        };
+        let Some(status) = status else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        };
+        let text = |t: std::thread::JoinHandle<String>| t.join().unwrap_or_default();
+        Some(Said { ok: status.success(), out: text(out), err: text(err) })
+    }
+}
+
+/// Reads `stream` to its end on a thread of its own, so a full pipe never
+/// holds its program up.
+fn drain<R: Read + Send + 'static>(stream: Option<R>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut r) = stream {
+            let _ = r.read_to_string(&mut text);
+        }
+        text
+    })
 }
 
 /// Runs a program to its end; its output, or why it failed.

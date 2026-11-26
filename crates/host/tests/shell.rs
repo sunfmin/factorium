@@ -75,3 +75,15 @@ fn alive_answers_for_live_processes_and_another_user_s_and_not_for_a_reaped_one(
     child.wait().unwrap();
     assert!(!alive(pid), "a reaped child is gone");
 }
+
+#[test]
+fn a_program_run_within_a_limit_answers_in_time_or_is_ended_at_it() {
+    use std::time::{Duration, Instant};
+    let said = System.run_within("sh", &["-c", "echo out; echo err >&2; exit 3"], Duration::from_secs(5)).unwrap();
+    assert_eq!((said.ok, said.out.as_str(), said.err.as_str()), (false, "out\n", "err\n"));
+    let at = Instant::now();
+    assert_eq!(System.run_within("sleep", &["30"], Duration::from_millis(200)), None);
+    assert!(at.elapsed() < Duration::from_secs(2), "ended at its limit: {:?}", at.elapsed());
+    let missing = System.run_within("no-such-program-363", &[], Duration::from_secs(1)).unwrap();
+    assert!(!missing.ok && missing.err.contains("no-such-program-363"), "{missing:?}");
+}

@@ -34,7 +34,7 @@ fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
     let line =
         "⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h50m4s.";
     let id = "Error ID: baec577a-1";
-    let limit = |said: &str, ms: i64| Some(Stop::Limit { said: said.into(), resets_in_ms: ms });
+    let limit = |said: &str, ms: i64| Some(Stop::Limit { said: said.into(), resets_in_ms: ms, window: None });
     let at = (2 * 3600 + 50 * 60 + 4) * 1000;
     assert_eq!(agy.stopped(&screen(&["> go on", line, id, ""])), limit(&format!("{line} {id}"), at), "with its id");
     let cut = line.find("Resets").unwrap();
@@ -46,4 +46,36 @@ fn agy_s_quota_is_its_engine_s_limit_with_its_reset() {
     assert_eq!(agy.stopped(&screen(&[days])), limit(days, 27 * 3_600_000), "in days");
     assert_eq!(agy.stopped(&screen(&["> fix it", "~/w"])), None);
     assert_eq!(Harness::read("pi").unwrap().stopped(&screen(&[line])), None, "not pi's");
+}
+
+/// agy 1.5.17's quota of its Claude-and-GPT group ("Third-party", seen on
+/// a horizon-labs worker 2026-11-26) is a limit too, reset as its screen
+/// says, wrapped at the terminal's width as agy 1.5.14's: the group's 5-hour
+/// window (`3p-5h`) for a reset within five hours, its weekly one past it.
+#[test]
+fn agy_s_third_party_quota_is_its_claude_and_gpt_window_s_limit() {
+    let agy = Harness::read("agy").unwrap();
+    let wrapped = screen(&[
+        "⚠ Third-party quota reached. Please switch to Gemini models or upgrade your subscription to increase",
+        "your limits.",
+        "Resets in 2h17m29s.",
+        "Error ID: 1ccc8031-f3ad-4089-b571-ae8837833b67-61",
+        "────────────────────────────────────────",
+        ">",
+    ]);
+    let said = "⚠ Third-party quota reached. Please switch to Gemini models or upgrade your subscription to increase \
+                your limits. Resets in 2h17m29s. Error ID: 1ccc8031-f3ad-4089-b571-ae8837833b67-61";
+    let at = (2 * 3600 + 17 * 60 + 29) * 1000;
+    let limit = |said: &str, ms: i64, window| Some(Stop::Limit { said: said.into(), resets_in_ms: ms, window });
+    assert_eq!(agy.stopped(&wrapped), limit(said, at, Some("3p-5h")), "wrapped, within five hours");
+    let weekly = "⚠ Third-party quota reached. Resets in 3d4h.";
+    assert_eq!(agy.stopped(&screen(&[weekly])), limit(weekly, 76 * 3_600_000, Some("3p-weekly")), "past five hours");
+    let individual = screen(&[
+        "⚠ Individual quota reached. Please upgrade your subscription to increase your",
+        "limits. Resets in 2h50m4s.",
+        "Error ID: baec577a-f31f-4b6e-8719-29962abbe30f-121",
+    ]);
+    let said = "⚠ Individual quota reached. Please upgrade your subscription to increase your \
+                limits. Resets in 2h50m4s. Error ID: baec577a-f31f-4b6e-8719-29962abbe30f-121";
+    assert_eq!(agy.stopped(&individual), limit(said, (2 * 3600 + 50 * 60 + 4) * 1000, None), "1.5.14's, as before");
 }
