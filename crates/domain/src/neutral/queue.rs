@@ -1,8 +1,7 @@
 //! The heavy-command queue's start rule
-//! (docs/adr/0011-resources-queue-shortest-hold-first.md, its urgent part
-//! docs/adr/0015-an-urgent-issue-halts-the-host.md): the shortest declared
-//! hold first, none starved past the starve bound, one start per
-//! settled reading beside what runs, the hold bound, and a line move past
+//! (docs/adr/0011-resources-queue-shortest-hold-first.md; the urgent part,
+//! ADR 0015): the shortest declared hold first, none starved past the
+//! starve bound, one start per settled reading beside what runs, the hold bound, and a line move past
 //! its bound ahead of those that give way (one that yields, or a landing's
 //! gate), then an urgent one, then a landing's gate.
 
