@@ -89,19 +89,18 @@ fn make_template(t: &Path) {
     git(&work, &["add", "."]).unwrap();
     git(&work, &["commit", "--quiet", "-m", "start"]).unwrap();
     git(t, &["clone", "--quiet", "--template=", "--bare", "work", "remote.git"]).unwrap();
+    git(t, &["clone", "--quiet", "--template=", "remote.git", "clone"]).unwrap();
+    let config = t.join("clone/.git/config");
+    let text = std::fs::read_to_string(&config).unwrap();
+    let url = |l: &str| {
+        if l.trim_start().starts_with("url = ") { format!("\turl = {TEMPLATE_REMOTE}") } else { l.to_string() }
+    };
+    std::fs::write(&config, text.lines().map(url).collect::<Vec<_>>().join("\n") + "\n").unwrap();
+    // Its proving made in the remote: `checkout add` fetches it into the clone.
     let proving = t.join("proving");
     copy_tree(&t.join("remote.git"), &proving.join("remote.git"));
-    for (at, proves) in [(t.to_path_buf(), false), (proving, true)] {
-        let remote = at.join("remote.git");
-        git(t, &["clone", "--quiet", "--template=", &remote.to_string_lossy(), &at.join("clone").to_string_lossy()])
-            .unwrap();
-        if proves {
-            git(&at.join("clone"), &["push", "--quiet", "origin", "main:proving"]).unwrap();
-        }
-        let config = at.join("clone/.git/config");
-        let text = std::fs::read_to_string(&config).unwrap();
-        std::fs::write(&config, text.replace(&*remote.to_string_lossy(), TEMPLATE_REMOTE)).unwrap();
-    }
+    copy_tree(&t.join("clone"), &proving.join("clone"));
+    git(&proving.join("remote.git"), &["branch", "proving", "main"]).unwrap();
 }
 
 /// Copies the tree at `from` to `to`, in-process: a scenario's repos are

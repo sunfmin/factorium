@@ -11,22 +11,20 @@ use std::sync::{Mutex, OnceLock};
 /// The commit the ref `name` (`refs/heads/…` or `refs/remotes/…`) names in
 /// the repo whose work dir is `dir`, read as git's files backend keeps it:
 /// a loose ref, else its line in `packed-refs`. `None` where git must be
-/// asked: another kind of ref, a worktree's or a reftable repo, a symbolic
-/// ref, or none of that name (git says why).
+/// asked: another kind of ref, a symbolic ref, none of that name (git says
+/// why), or a ref file that does not read, as in a worktree (its `.git` is a
+/// file) or a reftable repo (its `refs/heads` is a file).
 pub(super) fn read(dir: &Path, name: &str) -> Option<String> {
     if !(name.starts_with("refs/heads/") || name.starts_with("refs/remotes/")) || name.contains("..") {
         return None;
     }
     let git = dir.join(".git");
-    if !git.is_dir() || git.join("reftable").exists() {
-        return None;
-    }
     match std::fs::read_to_string(git.join(name)) {
         Ok(loose) => object_id(loose.trim()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let packed = std::fs::read_to_string(git.join("packed-refs")).ok()?;
-            let line = packed.lines().find(|l| l.split_once(' ').is_some_and(|(_, n)| n == name))?;
-            object_id(line.split_once(' ')?.0)
+            let id = packed.lines().find_map(|l| l.split_once(' ').filter(|(_, n)| *n == name))?.0;
+            object_id(id)
         }
         Err(_) => None,
     }
@@ -41,13 +39,6 @@ pub(super) fn object_id(id: &str) -> Option<String> {
 /// The most answers kept: past it they are dropped and asked again.
 const KEPT: usize = 512;
 
-type Key = (PathBuf, String);
-
-fn kept() -> &'static Mutex<HashMap<Key, Result<String, String>>> {
-    static KEPT_ANSWERS: OnceLock<Mutex<HashMap<Key, Result<String, String>>>> = OnceLock::new();
-    KEPT_ANSWERS.get_or_init(Mutex::default)
-}
-
 /// What `ask` answers for `question` in `dir`, asked once: `question` is
 /// fixed by the object ids it names, so its answer is too. An error is kept
 /// only where `fixed` says it is one of those.
@@ -57,13 +48,16 @@ pub(super) fn once(
     fixed: impl Fn(&str) -> bool,
     ask: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
+    type Answers = Mutex<HashMap<(PathBuf, String), Result<String, String>>>;
+    static ANSWERS: OnceLock<Answers> = OnceLock::new();
+    let answers = ANSWERS.get_or_init(Mutex::default);
     let key = (dir.to_path_buf(), question.to_string());
-    if let Some(answer) = kept().lock().expect("nothing panics holding it").get(&key) {
+    if let Some(answer) = answers.lock().expect("nothing panics holding it").get(&key) {
         return answer.clone();
     }
     let answer = ask();
     if answer.as_ref().is_ok() || answer.as_ref().is_err_and(|e| fixed(e)) {
-        let mut kept = kept().lock().expect("nothing panics holding it");
+        let mut kept = answers.lock().expect("nothing panics holding it");
         if kept.len() >= KEPT {
             kept.clear();
         }

@@ -2,38 +2,101 @@
 //! ref files hold it, loose or packed, and what git answers of fixed
 //! commits, are what git itself answers.
 
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
 use factorium_host::{Git, Lag};
+
+/// A fresh directory for `name`, and git there as a host whose home it holds.
+fn scratch(name: &str) -> (PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("factorium-host-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+    (dir.join("home"), dir)
+}
+
+fn head(git: &Git) -> String {
+    git.run(&["rev-parse", "HEAD"]).unwrap()
+}
+
+fn commit(git: &Git, file: &str, text: &str) -> String {
+    std::fs::write(git.dir.join(file), text).unwrap();
+    git.run(&["add", file]).unwrap();
+    git.run(&["commit", "--quiet", "-m", file]).unwrap();
+    head(git)
+}
 
 #[test]
 fn a_branch_is_read_as_git_reads_it_loose_over_packed_and_in_a_worktree_from_git() {
-    let dir = std::env::temp_dir().join(format!("factorium-host-refs-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let (home, repo) = (dir.join("home"), dir.join("repo"));
-    std::fs::create_dir_all(&home).unwrap();
-    let git = Git::new(&home, &repo);
+    let (home, dir) = scratch("refs");
+    let git = Git::new(&home, dir.join("repo"));
     git.init("one").unwrap();
-    let one = git.run(&["rev-parse", "HEAD"]).unwrap();
+    let one = head(&git);
     git.run(&["branch", "kept"]).unwrap();
     git.run(&["pack-refs", "--all"]).unwrap();
     assert_eq!(git.sha("refs/heads/kept").unwrap(), one, "packed");
-    git.run(&["commit", "--quiet", "--allow-empty", "-m", "two"]).unwrap();
-    let two = git.run(&["rev-parse", "HEAD"]).unwrap();
-    let branch = git.run(&["symbolic-ref", "--short", "HEAD"]).unwrap();
-    assert_eq!(git.sha(&format!("refs/heads/{branch}")).unwrap(), two, "loose, over its packed line");
+    let two = commit(&git, "f", "at two\n");
+    let branch = format!("refs/heads/{}", git.run(&["symbolic-ref", "--short", "HEAD"]).unwrap());
+    assert_eq!(git.sha(&branch).unwrap(), two, "loose, over its packed line");
     assert!(git.sha("refs/heads/none").is_err(), "no such branch");
-    // The base `kept` is one commit behind the branch, and none ahead of it.
-    assert_eq!(git.lag("kept", &format!("refs/heads/{branch}")).unwrap(), Lag::Behind(1));
-    assert_eq!(git.lag("kept", &format!("refs/heads/{branch}")).unwrap(), Lag::Behind(1), "asked again");
-    assert_eq!(git.lag("none", &two).unwrap(), Lag::Even, "no such local branch");
-    std::fs::write(repo.join("f"), "at two\n").unwrap();
-    git.run(&["add", "f"]).unwrap();
-    git.run(&["commit", "--quiet", "-m", "three"]).unwrap();
-    assert_eq!(git.shown(&format!("refs/heads/{branch}"), "f").as_deref(), Some("at two"));
-    assert_eq!(git.shown(&two, "f"), None, "the file is not at two");
-    assert_eq!(git.shown(&two, "f"), None, "nor is it, asked again");
+    // A loose ref that does not read is never answered by its packed line.
+    let loose = git.dir.join(".git").join(&branch);
+    git.run(&["pack-refs", "--all"]).unwrap();
+    let three = commit(&git, "f", "at three\n");
+    std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_ne!(git.sha(&branch).ok(), Some(two.clone()), "not the packed line");
+    std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(git.sha(&branch).unwrap(), three);
     // A worktree's `.git` is a file: git is asked, and answers the same.
     let tree = dir.join("tree");
     git.run(&["worktree", "add", "--quiet", "--detach", &tree.to_string_lossy(), &one]).unwrap();
     assert_eq!(git.at(&tree).sha("refs/heads/kept").unwrap(), one);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn what_git_answers_of_fixed_commits_is_asked_once() {
+    let (home, dir) = scratch("once");
+    let git = Git::new(&home, dir.join("repo"));
+    git.init("one").unwrap();
+    let one = head(&git);
+    git.run(&["branch", "kept"]).unwrap();
+    let two = commit(&git, "f", "at two\n");
+    let branch = format!("refs/heads/{}", git.run(&["symbolic-ref", "--short", "HEAD"]).unwrap());
+    // `kept` is one commit behind the branch, and none ahead of it.
+    assert_eq!(git.lag("kept", &branch).unwrap(), Lag::Behind(1));
+    assert_eq!(git.lag("none", &two).unwrap(), Lag::Even, "no such local branch");
+    assert!(git.lag("kept", "refs/heads/none").is_err(), "no such tip");
+    assert_eq!(git.shown(&branch, "f").as_deref(), Some("at two"));
+    assert_eq!(git.shown(&one, "f"), None, "the file is not at one");
+    // Its objects gone, the repo answers what it answered of them before.
+    std::fs::rename(git.dir.join(".git/objects"), dir.join("objects")).unwrap();
+    assert_eq!(git.lag("kept", &branch).unwrap(), Lag::Behind(1));
+    assert_eq!(git.shown(&two, "f").as_deref(), Some("at two"));
+    assert_eq!(git.shown(&one, "f"), None);
+    std::fs::rename(dir.join("objects"), git.dir.join(".git/objects")).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_fetch_with_tags_refused_fetches_the_branch_without_them() {
+    let (home, dir) = scratch("fetch");
+    let origin = Git::new(&home, dir.join("origin"));
+    origin.init("one").unwrap();
+    let one = head(&origin);
+    origin.run(&["tag", "v1"]).unwrap();
+    let clone = |name: &str| {
+        let at: &Path = &dir;
+        Git::new(&home, at).run(&["clone", "--quiet", &origin.dir.to_string_lossy(), name]).unwrap();
+        Git::new(&home, at.join(name))
+    };
+    let here = clone("here");
+    let branch = origin.run(&["symbolic-ref", "--short", "HEAD"]).unwrap();
+    // Origin moves its tag: fetching tags would clobber this one's.
+    let two = commit(&origin, "f", "at two\n");
+    origin.run(&["tag", "--force", "v1"]).unwrap();
+    assert_eq!(here.fetch(&branch).unwrap(), two);
+    assert_eq!(here.sha("refs/tags/v1").unwrap(), one, "its tag left as it was");
+    assert!(here.fetch("none").is_err(), "origin has no such branch");
     std::fs::remove_dir_all(&dir).unwrap();
 }
