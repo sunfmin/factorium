@@ -1,0 +1,35 @@
+{
+  "tree": "92c71790c5bcd142021e7746bbe846e8d4bd52ef+d1fba762150c532c",
+  "picker": "codex:01a218f9-5327-7440-9ca2-fa7a1e7612ef:default",
+  "author": "claude-code:14c5525e-8016-5c87-b911-94adab6835dd:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:100:15: delete field lands from struct Job expression in Job<'a>::landing",
+        "why": "The queue tests supply the landing worker directly, so they can pass even if a real landing gate loses its urgent priority when the job is built.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/declared.rs:158:9: replace Gating::said -> String with String::new()",
+        "why": "The revised tests check which command runs first, so an empty description of the gate a worker is waiting behind could go unnoticed.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/gate.rs:125:9: replace App::keep_output -> Result<PathBuf, String> with Ok(Default::default())",
+        "why": "The stacked landing test checks the push and commit IDs, so it could pass even if the gate output is missing from its recorded path.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/urgent.rs:252: halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_moves_go_on",
+      "crates/factorium/tests/scenarios/urgent.rs:354: halted_another_checkout_s_worker_starts_and_its_heavy_command_waits_until_the_urgent_issue_closes",
+      "crates/factorium/tests/scenarios/urgent.rs:396: halted_a_worker_s_command_waits_behind_the_urgent_gate_and_one_running_is_cut_short"
+    ]
+  },
+  "added_lines": 48
+}
