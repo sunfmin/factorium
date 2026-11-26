@@ -52,6 +52,7 @@ CONSTANTS
     Ids,        \* the entries' ids: their order breaks a tie of queued_at
     MaxRules,   \* rules are 1..MaxRules, oldest first; 0 is none yet
     Settle,     \* heavy_settle
+    SettleIdle, \* heavy_settle_idle: on a reading well under the busy limit
     Hold,       \* hold_bound
     Horizon,    \* time runs 0..Horizon
     MaxStep,    \* how far one step may move time
@@ -126,7 +127,7 @@ Init ==
     /\ ask = [i \in Ids |-> NoAsk]
     /\ halt = FALSE
     /\ halt_for = {}
-    /\ last = [act |-> "init", i |-> 0, t |-> 0, room |-> FALSE, read |-> 0, since |-> None]
+    /\ last = [act |-> "init", i |-> 0, t |-> 0, room |-> FALSE, idle |-> FALSE, read |-> 0, since |-> None]
 
 -----------------------------------------------------------------------------
 (* The queue as heavy.rs's Queue and neutral/queue.rs read it.            *)
@@ -241,31 +242,33 @@ NextIn(r, t) ==
     ELSE IF Bug = "by_id" THEN CHOOSE i \in L : \A j \in L : i <= j
     ELSE CHOOSE i \in L : \A j \in L \ {i} : KeyLess(i, j, L, t)
 
-\* neutral `may_start` on "host"'s queue, after heavy.start's rules check.
-HostMay(i, room, read, t) ==
+\* neutral `may_start` on "host"'s queue, after heavy.start's rules check:
+\* the settle is SettleIdle on a reading well under the busy limit (`idle`).
+SettleOf(idle) == IF idle \/ Bug = "idle_near" THEN SettleIdle ELSE Settle
+HostMay(i, room, idle, read, t) ==
     IF i # NextIn("host", t) THEN FALSE
     ELSE IF Bug = "room_first" /\ ~room THEN FALSE
     ELSE IF RunningIn("host", t) = {} THEN TRUE
     ELSE IF ~room THEN FALSE
     ELSE IF Bug = "no_settle" THEN TRUE
-    ELSE IF Bug = "settle_at_ask" /\ t - last_start >= Settle THEN TRUE
-    ELSE IF last_start # None /\ (read <= last_start \/ read - last_start < Settle) THEN FALSE
+    ELSE IF Bug = "settle_at_ask" /\ t - last_start >= SettleOf(idle) THEN TRUE
+    ELSE IF last_start # None /\ (read <= last_start \/ read - last_start < SettleOf(idle)) THEN FALSE
     ELSE TRUE
 
 \* Queue::may_start: "start", or "wait": not passed over, and next in each
 \* of its resources' queues it is not covered in, all at once, by each
 \* one's rule: "host"'s room; a named one's slots (a full one is passed over).
-MayStart(i, room, read, t) ==
+MayStart(i, room, idle, read, t) ==
     IF PassedOver(i, t) \/ (Bug = "full_holds" /\ FullC(i)) THEN "wait"
     ELSE IF \A r \in Res(i) : CoveredC(i, r)
-                \/ (r = "host" /\ HostMay(i, room, read, t))
+                \/ (r = "host" /\ HostMay(i, room, idle, read, t))
                 \/ (r # "host" /\ NextIn(r, t) = i)
     THEN "start" ELSE "wait"
 
 \* heavy.start: a binary older than the daemon's is refused.
-Decide(i, room, read, t) ==
+Decide(i, room, idle, read, t) ==
     IF waiter[i].rules < rules /\ Bug # "no_stale" THEN "stale"
-    ELSE MayStart(i, room, read, t)
+    ELSE MayStart(i, room, idle, read, t)
 
 \* `overheld`: the running i, holding "host", holds others in its queue up
 \* past the hold bound at t. A named resource is never cut short.
@@ -282,7 +285,7 @@ Overheld(i, t) ==
 
 Times == now..(IF now + MaxStep > Horizon THEN Horizon ELSE now + MaxStep)
 Waiter(i, f, v) == waiter' = [waiter EXCEPT ![i][f] = v]
-Did(act, i, t) == last' = [act |-> act, i |-> i, t |-> t, room |-> FALSE, read |-> 0, since |-> last_start]
+Did(act, i, t) == last' = [act |-> act, i |-> i, t |-> t, room |-> FALSE, idle |-> FALSE, read |-> 0, since |-> last_start]
 Off(i) == q' = [q EXCEPT ![i] = Absent]
 \* A waiter that answered: only its answer, and whether it was unqueued, are kept.
 Ended(w, answer) == [NoWaiter EXCEPT !.phase = "done", !.answer = answer, !.unqueued = w.unqueued]
@@ -372,9 +375,15 @@ Unqueued(i) ==
     /\ UNCHANGED <<last_start, rules, ask, halt, halt_for>>
 
 
+\* What a reading finds: room or not, and well under the busy limit or not;
+\* one well under it without room (memory, disk) is told as one without;
+\* under a config whose two settles are one, being well under tells nothing.
+Readings == {<<FALSE, FALSE>>, <<TRUE, FALSE>>} \cup (IF SettleIdle # Settle THEN {<<TRUE, TRUE>>} ELSE {})
+
 \* heavy.start (take_turn): i asks on a reading taken at `read`, which
-\* found room or not. Started, it runs. Told to wait, a waiter asks again
-\* next poll; idle work leaves the queue. Refused as stale, a waiter execs
+\* found room or not, and was well under the busy limit (`idle`) or not.
+\* Started, it runs. Told to wait, a waiter asks again next poll; idle
+\* work leaves the queue. Refused as stale, a waiter execs
 \* the installed binary, whose rules are the newest, keeping its entry, or
 \* fails to and leaves it, its place kept; idle work leaves it (the daemon
 \* execs after). A worker's hold, granted, runs nothing: its waiter answers
@@ -383,11 +392,13 @@ Unqueued(i) ==
 \* apart.
 Ask(i) ==
     /\ waiter[i].phase = "waits" /\ q[i].in
-    /\ \E t \in Times, room \in BOOLEAN : \E read \in Max(0, t - ReadLag)..t :
-        LET d == Decide(i, room, read, t) IN
+    /\ \E t \in Times, rd \in Readings : \E read \in Max(0, t - ReadLag)..t :
+        LET room == rd[1]
+            idle == rd[2]
+            d == Decide(i, room, idle, read, t) IN
         /\ now' = t
         /\ last' = [act |-> IF d = "stale" THEN "stale" ELSE "ask",
-                    i |-> i, t |-> t, room |-> room, read |-> read, since |-> last_start]
+                    i |-> i, t |-> t, room |-> room, idle |-> idle, read |-> read, since |-> last_start]
         /\ \/ /\ d = "start"
               /\ q' = [q EXCEPT ![i].started_at = t]
               /\ last_start' = IF "host" \in Res(i) THEN t ELSE last_start
@@ -643,11 +654,13 @@ HaltHolds ==
     [][ Started /\ halt /\ q[Who].yields => UrgentOf(Who) ]_vars
 
 \* It starts one beside what holds "host" only when the host has room, on a
-\* reading taken heavy_settle after the last start of one holding it.
+\* reading taken heavy_settle after the last start of one holding it, or
+\* heavy_settle_idle after it on a reading well under the busy limit.
 Settled ==
     \A i \in Ids :
         (StartedBy(i) /\ "host" \in Res(i) /\ ~IdleBut(i)) =>
-            last.room /\ last.read > last.since /\ last.read - last.since >= Settle
+            /\ last.room /\ last.read > last.since
+            /\ last.read - last.since >= IF last.idle THEN SettleIdle ELSE Settle
 
 \* `slots = n`: n holders at most. A start takes a slot of each named
 \* resource it asks for (but those its worker's hold holds) only while one
@@ -744,6 +757,7 @@ BrokenVariants == [
     no_line_ahead    |-> "LineAhead",    \* `next` is just the oldest
     no_settle        |-> "Settled",      \* no settle interval beside what runs
     settle_at_ask    |-> "Settled",      \* settled at the ask, not the reading (#102)
+    idle_near        |-> "Settled",      \* the idle settle on a reading near the limit
     line_cuts_short  |-> "NotCutShort",  \* a line move past its bound ends what runs
     held_from_queued |-> "NotCutShort",  \* held counted from the waiter's queueing alone
     no_held          |-> "HeldEnded",    \* the hold bound never ends one

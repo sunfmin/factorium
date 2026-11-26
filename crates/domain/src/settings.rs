@@ -73,6 +73,7 @@ settings! {
     HeldFor "held_for" 1800 "admission held for one reason this long goes to the watch";
     TickEvery "tick_every" 10 "the daemon ticks this often";
     HeavySettle "heavy_settle" 30 "a heavy command starts beside another only on a reading taken this long after the last start";
+    HeavySettleIdle "heavy_settle_idle" 5 "or this long after it, on a reading at most half of `cpu_busy_max`";
     HeavyKeep "heavy_keep" 600 "a worker's or a program's heavy command that left the queue unstarted (refused, or its waiter gone) keeps its place this long: asked again, it takes it";
     QueueWaitBound "queue_wait_bound" 300 "admission starts no worker while a heavy command has waited its turn this long";
     PickBound "pick_bound" 600 "a worker's second agent (`worker pick-mutants`, `worker review-growth`) is ended, red, past this";

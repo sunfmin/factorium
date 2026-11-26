@@ -128,6 +128,12 @@
     "sentence": "A resource is a name and a capacity rule, with one queue each, the rule of the neutral queue (`neutral/queue.rs`): the shortest declared hold first — a hold's `--for`; a command declares none and is read as `hold_default` — oldest first among equals; one waiting past `starve_bound` goes ahead of all that have not, oldest first, so a long one never starves; one past its bound goes ahead of those that yield (factorium#286). Nobody knows how long an issue takes before it starts; a holder knows how long it holds when it asks, so the order is the resource queue's, never the issue's: it replaces hand-ordered `issue block` chains between issues that share a device.",
     "source": "SPEC.md:39"
   },
+  "19a4f25d796a": {
+    "mark": "not",
+    "sentence": "A start shows in the reading (a minute's busy share) only slowly: near the limit a burst could pass it unseen, so `heavy_settle` (30s) holds; well under it, `heavy_settle_idle` (5s). Nine cargo builds on this host emptied in 111-116s, not 147-158s, never past 75%; at 1s, 92%.",
+    "source": "docs/adr/0010-admission-and-the-heavy-queue.md:22",
+    "why": "the reason and measurement behind heavy_settle_idle; the rule itself is the promise settled"
+  },
   "1da033da2bee": {
     "mark": "not",
     "sentence": "`next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`)",

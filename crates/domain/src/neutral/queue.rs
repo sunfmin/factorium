@@ -4,6 +4,13 @@
 //! starve bound, one start per settled reading beside what runs, the hold bound, and a line move past
 //! its bound ahead of those that give way (one that yields, or a landing's
 //! gate), then an urgent one, then a landing's gate.
+//!
+//! A reading settles once it was taken `settle` after the last start; on a
+//! reading well under the busy limit ([`Room::Idle`]), `idle` after it,
+//! sooner: a start's load shows in the reading only over its window, so
+//! near the limit a burst of starts could run the host past it before the
+//! reading shows their load, while well under it the next start has room
+//! to spare (docs/adr/0010-admission-and-the-heavy-queue.md).
 
 use uuid::Uuid;
 
@@ -112,19 +119,28 @@ pub fn next<E: Queued>(entries: &[E], now: i64, order: Order) -> Option<&E> {
 }
 
 /// When a start is: the last one, and how long the host takes to show the
-/// load a start brings, ms.
+/// load a start brings, ms: on a reading near the busy limit (`settle`),
+/// and on one well under it (`idle`).
 pub struct Starts {
     pub last: i64,
     pub settle: i64,
+    pub idle: i64,
 }
 
-/// Whether `id` may start at `now`, given whether the host has room, when
-/// the reading was taken, and the starts before; else why not.
+/// The room a reading found: near the busy limit, or well under it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Room {
+    Near,
+    Idle,
+}
+
+/// Whether `id` may start at `now`, given the room the host has (or why
+/// none), when the reading was taken, and the starts before; else why not.
 pub fn may_start<E: Queued>(
     entries: &[E],
     starts: Starts,
     id: Uuid,
-    room: Result<(), String>,
+    room: Result<Room, String>,
     read_at: i64,
     now: i64,
     order: Order,
@@ -137,8 +153,11 @@ pub fn may_start<E: Queued>(
     if running(entries).next().is_none() {
         return Ok(());
     }
-    room?;
-    if read_at <= starts.last || read_at - starts.last < starts.settle {
+    let settle = match room? {
+        Room::Near => starts.settle,
+        Room::Idle => starts.idle,
+    };
+    if read_at <= starts.last || read_at - starts.last < settle {
         return Err("one start per reading settled after the last start".into());
     }
     Ok(())

@@ -31,7 +31,7 @@ fn hold(n: u128, queued_at: i64, min: i64, name: &str) -> Entry {
 }
 
 fn starts(q: &Queue, id: Uuid, now: i64) -> Result<(), String> {
-    q.may_start(id, Ok(()), Reading { read_at: now, settle: 0, order: ORDER }, now)
+    q.may_start(id, Ok(()), Reading { read_at: now, settle: 0, order: ORDER, ..Reading::default() }, now)
 }
 
 /// Why each waiting for resource `name` at `now` is not next, in the order they start.
@@ -139,4 +139,27 @@ fn a_resource_of_two_slots_takes_two_holders_and_the_oldest_waiting_next() {
     let two = Entry { started_at: Some(5), ..two };
     let q = Queue { entries: vec![one, two, three.clone()], slots, ..Queue::default() };
     assert!(starts(&q, three.ask.id, 10).unwrap_err().starts_with("waits for MAC, held by"));
+}
+
+/// Beside what runs, a reading well under the busy limit shows a start's
+/// load soon enough: the next starts `heavy_settle_idle` after the last;
+/// one near the limit waits the whole `heavy_settle`.
+#[test]
+fn beside_what_runs_a_reading_well_under_the_limit_settles_shorter() {
+    let (running, next) = (Entry { started_at: Some(0), ..entry(1, 0) }, entry(2, 0));
+    let q = Queue { entries: vec![running, next.clone()], last_start: MIN, ..Queue::default() };
+    let at = |after: i64, idle: bool| Reading {
+        read_at: MIN + after,
+        settle: 30_000,
+        settle_idle: 5_000,
+        idle,
+        order: ORDER,
+    };
+    let starts = |after: i64, idle: bool| q.may_start(next.ask.id, Ok(()), at(after, idle), MIN + after);
+    assert_eq!(starts(5_000, true), Ok(()), "well under the limit, the shorter settle");
+    let unsettled = Err("one start per reading settled after the last start".to_string());
+    assert_eq!(starts(4_999, true), unsettled);
+    assert_eq!(starts(5_000, false), unsettled, "near the limit, the whole settle holds");
+    assert_eq!(starts(29_999, false), unsettled);
+    assert_eq!(starts(30_000, false), Ok(()));
 }

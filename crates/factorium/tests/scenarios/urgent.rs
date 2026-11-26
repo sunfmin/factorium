@@ -66,7 +66,7 @@ fn an_urgent_entry_goes_ahead_of_workers_that_waited_longer_behind_a_line_move_p
     let (a, b, u) = (workers(1, 0, false), workers(2, MIN, false), workers(3, 2 * MIN, true));
     let q = Queue { entries: vec![a.clone(), b.clone(), u.clone()], ..Queue::default() };
     assert_eq!(ids(queue::line(&q.entries, 3 * MIN, ORDER)), [3, 1, 2]);
-    let at = Reading { read_at: 3 * MIN, settle: 0, order: ORDER };
+    let at = Reading { read_at: 3 * MIN, settle: 0, order: ORDER, ..Reading::default() };
     assert_eq!(q.may_start(u.ask.id, Ok(()), at, 3 * MIN), Ok(()));
     assert_eq!(q.may_start(a.ask.id, Ok(()), at, 3 * MIN).unwrap_err(), "waits behind 3");
     let host = &q.resources(3 * MIN, ORDER)[0];
@@ -283,7 +283,7 @@ fn halted_nothing_of_a_worker_or_program_but_an_urgent_entry_starts_and_line_mov
     let (halt, halt_for) = (vec!["web#3".into()], vec![own.ask.worker.unwrap()]);
     let q = Queue { entries, halt, halt_for, ..Queue::default() };
     let now = 300 * MIN;
-    let at = Reading { read_at: now, settle: 0, order: ORDER };
+    let at = Reading { read_at: now, settle: 0, order: ORDER, ..Reading::default() };
     // The urgent entry and the landing's gate wait together: the urgent one starts first.
     assert_eq!(q.may_start(urgent.ask.id, Ok(()), at, now), Ok(()));
     assert_eq!(q.may_start(gate.ask.id, Ok(()), at, now).unwrap_err(), "waits behind 3");

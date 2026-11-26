@@ -540,7 +540,7 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "a9315f3349225a5109ede0bfe92655f7b35bd44c"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -574,7 +574,7 @@ name = "heavy-urgent"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyUrgent.cfg"
 limit = 180
-commit = "a9315f3349225a5109ede0bfe92655f7b35bd44c"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy urgent)" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
@@ -599,7 +599,7 @@ name = "heavy-resources"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyResources.cfg"
 limit = 120
-commit = "ce89ebed2a61b342434d5b46c4866b0cda7e4735"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy), App::worker_hold, App::exclusive" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy, Heavy::evolve (HeavyQueued)" },
@@ -618,7 +618,7 @@ name = "heavy-ends"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyEnds.cfg"
 limit = 120
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "NoteRun", file = "crates/domain/src/heavy.rs", function = "NoteRun" },
   { action = "NoteRun", file = "crates/factorium/src/heavy.rs", function = "App::run_held, App::look_at (NoteRun)" },
@@ -652,7 +652,7 @@ name = "heavy-rules"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRules.cfg"
 limit = 60
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "NoteRules", file = "crates/domain/src/heavy.rs", function = "NoteRules" },
   { action = "NoteRules", file = "crates/factorium/src/heavy.rs", function = "App::note_rules" },
@@ -686,7 +686,7 @@ name = "heavy-run"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyRun.cfg"
 limit = 60
-commit = "890afa5c95a79d6c0a59c338ad324a4d3db20a12"
+commit = "2c6a502c02ed998e2fc6f615e275eb64a1a03cf2"
 covers = [
   { action = "Next", file = "crates/domain/src/heavy.rs", function = "Heavy::evolve" },
 ]
@@ -899,7 +899,7 @@ why = "factorium has no `truefit sim`: the model checks every order the waiters 
 
 [[promise]]
 name = "settled"
-says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start"
+says = "starts one beside what runs only on a reading taken `heavy_settle` after the last start, or `heavy_settle_idle` after it on a reading at most half of `cpu_busy_max`"
 source = "docs/adr/0010-admission-and-the-heavy-queue.md:21"
 check = ["model heavy-starts"]
 
