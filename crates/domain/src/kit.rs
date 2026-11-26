@@ -1,11 +1,9 @@
 //! The kit: the checkouts pinned to one engine, and the host's own login's
-//! limits. Which engine, model and account a session starts on is
-//! stablehand's (`stablehand pick`, walking its order, the one home of the
-//! order and the models: stablehand#24), and so is the command each engine
-//! starts with (`stablehand command show`: factorium#306, stablehand#30);
-//! an engine it keeps none for starts on its bare program. Without
-//! stablehand a session starts on [`FALLBACK`] alone, by
-//! [`FALLBACK_COMMAND`], on the host user's own login, which rests on its
+//! limits. Which engine, model and account a session starts on, and the
+//! command each engine starts with, are stablehand's (`stablehand pick`,
+//! `stablehand command show`); an engine it keeps none for starts on its
+//! bare program. Without stablehand a session starts on [`FALLBACK`] alone,
+//! by [`FALLBACK_COMMAND`], on the host user's own login, which rests on its
 //! own limits here.
 
 use std::collections::BTreeMap;

@@ -45,9 +45,9 @@ and factorium does not is in `docs/dropped.md`.
    the first tick at or after that time, as a met block is; `issue show`
    answers it (`not_before`, in ms and UTC), and doctor lists a ready issue
    waiting for its time under `not_before`, with the time.
-2. A tick (the daemon's loop) finds the ready issues nothing blocks and
-   no worker holds; admission admits one start per reading. Urgent ones
-   (§1.17) first; only the memory and disk floors hold one, never the load.
+2. A tick admits one start per reading, of the ready issues unblocked
+   and untaken: urgent first; then fewest live workers in its checkout,
+   ready longest, checkout, number.
 3. The worker resumes in the worktree its issue's last attempt kept, if
    that one holds work that is nowhere else (commits not on proving, or
    changes not committed), and its brief says what is there; else its
@@ -59,20 +59,19 @@ and factorium does not is in `docs/dropped.md`.
    shell, a line is a command it runs. A question the harness opens on its
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
-4. The worker checks what it changed (fmt, clippy, its crates' tests,
-   through `worker exclusive`), then runs `factorium worker done`: a
-   change's one full gate is its landing's, on the merge (§1.12);
-   `worker gate` is allowed, not required. An issue whose work changes no
+4. The worker runs its gate's cheap whole-repo steps (`./lines.sh`,
+   fmt, clippy, `truefit contract`, `docfit check`) and its crates' tests,
+   through `worker exclusive`, the rest left to its landing, the one full
+   gate (ADR 0012); then `worker done` (`worker gate` optional). An issue whose work changes no
    code (a publish, a measurement) it finishes, its branch holding no
    commits, with `factorium worker done --no-landing "<evidence>"`: the
-   daemon closes the issue with it, running no gate (factorium#282). What it wants kept (a measurement)
+   daemon closes the issue with it, running no gate. What it wants kept (a measurement)
    it records with `factorium worker comment`, a comment on its issue
    that changes nothing else and goes to no one (decisions go to the
    watch: `worker escalate`). A follow-up its issue asks for
    it files with `factorium worker file <checkout> <title> --body-file <f>
    [--blocked-by …]`, as `issue add` does; on its own checkout the filed one also waits for its issue
-   to land, unless `--independent`
-   (factorium#184). Both keep the record as its comments: its issue says
+   to land, unless `--independent`. Both keep the record as its comments: its issue says
    "filed <checkout>#<n>", the filed one which issue and worker filed it.
    It changes no other issue.
 5. Landing (§1.12), the urgent first (§1.17). Red: the worker is told why and goes on; red twice in

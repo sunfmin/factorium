@@ -63,6 +63,10 @@ steps = ["./bump.sh $FACTORIUM_VERSION"]
 formula = "web"
 ```
 
+How many workers one checkout runs at once is the host's, not `factorium.toml`'s:
+the setting `workers_per_checkout` (`factorium settings workers_per_checkout <n>`,
+default 6, [ADR 0016](docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md)).
+
 ## Develop
 
 `./gate.sh`: fmt, clippy, the per-crate lines against their targets (shown, not held, SPEC.md §5), and the tests under slimfit (SPEC.md §6).

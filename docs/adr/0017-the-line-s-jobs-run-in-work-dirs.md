@@ -1,4 +1,4 @@
-# 16. The line's jobs run in named Orca worktrees, removed when each ends
+# 17. The line's jobs run in named Orca worktrees, removed when each ends
 
 Status: accepted
 

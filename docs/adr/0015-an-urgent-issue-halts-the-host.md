@@ -21,8 +21,17 @@ none knowing this one matters more.
   move past its bound, as its issue is marked at each ask.
 - Its landing takes the next turn of its checkout's line, never cutting a
   running gate short.
-- Once its worker starts, until the issue closes or is unmarked, nothing
-  else starts, and what runs is cut short once it waits for it (the halt).
+- Once its worker starts, until the issue closes or is unmarked, no other
+  worker starts and no worker's or program's heavy command not urgent
+  starts; such a command that runs is cut short once it waits for it (the
+  halt).
+- The halt holds no line move: other landings, promotions and cuts, on
+  every checkout, go on through the heavy queue as usual and are never cut
+  short by it. A line move delivers work already done and its gate is
+  short (53–77s for a landing's); holding it made the urgent work no
+  faster, since its own heavy commands already go ahead of a landing's
+  waiting gate, while finished workers waited (2026-11-26: 15 done
+  workers waited 20 min to land). The owner: 「都开吧，也加急」.
 
 ## Consequences
 

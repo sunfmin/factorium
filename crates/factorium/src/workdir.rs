@@ -1,4 +1,4 @@
-//! The work dirs of the line and idle work (docs/adr/0016-the-line-s-jobs-run-in-work-dirs.md). Each job
+//! The work dirs of the line and idle work (docs/adr/0017-the-line-s-jobs-run-in-work-dirs.md). Each job
 //! (a landing's merge and fast gate, a promotion's slow gate, a cut's steps,
 //! a run of idle work) runs in an Orca worktree of its checkout of its own:
 //! named for the job, commented with what runs there, detached at the rev

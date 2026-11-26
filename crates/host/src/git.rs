@@ -328,12 +328,30 @@ impl Git {
         self.sha("HEAD")
     }
 
-    /// Tags `sha` as `version` and pushes the tag to origin. A tag origin
-    /// refused is deleted here: a tag the repo has is one origin has.
+    /// Tags `sha` as `version` and pushes the tag to origin. A tag of
+    /// `version` already on `sha`, here or on origin, is kept; one on another
+    /// commit is refused, naming both. A tag made here that origin does not
+    /// take is deleted again: the repo's tags are origin's.
     pub fn tag_pushed(&self, version: &str, sha: &str) -> Result<(), String> {
-        self.run(&["tag", "-a", version, "-m", version, sha])?;
-        let pushed = self.run(&["push", "--quiet", "origin", &format!("refs/tags/{version}")]).map(|_| ());
-        if pushed.is_err() {
+        let tag = format!("refs/tags/{version}");
+        let on_other = |at: &str, there: &str| format!("{at}'s tag {version} is on {there}, not {sha}");
+        let made = match self.run(&["rev-parse", "--verify", "--quiet", &format!("{tag}^{{commit}}")]) {
+            Ok(here) if here != sha => return Err(on_other("this repo", &here)),
+            Ok(_) => false,
+            Err(_) => {
+                self.run(&["tag", "-a", version, "-m", version, sha])?;
+                true
+            }
+        };
+        // An annotated tag's peeled line (^{}) comes after it: the last line is the commit.
+        let pushed = self.run(&["ls-remote", "origin", &tag, &format!("{tag}^{{}}")]).and_then(|listed| {
+            match listed.lines().last().and_then(|l| l.split_whitespace().next()) {
+                Some(there) if there != sha => Err(on_other("origin", there)),
+                Some(_) => Ok(()),
+                None => self.run(&["push", "--quiet", "origin", &tag]).map(|_| ()),
+            }
+        });
+        if pushed.is_err() && made {
             let _ = self.run(&["tag", "-d", version]);
         }
         pushed
@@ -431,12 +449,14 @@ impl Git {
         self.run(&["rev-list", "--count", &format!("{base}..{head}")])?.parse().map_err(|e| format!("{e}"))
     }
 
-    /// Origin's tags that look like versions, newest by version first.
-    pub fn version_tags(&self) -> Vec<String> {
-        let _ = self.run(&["fetch", "--quiet", "--tags", "origin"]);
-        self.run(&["tag", "--list", "v[0-9]*", "--sort=-version:refname"])
-            .map(|s| s.lines().map(str::to_string).collect())
-            .unwrap_or_default()
+    /// Origin's tags that look like versions, newest by version first: this
+    /// repo's version tags are made origin's first, a local one origin lacks
+    /// dropped and one origin moved moved, so a clone made from here holds
+    /// origin's alone.
+    pub fn version_tags(&self) -> Result<Vec<String>, String> {
+        self.run(&["fetch", "--quiet", "--force", "--prune", "--no-tags", "origin", "+refs/tags/v*:refs/tags/v*"])?;
+        let listed = self.run(&["tag", "--list", "v[0-9]*", "--sort=-version:refname"])?;
+        Ok(listed.lines().map(str::to_string).collect())
     }
 
     /// The local branch checked out here, if any.

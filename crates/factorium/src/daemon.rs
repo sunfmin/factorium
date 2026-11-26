@@ -14,7 +14,8 @@ use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
 use factorium_domain::issue::{Author, urgent_first};
-use factorium_domain::settings::Time;
+use factorium_domain::next;
+use factorium_domain::settings::{Setting, Time};
 use factorium_domain::tracker::{self, IssueRow, WorkerRow};
 use factorium_domain::watch::{Held, NoteAdmission};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
@@ -148,13 +149,9 @@ impl App {
         // Workers: their sessions, and their share of the host.
         let hold = settings.ms(Time::HoldBound);
         let live = self.live_workers().await?;
-        self.retry_workers(&live.iter().map(|w| w.worker).collect::<Vec<_>>()).await?;
-        for w in live {
-            if let Some(seen) = self.worker_health(w.worker, load.worker(w.worker, self.now(), hold), &settings).await?
-            {
-                t.seen.push(seen);
-            }
-        }
+        let workers: Vec<_> = live.iter().map(|w| w.worker).collect();
+        self.retry_workers(&workers).await?;
+        t.seen = self.workers_health(&workers, |w| load.worker(w, self.now(), hold), &settings).await?;
         steps.ended("watching workers", self.now());
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
@@ -212,16 +209,20 @@ impl App {
         steps.ended("the watch's look", self.now());
         t.upgrade = self.upgrade_from_tap(&checkouts, &settings).await?;
         steps.ended("upgrading from the tap", self.now());
-        t.restart = self.swap_due().map(|b| b.to_string_lossy().into_owned());
+        t.restart = self.swap_due(false).map(|b| b.to_string_lossy().into_owned());
         self.note_refusal().await?;
         Ok(t)
     }
 
-    /// The linked binary to exec once proven; not while a line move runs
-    /// beside the ticks, which a restart would end, nor while a message is
-    /// typed beside them: the next daemon would type it again.
-    fn swap_due(&self) -> Option<std::path::PathBuf> {
-        (!self.moves_run() && !self.typing(|_| true)).then(|| self.swapped(false)).flatten()
+    /// The linked binary to exec once proven; not while a message is typed
+    /// beside the ticks (the next daemon would type it again), nor, after a
+    /// good tick, while a line move runs beside them, which a restart would
+    /// end. After a `failed` one it would wait for ever: only a good tick
+    /// finds the move ended, so the restart ends it, and the newer binary
+    /// moves the line again.
+    fn swap_due(&self, failed: bool) -> Option<std::path::PathBuf> {
+        let held = (!failed && self.moves_run()) || self.typing(|_| true);
+        (!held).then(|| self.swapped(false)).flatten()
     }
 
     /// The binary to run in place of this one after a tick: a good tick's
@@ -232,7 +233,7 @@ impl App {
     pub fn after(&self, ticked: &Answer<Tick>) -> Option<std::path::PathBuf> {
         match ticked {
             Ok(t) => t.restart.as_ref().map(Into::into),
-            Err(_) => self.swap_due().or_else(|| self.fallback()),
+            Err(_) => self.swap_due(true).or_else(|| self.fallback()),
         }
     }
 
@@ -267,12 +268,19 @@ impl App {
         Ok(filed)
     }
 
+    /// The ready issues no worker holds, in the ordinary order they start
+    /// ([`next::order`]): the checkout with the fewest live workers first.
+    async fn ready(&self) -> Answer<Vec<IssueRow>> {
+        let live = self.live_workers().await?;
+        Ok(next::order(self.rows(tracker::untaken()).await?, live.iter().map(|w| w.checkout.as_str())))
+    }
+
     /// The ready issues no worker holds and nothing open blocks, ahead of
     /// which the urgent `checkout`#`number` started: those not urgent before
-    /// it in the ordinary order.
+    /// it in the ordinary order ([`App::ready`]).
     async fn ahead_of(&self, checkout: &str, number: u64) -> Answer<Vec<String>> {
         let mut ahead = Vec::new();
-        for r in self.rows(tracker::untaken()).await? {
+        for r in self.ready().await? {
             if (r.checkout.as_str(), r.number) == (checkout, number) {
                 break;
             }
@@ -286,19 +294,27 @@ impl App {
 
     /// The first ready issue no worker holds and nothing open blocks, the
     /// urgent ones first, then those that start ahead (a promotion's mutants
-    /// issue), then in the ordinary order ([`tracker::untaken`]);
-    /// whose account, if it names one, can start now, and whose role has
-    /// what it needs of this host (each role checked once a tick).
+    /// issue), then in the ordinary order ([`App::ready`]);
+    /// whose checkout is under its cap (`workers_per_checkout`), unless it is
+    /// urgent; whose account, if it names one, can start now, and whose role
+    /// has what it needs of this host (each role checked once a tick).
     async fn next_issue(&self) -> Answer<Option<IssueRow>> {
+        let workers = self.live_workers().await?;
+        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
+        let cap = self.settings().await?.get(Setting::WorkersPerCheckout);
         let mut checked = std::collections::BTreeSet::new();
         // Roles found lacking this tick: one that passes starts its issue at once.
         let mut lacking = std::collections::BTreeSet::new();
         let mut held = None;
-        let mut rows = self.rows(tracker::untaken()).await?;
+        let mut rows = self.ready().await?;
         // Those that start ahead (a promotion's mutants issue), then the urgent before all.
         urgent_first(&mut rows, |r| r.ahead);
         urgent_first(&mut rows, |r| r.urgent);
         for r in rows {
+            // Its checkout at its cap, it waits for one of its workers to end: doctor's `capped`.
+            if next::capped(&live, &r.checkout, r.urgent, cap) {
+                continue;
+            }
             let (checkout, number) = (r.checkout.clone(), r.number);
             if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
                 continue;

@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use factorium_domain::admission;
 use factorium_domain::heavy::{
-    Ask, Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Outcome, Queue, Rules,
-    Runs, StartHeavy, Window, queue_id,
+    Ask, Begin, End, EndHeavy, Ends, Enqueue, EnqueueHeavy, Entry, Heavy, NoteRules, NoteRun, Outcome, Queue, Reading,
+    Rules, Runs, StartHeavy, Window, queue_id,
 };
 use factorium_domain::settings::Time;
 use factorium_host::{PLACE, Priority, Ran, run};
@@ -558,7 +558,8 @@ impl App {
         let read_at = self.now();
         let room = admission::room(&crate::load::Load::queue(&*self.host), &settings);
         let (settle, rules, order) = (settings.ms(Time::HeavySettle), self.rules.clone(), settings.order());
-        match self.submit::<StartHeavy>(Begin { id, room, read_at, settle, rules, order }).await {
+        let at = Reading { read_at, settle, order };
+        match self.submit::<StartHeavy>(Begin { id, room, at, rules }).await {
             Ok(()) => Ok(true),
             Err(r) if r.code == "wait" => Ok(false),
             Err(r) => Err(r),

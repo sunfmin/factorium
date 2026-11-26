@@ -33,7 +33,7 @@ impl App {
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
-        let version = next_version(git.version_tags().first().map(String::as_str));
+        let version = next_version(git.version_tags().map_err(fail("git"))?.first().map(String::as_str));
         let short = &base[..base.len().min(7)];
         let about = format!(
             "factorium's cut of {} {version} from its base {short}: its steps, then the tag and the install.",

@@ -36,6 +36,10 @@ pub struct Terminal {
     /// Its harness opened a dialog of its own: a line typed with Enter
     /// answers it and starts no turn; Escape dismisses it, back to its prompt.
     pub dialog: bool,
+    /// How long Orca takes to read its screen (daemon.log, 2026-11-26: one slow
+    /// Orca answer held a tick 55 s); reads of other terminals are not
+    /// held up by it.
+    pub reads_take: Option<std::time::Duration>,
 }
 
 /// A terminal's screen at its shell's prompt, as zsh draws it.
@@ -139,6 +143,12 @@ impl FakeOrca {
         *flag.lock().unwrap() = on;
     }
 
+    /// How long `orca <args>` takes, if it is a slow screen read.
+    fn read_takes(&self, args: &[&str]) -> Option<std::time::Duration> {
+        let t = self.terminals.lock().unwrap();
+        (args[..2] == ["terminal", "read"]).then(|| t.get(flag(args, "--terminal"))?.reads_take).flatten()
+    }
+
     fn answer(&self, root: &Path, args: &[&str]) -> Said {
         if let Some(why) = &*self.down.lock().unwrap() {
             return Said { ok: false, out: String::new(), err: why.clone() };
@@ -175,6 +185,9 @@ impl FakeOrca {
             && args.contains(&"--wait-submit")
             && no_turn()
         {
+            std::thread::sleep(takes);
+        }
+        if let Some(takes) = self.read_takes(args) {
             std::thread::sleep(takes);
         }
         let mut held = self.held.lock().unwrap();
@@ -1010,6 +1023,16 @@ impl FakeStablehand {
     }
 }
 
+/// The failures the stand-in slimfit answers when asked (truefit.toml's
+/// slimfit `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as
+/// slimfit 0.1.56 answers it: `function-refused`, every `check --mutants
+/// --function` listing refused (exit 2), as one of a change whose source
+/// its mutation tool cannot parse.
+pub const SLIMFIT_FAULTS: [&str; 1] = ["function-refused"];
+
+/// slimfit's refusal of a `--function` listing (`function-refused`).
+const SLIMFIT_FUNCTION_REFUSED: &str = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\nError: failed to parse src/lib.rs", "fix": "fix the command's failure in its log .slimfit/out/rust/mutants-list.log"}]}"#;
+
 /// The machine as a scenario has it.
 pub struct FakeHost {
     pub orca: FakeOrca,
@@ -1023,6 +1046,8 @@ pub struct FakeHost {
     /// slimfit: its whole command line, else its subcommand → what it prints
     /// (`help picker`, `help reviewer`, `check`).
     pub slimfit: Mutex<BTreeMap<String, String>>,
+    /// While set, a `--function` listing is refused (`function-refused`).
+    pub slimfit_function_refused: Mutex<bool>,
     /// rolesmith: what each project's roles lack of this host.
     pub rolesmith: Mutex<FakeRolesmith>,
     /// Programs not found on PATH.
@@ -1060,7 +1085,7 @@ impl FakeHost {
         let (orca, brew, procs, reading_procs) = Default::default();
         let (stablehand, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
         let sleeps_take = Default::default();
-        let (lingers, dropping, hosts, rolesmith) = Default::default();
+        let (lingers, dropping, hosts, rolesmith, slimfit_function_refused) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
             orca,
@@ -1070,6 +1095,7 @@ impl FakeHost {
             reading_procs,
             stablehand,
             slimfit,
+            slimfit_function_refused,
             rolesmith,
             missing,
             hosts,
@@ -1082,6 +1108,14 @@ impl FakeHost {
             gone,
             clock,
             root: root.to_path_buf(),
+        }
+    }
+
+    /// Sets, or clears, slimfit's failure `name` (one of [`SLIMFIT_FAULTS`]).
+    pub fn slimfit_fault(&self, name: &str, on: bool) {
+        match name {
+            "function-refused" => *self.slimfit_function_refused.lock().unwrap() = on,
+            _ => panic!("no slimfit fault {name}: {SLIMFIT_FAULTS:?}"),
         }
     }
 
@@ -1104,6 +1138,17 @@ impl FakeHost {
 }
 
 impl Programs for FakeHost {
+    /// A screen read that takes past `limit` is waited for until `limit`,
+    /// then given up, as the real one is ended.
+    fn run_within(&self, program: &str, args: &[&str], limit: std::time::Duration) -> Option<Said> {
+        if program == "orca" && self.orca.read_takes(args).is_some_and(|t| t > limit) {
+            self.ran.lock().unwrap().push(format!("{program} {}", args.join(" ")));
+            std::thread::sleep(limit);
+            return None;
+        }
+        Some(self.run(program, args))
+    }
+
     fn run(&self, program: &str, args: &[&str]) -> Said {
         self.ran.lock().unwrap().push(format!("{program} {}", args.join(" ")));
         if !self.found(program) {
@@ -1114,6 +1159,9 @@ impl Programs for FakeHost {
             "brew" => self.brew.lock().unwrap().answer(&self.root, args),
             "stablehand" => self.stablehand.lock().unwrap().answer(args, self.clock.now()),
             "slimfit" => {
+                if args.contains(&"--function") && *self.slimfit_function_refused.lock().unwrap() {
+                    return Said { ok: false, out: SLIMFIT_FUNCTION_REFUSED.into(), err: String::new() };
+                }
                 let said = self.slimfit.lock().unwrap();
                 // A refusal is printed as slimfit prints one: `{"error": …}`, exit 2.
                 let out = said.get(&args.join(" ")).or_else(|| said.get(args[0])).cloned();

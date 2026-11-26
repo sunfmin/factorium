@@ -188,6 +188,41 @@ async fn an_engine_s_limit_with_its_reset_is_told_to_stablehand_with_that_time()
     assert_eq!(w.host.stablehand.lock().unwrap().limits["sky"], Some(until / 1000 * 1000));
 }
 
+/// agy 1.5.17's quota of its Claude-and-GPT group, as a horizon-labs
+/// worker's screen showed it on 2026-11-26, wrapped at the width: its
+/// account's `3p-5h` window is told to stablehand as used up until the
+/// reset, and its worker is parked, not found hung half an hour on.
+#[tokio::test]
+async fn agy_s_third_party_quota_books_its_account_s_claude_and_gpt_window_and_is_not_hung() {
+    let w = World::new();
+    let home = w.host.home().join("logins/sky");
+    std::fs::create_dir_all(&home).unwrap();
+    w.host.stablehand.lock().unwrap().bound("sky", "agy", &this_machine(), &home);
+    let wk = w.working("agy=agy", "t").await;
+    w.set_screen(
+        wk["terminal"].as_str().unwrap(),
+        &[
+            "⚠ Third-party quota reached. Please switch to Gemini models or upgrade your subscription to increase",
+            "your limits.",
+            "Resets in 2h17m29s.",
+            "Error ID: 1ccc8031-f3ad-4089-b571-ae8837833b67-61",
+            "────────────────────────────────────────",
+            ">",
+        ],
+    );
+    let until = w.app_now() + (2 * 3600 + 17 * 60 + 29) * 1000;
+    let t = w.tick().await;
+    assert_eq!(t.seen[0]["limited"], until, "{t:?}");
+    let at = factorium_domain::when::utc(until + 999);
+    assert!(asked(&w).contains(&format!("limit sky --resets-at {at} --window 3p-5h")), "{:?}", asked(&w));
+    w.advance(31);
+    w.tick().await;
+    let key = format!("worker:{}", wk["worker"].as_str().unwrap());
+    let d = w.app.doctor().await.unwrap();
+    assert!(!crate::fixture::finding_keys(&d).contains(&key), "not hung: {d}");
+    assert_eq!(d["limited"][0]["worker"], wk["worker"], "{d}");
+}
+
 #[tokio::test]
 async fn a_limit_stablehand_cannot_take_is_said_and_the_worker_still_ends() {
     let w = World::new();

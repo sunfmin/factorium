@@ -48,6 +48,7 @@ mod manual;
 mod moved;
 mod mutants;
 mod needs;
+mod next;
 mod not_before;
 mod on;
 mod one_harness;

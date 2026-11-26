@@ -1,33 +1,10 @@
 //! A live worker's health. Each tick the daemon makes one observation of a
 //! worker — what its session shows, what its processes hold — and one
 //! command, [`Observe`], records it and answers the verdict: wait for the
-//! watch and why, end it on a used-up account, or nothing. The rules and
-//! their clocks live here:
-//!
-//! - **up**: a harness not up five minutes after it started;
-//! - **hot**: processes over their share — of the CPU, of memory, of
-//!   process count — for `hot_for`;
-//! - **hung**: its turn open, its processes next to idle and its screen
-//!   unchanged past `silent_bound`;
-//! - **silent**: its turn closed, and no done, past `silent_bound`, with
-//!   no heavy entry of its own in flight: its clock starts again when one
-//!   ends; nor while its issue waits for anything unmet (factorium#283),
-//!   its clock starting again once all of it is met; nor within a wait it
-//!   declared on a long command of its own (held to two hours), the
-//!   finding past it naming what it said;
-//! - **quota**: its account used up: stablehand is told so, until it next
-//!   reads the account; the host's own login of its harness rests an hour.
-//! - **limit**: its engine at its limit, until the reset its screen gives:
-//!   it waits, parked until then, no finding meanwhile; landing, it is left
-//!   to its landing. The same words read again (its screen after the
-//!   reset) are no limit: the app sees past them.
-//!
-//! A worker waiting for the watch, not parked, is judged on these two
-//! alone: the watch can do nothing for a spent engine, and its finding
-//! (hung, a word that did not reach it) is the spent engine's doing.
-//!
-//! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
-//! quiet are neutral: [`crate::neutral::hot`].
+//! watch and why, end it on a used-up account, or nothing. The rules (up,
+//! hot, hung, silent, quota, limit) and their fixed bounds are SPEC.md §2's,
+//! off the path; their clocks live here. Over and quiet are neutral:
+//! [`crate::neutral::hot`].
 
 use factum_core::{Event, Uuid};
 use serde::{Deserialize, Serialize};
@@ -62,8 +39,15 @@ pub enum Sight {
     Gone,
     /// Its account is used up: the line that says so.
     Quota(String),
-    /// Its engine is at its limit until then (ms): the words that say so.
-    Limit { said: String, until: i64 },
+    /// Its engine is at its limit until then (ms): the words that say so,
+    /// and the window of its account it spent, as stablehand names it
+    /// (`None`: the whole account).
+    Limit {
+        said: String,
+        until: i64,
+        #[serde(default)]
+        window: Option<String>,
+    },
     /// Its harness stopped: the line that says so.
     Stopped(String),
     /// Its harness is not up in its terminal (not yet, or no longer): why.
@@ -116,7 +100,7 @@ fn spent(w: &Worker, sight: &Sight, now: i64) -> Option<Vec<WorkerEvent>> {
     Some(match sight {
         Sight::Quota(said) => vec![WorkerEvent::UsedUp { said: said.clone(), until: now + QUOTA_REST_MS }],
         Sight::Limit { .. } if matches!(w.status, Status::Landing | Status::Finishing) => Vec::new(),
-        Sight::Limit { said, until } => {
+        Sight::Limit { said, until, .. } => {
             vec![WorkerEvent::WorkerLimited(Limit { said: said.clone(), until: *until, at: now })]
         }
         _ => return None,

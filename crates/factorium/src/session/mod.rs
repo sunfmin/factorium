@@ -112,8 +112,8 @@ impl App {
             Some(Stop::Quota(said)) => return Some(Sight::Quota(said)),
             Some(Stop::Refused(said)) => return Some(Sight::Stopped(said)),
             stop => {
-                if let Some((said, until)) = self.new_limit(stop, past) {
-                    return Some(Sight::Limit { said, until });
+                if let Some((said, until, window)) = self.new_limit(stop, past) {
+                    return Some(Sight::Limit { said, until, window });
                 }
             }
         }
@@ -129,11 +129,11 @@ impl App {
 
     /// The limit a session's screen says its engine is at (its `stop`), but
     /// in other words than `past` (a limit seen before, still on it): those
-    /// words and when it resets, in ms.
-    fn new_limit(&self, stop: Option<Stop>, past: Option<&str>) -> Option<(String, i64)> {
+    /// words, when it resets, in ms, and the window it spent.
+    fn new_limit(&self, stop: Option<Stop>, past: Option<&str>) -> Option<(String, i64, Option<String>)> {
         match stop {
-            Some(Stop::Limit { said, resets_in_ms }) if past != Some(said.as_str()) => {
-                Some((said, self.now() + resets_in_ms))
+            Some(Stop::Limit { said, resets_in_ms, window }) if past != Some(said.as_str()) => {
+                Some((said, self.now() + resets_in_ms, window.map(String::from)))
             }
             _ => None,
         }

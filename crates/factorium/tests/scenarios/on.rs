@@ -502,6 +502,8 @@ async fn a_role_change_under_seven_busy_workers_adds_no_orca_window_to_the_tick_
     let w = World::new();
     w.kit_of(&[CLAUDE]).await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    // Seven on one checkout: past its default cap of live workers.
+    w.app.settings_set(Some("workers_per_checkout"), Some(7)).await.unwrap();
     let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
     checkout_as(&w, "web", &ios).await;
     for n in 1..=7 {

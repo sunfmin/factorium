@@ -208,3 +208,37 @@ async fn a_worker_that_no_longer_asks_to_land_once_its_gate_ends_is_not_landed()
     assert!(w.tick_alone().await.landed.is_empty());
     assert_eq!(w.remote_tip("web", "proving"), proving, "nothing pushed");
 }
+
+/// Seen 2026-11-26 (v0.1.125 to v0.1.126): a newer binary linked while a
+/// landing's fast gate runs beside the ticks, and one of its CLI calls
+/// writes an event this binary cannot read:
+/// every tick fails before the one step that would find the gate ended, so
+/// the move beside them never ends for this binary. It swaps to the linked
+/// binary all the same once that is proven, within a tick or two, and the
+/// move ends with the exec, for the newer binary to run again.
+#[tokio::test]
+async fn a_daemon_whose_ticks_fail_while_a_move_runs_beside_them_still_swaps_to_the_linked_binary() {
+    let w = World::new();
+    let link0 = w.running_as(&w.app, "factorium");
+    let dir = w.dir.join("long");
+    declares(&w, &dir, "[gate]\nfast = \"{long}\"\n").await;
+    assert!(w.tick_alone().await.landed.is_empty(), "the gate runs on");
+    until_file(&dir.join("started")).await;
+    assert!(w.app.moves_run(), "the landing's gate runs beside the ticks");
+    crate::daemon::link(&w, "0.1.0");
+    w.an_event_a_newer_binary_wrote("FromANewerVersion");
+    let begun = std::time::Instant::now();
+    let restart = loop {
+        w.advance(1);
+        let ticked = w.app.tick().await;
+        let why = ticked.as_ref().expect_err("its store cannot read the event").to_string();
+        assert!(why.contains("FromANewerVersion"), "{why}");
+        if let Some(to) = w.app.after(&ticked) {
+            break to;
+        }
+        assert!(begun.elapsed() < STUCK, "the linked binary's proof ends");
+        tokio::time::sleep(LOOK).await;
+    };
+    assert_eq!(restart, link0, "it swaps to the linked binary though the move runs on");
+    assert!(w.app.moves_run() && !dir.join("release").exists(), "no tick of this binary ended the move");
+}
