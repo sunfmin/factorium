@@ -629,8 +629,8 @@ fn a_waiter_that_gave_up_and_asks_again_starts_before_one_queued_after_it() {
     assert_eq!(log, "first\nafter\n", "asked again, it starts before the one queued after its first ask");
 }
 
-/// A `factorium run` a test started, ended however the test ends
-/// (factorium#349). It runs in a process group led by its watch, an `sh`
+/// A `factorium run` a test started, ended however the test ends (panicked
+/// or killed tests once left daemons ticking for hours under launchd). It runs in a process group led by its watch, an `sh`
 /// that reads a pipe only this test process holds and, once that closes,
 /// SIGKILLs the group (itself, the daemon, and what the daemon started in
 /// it). The pipe closes when this is dropped (a panic included) and when
@@ -1013,7 +1013,7 @@ fn a_test_process_that_waits_to_be_killed_with_its_daemon_running() {
 
 /// A test process killed outright (SIGKILL: no Drop runs, as a mutant run or
 /// a timed-out exclusive one is ended) leaves no daemon behind: its watch
-/// sees the pipe close and ends the daemon's group (factorium#349).
+/// sees the pipe close and ends the daemon's group.
 #[test]
 fn a_test_killed_outright_leaves_no_daemon_behind() {
     let dir = Dir::new();
