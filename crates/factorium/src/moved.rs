@@ -1,5 +1,5 @@
 //! `issue move`: one issue handed to another host's factorium, over ssh
-//! (`issue move --help`, SPEC §7). Nothing is shared between the hosts and nothing is read
+//! (`issue move --help`). Nothing is shared between the hosts and nothing is read
 //! from the other afterwards: the issue stops here, its work goes to a
 //! branch of its own on origin, and the other host files it as its own.
 

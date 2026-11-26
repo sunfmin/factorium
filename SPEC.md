@@ -21,32 +21,6 @@ on the owner: which repo moves first, and how Guild moves its gate and landing d
 counterpart for afkconvoy-gate and afkconvoy-landing. What afkconvoy had
 and factorium does not is in `docs/dropped.md`.
 
-## 7. From afkconvoy
-
-Kept, as afkconvoy decided them: the session file is the turn; the kit
-orders harnesses and a checkout may pin one; a login that refreshes is
-bound to one machine (which account a worker starts on is stablehand's
-pick now, §1.7); admission alone decides each start; the queue starts by the
-host's CPU reading, never starves, and bounds a hold; hot workers and
-their evidence; the disk floor and reclaiming `target/`; serial builds
-(cargo's fine-grain locking opted out); the gate is local, declared, fast
-and slow, recorded by tree; the proving branch and promotion; the fleet
-cuts its own versions; the watch, its look, episodes, rounds and report;
-guards, not identities; the help is the manual.
-
-Not in factorium: teams, roles kept by factorium (an issue, or a checkout as its default, may name a role directory, §1.2–1.3, and that is all), workflows, stages, verdicts, rework,
-consults, patrols, intake and flow labels; GitHub in every form (tracker,
-pull requests, checks, branch protection, quota, Discussions); the
-daybook; the panel; batched rounds and the pairing tree; several hosts
-(remote claims, a shared proving branch, cross-host reports: `issue move`,
-§4, is not that, for no state is shared between hosts and nothing is read
-from the other host afterwards: one owner command hands one issue over by
-filing it there); Jira
-deliveries; the asking session; remote refs as state; caches as state.
-
-Each afkconvoy mechanism added after an incident is either a scenario
-here or dropped on purpose, listed in `docs/dropped.md` with why.
-
 ## 8. Phases
 
 | # | What | Done when |
