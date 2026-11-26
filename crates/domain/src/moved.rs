@@ -1,4 +1,4 @@
-//! What `issue move` says when it stops part way (`issue move --help`, SPEC §7): the step
+//! What `issue move` says when it stops part way (`issue move --help`): the step
 //! that failed, that the issue stays open here, and the steps done before
 //! it, so that a person knows what to undo or finish by hand.
 

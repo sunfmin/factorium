@@ -1,6 +1,6 @@
 # What factorium did not take from afkconvoy, and why
 
-SPEC.md §7: each afkconvoy mechanism is either a scenario here or dropped on
+Each afkconvoy mechanism is either a scenario here or dropped on
 purpose, listed below with why. The rest is kept, each with its scenario in
 `crates/factorium/tests/scenarios/`.
 
@@ -8,7 +8,7 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 
 | Mechanism | Why it is gone |
 |---|---|
-| Teams, roles, workflows, stages, verdicts, rework, consults, patrols | One kind of worker works one issue; the watch is the only other session. |
+| Teams, roles, workflows, stages, verdicts, rework, consults, patrols, intake | One kind of worker works one issue; the watch is the only other session. |
 | GitHub: issues, pull requests, checks, branch protection, quota, Discussions, labels | The tracker is local; landing is git merge + push requiring the tip. |
 | Jira deliveries | No deliveries to others' trackers. |
 | Several hosts: remote claims, a shared proving branch, cross-host reports, leases a shared server holds | One host. |

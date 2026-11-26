@@ -1,7 +1,7 @@
 {
   "SPEC.md": {
     "local_refs": 2,
-    "rehome": 5340
+    "rehome": 3765
   },
   "checks.sh": {
     "local_refs": 1
@@ -277,7 +277,7 @@
   },
   "docs/dropped.md": {
     "local_refs": 2,
-    "rehome": 3272
+    "rehome": 3267
   },
   "models/HeavyQueue.tla": {
     "local_refs": 8

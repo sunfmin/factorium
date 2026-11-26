@@ -1173,19 +1173,19 @@ check = ["test"]
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:73"
+source = "SPEC.md:47"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:78"
+source = "SPEC.md:52"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:80"
+source = "SPEC.md:54"
 check = ["model line"]
 
 [[promise]]
