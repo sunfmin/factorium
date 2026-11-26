@@ -26,6 +26,18 @@ fn commit(git: &Git, file: &str, text: &str) -> String {
     head(git)
 }
 
+/// The git commands `f` ran as the host whose home is `home`, by name, as
+/// git's own trace of each tells them.
+fn ran(home: &Path, f: impl FnOnce()) -> Vec<String> {
+    let trace = home.join("trace");
+    let _ = std::fs::remove_file(&trace);
+    std::fs::write(home.join(".gitconfig"), format!("[trace2]\n\tnormalTarget = {}\n", trace.display())).unwrap();
+    f();
+    std::fs::remove_file(home.join(".gitconfig")).unwrap();
+    let traced = std::fs::read_to_string(&trace).unwrap_or_default();
+    traced.lines().filter_map(|l| l.split(" cmd_name ").nth(1)).map(|c| c.split(' ').next().unwrap().to_string()).collect()
+}
+
 #[test]
 fn a_branch_is_read_as_git_reads_it_loose_over_packed_and_in_a_worktree_from_git() {
     let (home, dir) = scratch("refs");
@@ -34,11 +46,15 @@ fn a_branch_is_read_as_git_reads_it_loose_over_packed_and_in_a_worktree_from_git
     let one = head(&git);
     git.run(&["branch", "kept"]).unwrap();
     git.run(&["pack-refs", "--all"]).unwrap();
-    assert_eq!(git.sha("refs/heads/kept").unwrap(), one, "packed");
+    let read = ran(&home, || assert_eq!(git.sha("refs/heads/kept").unwrap(), one, "packed"));
+    assert!(read.is_empty(), "read from its packed line, not asked of git: {read:?}");
     let two = commit(&git, "f", "at two\n");
     let branch = format!("refs/heads/{}", git.run(&["symbolic-ref", "--short", "HEAD"]).unwrap());
     assert_eq!(git.sha(&branch).unwrap(), two, "loose, over its packed line");
     assert!(git.sha("refs/heads/none").is_err(), "no such branch");
+    // A name that climbs out of the refs is no ref, whatever file it reaches.
+    git.run(&["update-ref", "ORIG_HEAD", &one]).unwrap();
+    assert!(git.sha("refs/heads/../../ORIG_HEAD").is_err());
     // A loose ref that does not read is never answered by its packed line.
     let loose = git.dir.join(".git").join(&branch);
     git.run(&["pack-refs", "--all"]).unwrap();
@@ -69,12 +85,20 @@ fn what_git_answers_of_fixed_commits_is_asked_once() {
     assert!(git.lag("kept", "refs/heads/none").is_err(), "no such tip");
     assert_eq!(git.shown(&branch, "f").as_deref(), Some("at two"));
     assert_eq!(git.shown(&one, "f"), None, "the file is not at one");
-    // Its objects gone, the repo answers what it answered of them before.
-    std::fs::rename(git.dir.join(".git/objects"), dir.join("objects")).unwrap();
-    assert_eq!(git.lag("kept", &branch).unwrap(), Lag::Behind(1));
-    assert_eq!(git.shown(&two, "f").as_deref(), Some("at two"));
-    assert_eq!(git.shown(&one, "f"), None);
-    std::fs::rename(dir.join("objects"), git.dir.join(".git/objects")).unwrap();
+    // Asked again, git is not, but for where the branch behind is checked
+    // out, which may change.
+    let again = ran(&home, || {
+        assert_eq!(git.lag("kept", &branch).unwrap(), Lag::Behind(1));
+        assert_eq!(git.shown(&two, "f").as_deref(), Some("at two"));
+        assert_eq!(git.shown(&one, "f"), None);
+    });
+    assert_eq!(again, ["worktree"]);
+    // A branch whose name is as long as an object id is still a branch: it moves.
+    let long = "g".repeat(40);
+    git.run(&["branch", &long, &one]).unwrap();
+    assert_eq!(git.shown(&long, "f"), None);
+    git.run(&["branch", "--force", &long, &two]).unwrap();
+    assert_eq!(git.shown(&long, "f").as_deref(), Some("at two"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -97,6 +121,7 @@ fn a_fetch_with_tags_refused_fetches_the_branch_without_them() {
     origin.run(&["tag", "--force", "v1"]).unwrap();
     assert_eq!(here.fetch(&branch).unwrap(), two);
     assert_eq!(here.sha("refs/tags/v1").unwrap(), one, "its tag left as it was");
-    assert!(here.fetch("none").is_err(), "origin has no such branch");
+    let fetched = ran(&home, || assert!(here.fetch("none").is_err(), "origin has no such branch"));
+    assert_eq!(fetched.iter().filter(|c| *c == "fetch").count(), 1, "not again without tags: {fetched:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
