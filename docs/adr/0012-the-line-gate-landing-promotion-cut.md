@@ -32,5 +32,6 @@ slow gate cannot run on every landing.
 
 ## Consequences
 
-- While a move of a checkout runs beside the ticks, none of its other
-  moves is carried, and the daemon does not restart onto a new binary.
+- While a move of a checkout runs beside the ticks, no other move of its
+  kind is carried (the other kinds go on: [ADR 0018](0018-a-checkout-s-moves-run-apart.md)),
+  and the daemon does not restart onto a new binary.

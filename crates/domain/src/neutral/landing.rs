@@ -58,14 +58,16 @@ pub struct CutFailure {
 
 /// What happened on a line. A cut's `at` is none in cuts recorded before
 /// factorium#222, a failed cut's `commit` (the base it was cut from) in those
-/// before factorium#251, a promotion's `gated` in those before it was kept.
+/// before factorium#251, a promotion's `gated` in those before it was kept; a
+/// cut's `base` (the base commit it was cut from) in those before it was
+/// kept, and in one read back.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum LineEvent {
     Landed { number: u64, commit: String, at: i64 },
     PromotionRed { tip: String, why: String },
     Promoted { tip: String, at: i64, gated: Option<String> },
-    CutMade { version: String, commit: String, at: Option<i64> },
+    CutMade { version: String, commit: String, at: Option<i64>, base: Option<String> },
     CutFailed { version: String, why: String, commit: Option<String> },
     LandingsHeld { why: String },
     LandingsReleased,
@@ -92,8 +94,11 @@ impl Line {
                 }
                 (s.promoted, s.red, s.moved, s.gated) = (Some(tip), None, Some(at), gated);
             }
-            LineEvent::CutMade { version, at, .. } => {
-                s.uncut.clear();
+            LineEvent::CutMade { version, at, base, .. } => {
+                // The promotions up to the base it was cut from are cut; one made while it ran
+                // is owed a cut of its own (models/Line.tla, PromotedCut).
+                let n = base.and_then(|b| s.uncut.iter().position(|l| l.commit == b));
+                s.uncut.drain(..n.map_or(s.uncut.len(), |i| i + 1));
                 s.moved = s.moved.max(at);
                 (s.version, s.cut_failed) = (Some(version), None);
             }

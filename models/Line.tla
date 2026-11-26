@@ -13,11 +13,14 @@
 (* from the CLI. `Daemons = {"d1"}` is the code: a daemon holds its pid    *)
 (* file's lock for its life (crates/factorium/src/lock.rs), so a second is *)
 (* refused, however close in time it starts; two (LineTwo.cfg) is what     *)
-(* the lock rules out. A daemon takes one move at a time (its tick's pass  *)
-(* over the line: crates/factorium/src/line.rs, App::lines and             *)
-(* App::carry), each move as the steps App::land, App::promote_tip and     *)
-(* App::cut_base take, any process acting between two of them. A daemon    *)
-(* may die between any two steps (`Die`), and is started again with        *)
+(* the lock rules out. A daemon's landing, promotion and cut run apart,    *)
+(* each kind one at a time (ADR 0018; its tick's pass over the line:       *)
+(* crates/factorium/src/line.rs, App::lines and App::carry), each move as  *)
+(* the steps App::land, App::promote_tip and App::cut_base take. A move's  *)
+(* gate and a cut's steps run beside the ticks, so any step of another     *)
+(* move or process goes between; what a tick does once a gate ended (the  *)
+(* push, the records) it does whole before another of its moves (InTick). *)
+(* A daemon may die between any two steps (`Die`), and is started again with *)
 (* nothing in flight; what it recorded and pushed stays. Each push to the  *)
 (* remote answers ok, refused (the tip it requires moved), or is lost: it  *)
 (* took effect, and the daemon reads an error, as for a refusal.           *)
@@ -123,15 +126,17 @@ Red(w) == /\ status' = [status EXCEPT ![w] = "working"]
 -----------------------------------------------------------------------------
 (* A landing (App::land), daemon d's.                                      *)
 
-\* A daemon takes one move at a time.
-Busy(d) == landing[d].pc # "idle" \/ promotion[d].pc # "idle" \/ cutting[d].pc # "idle"
+\* Daemon d's tick is finishing a move whose gate ended: the push and the
+\* records, taken whole before any other move of the tick. Its moves'
+\* gates and steps run beside the ticks, so any of them goes on meanwhile.
+InTick(d) == landing[d].pc \in {"gated", "pushed", "recorded", "ended"} \/ promotion[d].pc \in {"gated", "pushed"}
 Land(d, f, v) == landing' = [landing EXCEPT ![d][f] = v]
 Settle(d) == landing' = [landing EXCEPT ![d] = Idle]
 
 \* Line::landing: the first asking lands (one landing per checkout); its
 \* branch merged onto the proving tip it fetched (`fresh`, `merge_from`).
 LandRead(d) ==
-    /\ ~Busy(d) /\ asks # <<>>
+    /\ ~InTick(d) /\ landing[d].pc = "idle" /\ asks # <<>>
     /\ LET w == Head(asks) IN
         landing' = [landing EXCEPT ![d] = [pc |-> "merged", w |-> w, tip |-> proving,
                      merge |-> IF w \in Range(proving) THEN proving ELSE Append(proving, w)]]
@@ -142,7 +147,7 @@ LandRead(d) ==
 \* else it runs, and is recorded (RecordGate). Red: the worker is told.
 LandGate(d) ==
     LET l == landing[d] IN
-    /\ l.pc = "merged"
+    /\ l.pc = "merged" /\ ~InTick(d)
     /\ \/ /\ l.merge \in fast
           /\ Land(d, "pc", "gated") /\ UNCHANGED <<fast, status, asks>>
        \/ /\ l.merge \notin fast
@@ -211,7 +216,7 @@ LandClose(d) ==
 \* worker ended landed, so a daemon that died between GreenLanding and
 \* CloseIssue leaves it closed by the next tick.
 LandSweep(d) ==
-    /\ ~Busy(d) /\ Bug # "unswept"
+    /\ ~InTick(d) /\ Bug # "unswept"
     /\ \E w \in Workers :
         /\ status[w] = "landed" /\ w \notin closed
         /\ closed' = closed \cup {w}
@@ -232,7 +237,7 @@ Refused(p) == IF p = CLI THEN UNCHANGED failing ELSE failing' = TRUE
 \* promotion, on a tip not red (by hand: whatever the tip); then the lock
 \* (`Running::take`: none while another runs), then the base fetched.
 PromRead(p) ==
-    /\ p \in Daemons => ~Busy(p)
+    /\ p \in Daemons => ~InTick(p)
     /\ promotion[p].pc = "idle"
     /\ unpromoted # <<>>
     /\ p # CLI => red # proving
@@ -246,7 +251,7 @@ PromRead(p) ==
 \* PromotionRed), and the promotion ends.
 PromGate(p) ==
     LET r == promotion[p] IN
-    /\ r.pc = "read"
+    /\ r.pc = "read" /\ (p \in Daemons => ~InTick(p))
     /\ \/ /\ r.tip \in slow
           /\ Prom(p, "pc", "gated") /\ UNCHANGED <<slow, red, lock, failing>>
        \/ /\ r.tip \notin slow
@@ -303,19 +308,23 @@ PromRecord(p) ==
 (* A cut (App::cut_base), daemon d's: a version of the base tip it fetched *)
 
 CutRead(d) ==
-    /\ ~Busy(d) /\ uncut # <<>>
+    /\ ~InTick(d) /\ cutting[d].pc = "idle" /\ uncut # <<>>
     /\ cutting' = [cutting EXCEPT ![d] = [pc |-> "read",
                     commit |-> IF Bug = "cut_proving" THEN proving ELSE base]]
     /\ UNCHANGED <<proving, base, fast, slow, status, asks, dones, closed, unpromoted,
                    uncut, promoted, red, cuts, landing, promotion, lock, deaths, lost, failing>>
 
-\* Its steps, the tag and the install, in one heavy turn; recorded once
-\* (line.cut, CutMade).
+\* Its steps, the tag and the install, in one heavy turn beside the ticks;
+\* recorded once (line.cut, CutMade): the promotions up to the base it read
+\* are cut, one made while it ran is owed its own.
 CutMake(d) ==
-    /\ cutting[d].pc = "read"
+    /\ cutting[d].pc = "read" /\ ~InTick(d)
     /\ cutting' = [cutting EXCEPT ![d] = IdleC]
     /\ IF uncut = <<>> THEN failing' = TRUE /\ UNCHANGED <<cuts, uncut>>
-       ELSE cuts' = cuts \cup {cutting[d].commit} /\ uncut' = <<>> /\ UNCHANGED failing
+       ELSE /\ cuts' = cuts \cup {cutting[d].commit}
+            /\ uncut' = IF Bug = "cut_clears" THEN <<>>
+                         ELSE SelectSeq(uncut, LAMBDA x : ~IsPrefix(x, cutting[d].commit))
+            /\ UNCHANGED failing
     /\ UNCHANGED <<proving, base, fast, slow, status, asks, dones, closed, unpromoted,
                    promoted, red, landing, promotion, lock, deaths, lost>>
 
@@ -378,10 +387,11 @@ ClosedOnProving == \A w \in Workers : w \in closed => OnProving(w)
 PushedNotRed == \A w \in Workers : OnProving(w) => status[w] # "working"
 ClosedIsLanded == ClosedOnProving /\ PushedNotRed
 
-\* At most one landing and one promotion per checkout in flight.
+\* At most one landing, one promotion and one cut per checkout in flight.
 OneAtATime ==
     /\ Cardinality({d \in Daemons : landing[d].pc # "idle"}) <= 1
     /\ Cardinality({p \in Procs : promotion[p].pc # "idle"}) <= 1
+    /\ Cardinality({d \in Daemons : cutting[d].pc # "idle"}) <= 1
 
 \* A cut's version is a base commit.
 CutFromBase == \A c \in cuts : IsPrefix(c, base)
@@ -399,6 +409,12 @@ PromotionMoves == (unpromoted # <<>>) ~> (unpromoted = <<>> \/ red # None \/ fai
 \* A branch whose push took effect has its issue closed.
 LandedCloses == \A w \in Workers : OnProving(w) ~> (w \in closed)
 
+\* A branch the base holds is in a cut, or the proving tip is red, or the
+\* tick fails (findings, as for PromotionMoves): a promotion made while a
+\* cut ran is cut by a later one.
+PromotedCut == \A w \in Workers :
+    (w \in Range(base)) ~> ((\E c \in cuts : w \in Range(c)) \/ red # None \/ failing)
+
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/line.sh broken`).
 BrokenVariants == [
@@ -409,6 +425,7 @@ BrokenVariants == [
     cut_proving    |-> "CutFromBase",       \* a cut of the proving tip
     landed_refused |-> "LandedCloses",      \* line.landed refuses a commit landed already
     red_untold     |-> "LandingMoves",      \* a red landing is not recorded: gated again
-    unswept        |-> "LandedCloses"       \* no tick closes an issue its landed worker holds
+    unswept        |-> "LandedCloses",      \* no tick closes an issue its landed worker holds
+    cut_clears     |-> "PromotedCut"        \* a cut records every promotion cut, one made while it ran too
 ]
 =============================================================================

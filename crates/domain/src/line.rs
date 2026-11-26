@@ -155,6 +155,10 @@ pub struct Cut {
     pub checkout: String,
     pub version: String,
     pub commit: String,
+    /// The base commit it was cut from: the promotions up to it are cut, one made since is
+    /// owed its own. None, read back: all of them.
+    #[serde(default)]
+    pub base: Option<String>,
     pub failed: Option<String>,
 }
 
@@ -166,7 +170,12 @@ command!(RecordCut, "line.cut", Lines, Cut, |p| line_id(&p.checkout), |s, p, now
         Some(why) => {
             LineEvent::CutFailed { version: p.version.clone(), why: why.clone(), commit: Some(p.commit.clone()) }
         }
-        None => LineEvent::CutMade { version: p.version.clone(), commit: p.commit.clone(), at: Some(now.0) },
+        None => LineEvent::CutMade {
+            version: p.version.clone(),
+            commit: p.commit.clone(),
+            at: Some(now.0),
+            base: p.base.clone(),
+        },
     }])
 });
 
