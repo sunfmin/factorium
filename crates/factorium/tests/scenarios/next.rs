@@ -28,14 +28,14 @@ fn order(rows: Vec<IssueRow>, live: &[&str]) -> Vec<String> {
 
 #[test]
 fn the_checkout_with_the_fewest_live_workers_goes_first_then_the_oldest_ready() {
-    let rows = || vec![ready("a", 1, 10), ready("a", 2, 20), ready("b", 7, 30), ready("c", 3, 5)];
-    assert_eq!(order(rows(), &[]), ["c#3", "a#1", "a#2", "b#7"], "none live: the oldest ready first");
-    assert_eq!(order(rows(), &["c"]), ["a#1", "a#2", "b#7", "c#3"], "c has a worker: it goes last");
-    assert_eq!(order(rows(), &["a", "c"]), ["b#7", "c#3", "a#1", "a#2"]);
-    assert_eq!(order(rows(), &["a", "a", "b", "c"]), ["c#3", "b#7", "a#1", "a#2"]);
+    let rows = || vec![ready("app", 1, 10), ready("app", 2, 20), ready("web", 7, 30), ready("api", 3, 5)];
+    assert_eq!(order(rows(), &[]), ["api#3", "app#1", "app#2", "web#7"], "none live: the oldest ready first");
+    assert_eq!(order(rows(), &["api"]), ["app#1", "app#2", "web#7", "api#3"], "api has a worker: it goes last");
+    assert_eq!(order(rows(), &["app", "api"]), ["web#7", "api#3", "app#1", "app#2"]);
+    assert_eq!(order(rows(), &["app", "app", "web", "api"]), ["api#3", "web#7", "app#1", "app#2"]);
     // Ready at once: checkout and number decide, so the order is total.
-    let same = vec![ready("b", 1, 0), ready("a", 2, 0), ready("a", 1, 0)];
-    assert_eq!(order(same, &[]), ["a#1", "a#2", "b#1"]);
+    let same = vec![ready("web", 1, 0), ready("app", 2, 0), ready("app", 1, 0)];
+    assert_eq!(order(same, &[]), ["app#1", "app#2", "web#1"]);
 }
 
 async fn started(w: &World) -> String {
@@ -46,17 +46,17 @@ async fn started(w: &World) -> String {
 #[tokio::test]
 async fn a_checkout_with_one_ready_issue_starts_beside_one_with_three() {
     let w = World::new();
-    w.checkout("a").await;
-    w.checkout("b").await;
+    w.checkout("app").await;
+    w.checkout("web").await;
     w.kit().await;
     for title in ["one", "two", "three"] {
-        w.app.issue_add("a", title, "", false, &[]).await.unwrap();
+        w.app.issue_add("app", title, "", false, &[]).await.unwrap();
         w.advance(1);
     }
-    w.app.issue_add("b", "late", "", false, &[]).await.unwrap();
-    assert_eq!(started(&w).await, "a#1", "the oldest ready, none live");
-    assert_eq!(started(&w).await, "b#1", "b has no worker, a has one");
-    assert_eq!(started(&w).await, "a#2");
+    w.app.issue_add("web", "late", "", false, &[]).await.unwrap();
+    assert_eq!(started(&w).await, "app#1", "the oldest ready, none live");
+    assert_eq!(started(&w).await, "web#1", "web has no worker, app has one");
+    assert_eq!(started(&w).await, "app#2");
 }
 
 #[tokio::test]
