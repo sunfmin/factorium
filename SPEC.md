@@ -94,9 +94,11 @@ leaves it out: the daemon runs the look.
    shell, a line is a command it runs. A question the harness opens on its
    own mid-session (a dialog that would take the line) is dismissed first
    with the harness's own key.
-4. The worker checks what it changed (fmt, clippy, its crates' tests,
-   through `worker exclusive`), then runs `factorium worker done`: a
-   change's one full gate is its landing's, on the merge (§1.12);
+4. The worker runs its gate's cheap whole-repo steps (here `./lines.sh`,
+   fmt, clippy, `truefit contract`, `docfit check`) and its crates' tests,
+   through `worker exclusive`, the slow rest left to the landing; then
+   `factorium worker done`: a change's one full gate is its landing's, on
+   the merge (§1.12);
    `worker gate` is allowed, not required. An issue whose work changes no
    code (a publish, a measurement) it finishes, its branch holding no
    commits, with `factorium worker done --no-landing "<evidence>"`: the

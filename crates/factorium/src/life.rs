@@ -330,9 +330,11 @@ fn worker_brief(
     };
     b.push_str(&format!(
         "\n## How you finish\n\nYou work in this worktree on the branch `{branch}`, {made}. Commit your work on \
-         it. Check what you changed, through `factorium worker exclusive -- <command>`: fmt, clippy and the \
-         tests of the crates you touched. When the work is committed and those pass, run `factorium worker \
-         done`: factorium merges your branch onto the proving branch and runs the repo's fast gate there, the \
+         it. Before `done`, run the gate's steps that are cheap and cover the whole repo, as the repo's gate \
+         lists them (for factorium `./lines.sh`, fmt, clippy, `truefit contract`, `docfit check`), and the \
+         tests of the crates you touched, through `factorium worker exclusive -- <command>`; the tests under \
+         slimfit, builds and anything else slow are the landing's gate's. When the work is committed and \
+         those pass, run `factorium worker done`: factorium merges your branch onto the proving branch and runs the repo's fast gate there, the \
          one full gate of your change. `factorium worker gate` runs that gate on your worktree; you may, you \
          need not. To keep a record on your issue (measurements, what you found), run \
          `factorium worker comment --text \"…\"`: it calls no one, so go on. Before a long wait on a background \

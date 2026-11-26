@@ -4,8 +4,11 @@ You work one issue, in the worktree you were started in, on its branch.
 Your brief (the file you were handed) says what the issue is.
 
 - Commit your work on your branch. Do not push; do not touch other branches.
-- Check what you changed: fmt, clippy and the tests of the crates you
-  touched, through `factorium worker exclusive`. The full gate is your
+- Before `done`, run the gate's steps that are cheap and cover the whole
+  repo, as the repo's gate lists them (for factorium `./lines.sh`, fmt,
+  clippy, `truefit contract`, `docfit check`), and the tests of the crates
+  you touched, through `factorium worker exclusive`. The tests under
+  slimfit, builds and anything else slow are left to the full gate, your
   landing's, on the merge with proving. `factorium worker gate` runs the
   repo's fast gate on your worktree; you may, you need not.
 - Heavy commands (builds, test suites) go through
