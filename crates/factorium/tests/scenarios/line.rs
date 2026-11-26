@@ -128,6 +128,51 @@ async fn a_failed_cut_is_a_finding_and_waits_for_a_new_promotion() {
     assert!(w.findings().await.is_empty(), "{:?}", w.findings().await);
 }
 
+/// Seen 2026-11-26: a cut that ended after its version commit left that
+/// version's tag behind, fetched while origin held it; the next cut numbered
+/// past it, and its tag would not apply. Each cut numbers from origin's tags
+/// alone, and its commit and tag name the same version.
+#[tokio::test]
+async fn a_cut_that_ended_after_its_version_commit_and_tag_leaves_the_next_one_its_number() {
+    let w = World::new();
+    let checkout = w.checkout("web").await;
+    w.kit().await;
+    let commit = r#"'echo $FACTORIUM_VERSION > VERSION && git add VERSION && git commit -qm "cut $FACTORIUM_VERSION"'"#;
+    // As release.sh does: the tag pushed, the checkout fetching it then, the tag taken back.
+    let ends = format!(
+        "'git push -q origin HEAD:refs/tags/$FACTORIUM_VERSION && git -C {} fetch -q --tags origin \
+         && git push -q origin :refs/tags/$FACTORIUM_VERSION && git tag $FACTORIUM_VERSION && exit 1'",
+        checkout.display()
+    );
+    let toml = |steps: &str| format!("[gate]\nfast = \"true\"\n\n[cut]\nsteps = [{steps}]\n");
+    w.push_by_hand("web", "proving", "factorium.toml", &toml(&format!("{commit}, {ends}")));
+    w.app.issue_add("web", "a", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let t = {
+        let wk = worker(&w.app).await;
+        w.done(&wk, "a", "x").await;
+        w.tick().await
+    };
+    let failed = t.lines.iter().find(|l| l["cut"] == "web").expect("a cut ran");
+    assert_eq!(failed["version"], "v0.1.0", "{failed}");
+    assert!(failed["failed"].is_string(), "{failed}");
+    assert!(w.git(&checkout, &["rev-parse", "v0.1.0"]).is_ok(), "the checkout kept the tag origin no longer has");
+    // The fix lands and is promoted: the next cut is v0.1.0 again, in its commit and its tag.
+    w.push_by_hand("web", "proving", "factorium.toml", &toml(commit));
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let t = {
+        let wk = worker(&w.app).await;
+        w.done(&wk, "b", "y").await;
+        w.tick().await
+    };
+    let cut = t.lines.iter().find(|l| l["cut"] == "web").expect("cut again after the promotion");
+    assert_eq!((cut["version"].as_str(), cut["failed"].as_str()), (Some("v0.1.0"), None), "{cut}");
+    let remote = w.dir.join("remotes/web.git");
+    assert_eq!(w.git(&remote, &["log", "-1", "--format=%s", "v0.1.0"]).unwrap(), "cut v0.1.0");
+    assert_eq!(w.git(&remote, &["rev-parse", "v0.1.0^{commit}"]).unwrap(), cut["commit"].as_str().unwrap());
+}
+
 /// Lands, promotes and cuts one change of `web`, whose cut installs the
 /// formula `web`; answers the tick.
 async fn cut_one(w: &World) -> factorium::Tick {

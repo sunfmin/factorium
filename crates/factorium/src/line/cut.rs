@@ -33,7 +33,7 @@ impl App {
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
-        let version = next_version(git.version_tags().first().map(String::as_str));
+        let version = next_version(git.version_tags().map_err(fail("git"))?.first().map(String::as_str));
         let here = git.fresh(&self.data().clone_of(LineClone::Cut, &c.name), &base).map_err(fail("git"))?;
         // The steps share the clone, so they take one turn of the queue.
         let job = Job::cut(LineJob::Cut.of(&c.name), &here.dir, &cut.steps, &version, cut.limit).of(None, bound_at);
