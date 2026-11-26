@@ -311,7 +311,7 @@ async fn swaps(app: &factorium::App) -> String {
 
 /// Homebrew links `version` of the formula `factorium` (the `running_as`
 /// one): answers its binary, canonical.
-fn link(w: &World, version: &str) -> std::path::PathBuf {
+pub(crate) fn link(w: &World, version: &str) -> std::path::PathBuf {
     let bin = w.dir.join("brew/Cellar/factorium").join(version).join("bin");
     program(&bin.join("factorium"), &binary(version));
     let opt = w.dir.join("brew/opt/factorium");
