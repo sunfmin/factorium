@@ -315,17 +315,11 @@ async fn a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entrie
 /// gate's time for each: one lands every 6 min, within the stall bound of
 /// 10 min, so the third waits 18 min for its turn.
 async fn three_wait_their_turn(w: &World) {
-    three_done(w, |n| (format!("f{n}"), "x".into())).await;
-}
-
-/// Three workers on web, #1 to #3, each commits what `change` says of its number, and is done.
-async fn three_done(w: &World, change: impl Fn(u64) -> (String, String)) {
     w.two_at_work().await;
     w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
     w.tick().await;
     for n in 1..=3 {
-        let (file, text) = change(n);
-        w.done(&w.worker_on("web", n).await, &file, &text).await;
+        w.done(&w.worker_on("web", n).await, &format!("f{n}"), "x").await;
     }
 }
 
