@@ -11,7 +11,7 @@ Your brief (the file you were handed) says what the issue is.
   slimfit, builds and anything else slow are left to the full gate, your
   landing's, on the merge with proving. `factorium worker gate` runs the
   repo's fast gate on your worktree; you may, you need not.
-- Heavy commands (builds, test suites) go through
+- Heavy commands (builds, test suites, `brew install|upgrade|reinstall`) go through
   `factorium worker exclusive -- <command>`, which waits until the machine
   has room and runs it at a gate's priority, so what it times (tests,
   `slimfit check`) is what the gate would. Work whose time nothing

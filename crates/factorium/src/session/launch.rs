@@ -114,8 +114,9 @@ impl Caller {
     }
 
     /// Refuses the shell `line` its session would run, as the guard hook:
-    /// each factorium command in it as [`Caller::may_run`] says, and a
-    /// worker never pushes.
+    /// each factorium command in it as [`Caller::may_run`] says, a worker
+    /// never pushes, and a worker's `brew install|upgrade|reinstall` runs
+    /// only under `factorium worker exclusive`.
     pub fn may_run_line(&self, line: &str) -> Answer<()> {
         // Each command the line runs: what follows a separator, past variable
         // assignments and the words that run the next one (`env`, `exec`, …).
@@ -144,6 +145,21 @@ impl Caller {
                             }
                             break;
                         }
+                    }
+                }
+                // A worker's brew runs under `worker exclusive`, which is a factorium
+                // line, so this sees only a brew the heavy queue would not: one that
+                // installs may build a toolchain from source.
+                Some("brew") if matches!(self, Caller::Worker(_)) => {
+                    let sub = words.find(|w| !w.starts_with('-')).unwrap_or("");
+                    if ["install", "upgrade", "reinstall"].contains(&sub) {
+                        let why = format!(
+                            "a worker's `brew {sub}` can build a toolchain from source and load the whole host, \
+                             so it runs in the heavy queue: `factorium worker exclusive -- brew {sub} …`; \
+                             for a toolchain, prefer a prebuilt, pinned install in the home, such as \
+                             `mise install <tool>@<version>`"
+                        );
+                        return Err(Refusal::new("guarded", why));
                     }
                 }
                 _ => {}
