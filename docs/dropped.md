@@ -17,7 +17,7 @@ purpose, listed below with why. The rest is kept, each with its scenario in
 | The asking session (human decisions asked in a resident session) | Everything goes to the watch; only spending money goes to the owner, in the report's `human` part. |
 | Batched rounds and the pairing tree | One landing at a time per checkout onto the proving branch; the fast gate runs on each merge. |
 | A PR red twice is handed to a new worker in a new worktree | Red twice goes to the watch (SPEC §9). |
-| Remote refs and cache directories as state | One SQLite database (SPEC §3). |
+| Remote refs and cache directories as state | One SQLite database (ADR 0025). |
 | The object store the fleet owned | Nothing factorium keeps needs one. |
 | A private repo's release cut on a Mac / several cut hosts | One host cuts. |
 | Codex goals as the worker's frame | The harness can still keep a goal; factorium does not depend on it. |
