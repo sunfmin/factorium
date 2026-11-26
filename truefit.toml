@@ -672,7 +672,8 @@ last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
 
-# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
+# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0019-stacked-landing-gates.md,
+# docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
 # models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
@@ -682,19 +683,28 @@ name = "line"
 spec = "models/Line.tla"
 config = "models/Line.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "Done", file = "crates/domain/src/worker.rs", function = "AskLanding" },
-  { action = "LandRead", file = "crates/factorium/src/line.rs", function = "App::lines, App::carry, App::land (fetch, fresh, merge_from)" },
-  { action = "LandRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::due, Line::landing" },
-  { action = "LandRead", file = "crates/domain/src/line.rs", function = "look" },
-  { action = "LandGate", file = "crates/factorium/src/gate.rs", function = "App::gate (Kind::Fast)" },
-  { action = "LandGate", file = "crates/factorium/src/line.rs", function = "App::land (red), App::red" },
-  { action = "LandPush", file = "crates/factorium/src/line.rs", function = "App::land (push_requiring)" },
-  { action = "LandPush", file = "crates/host/src/git.rs", function = "Git::push_requiring" },
+  { action = "StackOn", file = "crates/factorium/src/line/stack.rs", function = "App::landings, App::due_landings, App::stack_on" },
+  { action = "StackOn", file = "crates/domain/src/neutral/landing.rs", function = "Line::due, Line::landing" },
+  { action = "StackOn", file = "crates/domain/src/line.rs", function = "look" },
+  { action = "StackOn", file = "crates/domain/src/stack.rs", function = "StackLanding, Stack::top" },
+  { action = "StackGate", file = "crates/factorium/src/gate.rs", function = "App::gate (Kind::Fast)" },
+  { action = "StackGate", file = "crates/factorium/src/line/stack.rs", function = "App::ask_gate, App::landing_ran, App::layer_gated" },
+  { action = "StackGate", file = "crates/domain/src/stack.rs", function = "GreenLayer, RedLayer" },
+  { action = "StackPush", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (push_requiring, unstack)" },
+  { action = "StackPush", file = "crates/domain/src/stack.rs", function = "Stack::landable, Unstack" },
+  { action = "StackPush", file = "crates/host/src/git.rs", function = "Git::push_requiring" },
   { action = "LandRecord", file = "crates/domain/src/line.rs", function = "RecordLanding" },
   { action = "LandEnd", file = "crates/factorium/src/life.rs", function = "App::end_worker, App::finish (GreenLanding)" },
   { action = "LandClose", file = "crates/factorium/src/life.rs", function = "App::finish (CloseIssue)" },
+  { action = "StackLanded", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (LandStack)" },
+  { action = "StackLanded", file = "crates/domain/src/stack.rs", function = "LandStack" },
+  { action = "StackStale", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (rest not on the pushed commit), App::unstack" },
+  { action = "StackRed", file = "crates/factorium/src/line/stack.rs", function = "App::land_stack, App::unstack" },
+  { action = "StackRed", file = "crates/domain/src/stack.rs", function = "Stack::red, Unstack" },
+  { action = "TellRed", file = "crates/factorium/src/line.rs", function = "App::red" },
   { action = "PromRead", file = "crates/factorium/src/line.rs", function = "App::carry, App::promote_tip (Running::take, fetch base), App::promote" },
   { action = "PromRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::promotable, Line::on_tip" },
   { action = "PromGate", file = "crates/factorium/src/line.rs", function = "App::promote_tip (slow gate, red)" },
@@ -707,8 +717,9 @@ covers = [
   { action = "CutRead", file = "crates/domain/src/neutral/landing.rs", function = "Line::cut" },
   { action = "CutMake", file = "crates/factorium/src/line/cut.rs", function = "App::cut_base" },
   { action = "CutMake", file = "crates/domain/src/line.rs", function = "RecordCut" },
-  { action = "Die", file = "crates/factorium/src/daemon/process.rs", function = "App::run" },
-  { action = "Die", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
+  { action = "Die", file = "crates/factorium/src/daemon/process.rs", function = "App::run, App::daemon_start (clear_stacks)" },
+  { action = "Die", file = "crates/factorium/src/line/stack.rs", function = "App::clear_stacks" },
+  { action = "Fail", file = "crates/factorium/src/daemon.rs", function = "App::tick" },
   { action = "OneAtATime", file = "crates/factorium/src/daemon/process.rs", function = "App::run (pid file)" },
 ]
 
@@ -732,7 +743,7 @@ name = "line-live"
 spec = "models/Line.tla"
 config = "models/LineLive.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "LandingMoves", file = "crates/domain/src/doctor.rs", function = "stalls (landing)" },
   { action = "PromotionMoves", file = "crates/domain/src/doctor.rs", function = "stalls (unpromoted)" },
@@ -747,26 +758,39 @@ name = "line-end"
 spec = "models/Line.tla"
 config = "models/LineEnd.cfg"
 limit = 60
-commit = "0f6ce74b1da900b78019d5f4f3d60b25bf3bc1c4"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
   { action = "LandSweep", file = "crates/factorium/src/life.rs", function = "App::close_landed" },
 ]
 
+# A merge that takes regenerated records, amended into it as its gate ends
+# green: the layers on the unamended merge stack again on what was pushed.
+[[model]]
+name = "line-amend"
+spec = "models/Line.tla"
+config = "models/LineAmend.cfg"
+limit = 60
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
+covers = [
+  { action = "StackGate", file = "crates/factorium/src/line/stack.rs", function = "App::stack_on (regenerated), App::layer_gated (amend)" },
+  { action = "StackStale", file = "crates/factorium/src/line/stack.rs", function = "App::push_stack (rest not on the pushed commit)" },
+]
+
 # A scenario's run, as the line records it (crates/factorium/tests/
-# scenarios/fixture/line_trace.rs): one worker, the code's two steps for
-# its end; its own check is one step deep.
+# scenarios/fixture/line_trace.rs): two workers, the code's two steps for
+# their end; its own check is one step deep.
 [[model]]
 name = "line-run"
 spec = "models/Line.tla"
 config = "models/LineRun.cfg"
 limit = 60
-commit = "302e4b1042e459f082984ca3e451f51c6c1bc725"
+commit = "db34d46b2d497540cbfb675070537f381adc454c"
 covers = [
-  { action = "Next", file = "crates/factorium/src/line.rs", function = "App::land, App::promote_tip, App::cut_base" },
+  { action = "Next", file = "crates/factorium/src/line.rs", function = "App::landings, App::promote_tip, App::cut_base" },
 ]
 
 [model.trace]
-status = '[w \in Workers |-> r.state.status[w]]'
+status = '[w \in Workers |-> IF w <= Len(r.state.status) THEN r.state.status[w] ELSE "working"]'
 asks = 'r.state.asks'
 closed = '{r.state.closed[i] : i \in DOMAIN r.state.closed}'
 unpromoted = 'r.state.unpromoted'
