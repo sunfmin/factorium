@@ -80,8 +80,17 @@ impl App {
         Ok((st, diff))
     }
 
+    /// What slimfit printed, or its refusal: its words, which it prints on
+    /// stdout (`{"error": …}`), then what it said on stderr.
     fn slimfit(&self, args: &[&str]) -> Answer<String> {
-        self.host.programs().run("slimfit", args).result("slimfit", args).map_err(fail("slimfit"))
+        let said = self.host.programs().run("slimfit", args);
+        match said.ok {
+            true => Ok(said.out),
+            false => Err(Refusal::new(
+                "slimfit",
+                format!("slimfit {}: {} {}", args.join(" "), said.out.trim(), said.err.trim()),
+            )),
+        }
     }
 
     /// `question` asked of a fresh session as `role`, on the kit's other

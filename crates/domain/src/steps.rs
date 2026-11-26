@@ -118,7 +118,7 @@ pub fn steps(events: &[(i64, WorkerEvent)], runs: &[RunRow], outbox: &[(i64, Out
         if let Some(st) = e.standing() {
             if let Some(l) = s.landings.last_mut().filter(|l| l.ended_at.is_none() && st.status != Status::Landing) {
                 l.ended_at = Some(at);
-                l.outcome = Some(word(st.status, e).into());
+                l.outcome = Some(word(st.status, e));
             }
             close(&mut s.waits, at);
         }
@@ -171,14 +171,11 @@ fn close(spans: &mut [Span], at: i64) {
 }
 
 /// How a landing ended, by the event that ended it.
-fn word(status: Status, e: &WorkerEvent) -> &'static str {
-    match (e, status) {
-        (WorkerEvent::LandingRed { .. }, _) => "red",
-        (WorkerEvent::WorkerLanded { .. }, _) => "landed",
-        (_, Status::Waiting) => "waiting",
-        (_, Status::Ended) => "ended",
-        (_, Status::Finishing) => "finishing",
-        (_, Status::Working | Status::Landing) => "working",
+fn word(status: Status, e: &WorkerEvent) -> String {
+    match e {
+        WorkerEvent::LandingRed { .. } => "red".into(),
+        WorkerEvent::WorkerLanded { .. } => "landed".into(),
+        _ => crate::named(status),
     }
 }
 

@@ -347,6 +347,42 @@ fn the_guard_hook_refuses_a_worker_an_owner_command_and_a_push() {
     assert_eq!(by_tool("apply_patch", "git push origin HEAD", worker), Some(0));
 }
 
+/// A worker's `brew install` can build a toolchain from source: it runs in
+/// the heavy queue, under `worker exclusive`, never beside it. On 2026-11-26 a
+/// worker's `brew install zig` compiled LLVM 22 outside the queue, which read
+/// the host as busy and started nothing for 13 min.
+#[test]
+fn the_guard_hook_sends_a_workers_brew_install_through_the_heavy_queue() {
+    let hook = |line: &str, worker: bool| -> (Option<i32>, String) {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_factorium"));
+        cmd.args(["guard", "claude-code"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
+        cmd.env_remove("FACTORIUM_WORKER").env_remove("FACTORIUM_WATCH");
+        if worker {
+            cmd.env("FACTORIUM_WORKER", WORKER);
+        }
+        let mut child = cmd.spawn().unwrap();
+        let payload = json!({ "tool_name": "Bash", "tool_input": { "command": line } });
+        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    for line in [
+        "brew install zig",
+        "cd x && /opt/homebrew/bin/brew upgrade llvm",
+        "HOMEBREW_NO_AUTO_UPDATE=1 brew reinstall zig",
+    ] {
+        let (code, said) = hook(line, true);
+        assert_eq!(code, Some(2), "{line}: {said}");
+        assert!(said.contains("factorium worker exclusive -- brew"), "{line}: {said}");
+        assert!(said.contains("mise install <tool>@<version>"), "{line}: {said}");
+    }
+    assert_eq!(hook("factorium worker exclusive -- brew install zig", true).0, Some(0));
+    for read_only in ["brew list", "brew info zig", "brew --prefix", "brew search zig", "brew outdated"] {
+        assert_eq!(hook(read_only, true).0, Some(0), "{read_only}");
+    }
+    assert_eq!(hook("brew install zig", false).0, Some(0), "the owner's own session");
+}
+
 /// The guard lets a call through only when it has read it: a payload it
 /// cannot read is refused, with the harness's refused code (factorium#99).
 #[test]

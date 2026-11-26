@@ -414,3 +414,31 @@ async fn an_urgent_start_goes_ahead_of_no_ready_issue_whose_block_is_unmet() {
     let started = starts(&w, 2).await;
     assert_eq!(started["urgent"]["ahead_of"], serde_json::json!([]), "#1 could not go: {started}");
 }
+
+#[tokio::test]
+async fn admission_held_only_by_the_urgent_halt_is_the_halt_s_finding_alone_and_a_full_disk_is_its_own() {
+    let w = World::new();
+    w.two_at_work().await;
+    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
+    w.app.issue_add("web", "c", "", false, &[]).await.unwrap();
+    let found = async || -> Vec<String> {
+        w.findings().await.into_iter().map(|f| f["what"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(w.tick().await.held.as_deref(), Some("halt: behind urgent web#2"));
+    w.advance(31);
+    w.tick().await;
+    let f = found().await;
+    assert!(f.iter().any(|f| f.starts_with("urgent web#2 halts")), "{f:?}");
+    assert!(!f.iter().any(|f| f.contains("admission held")), "the halt's finding covers it: {f:?}");
+
+    // An urgent issue held by a full disk: the disk holds it, not the halt.
+    w.app.issue_add("web", "d", "", false, &[]).await.unwrap();
+    w.app.issue_mark_urgent("web", 4, true).await.unwrap();
+    w.host.reading.lock().unwrap().disk_free = 5 * crate::fixture::GIB;
+    assert!(w.tick().await.held.unwrap().starts_with("disk"));
+    w.advance(31);
+    w.tick().await;
+    let f = found().await;
+    assert!(f.iter().any(|f| f.starts_with("urgent web#2 halts")), "{f:?}");
+    assert!(f.iter().any(|f| f.contains("admission held") && f.contains("disk")), "{f:?}");
+}

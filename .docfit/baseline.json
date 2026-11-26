@@ -21,11 +21,8 @@
   "crates/domain/src/doctor.rs": {
     "local_refs": 1
   },
-  "crates/domain/src/health.rs": {
-    "local_refs": 1
-  },
   "crates/domain/src/heavy.rs": {
-    "local_refs": 7
+    "local_refs": 2
   },
   "crates/domain/src/idle.rs": {
     "local_refs": 1
@@ -34,7 +31,7 @@
     "local_refs": 8
   },
   "crates/domain/src/kit.rs": {
-    "local_refs": 5
+    "local_refs": 2
   },
   "crates/domain/src/line.rs": {
     "local_refs": 1
