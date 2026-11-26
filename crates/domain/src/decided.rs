@@ -1,5 +1,5 @@
 //! A decision a decider (a session, a worker, the watch) made for the owner,
-//! recorded in the shape SPEC.md §2 gives, in the issue it belongs to: the
+//! recorded in the shape ADR 0024 gives, in the issue it belongs to: the
 //! body when the issue is filed, a comment afterwards. The issue is its one
 //! home; doctor's `decided` reads it from there. Each record has a short
 //! number, `D<n>`, one sequence for the host, given once when it enters its

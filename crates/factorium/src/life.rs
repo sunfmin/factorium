@@ -48,7 +48,7 @@ impl App {
         let pick = self.pick(checkout, &issue.on).await?;
         let attempt = issue.attempts + 1;
         let worker = worker_id(checkout, number, attempt);
-        // Unread, the tip leaves no worktree to start in (SPEC §2.6): nothing is taken.
+        // Unread, the tip leaves no worktree to start in (ADR 0021): nothing is taken.
         let tip = self.host.git(&c.path).fetch(&c.proving).map_err(fail("git"))?;
         let pid = std::process::id();
         self.submit::<TakeIssue>(Taking { checkout: checkout.into(), number, worker, pid }).await?;
@@ -109,7 +109,7 @@ impl App {
         Ok(freed)
     }
 
-    /// A start's last look, once its worker is recorded started (SPEC §2):
+    /// A start's last look, once its worker is recorded started (ADR 0021):
     /// an issue that a person's stop (`wait-for-human`, `close`) moved
     /// meanwhile, found no started worker to end, so its start ends it, as
     /// the stop would have, its worktree kept. `ended` in its answer says why.

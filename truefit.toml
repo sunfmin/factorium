@@ -672,7 +672,7 @@ last_start = 'r.state.last_start \div 500'
 rules = 'r.state.rules'
 now = 'r.now \div 500'
 
-# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, SPEC.md §2), model-checked by TLC:
+# A checkout's line (docs/adr/0012-the-line-gate-landing-promotion-cut.md, docs/adr/0023-off-the-path-everything-goes-to-the-watch.md), model-checked by TLC:
 # models/Line.tla under its configs, each the smallest that still shows its
 # properties fail on a broken variant (`models/line.sh broken`); what the
 # code breaks is `models/line.sh finding`. A scenario's run is checked as
@@ -774,8 +774,8 @@ uncut = 'r.state.uncut'
 promoted = 'r.state.promoted'
 red = 'r.state.red'
 
-# An issue's worktrees and attempts (SPEC §2 steps 3 and 6), model-checked
-# by TLC: models/Worktrees.tla, under the gate's config, in full (every
+# An issue's worktrees and attempts (docs/adr/0021-a-worktree-that-holds-work-is-kept.md),
+# model-checked by TLC: models/Worktrees.tla, under the gate's config, in full (every
 # state it reaches). Its properties each fail on a broken variant
 # (`models/worktrees.sh broken`).
 [[model]]
@@ -984,138 +984,138 @@ check = ["test"]
 [[promise]]
 name = "cut-blocker-met-on-install"
 says = "`<checkout>#N@cut` is met only once a cut of that checkout holds its landing"
-source = "SPEC.md:30"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:18"
 check = ["test"]
 
 [[promise]]
 name = "typed-only-when-up"
 says = "Text is typed at a session only once its harness's own screen is up there"
-source = "SPEC.md:56"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:14"
 check = ["test"]
 
 [[promise]]
 name = "worker-comment-changes-nothing"
-says = "a comment on its issue by it that changes nothing else and goes to no one"
-source = "SPEC.md:68"
+says = "a comment on its issue that changes nothing else and goes to no one"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:23"
 check = ["test"]
 
 [[promise]]
 name = "work-never-lost"
 says = "its worktree is removed unless it holds work that is nowhere else"
-source = "SPEC.md:86"
+source = "docs/adr/0021-a-worktree-that-holds-work-is-kept.md:20"
 check = ["model worktrees"]
 
 [[promise]]
 name = "no-start-over-under-worker"
 says = "only while no worker is on the issue"
-source = "SPEC.md:96"
+source = "docs/adr/0021-a-worktree-that-holds-work-is-kept.md:24"
 check = ["model worktrees"]
 
 [[promise]]
 name = "off-path-to-watch"
 says = "Off the path, everything goes to the watch"
-source = "SPEC.md:135"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:14"
 check = ["test"]
 
 [[promise]]
 name = "landing-moves"
 says = "a landing no gate runs for on a line that has not moved for `stall_bound`"
-source = "SPEC.md:145"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["model line-live"]
 
 [[promise]]
 name = "promotion-moves"
 says = "the oldest unpromoted landing past `promotion_bound` with no promotion running"
-source = "SPEC.md:149"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["model line-live"]
 
 [[promise]]
 name = "stalled-queue-found"
 says = "a heavy queue that starts nothing past `stall_bound`"
-source = "SPEC.md:143"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:17"
 check = ["test"]
 why = "the finding is read from the queue's records by one doctor pass; stall.rs holds the queue still and past the hold bound"
 
 [[promise]]
 name = "guard-worker-only"
 says = "the guard lets a worker run only"
-source = "SPEC.md:250"
+source = "SPEC.md:54"
 check = ["test"]
 
 [[promise]]
 name = "promote-refused-while-running"
 says = "while a promotion of that checkout runs, the daemon's or another `promote`, it is refused"
-source = "SPEC.md:256"
+source = "SPEC.md:60"
 check = ["test"]
 why = "the refusal reads the promotion's one running record (Running::take); line.rs runs `promote` by hand beside the daemon's"
 
 [[promise]]
 name = "nothing-ahead-of-brief"
 says = "Nothing is typed before the harness is up, nor ahead of the brief."
-source = "SPEC.md:270"
+source = "SPEC.md:74"
 check = ["test"]
 why = "each session's outbox is one record, typed in order by one daemon; outbox.rs holds the brief and what comes after it"
 
 [[promise]]
 name = "comment-never-stops-turn"
 says = "never stopping its running turn"
-source = "SPEC.md:293"
+source = "SPEC.md:97"
 check = ["test"]
 why = "delivery goes through the one outbox; outbox.rs and comment.rs type behind a running turn"
 
 [[promise]]
 name = "told-at-most-once"
 says = "Each reaches the worker at most once"
-source = "SPEC.md:305"
+source = "SPEC.md:109"
 check = ["test"]
 why = "the line `tell` or `restart` types is its one delivery, written once; comment.rs checks each is typed once"
 
 [[promise]]
 name = "exec-only-proven"
 says = "once that binary is proven to open this host's database"
-source = "SPEC.md:357"
+source = "SPEC.md:161"
 check = ["test"]
 
 [[promise]]
 name = "help-is-the-manual"
 says = "every command's `--help` says what it does and what it answers"
-source = "SPEC.md:420"
+source = "SPEC.md:224"
 kept = "no test reads every command's --help; the help is kept the manual by review of each command's change"
 
 [[promise]]
 name = "lines-never-fail"
 says = "and never fails"
-source = "SPEC.md:438"
+source = "SPEC.md:242"
 kept = "`./lines.sh` runs in every gate (checks.sh): one that failed would turn every gate red"
 
 [[promise]]
 name = "pick-within-bound"
 says = "within `pick_bound`, given only slimfit's goal"
-source = "SPEC.md:542"
+source = "SPEC.md:346"
 check = ["test"]
 
 [[promise]]
 name = "never-a-pick-without-picker"
 says = "when none is left the worker gets the last refusal, never a pick"
-source = "SPEC.md:555"
+source = "SPEC.md:359"
 check = ["test"]
 
 [[promise]]
 name = "moved-reds-bounded"
 says = "`moved_reds_max` bounds how many in a row are let off."
-source = "SPEC.md:620"
+source = "SPEC.md:424"
 check = ["test"]
 
 [[promise]]
 name = "base-moved-only-by-promotion"
 says = "anything else that moves the base turns promotion red"
-source = "SPEC.md:625"
+source = "SPEC.md:429"
 check = ["test"]
 
 [[promise]]
 name = "proving-only-gated"
 says = "It lands on the fast gate alone and reaches only proving"
-source = "SPEC.md:627"
+source = "SPEC.md:431"
 check = ["model line"]
 
 [[promise]]
@@ -1177,49 +1177,49 @@ check = ["test"]
 [[promise]]
 name = "doctor-asks-every-wait"
 says = "every issue of every checkout that waits for a person"
-source = "SPEC.md:175"
+source = "docs/adr/0023-off-the-path-everything-goes-to-the-watch.md:26"
 check = ["test"]
 
 [[promise]]
 name = "decided-records-only-first-line"
-says = "a comment is one only when its first line starts `Decided (`"
-source = "SPEC.md:194"
+says = "a record only when its first line starts `Decided (`"
+source = "docs/adr/0024-decisions-are-decided-records.md:21"
 check = ["test"]
 
 [[promise]]
 name = "decided-last-seven-days"
 says = "answers those of the last 7 days, read or not"
-source = "SPEC.md:198"
+source = "docs/adr/0024-decisions-are-decided-records.md:24"
 check = ["test"]
 
 [[promise]]
 name = "old-records-numbered-once"
 says = "Records made before numbers were given take theirs once, oldest first by when they were made"
-source = "SPEC.md:210"
+source = "docs/adr/0024-decisions-are-decided-records.md:30"
 check = ["test"]
 
 [[promise]]
 name = "usage-read-once-by-id"
 says = "each assistant message's `usage` once, by its id"
-source = "SPEC.md:303"
+source = "SPEC.md:107"
 check = ["test"]
 
 [[promise]]
 name = "older-daemon-swaps-on-failed-tick"
 says = "a failed tick still starts that proof and swaps once it passed"
-source = "SPEC.md:368"
+source = "SPEC.md:172"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-heavy"
 says = "No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks."
-source = "SPEC.md:402"
+source = "SPEC.md:206"
 check = ["test"]
 
 [[promise]]
 name = "slow-step-a-finding"
 says = "is kept, and for an hour is a finding naming how long it took and that step (factorium#231)"
-source = "SPEC.md:406"
+source = "SPEC.md:210"
 check = ["test"]
 
 [[promise]]
@@ -1301,25 +1301,25 @@ check = ["test"]
 [[promise]]
 name = "every-block-says-why"
 says = "`--blocked-by` and `issue block --by` are refused without `--why <text>`"
-source = "SPEC.md:33"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:19"
 check = ["test"]
 
 [[promise]]
 name = "old-block-no-reason-given"
 says = "A block made before whys were asked for reads \"(no reason given)\"."
-source = "SPEC.md:37"
+source = "docs/adr/0020-an-issue-waits-with-a-why.md:20"
 check = ["test"]
 
 [[promise]]
 name = "older-store-read-as-it-is"
 says = "A store written by an older binary is read by a newer one as it is: no script is run by hand"
-source = "SPEC.md:230"
+source = "SPEC.md:34"
 check = ["test"]
 
 [[promise]]
 name = "installs-only-at-its-cut"
 says = "a host one of whose checkouts declares the cut of the daemon's own formula (its base, as last fetched, names it in `[cut]`) installs it at that cut, and only then"
-source = "SPEC.md:375"
+source = "SPEC.md:179"
 check = ["test"]
 
 [[promise]]
@@ -1344,27 +1344,27 @@ why = "factorium has no `truefit sim`, and models/Line.tla has no merge; each ti
 [[promise]]
 name = "moved-red-not-second-red"
 says = "A branch that does not merge onto the proving tip is not the second red when the red before was one onto an older tip, which the branch now holds"
-source = "SPEC.md:79"
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:28"
 check = ["test"]
 
 [[promise]]
 name = "no-tick-waits-for-typing"
-says = "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all"
-source = "SPEC.md:278"
+says = "And no tick waits for its typing at all"
+source = "SPEC.md:83"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
 
 [[promise]]
 name = "typing-beside-ends-before-retry-or-swap"
 says = "A session typed at beside the ticks is not tried again by a look until that ended; the daemon lets it end before it stops, and swaps to a new binary only once none runs"
-source = "SPEC.md:284"
+source = "SPEC.md:88"
 check = ["test"]
 why = "factorium has no `truefit sim`, and no model has the outboxes; on.rs ticks again while seven are typed (none typed twice) and holds the restart until the typing's outcome is recorded"
 
 [[promise]]
 name = "spent-stores-nothing"
 says = "`spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing."
-source = "SPEC.md:335"
+source = "SPEC.md:139"
 check = ["test"]
 
 [[promise]]

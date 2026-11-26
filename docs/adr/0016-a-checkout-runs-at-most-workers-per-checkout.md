@@ -23,7 +23,7 @@ their commands ran. More workers on one checkout did not land more.
   waits for only `mutants_bound` (the owner, 2026-11-26: 「开吧」).
   Admission's load still holds it; its worker counts as live.
 - It is no part of admission: admission still reads the host alone, and
-  the cap decides which ready issue may start, beside the order of SPEC §2 step 2.
+  the cap decides which ready issue may start, beside the order of ADR 0020.
 - Its default is 6, from the measurement below.
 
 ## Measurement

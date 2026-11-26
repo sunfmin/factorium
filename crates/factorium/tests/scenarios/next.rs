@@ -1,4 +1,4 @@
-//! Which ready issue starts next (SPEC §2 step 2): the one whose checkout
+//! Which ready issue starts next (ADR 0020): the one whose checkout
 //! has the fewest live workers; among those, the one ready longest; then
 //! by checkout and number. One checkout with many ready issues takes a
 //! start in turn, not every one.

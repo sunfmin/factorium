@@ -446,7 +446,7 @@ impl App {
     /// was made (a body's, when its issue was filed): once for the records
     /// made before numbers were given, and after for any whose numbering
     /// did not finish. An open issue takes its numbers as its own event; a
-    /// closed one takes none, so the sequence places them (SPEC §2).
+    /// closed one takes none, so the sequence places them (ADR 0024).
     pub(crate) async fn number_decided(&self) -> Answer<()> {
         let swept = self.state::<decided::Numbers>(decided::numbers_id()).await?.swept;
         let mut open: Vec<_> = self.records().await?.into_iter().filter(|f| f.id.is_none()).collect();
@@ -527,7 +527,7 @@ impl App {
         let why = why.map(String::from);
         let block = Block { checkout: checkout.into(), number, by: by.clone(), why: why.clone(), undo };
         self.submit::<BlockIssue>(block).await?;
-        // Its worker is parked behind it (SPEC §2): back to work, once idle, as soon as all it waits for is met.
+        // Its worker is parked behind it (ADR 0020): back to work, once idle, as soon as all it waits for is met.
         if let (false, Some(worker)) = (undo, self.issue(checkout, number).await?.worker) {
             let on = match by.of(checkout) {
                 Blocker::Here(n) => format!("#{n}"),

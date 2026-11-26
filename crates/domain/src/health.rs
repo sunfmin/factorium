@@ -2,7 +2,7 @@
 //! worker — what its session shows, what its processes hold — and one
 //! command, [`Observe`], records it and answers the verdict: wait for the
 //! watch and why, end it on a used-up account, or nothing. The rules (up,
-//! hot, hung, silent, quota, limit) and their fixed bounds are SPEC.md §2's,
+//! hot, hung, silent, quota, limit) and their fixed bounds are ADR 0023's,
 //! off the path; their clocks live here. Over and quiet are neutral:
 //! [`crate::neutral::hot`].
 
