@@ -43,7 +43,7 @@ Each command's `--help` says how it works; the ADRs say why.
     the fast gate run on the merge, and proving moved to it. One per
     checkout at a time
     ([ADR 0011](docs/adr/0011-the-line-gate-landing-promotion-cut.md)).
-13. **Promotion**: the slow gate on the proving tip, then the base branch
+13. **Promotion**: its gate on the proving tip, then the base branch
     fast-forwarded to it. One at a time per checkout.
 14. **Cut**: a version made from the base branch: set, push its own
     branch, gate, tag, publish, install.
