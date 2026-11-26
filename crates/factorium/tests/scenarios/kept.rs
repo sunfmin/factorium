@@ -1,4 +1,4 @@
-//! Kept worktrees when the proving tip cannot be read (SPEC §2.6): what a
+//! Kept worktrees when the proving tip cannot be read (ADR 0017): what a
 //! worktree holds is unknown, so it is held. A start refuses and takes
 //! nothing; a worker that ends keeps its worktree; start-over discards it,
 //! keeping its branch.

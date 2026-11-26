@@ -150,6 +150,18 @@
     "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:18",
     "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
   },
+  "21098a5f543e": {
+    "mark": "not",
+    "sentence": "Two issues that only use one device or host do not block each other: that is a resource ([ADR 0011](0011-resources-queue-shortest-hold-first.md)), which the watch turns such a block into.",
+    "source": "docs/adr/0016-an-issue-waits-with-a-why.md:21",
+    "why": "a rule for whoever files a block (issue add --help, the watch's brief), not a behaviour of the system a check could break"
+  },
+  "214b0e033df4": {
+    "mark": "not",
+    "sentence": "A worker learns what happened only from what reaches its session's prompt.",
+    "source": "docs/adr/0018-a-worker-hands-in-through-done.md:9",
+    "why": "an ADR's Context: why the decision was needed, not a promise of the system"
+  },
   "22a58c447520": {
     "mark": "not",
     "sentence": "What would reopen it: a landing that harms before review can catch it (secrets, data loss, something externally visible) — then a finding that holds promotion (`factorium hold`), not an approval on every landing; or measured evidence that findings after landing cost more than review before it.",
@@ -319,6 +331,12 @@
     "sentence": "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all: the tick gives it to the outboxes of every worker it is owed and goes on, and it is typed at them at once beside the ticks, on a store connection of its own; the tick's `roles` answers each worker told, its changed files and its delivery as it stood when the tick ended (`queued` while it is typed), and the outbox records how it went.",
     "source": "SPEC.md:317"
   },
+  "60dbbecad7fc": {
+    "mark": "not",
+    "sentence": "Issues need each other's code, across checkouts too, and a tool one repo uses from another reaches it only once a cut installs it.",
+    "source": "docs/adr/0016-an-issue-waits-with-a-why.md:7",
+    "why": "an ADR's Context: why the decision was needed, not a promise of the system"
+  },
   "671e9481e446": {
     "mark": "promise",
     "sentence": "Off the path, everything goes to the watch: `worker escalate`, a worker whose session died, never came up (five minutes after it started, a fixed bound), went silent past its bound, or hung past it (its turn open, its processes next to idle, its screen unchanged), a hot worker, a red promotion, red idle work, a failed cut, admission held for one reason past the host's span.",
@@ -382,6 +400,12 @@
     "mark": "promise",
     "sentence": "`factorium decided` answers those of the last 7 days, read or not; `--read` (the owner's: the watch's brief says it never runs it) marks every one until now read.",
     "source": "SPEC.md:218"
+  },
+  "7fd859232608": {
+    "mark": "not",
+    "sentence": "A worker's worktree may hold commits not on proving or changes never committed: an attempt that went red, died or was stopped.",
+    "source": "docs/adr/0017-a-worktree-that-holds-work-is-kept.md:7",
+    "why": "an ADR's Context: why the decision was needed, not a promise of the system"
   },
   "809ac9988dfb": {
     "mark": "not",
@@ -566,6 +590,12 @@
     "mark": "promise",
     "sentence": "`slots = n`: n holders at most (1 is a mutex): a named resource, declared in the host's settings (`settings --resource <name> --slots <n> [--note <what it is>]`, `--remove`; a phone serves every checkout on the host, so no checkout's `factorium.toml` names it). `room`: as many as the host's readings allow: the resource `host`, which is never declared — the heavy queue, as below.",
     "source": "SPEC.md:39"
+  },
+  "be311544eb70": {
+    "mark": "not",
+    "sentence": "A worker that dies, hangs or goes quiet, or a line that stops moving, tells nobody unless a check makes it a finding; one found while it only waits for what it was told to wait for spends the watch on nothing.",
+    "source": "docs/adr/0019-off-the-path-everything-goes-to-the-watch.md:7",
+    "why": "an ADR's Context: why the decision was needed, not a promise of the system"
   },
   "bf18b78a3358": {
     "mark": "promise",

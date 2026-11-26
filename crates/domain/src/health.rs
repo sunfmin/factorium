@@ -26,7 +26,7 @@
 //! alone: the watch can do nothing for a spent engine, and its finding
 //! (hung, a word that did not reach it) is the spent engine's doing.
 //!
-//! The two fixed bounds are fixed in SPEC.md §2, not settings. Over and
+//! The two fixed bounds are fixed in ADR 0019, not settings. Over and
 //! quiet are neutral: [`crate::neutral::hot`].
 
 use factum_core::{Event, Uuid};
