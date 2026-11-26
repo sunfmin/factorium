@@ -18,8 +18,6 @@ mod mutants;
 
 pub(crate) use cut::Proving;
 
-use std::path::Path;
-
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::doctor::Stuck;
@@ -65,21 +63,15 @@ pub(crate) type Did = Result<Value, String>;
 /// Why a move that is due did not run this tick.
 const QUEUED: &str = "waits its turn in the heavy-command queue, or runs beside the ticks";
 
-/// A line's move whose heavy command runs beside the daemon's ticks, of `checkout`: what is
-/// left to do once its steps end.
+/// A line's move whose heavy command runs beside the daemon's ticks, of `checkout`, in the work
+/// dir `dir`: what is left to do once its steps end.
 pub(crate) struct Moving {
     pub(crate) checkout: String,
+    pub(crate) dir: std::path::PathBuf,
     then: Then,
 }
 
 impl Moving {
-    /// The work dir it runs in.
-    pub(crate) fn dir(&self) -> &Path {
-        match &self.then {
-            Then::Land { dir, .. } | Then::Promote { dir, .. } | Then::Cut { dir, .. } => dir,
-        }
-    }
-
     /// The kind of job it is.
     fn kind(&self) -> LineDir {
         match &self.then {
@@ -99,13 +91,13 @@ impl Moving {
 }
 
 enum Then {
-    /// The landing of a worker's branch, merged in the work dir `dir`.
-    Land { landing: Landing, dir: std::path::PathBuf },
-    /// The promotion of the proving `tip` over `base`, its gate run in the work dir `dir` as
-    /// `gating` says, holding the checkout's promotion lock.
-    Promote { tip: String, base: String, gating: Gating, dir: std::path::PathBuf, _lock: std::sync::Arc<std::fs::File> },
-    /// The cut of `version` from `base`, its `steps` run in the work dir `dir`.
-    Cut { version: String, base: String, dir: std::path::PathBuf, steps: Vec<String> },
+    /// The landing of a worker's branch, merged in the work dir.
+    Land { landing: Landing },
+    /// The promotion of the proving `tip` over `base`, its gate run as `gating` says, holding
+    /// the checkout's promotion lock.
+    Promote { tip: String, base: String, gating: Gating, _lock: std::sync::Arc<std::fs::File> },
+    /// The cut of `version` from `base`, its `steps` run in the work dir.
+    Cut { version: String, base: String, steps: Vec<String> },
 }
 
 /// A worker's branch merged onto the proving tip, its fast gate to run.
@@ -164,7 +156,7 @@ impl App {
     /// Finishes `moving`, whose steps ran beside the ticks and `ended` so: unqueued while they
     /// ran, it is due again. Its work dir goes either way.
     async fn moved(&self, moving: Moving, ended: Result<Vec<Ran>, Ends>) -> Answer<Did> {
-        let (kind, checkout, dir) = (moving.kind(), moving.checkout.clone(), moving.dir().to_path_buf());
+        let (kind, checkout, dir) = (moving.kind(), moving.checkout.clone(), moving.dir.clone());
         let did = self.finish_moved(moving, ended).await;
         let _ = self.work_dir_done(kind, &checkout, &dir);
         did
@@ -175,18 +167,19 @@ impl App {
         let Ok(rans) = ended else {
             return Ok(Err(format!("a move of {} ended while it ran: {}", c.name, ended.unwrap_err())));
         };
+        let dir = moving.dir;
         match moving.then {
-            Then::Land { landing, dir } => {
+            Then::Land { landing } => {
                 let (ran, here) = (rans.into_iter().next().expect("one step"), self.host.git(&dir));
                 let gated = self.gate_ran(&c.name, &here, &landing.merged, false, Kind::Fast, ran).await?;
                 self.land_gated(&c, &here, landing, gated).await
             }
-            Then::Promote { tip, base, gating, dir, _lock } => {
+            Then::Promote { tip, base, gating, _lock } => {
                 let ran = rans.into_iter().next().expect("one step");
                 let gated = self.gate_ran(&c.name, &self.host.git(&dir), &tip, false, Kind::Slow, ran).await?;
                 self.promote_gated(&c, &self.host.git(&c.path), tip, base, &gating, gated).await
             }
-            Then::Cut { version, base, dir, steps } => {
+            Then::Cut { version, base, steps } => {
                 self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans, true).await
             }
         }
@@ -323,8 +316,8 @@ impl App {
             }
         };
         let landing = Landing { worker, tip, head, merged, message, regenerated };
-        let then = Then::Land { landing: landing.clone(), dir: here.dir.clone() };
-        let moving = Box::new(Moving { checkout: c.name.clone(), then });
+        let then = Then::Land { landing: landing.clone() };
+        let moving = Box::new(Moving { checkout: c.name.clone(), dir: here.dir.clone(), then });
         let at = At::Beside { rev: &landing.merged, bound_at: None, moving };
         let Some(gated) = self.gate(&c.name, &here, at, Gating::Fast).await? else { return Ok(Err(QUEUED.into())) };
         let did = self.land_gated(c, &here, landing, gated).await;
@@ -434,9 +427,9 @@ impl App {
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {
-            let (dir, _lock) = (here.dir.clone(), running.clone());
-            let then = Then::Promote { tip: tip.clone(), base: base.clone(), gating: gating.clone(), dir, _lock };
-            let moving = Moving { checkout: c.name.clone(), then };
+            let _lock = running.clone();
+            let then = Then::Promote { tip: tip.clone(), base: base.clone(), gating: gating.clone(), _lock };
+            let moving = Moving { checkout: c.name.clone(), dir: here.dir.clone(), then };
             At::Beside { rev: &tip, bound_at, moving: Box::new(moving) }
         };
         let Some(gated) = self.gate(&c.name, &here, at, gating.clone()).await? else { return Ok(Err(QUEUED.into())) };

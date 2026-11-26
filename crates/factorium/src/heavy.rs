@@ -171,7 +171,7 @@ impl Beside {
     pub(crate) fn dir(&self) -> &Path {
         match &self.1 {
             For::Idle(idle) => idle.dir(),
-            For::Line(moving) => moving.dir(),
+            For::Line(moving) => &moving.dir,
         }
     }
 }

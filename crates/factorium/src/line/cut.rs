@@ -48,9 +48,9 @@ impl App {
             Turn::Wait
         } else {
             let key = Some(format!("cut:{}:{version}:{base}", c.name));
-            let (version, base, dir, steps) = (version.clone(), base.clone(), here.dir.clone(), cut.steps.clone());
-            let then = Then::Cut { version, base, dir, steps };
-            Turn::Beside { key, yields: false, of: For::Line(Box::new(Moving { checkout: c.name.clone(), then })) }
+            let then = Then::Cut { version: version.clone(), base: base.clone(), steps: cut.steps.clone() };
+            let moving = Moving { checkout: c.name.clone(), dir: here.dir.clone(), then };
+            Turn::Beside { key, yields: false, of: For::Line(Box::new(moving)) }
         };
         let Some(rans) = self.heavy(job, turn).await?.filter(|_| by_hand) else { return Ok(Err(QUEUED.into())) };
         let did = self.cut_ran(c, &here, &version, &base, &cut.steps, rans, false).await;
