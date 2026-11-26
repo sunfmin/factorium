@@ -1,0 +1,49 @@
+{
+  "tree": "8a150acb3f36223d79dbf08e9baee88f29e0c168+d1fba762150c532c",
+  "picker": "codex:01a21874-aeb5-77a0-979e-0a13c19fe629:default",
+  "author": "claude-code:5b388a1e-a681-530f-89ac-2e2f10908fe3:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon.rs:234:9: replace App::after -> Option<std::path::PathBuf> with None",
+        "why": "The removed scenario explicitly checked that a failed tick can still trigger a binary swap while a landing gate runs.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:76:9: replace Tick::logged -> bool with true",
+        "why": "The sweep scenario checks the work-dir results returned by the tick, so it could miss quiet ticks being written to the log.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:200:5: replace outcome -> Option<Outcome> with None",
+        "why": "The overlapping-move scenarios assert what lands, promotes, and cuts, so they could pass even if the heavy queue loses the recorded outcomes.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/gate.rs:125:9: replace App::keep_output -> Result<PathBuf, String> with Ok(Default::default())",
+        "why": "The stacked red-gate scenario checks the refusal and worker status, so it could pass even if the full gate output was never saved.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/beside.rs:95: while_a_move_of_a_checkout_runs_beside_the_ticks_none_other_of_it_starts_and_another_checkouts_do",
+      "crates/factorium/tests/scenarios/beside.rs:147: ticks_keep_coming_while_a_landings_fast_gate_runs_past_the_hang_bound",
+      "crates/factorium/tests/scenarios/beside.rs:178: a_branch_that_moves_while_its_landings_gate_runs_lands_again_with_what_it_added",
+      "crates/factorium/tests/scenarios/beside.rs:198: a_worker_that_no_longer_asks_to_land_once_its_gate_ends_is_not_landed",
+      "crates/factorium/tests/scenarios/beside.rs:220: a_daemon_whose_ticks_fail_while_a_move_runs_beside_them_still_swaps_to_the_linked_binary",
+      "crates/factorium/tests/scenarios/line.rs:512: the_lines_work_dirs_are_clones_not_worktrees_of_the_checkout",
+      "crates/factorium/tests/scenarios/line.rs:565: one_landing_per_checkout_at_a_time_the_first_to_ask_first",
+      "crates/factorium/tests/scenarios/line.rs:672: a_gate_reading_tags_sees_origins_tags_in_the_line_s_clones_made_before_them",
+      "crates/factorium/tests/scenarios/line.rs:698: a_line_s_clone_reused_has_the_checkout_s_remote_refs_as_they_are_now",
+      "crates/factorium/tests/scenarios/urgent.rs:314: halted_other_checkouts_land_promote_and_cut_while_no_other_worker_starts",
+      "crates/factorium/tests/scenarios/urgent.rs:419: admission_held_only_by_the_urgent_halt_is_the_halt_s_finding_alone_and_a_full_disk_is_its_own"
+    ]
+  },
+  "added_lines": 1054
+}
