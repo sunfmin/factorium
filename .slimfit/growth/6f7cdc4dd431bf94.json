@@ -1,0 +1,10 @@
+{
+  "tree": "8ae2f905f5dc2b6d59ae8295ff55f37c2cff9986+d1fba762150c532c",
+  "lines": 231,
+  "serves": "factorium#361: an owner's urgent mark: start, heavy commands and landing go first; while it works, the rest halt",
+  "considered": "Reused the queue's bound rule (queue::line), the room check (neutral::room with the CPU limit lifted), the tracker's IssueRow and one urgent_first for the start and landing order; weighed and kept apart the start's and the landing's ahead_of reports, which read different sources (the ready rows and the line's workers).",
+  "reviewer": "codex:01a2160e-dbb2-7763-a6bb-cd177954c85f:default",
+  "author": "claude-code:58691715-0080-5530-8d9f-f98c81a7e923:opus",
+  "cut": "In crates/factorium/src/daemon.rs, return the existing tracker IssueRow from next_issue and delete Next. In crates/domain/src/issue.rs and crates/factorium/src/issues.rs, have halts yield matching issues so note_halt can collect their labels and worker IDs directly, removing the second filter and repeated formatting. In crates/domain/src/line.rs and crates/factorium/src/line.rs, carry the issue number on Seen, delete the parallel issues vector, and collect bypassed landings with take_while, formatting labels only for the report. In crates/domain/src/admission.rs and crates/domain/src/neutral/admission.rs, call short with the CPU ceiling raised directly from admit_urgent and delete the one-caller floors wrapper.",
+  "answer": "Made all four: next_issue answers the tracker's IssueRow and Next is gone; halts yields the issues, note_halt collects labels and workers from it; line::Seen carries its number, the parallel issues vector is gone and ahead_of is a take_while; admit_urgent calls the room rule with the CPU limit lifted and floors is gone. The rest is the issue's added halt (a fifth effect) and its scenarios."
+}
