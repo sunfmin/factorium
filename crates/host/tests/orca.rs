@@ -5,7 +5,7 @@
 
 use std::sync::Mutex;
 
-use factorium_host::orca::Orca;
+use factorium_host::orca::{Orca, Term};
 use factorium_host::shell::{Programs, Said};
 
 /// Orca that types whatever it is given, and answers each wait for
@@ -33,6 +33,7 @@ impl Programs for Scripted {
                 };
             }
             (Some(&"wait"), None) => r#"{"ok":true,"result":{"satisfied":true}}"#,
+            (Some(&"read"), _) => r#"{"ok":true,"result":{"terminal":{"status":"running","tail":["$ "]}}}"#,
             _ => r#"{"ok":true,"result":{"send":{"accepted":true}}}"#,
         };
         Said { ok: true, out: out.into(), err: String::new() }
@@ -59,4 +60,13 @@ fn a_terminal_never_seen_idle_is_not_ready() {
     let orca = Scripted::new(Some("timeout"));
     assert_eq!(Orca(&orca).ready("t"), Err("orca terminal wait: timeout".into()));
     assert!(Orca(&Scripted::new(None)).ready("t").is_ok());
+}
+
+/// A screen read is given a limit (factorium#363); programs whose answers
+/// come at once, as this stand-in's, are read as they answer.
+#[test]
+fn a_screen_read_through_programs_that_answer_at_once_is_the_screen() {
+    let orca = Scripted::new(None);
+    assert_eq!(Orca(&orca).screen("t"), Term::Running(vec!["$ ".into()]));
+    assert_eq!(orca.ran.lock().unwrap()[0], "orca terminal read --terminal t --screen --limit 200 --json");
 }
