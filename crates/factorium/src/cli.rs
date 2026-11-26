@@ -626,7 +626,6 @@ impl Top {
     }
 }
 
-/// Each of `blocked_by`, waited for for the one `why` its command gives.
 /// An issue's number, `12`, or a range of them, `198..222`, as its ends.
 fn numbers(s: &str) -> Result<(u64, u64), String> {
     let n =
@@ -641,6 +640,7 @@ fn numbers(s: &str) -> Result<(u64, u64), String> {
     Ok((from, to))
 }
 
+/// Each of `blocked_by`, waited for for the one `why` its command gives.
 fn waits(blocked_by: Vec<Blocker>, why: Option<&str>) -> Vec<Wait> {
     blocked_by.into_iter().map(|by| Wait { by, why: why.map(String::from) }).collect()
 }
