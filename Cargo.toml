@@ -12,9 +12,9 @@ repository = "https://github.com/sunfmin/factorium"
 factorium-domain = { path = "crates/domain" }
 factorium-harness = { path = "crates/harness" }
 factorium-host = { path = "crates/host" }
-factum = { git = "https://github.com/sunfmin/factum", rev = "d7e1be13202911ded8599ef0458fae17e334d172" }
-factum-core = { git = "https://github.com/sunfmin/factum", rev = "d7e1be13202911ded8599ef0458fae17e334d172" }
-factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "d7e1be13202911ded8599ef0458fae17e334d172" }
+factum = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
+factum-core = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
+factum-sqlite = { git = "https://github.com/sunfmin/factum", rev = "a222027f82681f0ce172feb7bed69c6dcf464337" }
 agent-help = { git = "https://github.com/sunfmin/agent-cli", rev = "f506df826a97b2fd834e1d65b9057001a6a6e796" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,7 +26,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] 
 unsafe_code = "deny"
 
 # Dependencies built optimized in the dev profile: the scenarios spend their
-# own CPU in sqlite, serde_json and tokio, not in factorium's code
-# (factorium#98).
+# own CPU in sqlite, serde_json and tokio, not in factorium's code: at
+# opt-level 2 the test process's own CPU went 28s -> 21s (commit 6f1f23b).
 [profile.dev.package."*"]
 opt-level = 2

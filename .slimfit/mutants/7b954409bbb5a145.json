@@ -1,0 +1,27 @@
+{
+  "tree": "9b703596995044943c1d4396dc8650c5c0304ef5+d1fba762150c532c",
+  "picker": "codex:01a215a9-2cd3-7673-9a01-a80415c44601:default",
+  "author": "claude-code:2f5d46d9-1ca4-5988-ac03-e78504ddb778:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/tracker.rs:182:17: replace match guard all with false in workers",
+        "why": "This survives unless a test requests all workers without an explicit status and checks that an ended worker appears.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/tracker.rs:182:17: replace match guard all with true in workers",
+        "why": "A default worker listing with only active workers cannot reveal that ended workers are now included.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/tracker.rs:149:8: delete ! in issues",
+        "why": "Reversing the closed flag produces the same results when the queried data contains no closed issues.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  }
+}
