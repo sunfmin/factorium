@@ -32,9 +32,10 @@
 (* again while it waits it takes the mark as it is then. In each line it   *)
 (* goes ahead of workers' and programs' entries not marked, behind a line  *)
 (* move past its bound. While the tick finds urgent issues that halt the   *)
-(* queue, every entry not urgent (marked, or of one of their live workers) *)
-(* is passed over in every queue, and a command not urgent holding what an *)
-(* urgent one waits for is ended.                                          *)
+(* queue, every worker's or program's entry not urgent (marked, or of one  *)
+(* of their live workers) is passed over in every queue, and such a        *)
+(* command holding what an urgent one waits for is ended; a line move's    *)
+(* entry is never halted.                                                  *)
 (* A landing's fast gate goes ahead of workers' and programs' entries not  *)
 (* marked, behind those marked (factorium#372).                            *)
 (*                                                                         *)
@@ -154,8 +155,9 @@ Opened(i, t) == ask[i].win # None /\ t >= ask[i].win
 Outside(i, t) == ask[i].win # None /\ ~Opened(i, t)
 \* `Queue::urgent`: marked so, or of a live worker of an issue that halts it.
 UrgentOf(i) == ask[i].urgent \/ ask[i].worker \in halt_for
-\* Not urgent while urgent issues halt the queue: passed over.
-Halted(i) == halt /\ ~UrgentOf(i)
+\* `halted`: a worker's or a program's entry not urgent while urgent issues
+\* halt the queue: passed over. A line move's never is.
+Halted(i) == halt /\ q[i].yields /\ ~UrgentOf(i)
 
 \* What the code reads, a broken variant's way: `covered`, `full_for`,
 \* `outside` and `stale`, and whether the waiting i is passed over in every
@@ -448,7 +450,7 @@ Look(i) ==
     /\ waiter[i].phase = "runs" /\ waiter[i].stop = ""
     /\ \E t \in Times, busy \in BOOLEAN :
         LET why == IF ~q[i].in THEN "unqueued"
-                   ELSE IF ~UrgentOf(i) /\ ~IsHold(i) /\ Wanted(i) THEN "halted"
+                   ELSE IF Halted(i) /\ ~IsHold(i) /\ Wanted(i) THEN "halted"
                    ELSE IF Overheld(i, t) /\ Bug # "no_held" THEN "held"
                    ELSE IF waiter[i].kind = "beside" /\ (busy \/ \E j \in Present \ {i} : "host" \in Res(j)) THEN "gaveway"
                    ELSE IF Bug = "line_cuts_short" /\ \E j \in Waiting : Overdue(j, t) THEN "gaveway"
@@ -635,9 +637,10 @@ LandsAhead ==
         (StartedBy(i) /\ q[i].yields /\ ~ask[i].urgent) =>
             \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : ask[j].lands
 
-\* While urgent issues halt the queue, nothing but an urgent entry starts.
+\* While urgent issues halt the queue, no worker's or program's entry but
+\* an urgent one starts.
 HaltHolds ==
-    [][ Started /\ halt => UrgentOf(Who) ]_vars
+    [][ Started /\ halt /\ q[Who].yields => UrgentOf(Who) ]_vars
 
 \* It starts one beside what holds "host" only when the host has room, on a
 \* reading taken heavy_settle after the last start of one holding it.
