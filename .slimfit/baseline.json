@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 15918,
-      "test_lines": 16294,
-      "tests": 534,
+      "prod_lines": 15962,
+      "test_lines": 16345,
+      "tests": 537,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 9573,
+      "covered_lines": 9601,
       "uncovered_lines": 107
     }
   },
@@ -184,12 +184,6 @@
       "test": "factorium::scenarios::line::a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones_go",
       "hash": "1f4320864cc78ed9",
       "reason": "the long-gate test asserts no stall; this asserts the red tail, the whole-output file named and the newest 20 outputs kept"
-    },
-    {
-      "suite": "rust",
-      "test": "factorium::scenarios::line::a_failed_cut_waits_for_a_newer_promotion",
-      "hash": "75efed24f4d7c89b",
-      "reason": "a pure unit test (7 ms) of the Line fold: the same commit promoted again keeps cut_failed and due is Cut; the scenario never promotes the same commit again"
     }
   ],
   "kept_files": [
@@ -259,13 +253,22 @@
       "function": "App::issue_move (closure)",
       "hash": "69fc1f82dfca2844",
       "reason": "Only wiring left: the closure hands a failed step's refusal to factorium_domain::moved::stopped, whose wording is tested in milliseconds (moved::a_move_that_stops_part_way_says_where_and_what_it_had_done). It runs only when a step fails after the other host was checked over ssh, which only a minutes-long scenario reaches, so a fast test could not reach it at all."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/host/src/git.rs",
+      "start": 243,
+      "end": 246,
+      "function": "Git::merge_from (closure)",
+      "hash": "33ad82169b4580d9",
+      "reason": "Git is the host's thin effect over the real git program: this is merge_from's abort when a conflict is not only in regenerated records (or taking them fails). Every landing is first checked by Git::merges (merge-tree) in check_waiting, which reds such a branch before land runs, so the span runs only when proving moves between that check and the landing's merge in one tick, or git fails to commit: reachable only through real git processes, a race no scenario can stage. A fast test could not reach it at all; the abort and the Err are needed for that race, so nothing to delete."
     }
   ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
       "uncovered_lines": 198,
-      "test_seconds": 288.898
+      "test_seconds": 300.047
     }
   }
 }

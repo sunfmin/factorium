@@ -164,6 +164,7 @@ fn model() -> Model {
         .command::<line::Promote>()
         .command::<line::RecordCut>()
         .command::<line::HoldLandings>()
+        .command::<line::AwaitMutants>()
         .aggregate::<kit::Kits>()
         .command::<kit::MoveCommands>()
         .command::<kit::PinCheckout>()
@@ -228,6 +229,9 @@ struct Memory {
     /// branch head then, not checked again until one of them moves (factorium#307). An entry
     /// is never wrong, so none is taken out: one per worker that waited, in this process.
     merges: std::collections::BTreeMap<Uuid, (String, String)>,
+    /// Each checkout's proving tip slimfit found owes no record of its mutants: a promotion
+    /// waiting its turn does not ask again of the same tip.
+    owes_none: std::collections::BTreeMap<String, String>,
     /// The sessions whose messages are typed beside the ticks (factorium#311).
     typing: Vec<session::Typing>,
     /// The upgrade of the daemon's own formula from the tap, running beside the ticks.

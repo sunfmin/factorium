@@ -63,6 +63,7 @@ settings! {
     HoldBound "hold_bound" 1800 "a heavy command holding others up this long is ended";
     StallBound "stall_bound" 600 "a heavy queue that starts nothing, or a landing no gate runs for on a line that has not moved, this long goes to the watch";
     PromotionBound "promotion_bound" 3600 "the oldest unpromoted landing waits at most this long";
+    MutantsBound "mutants_bound" 1800 "a promotion waits at most this long, from its filing, for the issue that picks and runs the mutants of what it promotes, where slimfit holds them at the base";
     CutBound "cut_bound" 86400 "the oldest uncut promotion waits at most this long";
     TasksBound "tasks_bound" 86400 "idle work's tasks run this long past `every` without an idle host run anyway, at background priority";
     LookEvery "look_every" 300 "the watch's look runs this often";

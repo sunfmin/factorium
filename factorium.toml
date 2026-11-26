@@ -3,7 +3,7 @@
 [gate]
 fast = "./gate.sh"
 fast_limit = 900
-slow = "./slow.sh"
+slow = "./slow.sh"  # only what gate.sh lacks (SPEC.md §5)
 slow_limit = 1800
 # What every landing's gate rewrites: a landing whose only conflicts are
 # these takes proving's copy and lands them as its gate left them (SPEC.md
@@ -20,9 +20,10 @@ steps = ["packaging/release.sh cut $FACTORIUM_VERSION"]
 formula = "sunfmin/tap/factorium"
 limit = 1800
 
-# No steps: nothing here is too slow for the gates (slow.sh is gate.sh,
-# then the release build and the models: 1800s holds them with room). The tasks line files slimfit's tasks and a sample of 5 mutants
-# of what landed (`slimfit help sample`). Measured 2026-11-20 at load
+# No steps: nothing here is too slow for the gates (slow.sh is the release
+# build and the models; a promotion that runs gate.sh before them runs
+# both within slow_limit, ~810s of 1800s). The tasks line files slimfit's tasks and a sample of 5
+# mutants of what landed (`slimfit help sample`). Measured 2026-11-20 at load
 # 5-32: `slimfit next --all` 350s, `--sample 5` 1631s; the limit is ~3.6x.
 [idle]
 tasks = "slimfit --version && slimfit next --all --sample 5 && ./lines.sh --tasks && truefit --version && truefit next --all && docfit --version && docfit next --all"

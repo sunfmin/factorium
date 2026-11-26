@@ -1,9 +1,14 @@
 [[suite]]
 name = "rust"
 preset = "rust"
-root = "."
 
 [check]
 time_tolerance = 0.2
 time_slack = 1.0
 coverage_slack = 1
+# The record of mutants is held at the base: a landing waits for its fast
+# gate alone, and each promotion owes one record over the range since the
+# base, which its mutants issue picks, runs and lands (docs/adr/0006-mutants-are-owed-at-promotion.md).
+# picks_max is left at slimfit's default: the picker is to judge how many from
+# the range's diff once slimfit drops the cap.
+mutants_target = "origin/main"

@@ -40,6 +40,10 @@ pub struct IssueRow {
     /// The owner's urgent mark.
     #[serde(default)]
     pub urgent: bool,
+    /// It starts ahead of the ordinary ones, behind the urgent: a promotion's
+    /// mutants issue (`crate::mutants::ahead`).
+    #[serde(default)]
+    pub ahead: bool,
 }
 
 /// The worker that holds an issue; `taken` is its queryable column.
@@ -209,8 +213,9 @@ impl Projection for Tracker {
     /// older name (`parked`, before factorium#95) holds the current one.
     /// "7": the heavy runs' rows (factorium#308), built from the log.
     /// "8": an issue's row holds its urgent mark.
+    /// "9": and whether it starts ahead of the ordinary ones.
     fn version(&self) -> u32 {
-        8
+        9
     }
 
     fn tables(&self) -> Vec<Table> {
@@ -240,9 +245,10 @@ impl Projection for Tracker {
                 let event: IssueEvent = decode(e)?;
                 let mut standing = event.standing();
                 let mut ops = match event {
-                    IssueEvent::IssueOpened { checkout, number, title, urgent, .. } => {
+                    IssueEvent::IssueOpened { checkout, number, title, urgent, task, .. } => {
                         let (standing, holder) = (standing.take().unwrap_or_default(), Holder::of(None));
-                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder, urgent }))
+                        let ahead = crate::mutants::ahead(task.as_ref());
+                        put(ISSUES, row(IssueRow { checkout, number, title, standing, holder, urgent, ahead }))
                     }
                     IssueEvent::UrgentMarked { urgent } => merge(ISSUES, json!({ "urgent": urgent })),
                     IssueEvent::IssueEdited { title, .. } => merge(ISSUES, json!({ "title": title })),

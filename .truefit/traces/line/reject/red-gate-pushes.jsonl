@@ -1,0 +1,4 @@
+{"step":1,"event":"Done","state":{"status":["landing"],"asks":[1],"closed":[],"unpromoted":[],"uncut":[],"promoted":[0],"red":[0],"proving":[],"fast":[]}}
+{"step":2,"event":"LandRead","state":{"status":["landing"],"asks":[1],"closed":[],"unpromoted":[],"uncut":[],"promoted":[0],"red":[0],"proving":[],"fast":[]}}
+{"step":3,"event":"LandGate","state":{"status":["landing"],"asks":[1],"closed":[],"unpromoted":[],"uncut":[],"promoted":[0],"red":[0],"proving":[],"fast":[]}}
+{"step":4,"event":"LandPush","state":{"status":["landing"],"asks":[1],"closed":[],"unpromoted":[],"uncut":[],"promoted":[0],"red":[0],"proving":[1],"fast":[]}}
