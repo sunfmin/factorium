@@ -1,8 +1,8 @@
 //! The heavy-command queue's start rule (SPEC.md §1.9): the shortest
 //! declared hold first, none starved past the starve bound, one start per
 //! settled reading beside what runs, the hold bound, and a line move past
-//! its bound ahead of those that yield, then an urgent one ahead of those
-//! that are not.
+//! its bound ahead of those that give way (one that yields, or a landing's
+//! gate), then an urgent one, then a landing's gate.
 
 use uuid::Uuid;
 
@@ -18,6 +18,9 @@ pub trait Queued {
     fn yields(&self) -> bool;
     /// Whether it goes ahead of those that yield and are not, behind one past its bound.
     fn urgent(&self) -> bool;
+    /// Whether it is a landing's gate: it goes ahead of those that yield
+    /// and are not urgent, behind one past its bound and the urgent ones.
+    fn lands(&self) -> bool;
     /// When what it does passes its bound, ms, if it has one.
     fn bound_at(&self) -> Option<i64>;
     /// How long it declared it holds what it waits for, ms; none: the default.
@@ -55,6 +58,12 @@ impl Order {
     }
 }
 
+/// Whether `e` gives way to those ranked ahead of it: one that yields,
+/// or a landing's gate, which goes behind one past its bound and the urgent.
+fn gives<E: Queued>(e: &E) -> bool {
+    e.yields() || e.lands()
+}
+
 /// Whether `e` is past its bound at `now`.
 fn overdue<E: Queued>(e: &E, now: i64) -> bool {
     e.bound_at().is_some_and(|b| now > b)
@@ -74,21 +83,22 @@ pub fn oldest<E: Queued>(entries: &[E]) -> Option<&E> {
 }
 
 /// The waiting entries in the order they start at `now`, by `order`; but
-/// one past its bound goes ahead of every entry that yields, just before
-/// the first of them; and an urgent one ahead of every entry that yields
-/// and is not urgent, just before the first of them, behind those past
-/// their bound.
+/// one past its bound goes ahead of every entry that gives way, just
+/// before the first of them; an urgent one ahead of every entry that gives
+/// way and is not urgent, just before the first of them, behind those past
+/// their bound; and a landing's gate there too, behind the urgent ones.
 pub fn line<E: Queued>(entries: &[E], now: i64, order: Order) -> Vec<&E> {
     let first = |of: fn(&E) -> bool| waiting(entries).filter(|e| of(e)).map(|e| order.key(e, now)).min();
-    let (first_yielding, first_ordinary) = (first(|e| e.yields()), first(|e| e.yields() && !e.urgent()));
+    let (first_giving, first_ordinary) = (first(gives), first(|e| gives(e) && !e.urgent()));
     let mut line: Vec<&E> = waiting(entries).collect();
     line.sort_by_cached_key(|e| {
         let own = order.key(*e, now);
-        // Past its bound first, then urgent, then the rest, at a place they share.
-        let (ahead_of, rank) = match (overdue(*e, now), e.urgent()) {
-            (true, _) => (first_yielding, 0),
-            (false, true) => (first_ordinary, 1),
-            (false, false) => (None, 2),
+        // Past its bound first, then urgent, then a landing's gate, then the rest, at a place they share.
+        let (ahead_of, rank) = match (overdue(*e, now), e.urgent(), e.lands()) {
+            (true, _, _) => (first_giving, 0),
+            (false, true, _) => (first_ordinary, 1),
+            (false, false, true) => (first_ordinary, 2),
+            (false, false, false) => (None, 3),
         };
         (ahead_of.map_or(own, |w| own.min(w)), rank, own)
     });

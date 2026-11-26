@@ -271,6 +271,11 @@ impl Queued for Entry {
         self.ask.urgent
     }
 
+    // A line's fast gate, of the worker it lands.
+    fn lands(&self) -> bool {
+        self.ask.lands.is_some()
+    }
+
     fn bound_at(&self) -> Option<i64> {
         self.ask.bound_at
     }
@@ -503,6 +508,8 @@ fn behind(next: &Entry, e: &Entry, now: i64, order: queue::Order) -> String {
         "a line move past its bound".to_string()
     } else if next.ask.urgent && !e.ask.urgent {
         "an urgent issue's".to_string()
+    } else if next.ask.lands.is_some() && e.yields() && !e.ask.urgent && e.ask.lands.is_none() {
+        "a landing's gate".to_string()
     } else if order.starved(next, now) {
         "waiting past the starve bound".to_string()
     } else if next.ask.hold_for.is_none() && e.ask.hold_for.is_none() {
