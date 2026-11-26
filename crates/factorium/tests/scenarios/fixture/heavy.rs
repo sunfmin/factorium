@@ -14,9 +14,12 @@ use super::World;
 /// app's clock is the scenario's), so what is left is the real work of git,
 /// sqlite and the fixtures' processes: the slowest scenario took 3.3s at
 /// load 22 (factorium#119), 17s under 36 CPU hogs on 18 cores before it.
+/// Idle work runs the suite niced and under coverage beside the workers'
+/// gates: there scenarios ran 10-28x slower than in a worker's coverage run,
+/// one of 1.4s took 35s (factorium#332), so the guard leaves room for that.
 /// It fails only on a hang, such as a waiter asleep on a clock no one moves.
 /// How fast the suite runs is the gate's bound to keep.
-pub const STUCK: Duration = Duration::from_secs(30);
+pub const STUCK: Duration = Duration::from_secs(120);
 
 /// How often a heavy command waiting for its turn asks again, and a running
 /// one whether it holds others up: ms on the app's clock (`heavy.rs`).
