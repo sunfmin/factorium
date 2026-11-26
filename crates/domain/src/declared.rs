@@ -158,7 +158,8 @@ impl Gating {
 impl Gate {
     /// The command and limit `gating` runs. The slow steps are what `slow`
     /// holds the fast gate lacks: none when it is absent or `fast`'s command,
-    /// and then the slow steps alone are nothing: `None`.
+    /// and then the slow steps alone are nothing: `None`. A promotion's
+    /// gate with slow steps runs within `slow_limit`, the fast gate's too.
     pub fn of(&self, gating: &Gating) -> Option<(String, u64)> {
         let slow = self.slow.as_deref().filter(|s| s.trim() != self.fast.trim());
         match (gating, slow) {
@@ -166,9 +167,7 @@ impl Gate {
             (Gating::SlowOnly { .. }, slow) => slow.map(|s| (s.to_string(), self.slow_limit)),
             // Each in braces of its own, ended by a newline: either may end in
             // a comment, or join its commands by `;` or `||`.
-            (Gating::Full, Some(s)) => {
-                Some((format!("{{ {}\n}} && {{ {s}\n}}", self.fast), self.fast_limit + self.slow_limit))
-            }
+            (Gating::Full, Some(s)) => Some((format!("{{ {}\n}} && {{ {s}\n}}", self.fast), self.slow_limit)),
         }
     }
 }
