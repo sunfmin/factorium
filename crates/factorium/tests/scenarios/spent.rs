@@ -2,9 +2,10 @@
 //! each attempt's steps: the parts its time is cut into, the reds and the
 //! files that conflicted.
 
+use factorium_domain::settings::Resource;
 use serde_json::{Value, json};
 
-use crate::fixture::{CLAUDE, POLL, STUCK, World, id, until_file};
+use crate::fixture::{CLAUDE, LOOK, POLL, STUCK, World, id, until_file};
 
 const MIN: i64 = 60_000;
 
@@ -95,6 +96,64 @@ async fn a_worker_gate_queued_behind_another_run_is_a_gate_s_wait() {
     let by = queued["by"].as_object().unwrap();
     assert_eq!(by.keys().collect::<Vec<_>>(), ["gate"], "{queued}");
     assert!(ms(&queued) >= 5 * MIN, "it waited out the other's run: {queued}");
+}
+
+#[tokio::test]
+async fn a_hold_then_a_command_by_hand_then_a_park_are_each_its_own_part() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    let name = "PHONE".to_string();
+    w.app.resource_declare(&name, Some(Resource { slots: 1, note: None }), false).await.unwrap();
+    // Held for 2.
+    w.app.worker_hold(id(&wk), std::slice::from_ref(&name), 60 * MIN, None).await.unwrap();
+    w.advance(2);
+    w.app.worker_release(id(&wk), &name).await.unwrap();
+    // A command by hand runs for 3.
+    let dir = w.dir.join("by-hand");
+    let line = w.holds(&dir);
+    let ran = async {
+        while !dir.join("started").exists() {
+            tokio::time::sleep(LOOK).await;
+        }
+        w.advance(3);
+        std::fs::write(dir.join("release"), "").unwrap();
+    };
+    let (ran, ()) =
+        tokio::time::timeout(STUCK, async { tokio::join!(w.app.worker_exclusive(Some(id(&wk)), &w.dir, &line), ran) })
+            .await
+            .expect("the command runs");
+    assert_eq!(ran.unwrap()["ok"], true);
+    // Parked behind #2 for 4, to now.
+    w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
+    w.app.issue_block("web", 1, 2, Some("needs b's parser"), false).await.unwrap();
+    w.advance(4);
+
+    let split = w.app.spent_of("web", Some((1, 1)), None).await.unwrap()["split"].clone();
+    assert_eq!(
+        split["heavy_ran"],
+        json!({ "ms": 5 * MIN, "by": { "hold": 2 * MIN, "exclusive": 3 * MIN } }),
+        "{split}"
+    );
+    assert_eq!(
+        split["parks"],
+        json!({ "ms": 4 * MIN, "by": { "waits for #2: needs b's parser": 4 * MIN } }),
+        "{split}"
+    );
+}
+
+#[tokio::test]
+async fn a_landing_still_open_is_neither_green_nor_red() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    w.done(&wk, "a", "x").await;
+    w.advance(2);
+
+    let landing = w.app.spent_of("web", Some((1, 1)), None).await.unwrap()["split"]["landing"].clone();
+    assert_eq!(
+        landing,
+        json!({ "ms": 2 * MIN, "green": 0, "red": { "ms": 0, "by": {} }, "other": 2 * MIN }),
+        "{landing}"
+    );
 }
 
 /// The ms of a part.
