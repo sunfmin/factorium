@@ -1,7 +1,4 @@
 {
-  "Cargo.toml": {
-    "local_refs": 1
-  },
   "SPEC.md": {
     "local_refs": 40,
     "rehome": 47938
@@ -226,7 +223,7 @@
     "local_refs": 2
   },
   "crates/host/src/git.rs": {
-    "local_refs": 4
+    "local_refs": 2
   },
   "crates/host/src/procs.rs": {
     "local_refs": 1

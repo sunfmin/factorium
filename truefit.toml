@@ -102,9 +102,9 @@ stdin = """
 name = "commented-worktree"
 stdin = """
 {"scratch": "truefit-commented-worktree"}
-{"orca": "worktree", "args": ["{scratch}", "truefit commented#1", "truefit-commented-worktree", "{sha}", "what runs here; factorium removes it when this ends (pid 1)."], "keep": {"worktree": "/ok"}}
+{"orca": "worktree", "args": ["{scratch}", "truefit commented", "truefit-commented-worktree", "{sha}", "what runs here; factorium removes it when this ends (pid 1)."], "keep": {"worktree": "/ok"}}
 {"orca": "listed_worktree", "args": ["{worktree}"]}
-{"orca": "show_as", "args": ["{worktree}", "truefit shown#2"]}
+{"orca": "show_as", "args": ["{worktree}", "truefit shown"]}
 {"orca": "comment", "args": ["{worktree}", "what ran here; kept."]}
 {"orca": "listed_worktree", "args": ["{worktree}"]}
 {"orca": "remove", "args": ["{worktree}"]}
