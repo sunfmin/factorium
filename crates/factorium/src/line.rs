@@ -9,7 +9,8 @@
 //! ticks ([`Moving`]), so no tick waits for one (factorium#231): the next
 //! tick finds how they ended and finishes the move. A checkout's moves run apart, each kind
 //! one at a time: no landing of it is carried while one of its landings runs beside the ticks,
-//! no promotion while a promotion does, no cut while a cut runs or its binary is proven; a
+//! no promotion while a promotion does, no cut while a cut runs or its binary is proven, across
+//! processes too: a promotion and a cut each hold a lock of their checkout while they run; a
 //! landing goes on while a promotion's gate or a cut's steps run. They write different refs
 //! (proving, the base, a tag) from work dirs of their own, and each push requires the tip it
 //! read, so none needs another held; a landing line held behind them was most of the wait
@@ -64,6 +65,22 @@ pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
 /// What one move did, or why it did not run now.
 pub(crate) type Did = Result<Value, String>;
 
+/// A lock across processes, as a move of a checkout that runs holds it ([`lock::take`]).
+type Held = std::sync::Arc<std::fs::File>;
+
+/// Takes the lock at `path` of a `what` of `checkout` ("promotion", "cut") that runs, naming
+/// `holder` and this process; or, held by another, why it does not run: who holds it.
+fn hold(path: &std::path::Path, what: &str, checkout: &str, holder: &str) -> Result<Held, String> {
+    let taken = lock::take(path, &format!("{holder}, pid {}", std::process::id()));
+    taken.map(std::sync::Arc::new).map_err(|taken| {
+        let held = match taken {
+            Taken::Held(held) if held.is_empty() => format!("another {what}"),
+            Taken::Held(e) | Taken::Fails(e) => e,
+        };
+        format!("a {what} of {checkout} runs: {held}")
+    })
+}
+
 /// Why a move that is due did not run this tick.
 const QUEUED: &str = "waits its turn in the heavy-command queue, or runs beside the ticks";
 
@@ -99,9 +116,10 @@ enum Then {
     Land { landing: Landing },
     /// The promotion of the proving `tip` over `base`, its gate run as `gating` says, holding
     /// the checkout's promotion lock.
-    Promote { tip: String, base: String, gating: Gating, _lock: std::sync::Arc<std::fs::File> },
-    /// The cut of `version` from `base`, its `steps` run in the work dir.
-    Cut { version: String, base: String, steps: Vec<String> },
+    Promote { tip: String, base: String, gating: Gating, _lock: Held },
+    /// The cut of `version` from `base`, its `steps` run in the work dir, holding the checkout's
+    /// cut lock.
+    Cut { version: String, base: String, steps: Vec<String>, lock: Held },
 }
 
 /// A worker's branch merged onto the proving tip, its fast gate to run.
@@ -191,16 +209,28 @@ impl App {
             Then::Promote { tip, base, gating, _lock } => {
                 let ran = rans.into_iter().next().expect("one step");
                 let gated = self.gate_ran(&c.name, &self.host.git(&dir), &tip, false, Kind::Slow, ran).await?;
-                self.promote_gated(&c, &self.host.git(&c.path), tip, base, &gating, gated).await
+                self.promote_gated(&c, false, tip, base, &gating, gated).await
             }
-            Then::Cut { version, base, steps } => {
-                self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans, true).await
+            Then::Cut { version, base, steps, lock } => {
+                self.cut_ran(&c, &self.host.git(&dir), &version, &base, &steps, rans, Some(lock)).await
             }
         }
     }
 
     /// Carries out `mv` on `c` if its line says it is due now.
     async fn carry(&self, c: &Checkout, mv: Move, by_hand: bool) -> Answer<Did> {
+        // One cut of a checkout at a time, across processes: its lock is held from before its
+        // line is read, so a cut just recorded by another is seen, until it is recorded.
+        let cut_lock = match mv {
+            Move::Cut => {
+                let who = if by_hand { "`factorium cut`" } else { "the daemon's cut" };
+                match hold(&self.data().cut_lock(&c.name), "cut", &c.name, who) {
+                    Ok(held) => Some(held),
+                    Err(why) => return Ok(Err(why)),
+                }
+            }
+            _ => None,
+        };
         let l = self.state::<Lines>(line_id(&c.name)).await?;
         let settings = self.settings().await?;
         let mut workers = Vec::new();
@@ -243,7 +273,7 @@ impl App {
                 }))
             }
             Ok(Due::Promote(tip)) => self.promote_tip(c, &git, tip, by_hand, bound_at).await,
-            Ok(Due::Cut) => self.cut_base(c, by_hand, bound_at).await,
+            Ok(Due::Cut) => self.cut_base(c, by_hand, bound_at, cut_lock.expect("taken for a cut")).await,
         }
     }
 
@@ -408,18 +438,10 @@ impl App {
         // One promotion of a checkout at a time: a second would share the
         // build cache with the running one's slow gate.
         let who = if by_hand { "`factorium promote`" } else { "the daemon's promotion" };
-        let running = match lock::take(
-            &self.data().promotion_lock(&c.name),
-            &format!("{who} of {tip}, pid {}", std::process::id()),
-        ) {
-            Ok(running) => std::sync::Arc::new(running),
-            Err(taken) => {
-                let held = match taken {
-                    Taken::Held(held) if held.is_empty() => "another promotion".into(),
-                    Taken::Held(e) | Taken::Fails(e) => e,
-                };
-                return Ok(Err(format!("a promotion of {} runs: {held}", c.name)));
-            }
+        let running = match hold(&self.data().promotion_lock(&c.name), "promotion", &c.name, &format!("{who} of {tip}"))
+        {
+            Ok(running) => running,
+            Err(why) => return Ok(Err(why)),
         };
         let base = git.fetch(&c.base).map_err(fail("git"))?;
         let line = self.state::<Lines>(line_id(&c.name)).await?;
@@ -447,26 +469,28 @@ impl App {
             At::Beside { rev: &tip, bound_at, moving: Box::new(moving) }
         };
         let Some(gated) = self.gate(&c.name, &here, at, gating.clone()).await? else { return Ok(Err(QUEUED.into())) };
-        let did = self.promote_gated(c, git, tip, base, &gating, gated).await;
+        let did = self.promote_gated(c, by_hand, tip, base, &gating, gated).await;
         let _ = self.work_dir_done(LineDir::Promotion, &c.name, &here.dir);
         did
     }
 
     /// Promotes the proving `tip` of `c` over `base` as its gate, run as `gating`, says:
     /// red, it is recorded red; green, the base is fast-forwarded to it. Both say which case ran.
+    /// `by_hand`: asked for by hand, which leaves its cut to one by hand ([`line::Line`]).
     async fn promote_gated(
         &self,
         c: &Checkout,
-        git: &Git,
+        by_hand: bool,
         tip: String,
         base: String,
         gating: &Gating,
         gated: Gated,
     ) -> Answer<Did> {
+        let git = &self.host.git(&c.path);
         let (behind, said) = (git.is_ancestor(&base, &tip), gating.said());
         let red = (!gated.green).then(|| format!("{said}: {}", gated.why()));
         let (checkout, gated) = (c.name.clone(), said);
-        let promotion = line::Promotion { checkout, tip: tip.clone(), base: base.clone(), red, behind, gated };
+        let promotion = line::Promotion { checkout, tip: tip.clone(), base: base.clone(), red, behind, gated, by_hand };
         if let Some(why) = promotion.red() {
             self.submit::<line::Promote>(promotion).await?;
             return Ok(Ok(json!({ "promotion": c.name, "red": why })));
