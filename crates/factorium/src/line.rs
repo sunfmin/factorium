@@ -178,7 +178,7 @@ impl App {
             let urgent = w.state.status == w::Status::Landing && self.issue(&w.checkout, w.number).await?.urgent;
             workers.push(line::Seen { worker: w.worker, number: w.number, status: w.state.status, urgent });
         }
-        // An urgent issue's halt (SPEC §1.17) holds no line move: its gate waits in the queue as usual.
+        // An urgent issue's halt (docs/adr/0015-an-urgent-issue-halts-the-host.md) holds no line move: its gate waits in the queue as usual.
         let look = line::look(self.now(), &settings, &workers, by_hand);
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
@@ -355,7 +355,7 @@ impl App {
 
     /// Promotes the proving `tip` of `c`: its gate, then the base fast-forwarded to it. The tip
     /// a green landing pushed (its record names it) runs the slow steps alone, none when the
-    /// checkout declares none; any other, the fast gate then the slow steps (SPEC §1.13).
+    /// checkout declares none; any other, the fast gate then the slow steps (docs/adr/0012-the-line-gate-landing-promotion-cut.md).
     /// `bound_at`: when the promotion falls due however busy.
     async fn promote_tip(
         &self,
