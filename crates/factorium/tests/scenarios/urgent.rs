@@ -471,3 +471,67 @@ async fn admission_held_by_the_load_during_a_halt_is_the_load_s_finding_and_a_fu
     assert!(f.iter().any(|f| f.starts_with("urgent web#2 goes first")), "{f:?}");
     assert!(f.iter().any(|f| f.contains("admission held") && f.contains("disk")), "{f:?}");
 }
+
+/// The hold bound holds for an urgent issue's command too (ADR 0010, ADR
+/// 0015, 2026-11-27): running past it while an entry not urgent waits for
+/// the host, with room or none, it is ended `Held`, whether marked when it
+/// asked or its worker's issue halts the queue now. With no one waiting, or
+/// only entries that hold up nothing (one under replaced rules), it runs on.
+#[test]
+fn an_urgent_command_holding_the_host_past_the_hold_bound_while_one_waits_is_ended_held() {
+    let bound = 30 * MIN;
+    let marked = Entry { started_at: Some(0), ..workers(1, 0, true) };
+    let halting = Entry { started_at: Some(0), ..workers(2, 0, false) };
+    let waiter = workers(3, MIN, false);
+    let (room, none): (Result<(), String>, _) = (Ok(()), Err("cpu: 95% busy".to_string()));
+    for running in [&marked, &halting] {
+        let (halt, halt_for) = (vec!["web#3".into()], vec![halting.ask.worker.unwrap()]);
+        let q = Queue { entries: vec![running.clone(), waiter.clone()], halt, halt_for, ..Queue::default() };
+        assert!(q.urgent(running), "it is the urgent issue's");
+        let ends =
+            |q: &Queue, now: i64, room: &Result<(), String>| q.ends(running.ask.id, now, bound, false, room.clone());
+        for r in [&room, &none] {
+            assert_eq!(ends(&q, MIN + bound, r), None, "not yet past the bound since the waiter queued");
+            assert_eq!(ends(&q, MIN + bound + 1, r), Some(Ends::Held), "past it, room {r:?}");
+        }
+        let alone = Queue { entries: vec![running.clone()], ..q.clone() };
+        assert_eq!(ends(&alone, 10 * bound, &none), None, "no one waits: it runs on");
+        let stale = Entry { ask: Ask { rules: "0".into(), ..waiter.ask.clone() }, ..waiter.clone() };
+        let replaced = Queue { entries: vec![running.clone(), stale], rules: "1".into(), ..q.clone() };
+        assert_eq!(ends(&replaced, 10 * bound, &none), None, "one under replaced rules holds up nothing");
+    }
+}
+
+/// Halted by web#2, urgent: its worker's command holds the host, with no
+/// room beside it, while #1's command waits. Past the hold bound it is
+/// ended as any held command, saying so in its tail, and #1's starts.
+#[tokio::test]
+async fn an_urgent_worker_s_command_holding_others_up_past_the_hold_bound_is_ended_and_the_waiter_runs() {
+    let w = World::new();
+    w.two_at_work().await;
+    let (one, two) = (id(&w.worker_on("web", 1).await), id(&w.worker_on("web", 2).await));
+    w.app.issue_mark_urgent("web", 2, true).await.unwrap();
+    w.tick_alone().await;
+    w.host.reading.lock().unwrap().cpu_busy = 99;
+    let dir = w.dir.join("urgent");
+    let line = w.holds(&dir);
+    let (a, b) = (w.run(), w.run());
+    let others = async {
+        crate::fixture::until_file(&dir.join("started")).await;
+        let mut waiter = std::pin::pin!(b.worker_exclusive(Some(one), &w.dir, "echo after"));
+        let queued = w.until_queued("echo after");
+        tokio::select! { _ = &mut waiter => panic!("it ran beside the urgent one"), () = queued => {} }
+        w.advance(31);
+        let again = async {
+            w.gone(&line).await;
+            w.poll(1).await;
+        };
+        tokio::join!(waiter, again).0
+    };
+    let both = async { tokio::join!(a.worker_exclusive(Some(two), &dir, &line), others) };
+    let (ran, after) = tokio::time::timeout(STUCK, both).await.expect("the urgent command is ended");
+    let ran = ran.unwrap();
+    assert_eq!(ran["ok"], false, "{ran}");
+    assert!(ran["tail"].as_str().unwrap().contains("ended: it held others up past the hold bound of 1800s"), "{ran}");
+    assert_eq!(after.unwrap()["ok"], true, "the waiter runs once the urgent command is ended");
+}
