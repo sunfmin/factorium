@@ -11,3 +11,4 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0003-the-line-is-one-pass-and-its-moves.md" = "adr"
 "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md" = "adr"
 "docs/adr/0005-the-tick-and-the-process-that-ticks.md" = "adr"
+"docs/adr/0006-mutants-are-owed-at-promotion.md" = "adr"

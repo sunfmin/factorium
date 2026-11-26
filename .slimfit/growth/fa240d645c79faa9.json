@@ -1,0 +1,10 @@
+{
+  "tree": "f6ccfdd90557cd33a99aebfe67f285bea2dfcc15+d1fba762150c532c",
+  "lines": 84,
+  "serves": "factorium#366",
+  "considered": "Running git cat-file --batch per tick instead of reading ref files (needs every call site batched in one tick); keeping the template per process (each nextest test is a process); leaving Git::fetch one branch at a time",
+  "reviewer": "codex:01a216bd-dcaf-7cd0-9db3-4110e181f478:default",
+  "author": "claude-code:56392c8d-c8ac-5b22-ba5e-24b9cde59f60:opus",
+  "cut": "In crates/factorium/tests/scenarios/fixture/world.rs, clone and rewrite the origin once, copy the prepared clone and bare remote for the proving variant, and create proving directly in that bare remote since checkout_add fetches it into the clone. In crates/host/src/git/refs.rs, move the cache’s OnceLock into once and reuse its initialized mutex for both lookups and inserts, and use find_map to split each packed-ref line only once.",
+  "answer": "Made all three: the template clones once and copies the clone for proving, made by git branch in the bare remote; once keeps its OnceLock and mutex itself; packed-refs is read with one find_map. The worktree/reftable guard in refs::read went too, a mutant showing it redundant."
+}

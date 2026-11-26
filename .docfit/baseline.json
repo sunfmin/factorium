@@ -2,13 +2,9 @@
   "Cargo.toml": {
     "local_refs": 1
   },
-  "README.md": {
-    "bytes": 4107,
-    "local_refs": 1
-  },
   "SPEC.md": {
-    "local_refs": 59,
-    "rehome": 73711
+    "local_refs": 58,
+    "rehome": 73707
   },
   "checks.sh": {
     "local_refs": 2
@@ -276,7 +272,7 @@
     ]
   },
   "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md": {
-    "bytes": 3213,
+    "bytes": 3212,
     "local_refs": 4,
     "pointers": [
       ".github/workflows/README.md",

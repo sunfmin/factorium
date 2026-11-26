@@ -1,0 +1,10 @@
+{
+  "tree": "d4bb660b548e6fbdf804c3ab12d90b275ae81321+d1fba762150c532c",
+  "lines": 163,
+  "serves": "factorium#374",
+  "considered": "reusing the urgent mark (it halts every start), idle's task filing (it runs in a throwaway clone at idle time), and the plain slimfit check (a test run) in place of the listing; reused pick::due and the bump issue's filing path instead",
+  "reviewer": "codex:01a2174d-dcbd-7620-b6b0-be860eac228a:default",
+  "author": "claude-code:966af170-42bb-58a8-98a5-c9cae0a4d36d:opus",
+  "cut": "In crates/domain/src/neutral/landing.rs, undo the reformatting of the existing LineEvent variants. In crates/domain/src/mutants.rs and crates/factorium/src/line/mutants.rs, delete the Before enum, the Filed alias, and the unused bypass messages. In the existing open-issue branch, wait only while the deadline and worker conditions hold, then return directly to promotion. In crates/factorium/src/pick.rs, clone the initial listing arguments for the per-function lookup and append only the --function arguments.",
+  "answer": "Made all four: LineEvent back on one line each, Before/Filed/bypass messages gone for one mutants::waits fn returning the wait's end, the open branch returns directly, pick's per-function args clone the listing's."
+}

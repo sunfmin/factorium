@@ -20,6 +20,7 @@ pub mod issue;
 pub mod kit;
 pub mod line;
 pub mod moved;
+pub mod mutants;
 pub mod needs;
 pub mod neutral;
 pub mod next;
