@@ -577,10 +577,10 @@ impl FakeRolesmith {
         self.lacks.entry(dir.into()).or_default().push(lack);
     }
 
-    /// A mytokens entry `name` that `dir`'s roles lack, as doctor names it.
+    /// An optokens Secret `name` that `dir`'s roles lack, as doctor names it.
     pub fn lacks_entry(&mut self, dir: &str, name: &str) {
-        let fix = format!("mytokens put {name} --fields TOKEN");
-        let lack = json!({ "kind": "entry", "name": name, "reason": "no mytokens entry", "fix": fix });
+        let fix = format!("optokens put {name} --fields TOKEN");
+        let lack = json!({ "kind": "entry", "name": name, "reason": "no optokens Secret", "fix": fix });
         self.lacks.entry(dir.into()).or_default().push(lack);
     }
 
