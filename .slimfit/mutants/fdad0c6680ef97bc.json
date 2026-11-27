@@ -1,0 +1,7 @@
+{
+  "tree": "027602e2d0e5663d574d1251a93d10198f614675+d1fba762150c532c",
+  "picker": "codex:01a21a9e-b4aa-7c70-8a61-f07f5aae1254:default",
+  "author": "claude-code:9fd077d9-e87b-5f11-a1fb-55d333900996:opus",
+  "none": "The landing scenario requires the real stack result and asserts the merged record exactly, catching both skipped merges and reversed duplicate handling.",
+  "added_lines": 32
+}
