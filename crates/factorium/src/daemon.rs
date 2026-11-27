@@ -8,16 +8,15 @@
 //! The process that ticks, one per database, is [`process`].
 
 mod process;
+mod start;
 
 use factorium_domain::admission;
 use factorium_domain::bump;
 use factorium_domain::checkout::Checkout;
 use factorium_domain::daemon::{self, NoteTick, Step, Steps, Ticked};
-use factorium_domain::issue::{Author, urgent_first};
-use factorium_domain::next;
-use factorium_domain::settings::{Setting, Time};
-use factorium_domain::tracker::{self, IssueRow, WorkerRow};
-use factorium_domain::watch::{Held, NoteAdmission};
+use factorium_domain::issue::Author;
+use factorium_domain::settings::Time;
+use factorium_domain::tracker::{self, WorkerRow};
 use factorium_domain::worker::{Of, Status as WorkerStatus, Unpark, Workers};
 use factum::Value;
 use serde::Serialize;
@@ -156,43 +155,7 @@ impl App {
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
         // One start, if admission allows.
-        if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
-            let reading = load.admission();
-            // Urgent, only the memory and disk floors hold it; what else held it, it went past.
-            // A halt holds no start: a start not urgent is admission's as at any other time.
-            let held = match urgent {
-                true => admission::admit_urgent(&reading, &settings),
-                false => admission::admit(&reading, &load.queue, self.now(), &settings),
-            };
-            // What it goes ahead of, read while it is still among the ready ones.
-            let ahead_of = match (urgent, &held) {
-                (true, Ok(())) => self.ahead_of(&checkout, number).await?,
-                _ => Vec::new(),
-            };
-            let held = match held {
-                Ok(()) => match self.start_worker(&checkout, number).await {
-                    Ok(mut started) => {
-                        if urgent {
-                            let past = admission::holds(&reading, &load.queue, self.now(), &settings);
-                            started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
-                        }
-                        t.started = Some(started);
-                        // An urgent start halts the host from now, not from the next tick.
-                        self.note_halt().await?;
-                        None
-                    }
-                    Err(r) if r.code == "no_harness" => Some(format!("kit: {}", r.message)),
-                    // Claimed since it was picked: it starts on a later tick.
-                    Err(r) if r.code == "claimed" => Some(format!("{checkout}#{number}: {}", r.message)),
-                    Err(r) => return Err(r),
-                },
-                Err(why) => Some(why),
-            };
-            self.submit::<NoteAdmission>(Held { why: held.clone() }).await?;
-            t.held = held;
-        } else {
-            self.submit::<NoteAdmission>(Held { why: None }).await?;
-        }
+        (t.started, t.held) = self.start_one(&load, &settings).await?;
         steps.ended("starting a worker", self.now());
         // Idle work, once the lines and the workers have what they need.
         t.idle.extend(self.idle_start(&checkouts, &load, &settings).await?);
@@ -266,89 +229,6 @@ impl App {
             }
         }
         Ok(filed)
-    }
-
-    /// The ready issues no worker holds, in the ordinary order they start
-    /// ([`next::order`]): the checkout with the fewest live workers first.
-    async fn ready(&self) -> Answer<Vec<IssueRow>> {
-        let live = self.live_workers().await?;
-        Ok(next::order(self.rows(tracker::untaken()).await?, live.iter().map(|w| w.checkout.as_str())))
-    }
-
-    /// The ready issues no worker holds and nothing open blocks, ahead of
-    /// which the urgent `checkout`#`number` started: those not urgent before
-    /// it in the ordinary order ([`App::ready`]).
-    async fn ahead_of(&self, checkout: &str, number: u64) -> Answer<Vec<String>> {
-        let mut ahead = Vec::new();
-        for r in self.ready().await? {
-            if (r.checkout.as_str(), r.number) == (checkout, number) {
-                break;
-            }
-            let issue = self.issue(&r.checkout, r.number).await?;
-            if !r.urgent && self.blockers(&issue).await?.iter().all(|w| w.met.is_some()) {
-                ahead.push(format!("{}#{}", r.checkout, r.number));
-            }
-        }
-        Ok(ahead)
-    }
-
-    /// The first ready issue no worker holds and nothing open blocks, the
-    /// urgent ones first, then those that start ahead (a promotion's mutants
-    /// issue), then in the ordinary order ([`App::ready`]);
-    /// whose checkout is under its cap (`workers_per_checkout`), unless it is
-    /// urgent or starts ahead; whose account, if it names one, can start now, and whose role
-    /// has what it needs of this host (each role checked once a tick).
-    async fn next_issue(&self) -> Answer<Option<IssueRow>> {
-        let workers = self.live_workers().await?;
-        let live = next::live(workers.iter().map(|w| w.checkout.as_str()));
-        let cap = self.settings().await?.get(Setting::WorkersPerCheckout);
-        let mut checked = std::collections::BTreeSet::new();
-        // Roles found lacking this tick: one that passes starts its issue at once.
-        let mut lacking = std::collections::BTreeSet::new();
-        let mut held = None;
-        let mut rows = self.ready().await?;
-        // Those that start ahead (a promotion's mutants issue), then the urgent before all.
-        urgent_first(&mut rows, |r| r.ahead);
-        urgent_first(&mut rows, |r| r.urgent);
-        for r in rows {
-            // Its checkout at its cap, it waits for one of its workers to end: doctor's `capped`.
-            if next::capped(&live, &r, cap) {
-                continue;
-            }
-            let (checkout, number) = (r.checkout.clone(), r.number);
-            if !checked.contains(&checkout) && self.checkout(&checkout).await.is_err() {
-                continue;
-            }
-            checked.insert(checkout.clone());
-            let issue = self.issue(&checkout, number).await?;
-            // Claimed, a command acts on its worktrees: it starts once that
-            // is done. A claim whose process is gone is cleared.
-            self.clear_dead_claim(&issue).await?;
-            if self.issue(&checkout, number).await?.claim.is_some() {
-                continue;
-            }
-            if !self.blockers(&issue).await?.iter().all(|w| w.met.is_some()) {
-                continue;
-            }
-            // One that cannot start now (its account used up, or what its
-            // checkout is pinned to at its limit) waits behind those that
-            // can; with none, its start answers why it is held.
-            if self.choice(&checkout, &issue.on).await.is_err() {
-                held.get_or_insert(r);
-                continue;
-            }
-            // Its role lacking what it needs of this host, it waits; doctor
-            // hands the watch what it lacks.
-            let role = self.checkout(&checkout).await?.role_for(issue.on.role.as_deref()).map(|(r, _)| r.to_string());
-            if let Some(role) = role
-                && (lacking.contains(&role) || !self.role_ready(&role).await?)
-            {
-                lacking.insert(role);
-                continue;
-            }
-            return Ok(Some(r));
-        }
-        Ok(held)
     }
 
     /// Each worker the watch parked behind what its issue waits for, idle
