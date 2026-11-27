@@ -25,7 +25,6 @@ pub enum Picked {
 struct Said {
     #[serde(default)]
     picks: Vec<Pick>,
-    #[serde(default)]
     none: Option<String>,
 }
 

@@ -61,7 +61,6 @@ pub struct Entry {
     /// The session the running step runs in, once its waiter noted it:
     /// every process the step started, wherever it moved, so ending the
     /// entry from another process ends them all.
-    #[serde(default)]
     pub session: Option<u32>,
 }
 
@@ -203,13 +202,10 @@ pub struct Holding {
     /// Until when it declared it holds, ms.
     pub until: Option<i64>,
     /// How long it declared it holds, ms: none, a command, read as `hold_default`.
-    #[serde(default)]
     pub declared: Option<i64>,
     /// The daily window it starts in, `22:00-07:00`.
-    #[serde(default)]
     pub window: Option<String>,
     /// Waiting, why it is not next: none, it is.
-    #[serde(default)]
     pub why: Option<String>,
     /// It is an urgent issue's.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -599,7 +595,6 @@ pub enum HeavyEvent {
         at: i64,
         /// The place it took, kept from its asker's entry that left
         /// unstarted: its `queued_at`, not `at`.
-        #[serde(default)]
         place: Option<i64>,
     },
     HeavyStarted {
@@ -610,15 +605,12 @@ pub enum HeavyEvent {
         id: Uuid,
         /// When it left unstarted with its place kept for its asker, ms;
         /// none: its place goes.
-        #[serde(default)]
         kept_at: Option<i64>,
         /// Given back by factorium, not by its holder: when, and why. The
         /// named resources it held are kept on record.
-        #[serde(default)]
         gone: Option<(i64, String)>,
         /// How its steps ran, if they ran: none for one that left
         /// unstarted, a hold, or one ended before factorium#308.
-        #[serde(default)]
         outcome: Option<Outcome>,
     },
     /// A started entry's step runs in session `session`.
@@ -726,7 +718,6 @@ pub struct Ask {
     /// When the line move it is for falls due however busy its checkout is
     /// (a hold bound before its bound), ms: past then, it goes ahead of
     /// workers' waiting entries.
-    #[serde(default)]
     pub bound_at: Option<i64>,
     /// The rules it asks under: [`RULES`] of the binary that asks. Queued
     /// again under other rules (a binary that execed in its place), it
@@ -746,10 +737,8 @@ pub struct Ask {
     /// it holds, ms: an entry with one is a hold, which once granted
     /// outlives its waiter until `worker release` or its worker ends. Never
     /// cut short before then; past it, a finding.
-    #[serde(default)]
     pub hold_for: Option<i64>,
     /// The daily window a hold may start in: outside it, it is passed over.
-    #[serde(default)]
     pub window: Option<Window>,
     /// The worker whose landing this gate is: a line's fast gate, which is
     /// no worker's entry (it holds no worker's silence clock), names the
@@ -820,10 +809,8 @@ pub struct End {
     pub keeps: bool,
     /// Given back by factorium, not its holder, and why (its waiter died,
     /// its worker ended): the named resources it held are kept on record.
-    #[serde(default)]
     pub gone: Option<String>,
     /// How its steps ran, if they ran.
-    #[serde(default)]
     pub outcome: Option<Outcome>,
 }
 

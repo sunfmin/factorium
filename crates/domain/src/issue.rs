@@ -36,7 +36,6 @@ pub struct Issue {
     /// The worker that holds it now.
     pub worker: Option<Uuid>,
     /// The one process acting on its worktrees now ([`Claim`]), if one is.
-    #[serde(default)]
     pub claim: Option<Claim>,
     /// How many workers have taken it.
     pub attempts: u32,
@@ -206,7 +205,6 @@ impl std::str::FromStr for Blocker {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Wait {
     pub by: Blocker,
-    #[serde(default)]
     pub why: Option<String>,
 }
 
@@ -537,14 +535,12 @@ pub struct Open {
     #[serde(default)]
     pub waiting_for_human: bool,
     /// Why it waits for a person from the start; read only with `waiting_for_human`.
-    #[serde(default)]
     pub why: Option<String>,
     /// What it waits for from the start, each with why: issues, of its
     /// checkout or others, and a time.
     #[serde(default)]
     pub blocked_by: Vec<Wait>,
     /// The task it is filed for, by idle work.
-    #[serde(default)]
     pub task: Option<Task>,
     /// The role and account its worker is to start with.
     #[serde(default)]
@@ -673,7 +669,6 @@ pub struct Block {
     pub checkout: String,
     pub number: u64,
     pub by: Blocker,
-    #[serde(default)]
     pub why: Option<String>,
     #[serde(default)]
     pub undo: bool,
@@ -792,7 +787,6 @@ pub struct Comment {
     pub text: String,
     pub by: Author,
     /// Its number, if it is a Decided record.
-    #[serde(default)]
     pub decided: Option<u64>,
 }
 

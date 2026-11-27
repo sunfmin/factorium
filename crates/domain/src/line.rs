@@ -167,7 +167,6 @@ pub struct Cut {
     pub commit: String,
     /// The base commit it was cut from: the promotions up to it are cut, one made since is
     /// owed its own. None, read back: all of them.
-    #[serde(default)]
     pub base: Option<String>,
     pub failed: Option<String>,
 }

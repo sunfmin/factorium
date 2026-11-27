@@ -36,7 +36,6 @@ pub struct Lacking {
     pub lacks: Vec<Lack>,
     /// What rolesmith said where it named nothing: its install failed, or
     /// it could not check at all.
-    #[serde(default)]
     pub failed: Option<String>,
 }
 
