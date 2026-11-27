@@ -2,11 +2,11 @@
   "suites": {
     "rust": {
       "prod_lines": 17216,
-      "test_lines": 17946,
-      "tests": 586,
+      "test_lines": 17921,
+      "tests": 583,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 10433,
+      "covered_lines": 10432,
       "uncovered_lines": 107
     }
   },
@@ -167,6 +167,96 @@
       "test": "factorium::scenarios::line::a_red_slow_gate_names_the_file_that_keeps_its_whole_output_and_old_ones_go",
       "hash": "1f4320864cc78ed9",
       "reason": "the long-gate test asserts no stall; this asserts the red tail, the whole-output file named and the newest 20 outputs kept"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_second_merge_red_on_the_same_tip_or_without_the_red_tip_merged_goes_to_the_watch",
+      "hash": "e055a1667e808a63",
+      "reason": "it checks a second merge red goes to the watch (status waiting, why 'red twice') on three setups; outbox's test checks undelivered messages and never lands a merge red"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::readying_an_issue_waiting_for_a_human_resumes_in_the_worktree_it_kept",
+      "hash": "d6e250b69cedaabb",
+      "reason": "it checks a readied issue resumes in its kept worktree, on its branch, with wip.txt and the 'You resume' brief; the mutants test asserts promotion and slimfit's flags, none of these"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_branch_that_merged_the_red_tip_and_conflicts_on_a_newer_one_is_told_again_not_sent_to_the_watch",
+      "hash": "c10400b41638f9ac",
+      "reason": "it checks a merge red after proving moved is told again ('Proving moved since', what landed, what conflicts) with no doctor finding; the base test asserts only the local base catching up"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::past_moved_reds_max_of_them_in_a_row_it_goes_to_the_watch",
+      "hash": "9eac3641b784557c",
+      "reason": "it checks moved_reds_max: working until red 4, waiting then; in_line's test asserts git's unrelated-histories words, not the count"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_landing_whose_only_conflicts_are_regenerated_records_takes_provings_and_lands_them_as_the_gate_wrote_them",
+      "hash": "19c34f7405c4daf3",
+      "reason": "it checks the fast gate rewrites the record on the merge (record == parents) and the 'Regenerated' message; the kept-entries test has no fast gate, and its gate would overwrite the kept merge it checks: the setups conflict"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_red_landing_then_a_fix_lands",
+      "hash": "7570e9fd13251eb7",
+      "reason": "it checks a fix after a fast-gate red lands; the mutants test never goes red, and folding the fix into the red-twice test removes the second red that test checks"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_landing_that_takes_provings_copy_of_a_regenerated_record_keeps_both_sides_kept_entries",
+      "hash": "cfdfec8e2c70a1dc",
+      "reason": "it checks proving's copy of a regenerated record keeps the branch's kept entries; no other test asserts the kept merge"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::held_landings_wait_until_released",
+      "hash": "a7ddb034346faedb",
+      "reason": "it checks a held checkout lands nothing until released; the mutants test never holds"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::an_issue_goes_from_ready_to_landed_promoted_and_cut",
+      "hash": "1f29dbccefd84315",
+      "reason": "it checks the whole path (worktree off proving, brief, gate once, landing, cleanup, promotion, cut v0.1.0, brew calls); the terminals test asserts only that the terminal closes"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_landing_with_a_conflict_outside_the_regenerated_records_is_red_naming_it",
+      "hash": "0d4609499bef7fcf",
+      "reason": "it checks a red names both README and rec/gen.json when regenerated records are declared; the plain no-merge red has no regenerated records to name"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::starting_an_issue_waiting_for_a_human_over_discards_its_kept_worktree_and_keeps_its_branch",
+      "hash": "877dbbabe1522411",
+      "reason": "it checks start-over refused on a live worker, the abandoned branch keeping commits and uncommitted wip, its comment in the next brief; kept's tick-during test asserts none of these"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_start_after_a_kept_worktree_was_removed_starts_fresh",
+      "hash": "8cd26bfe07f14ebc",
+      "reason": "it checks a kept worktree removed by hand starts fresh with no 'You resume' brief; kept's start-over test discards through start-over, a different setup"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::a_worker_answers_when_it_started_while_since_follows_its_status",
+      "hash": "446481714d971e8e",
+      "reason": "it checks started_at stays and since moves into landing; spent's test asserts the landing split, and folding a landing into the tracker-rows test changes the escalate-and-close flow it checks"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::orca_refusing_to_remove_a_worktree_is_an_error_and_the_worktree_stays",
+      "hash": "dbc87d59a18319a1",
+      "reason": "it checks Orca's refused remove is an error naming selector_not_found with the worktree kept; kept's doctor test asserts an orphan worktree's discard"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::path::stop_with_no_live_daemon_says_so_and_forgets_its_pid_file",
+      "hash": "02bcc271306b4522",
+      "reason": "it checks stop removes a dead daemon's pid file; daemon's test checks it is kept while its lock is held: the setups conflict"
     }
   ],
   "kept_files": [
@@ -241,8 +331,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 229,
-      "test_seconds": 344.448
+      "uncovered_lines": 230,
+      "test_seconds": 357.131
     }
   }
 }

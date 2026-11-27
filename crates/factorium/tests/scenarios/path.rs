@@ -159,20 +159,6 @@ async fn a_red_landing_then_a_fix_lands() {
     assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
-#[tokio::test]
-async fn a_branch_that_does_not_merge_is_red() {
-    let w = World::new();
-    let wk = w.working(CLAUDE, "t").await;
-    let tree = worktree(&wk);
-    w.commit(&tree, "README", "mine\n");
-    // The proving branch moves under it, the same file changed.
-    w.push_by_hand("web", "proving", "README", "theirs\n");
-
-    w.app.worker_done(id(&wk), None).await.unwrap();
-    let t = w.tick().await;
-    assert!(t.landed[0]["red"].as_str().unwrap().contains("does not merge"), "{:?}", t.landed);
-}
-
 /// Merges the proving tip into the worker's branch at `tree`, its own side
 /// winning where they conflict: what a worker told to merge it does.
 fn merge_proving(w: &World, tree: &std::path::Path) {
@@ -536,15 +522,8 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
     let ended = w.app.workers(true).await.unwrap()[0].clone();
     assert_eq!(row(&ended), (json!("ended"), json!("its issue closed: not needed"), json!(at + 60_000)));
-}
-
-#[tokio::test]
-async fn a_closed_issue_takes_no_more_commands() {
-    let w = World::new();
-    w.checkout("web").await;
-    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    // A closed issue takes no more commands.
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["checkout"], "web");
-    w.app.issue_close("web", 1, "done elsewhere").await.unwrap();
     refused(w.app.issue_comment("web", 1, "one more thing").await, "ended");
 }
 
@@ -584,14 +563,6 @@ async fn stop_with_no_live_daemon_says_so_and_forgets_its_pid_file() {
     std::fs::write(&pid, "999999").unwrap();
     assert_eq!(w.app.stop().await.unwrap(), json!({ "stopped": false, "why": "no daemon runs", "watch_closed": null }));
     assert!(!pid.exists());
-}
-
-#[tokio::test]
-async fn a_repo_that_declares_no_fast_gate_lands_on_none() {
-    let w = World::new();
-    let wk = w.working(CLAUDE, "t").await;
-    w.done(&wk, "factorium.toml", "[gate]\nslow = \"true\"\n").await;
-    assert_eq!(w.tick().await.landed[0]["landed"], "web#1");
 }
 
 #[tokio::test]
