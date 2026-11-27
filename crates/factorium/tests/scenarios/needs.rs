@@ -77,9 +77,11 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     w.app.checkout_edit("web", Some(Some(&ios)), None).await.unwrap();
     {
         let mut rolesmith = w.host.rolesmith.lock().unwrap();
+        rolesmith.lacks_program(&ios, "swift");
         rolesmith.lacks_program(&ios, "metal");
         rolesmith.lacks_entry(&ios, "apple-id");
-        rolesmith.uninstallable.push("metal".into());
+        // The install gives swift, then metal's script fails.
+        rolesmith.fault("install-refused", true);
     }
     w.app.issue_add("web", "One", "", false, &[]).await.unwrap();
     w.app.issue_add("web", "Two", "", false, &[]).await.unwrap();
@@ -98,6 +100,7 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     let found = w.finding(&format!("role:{ios}")).await.expect("a finding for the watch");
     let what = found["what"].as_str().unwrap();
     assert!(what.contains("program `metal`") && what.contains("entry `apple-id` (no mytokens entry)"), "{what}");
+    assert!(!what.contains("swift"), "what the refused install gave is not lacking: {what}");
     assert!(what.contains("`rolesmith tool install` failed: tool metal: its script exits 1"), "{what}");
     let fix = found["fix"].as_str().unwrap();
     assert!(fix.contains(&format!("`rolesmith tool install --project {ios}`")), "{fix}");

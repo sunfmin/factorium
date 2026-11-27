@@ -1,0 +1,8 @@
+# A record naming a role its library lacks: rolesmith refuses to install
+# for it (truefit's rolesmith install-refused case, truefit.toml).
+[[role]]
+name = "no-such-role"
+source = "felix"
+url = "https://github.com/sunfmin/lore"
+rev = "3f2a98e14e50ced2f7878c0faf7e22199dfd822b"
+into = ["claude-code"]

@@ -549,11 +549,27 @@ pub struct FakeRolesmith {
     /// Each project's directory → what its roles lack, as `doctor` lists
     /// each under `error.missing` (`kind`, `name`, `reason`, `fix`).
     pub lacks: BTreeMap<String, Vec<Value>>,
-    /// The programs an install cannot give: its script fails.
-    pub uninstallable: Vec<String>,
+    /// Installs refuse while set ([`FakeRolesmith::fault`]).
+    install_refused: bool,
 }
 
+/// The failures rolesmith can be made to answer (truefit.toml's rolesmith
+/// `faults`, named by `TRUEFIT_FAULT` to `standin fake`), each as real
+/// rolesmith refuses (`error.kind` `failed`, exit 1): `install-refused`,
+/// a `tool install` whose last program's script fails, those before it
+/// installed (with none lacking, it refuses at once), as one whose record
+/// names a role its library lacks.
+pub const ROLESMITH_FAULTS: [&str; 1] = ["install-refused"];
+
 impl FakeRolesmith {
+    /// Sets, or clears, the failure `name` (one of [`ROLESMITH_FAULTS`]).
+    pub fn fault(&mut self, name: &str, on: bool) {
+        match name {
+            "install-refused" => self.install_refused = on,
+            _ => panic!("no rolesmith fault {name}: {ROLESMITH_FAULTS:?}"),
+        }
+    }
+
     /// A program `name` that `dir`'s roles lack, as doctor names it.
     pub fn lacks_program(&mut self, dir: &str, name: &str) {
         let fix = format!("rolesmith tool install --project {dir}");
@@ -595,14 +611,14 @@ impl FakeRolesmith {
                 Some(("missing", json!(lacks))),
             ),
             _ => {
-                // In order; the first that fails stops it, those before it installed.
+                // In order; refused, the last fails, those before it installed.
                 let programs = lacks.iter().filter(|l| l["kind"] == "program").map(|l| l["name"].clone());
                 let names: Vec<String> = programs.map(|n| n.as_str().unwrap_or_default().to_string()).collect();
-                let failing = names.iter().position(|n| self.uninstallable.contains(n));
-                let installed = &names[..failing.unwrap_or(names.len())];
+                let installed = if self.install_refused { &names[..names.len().saturating_sub(1)] } else { &names[..] };
                 lacks.retain(|l| !installed.iter().any(|n| l["name"] == n.as_str()));
-                if let Some(i) = failing {
-                    return refused(format!("tool {}: its script exits 1: no such toolchain", names[i]), None);
+                if self.install_refused {
+                    let tool = names.last().map_or("install".into(), |n| format!("tool {n}"));
+                    return refused(format!("{tool}: its script exits 1: no such toolchain"), None);
                 }
                 let tools: Vec<Value> =
                     installed.iter().map(|n| json!({ "name": n, "method": "script", "formula": null })).collect();

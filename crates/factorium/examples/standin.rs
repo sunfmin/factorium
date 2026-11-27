@@ -212,6 +212,9 @@ fn main() {
                 Ok(f) if fakes::STABLEHAND_FAULTS.contains(&f.as_str()) => {
                     host.stablehand.lock().unwrap().fault(&f, true)
                 }
+                Ok(f) if fakes::ROLESMITH_FAULTS.contains(&f.as_str()) => {
+                    host.rolesmith.lock().unwrap().fault(&f, true)
+                }
                 Ok(f) if fakes::SLIMFIT_FAULTS.contains(&f.as_str()) => host.slimfit_fault(&f, true),
                 Ok(f) => host.orca.fault(&f, true),
                 Err(_) => {}
