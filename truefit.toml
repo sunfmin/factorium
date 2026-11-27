@@ -608,6 +608,19 @@ covers = [
   { action = "HaltHolds", file = "crates/domain/src/heavy.rs", function = "Queue::passed_over, Queue::halted, Queue::urgent" },
 ]
 
+# heavy-starts' shape (.truefit/traces/heavy-urgent/), with each entry's
+# urgent mark and landing's gate, and whether urgent issues halt the queue;
+# what else an entry asks for is NoAsk's, as this config's constants fix it.
+[model.trace]
+q = '[i \in Ids |-> r.state.q[i]]'
+last_start = 'r.state.last_start'
+rules = 'r.state.rules'
+now = 'r.now'
+waiter = '[i \in Ids |-> r.state.waiter[i]]'
+ask = '[i \in Ids |-> [NoAsk EXCEPT !.urgent = r.state.ask[i].urgent, !.lands = r.state.ask[i].lands]]'
+halt = 'r.state.halt'
+last = 'r.last'
+
 # The queue of resources (docs/adr/0011-resources-queue-shortest-hold-first.md): the same model
 # with a named resource beside "host", a worker's hold and its window, and
 # the line ordered by declared hold and the starve bound.
