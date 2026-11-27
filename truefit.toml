@@ -603,8 +603,8 @@ covers = [
   { action = "Ask", file = "crates/domain/src/heavy.rs", function = "Queue::may_start, Queue::passed_over, Queue::halted, Queue::urgent" },
   { action = "Ask", file = "crates/domain/src/neutral/queue.rs", function = "line, next" },
   { action = "UrgentAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, gives" },
-  { action = "LandsAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, gives" },
-  { action = "LandsAhead", file = "crates/domain/src/heavy.rs", function = "Queued::lands" },
+  { action = "LandingAhead", file = "crates/domain/src/neutral/queue.rs", function = "line, gives" },
+  { action = "LandingAhead", file = "crates/domain/src/heavy.rs", function = "Queued::lands" },
   { action = "HaltHolds", file = "crates/domain/src/heavy.rs", function = "Queue::passed_over, Queue::halted, Queue::urgent" },
 ]
 
