@@ -569,6 +569,29 @@ async fn a_tick_past_half_the_hang_bound_is_a_finding_naming_its_longest_step() 
     assert!(doctor["slow_tick"]["at"].as_i64() > Some(first), "a newer slow tick: {}", doctor["slow_tick"]);
 }
 
+/// A tick's line in daemon.log says when it started, every step's ms in order,
+/// and how many live workers it watched, so a step past its bound is read from the log alone,
+/// not bounded by the tick's total less its longest; a process's first tick is logged always.
+#[tokio::test]
+async fn a_tick_line_has_its_time_every_steps_ms_and_the_live_workers_it_watched() {
+    use factorium::host::Clock;
+    let w = World::new();
+    let first = w.tick_alone().await;
+    assert!(first.first && first.line().is_some(), "{first:?}");
+    w.working(CLAUDE, "t").await;
+    let at = w.clock.now();
+    let t = w.tick_alone().await;
+    assert!(!t.first, "{t:?}");
+    // Its line, whether or not this quick tick is logged.
+    let line: Value = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+    assert_eq!((line["at"].as_i64(), line["live"].as_u64()), (Some(at), Some(1)), "{line}");
+    let steps: Vec<&str> = line["steps"].as_array().unwrap().iter().map(|s| s["step"].as_str().unwrap()).collect();
+    assert_eq!(steps.first(), Some(&"settling the store"), "{steps:?}");
+    assert!(steps.contains(&"watching workers") && steps.last() == Some(&"proving the binary"), "{steps:?}");
+    assert!(line["steps"].as_array().unwrap().iter().all(|s| s["ms"].is_i64()), "{line}");
+    assert!(line["longest"]["step"].is_string() && line["slow"] == false, "doctor's reading stays: {line}");
+}
+
 /// daemon.log has each tick that did something, and each slow one, with its
 /// time; a quick tick that did nothing it leaves out.
 #[test]
@@ -581,6 +604,7 @@ fn a_tick_is_logged_once_it_did_something_or_was_slow() {
         "slow, with nothing done"
     );
     let did = [
+        Tick { first: true, ..Tick::default() },
         Tick { started: Some(json!({})), ..Tick::default() },
         Tick { landed: one(), ..Tick::default() },
         Tick { lines: one(), ..Tick::default() },
@@ -623,11 +647,13 @@ fn a_refused_swap_stands_until_a_link_names_another() {
 fn a_ticks_longest_step_is_the_first_that_took_longest() {
     let mut s = Steps::at(100);
     s.ended("a", 100);
-    assert_eq!(s.longest, Step { step: "a".into(), ms: 0 }, "a first step, however short");
+    assert_eq!(s.longest(), Step { step: "a".into(), ms: 0 }, "a first step, however short");
     s.ended("b", 130);
     s.ended("c", 160);
     s.ended("d", 170);
-    assert_eq!(s.longest, Step { step: "b".into(), ms: 30 }, "the first of two as long");
+    assert_eq!(s.longest(), Step { step: "b".into(), ms: 30 }, "the first of two as long");
+    let ms: Vec<_> = s.all.iter().map(|s| (s.step.as_str(), s.ms)).collect();
+    assert_eq!(ms, [("a", 0), ("b", 30), ("c", 30), ("d", 10)], "every step's ms, in order");
 }
 
 #[test]

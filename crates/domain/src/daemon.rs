@@ -48,34 +48,41 @@ pub struct Upgrade {
     pub failed: Option<String>,
 }
 
-/// A tick's longest step: its name and how long it took, ms.
+/// One step of a tick: its name and how long it took, ms.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub step: String,
     pub ms: i64,
 }
 
-/// A tick's steps as each ends, on the app's clock: the longest so far, the
-/// first of those that took as long.
+/// A tick's steps as each ends, on the app's clock, in order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Steps {
     last: i64,
-    pub longest: Step,
+    pub all: Vec<Step>,
 }
 
 impl Steps {
     /// A tick that starts `now`.
     pub fn at(now: i64) -> Self {
-        Steps { last: now, longest: Step::default() }
+        Steps { last: now, all: Vec::new() }
     }
 
     /// `step` ended `now`.
     pub fn ended(&mut self, step: &str, now: i64) {
-        let ms = now - self.last;
-        if ms > self.longest.ms || self.longest.step.is_empty() {
-            self.longest = Step { step: step.into(), ms };
-        }
+        self.all.push(Step { step: step.into(), ms: now - self.last });
         self.last = now;
+    }
+
+    /// The step it spent most in: the first of those that took as long.
+    pub fn longest(&self) -> Step {
+        let mut longest: Option<&Step> = None;
+        for s in &self.all {
+            if longest.is_none_or(|l| s.ms > l.ms) {
+                longest = Some(s);
+            }
+        }
+        longest.cloned().unwrap_or_default()
     }
 }
 

@@ -32,9 +32,9 @@ tick's module.
 Each tick:
 
 - No tick waits for a heavy run: every gate and step a tick starts runs beside the ticks.
-- Each tick is timed by its steps; daemon.log has each one that did
-  something or was slow, with how long it took and its longest step. A
-  daemon silent five `tick_every` (never under two minutes) is taken to
+- Each tick is timed by its steps; daemon.log has each one that did something, was slow or was its process's first,
+  with when it started, how long it took, every step's ms in order, its longest step, and how many live workers it watched.
+  A daemon silent five `tick_every` (never under two minutes) is taken to
   hang, so a tick past half that bound is kept, and for an hour is a finding naming how long it took and that step.
 
 No test changes: the scenarios call the same `App` methods.

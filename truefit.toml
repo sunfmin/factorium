@@ -1451,7 +1451,7 @@ name = "no-tick-waits-for-typing"
 says = "And no tick waits for its typing at all"
 source = "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:29"
 check = ["test"]
-why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once) and a retry of two missed in one window"
+why = "factorium has no `truefit sim`, and no model has the outboxes; the tick hands each note to an outbox and returns, and on.rs times ticks telling seven busy workers under a 3 s Orca window (under 1 s, each typed once), a retry of two missed in one window, and a tick that tries three missed again under one window (the retry typed beside it)"
 
 [[promise]]
 name = "typing-beside-ends-before-retry-or-swap"
