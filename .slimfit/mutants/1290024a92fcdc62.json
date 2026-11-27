@@ -1,0 +1,7 @@
+{
+  "tree": "775f7ecb02b2935ed1bdca49a2b5f91d8dad04aa+d1fba762150c532c",
+  "picker": "codex:01a21b33-d409-7c23-b6c2-3c3ae4f31acf:default",
+  "author": "claude-code:3f6690c9-da33-5f96-90f4-206118f39696:opus",
+  "none": "The tests directly cover the listed logging, first-tick, elapsed-time, and longest-step mutations, and the listed Answer replacements cannot build.",
+  "added_lines": 30
+}
