@@ -1470,3 +1470,140 @@ name = "urgent-landing-next-never-cuts-a-gate"
 says = "Its landing takes the next turn of its checkout's line, never cutting a running gate short."
 source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:22"
 check = ["test"]
+
+[[promise]]
+name = "cap-holds-no-mutants-issue"
+says = "A checkout at its `workers_per_checkout` does not hold that issue; admission's load rules do"
+source = "docs/adr/0006-mutants-are-owed-at-promotion.md:25"
+check = ["test"]
+
+[[promise]]
+name = "promotion-waits-at-most-mutants-bound"
+says = "The promotion waits for that issue at most `mutants_bound` from its filing."
+source = "docs/adr/0006-mutants-are-owed-at-promotion.md:28"
+check = ["test"]
+
+[[promise]]
+name = "halt-holds-no-line-move"
+says = "The halt holds no line move: other landings, promotions and cuts, on every checkout, go on through the heavy queue as usual and are never cut short by it."
+source = "docs/adr/0015-an-urgent-issue-halts-the-host.md:39"
+check = ["test"]
+why = "factorium has no `truefit sim`; models/HeavyQueue.tla's `halted` never picks a line move's entry, but heavy-urgent checks no invariant of this name; the pick is one decision of one tick under the daemon's lock, and urgent.rs lands, promotes and cuts other checkouts during a halt, none failed"
+
+[[promise]]
+name = "cap-holds-no-mutants-issue-load-does"
+says = "It holds no promotion's mutants issue"
+source = "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:21"
+check = ["test"]
+
+[[promise]]
+name = "capped-names-only-held-issues"
+says = "doctor's `capped` names each checkout at its cap and the ready issues waiting for it, never an urgent one or one that starts ahead."
+source = "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:58"
+check = ["test"]
+
+[[promise]]
+name = "worktrees-made-in-orca-removed-when-done"
+says = "every worktree factorium makes is made in Orca, saying what it is and what it is for, and removed once its job is done."
+source = "docs/adr/0017-the-line-s-jobs-run-in-work-dirs.md:7"
+check = ["test"]
+
+[[promise]]
+name = "promotion-moves-base-to-the-tip-it-read"
+says = "A promotion's gate is on the tip it read, and the base fast-forwards only to that tip, however far proving moved meanwhile."
+source = "docs/adr/0018-a-checkout-s-moves-run-apart.md:33"
+check = ["test"]
+
+[[promise]]
+name = "restart-only-once-no-move-runs"
+says = "The daemon still restarts onto a new binary only once no move of any checkout runs beside the ticks."
+source = "docs/adr/0018-a-checkout-s-moves-run-apart.md:42"
+kept = "daemon.rs swap_due holds the swap while heavy.rs moves_run(), but no scenario asks for a swap while a move runs and sees it held; a test that does is owed"
+kept_until = "2027-01-31"
+
+[[promise]]
+name = "every-landing-stacked-urgent-at-movable-bottom"
+says = "Every worker that asks to land is stacked: its branch merged onto the merge below it, the first onto the proving tip (T+A, T+A+B, T+A+B+C). An urgent one goes to the bottom of what can still move: below every merge whose gate has not started, which is stacked again above it; a merge whose gate runs or ended keeps its place."
+source = "docs/adr/0019-stacked-landing-gates.md:23"
+check = ["test"]
+
+[[promise]]
+name = "proving-moves-to-deepest-green"
+says = "Proving moves, in one push requiring the tip the stack's bottom merged onto, to the deepest merge whose gate and every gate below it are green."
+source = "docs/adr/0019-stacked-landing-gates.md:32"
+check = ["test"]
+
+[[promise]]
+name = "regenerated-conflict-takes-copy-below"
+says = "A merge's conflicts only in the records the gate regenerates take the copy below; its gate rewrites them, with those of the merges below, and they are amended into its merge."
+source = "docs/adr/0019-stacked-landing-gates.md:43"
+check = ["test"]
+
+[[promise]]
+name = "proving-holds-only-gated-commits"
+says = "Proving holds only commits a fast gate ran on, as before"
+source = "docs/adr/0019-stacked-landing-gates.md:52"
+check = ["test"]
+
+[[promise]]
+name = "second-red-goes-to-the-watch"
+says = "Red: the worker is told why and goes on; red twice in a row goes to the watch, never to a second worker in a new worktree."
+source = "docs/adr/0022-a-worker-hands-in-through-done.md:25"
+check = ["test"]
+why = "factorium has no `truefit sim`, and no model has the landings' reds; a red is counted by one tick under the daemon's lock from the worker's records, and path.rs lands red twice and sees the second go to the watch"
+
+[[promise]]
+name = "log-never-rewritten"
+says = "The log is never rewritten"
+source = "docs/adr/0025-everything-lives-in-one-database.md:25"
+check = ["test"]
+
+[[promise]]
+name = "guard-refuses-stop-to-the-watch"
+says = "The watch runs every owner command too but `stop`: it lives under the daemon, so the guard refuses `stop` to it, as to workers."
+source = "docs/adr/0026-three-groups-by-who-runs-them-and-the-help-is-the-manual.md:20"
+check = ["test"]
+
+[[promise]]
+name = "every-message-through-the-outbox"
+says = "Every message to a session (a brief, a landing's red, a round, `watch tell` and `watch restart`, a comment, word that its role changed) goes through that session's outbox"
+source = "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:15"
+check = ["test"]
+why = "factorium has no `truefit sim`, and no model has the outboxes; each session's outbox is one record, typed in order by one daemon; outbox.rs and comment.rs send each kind behind a running turn, a dialog and a missed one, each typed once"
+
+[[promise]]
+name = "next-brief-carries-every-comment"
+says = "The next brief carries every comment."
+source = "docs/adr/0028-an-issue-s-comments-are-its-one-record.md:20"
+check = ["test"]
+
+[[promise]]
+name = "attempt-answers-role-and-hash"
+says = "Each attempt answers the role it started with and `role_hash`: a hash of its rules and every file under its skills, read through the link, by path and bytes, taken at its start."
+source = "docs/adr/0029-what-an-attempt-took-is-read-not-kept-twice.md:19"
+check = ["test"]
+
+[[promise]]
+name = "proof-on-a-copy"
+says = "The proof answers `doctor` on a copy (SQLite's `VACUUM INTO`), never the live file."
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:15"
+check = ["test"]
+
+[[promise]]
+name = "binary-proven-once-swapped-once-passed"
+says = "Each binary is proven once on the host, processes taking turns on its lock; a tick only starts it, beside the ticks, and swaps once it passed."
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:16"
+check = ["test"]
+
+[[promise]]
+name = "upgrade-failure-is-a-finding"
+says = "a failure is a finding (`daemon:upgrade`), as a link whose proof failed is (`daemon:refused:<version>`)."
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:22"
+check = ["test"]
+
+[[promise]]
+name = "upgrade-only-while-no-move-runs"
+says = "Every other host upgrades from the tap each `upgrade_every`, while no line move runs"
+source = "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:22"
+kept = "upgrade.rs ties the upgrade to `upgrade_every`, and upgrade.rs (src) holds it while moves_run(), but no scenario runs a move beside a due upgrade and sees it wait; a test that does is owed"
+kept_until = "2027-01-31"
