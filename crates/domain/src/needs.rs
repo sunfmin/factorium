@@ -2,7 +2,7 @@
 //! (factorium#277): `rolesmith doctor --project <dir>` says, from the roles
 //! its `rolesmith.toml` records. A program it lacks is installed first
 //! (`rolesmith tool install --project <dir>`); what is still lacking after,
-//! a mytokens entry among it, holds the role's issues and is the watch's,
+//! an optokens Secret among it, holds the role's issues and is the watch's,
 //! each thing named with the fix rolesmith gives.
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ pub const RECORD: &str = "rolesmith.toml";
 /// One thing a role needs that this host lacks, as rolesmith names it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lack {
-    /// `program` or `entry` (a mytokens entry).
+    /// `program` or `entry` (an optokens Secret, as rolesmith names it).
     pub kind: String,
     pub name: String,
     pub reason: String,

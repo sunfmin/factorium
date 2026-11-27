@@ -99,12 +99,12 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
     // The watch is handed what it lacks, each with rolesmith's fix.
     let found = w.finding(&format!("role:{ios}")).await.expect("a finding for the watch");
     let what = found["what"].as_str().unwrap();
-    assert!(what.contains("program `metal`") && what.contains("entry `apple-id` (no mytokens entry)"), "{what}");
+    assert!(what.contains("program `metal`") && what.contains("entry `apple-id` (no optokens Secret)"), "{what}");
     assert!(!what.contains("swift"), "what the refused install gave is not lacking: {what}");
     assert!(what.contains("`rolesmith tool install` failed: tool metal: its script exits 1"), "{what}");
     let fix = found["fix"].as_str().unwrap();
     assert!(fix.contains(&format!("`rolesmith tool install --project {ios}`")), "{fix}");
-    assert!(fix.contains("`mytokens put apple-id --fields TOKEN`"), "{fix}");
+    assert!(fix.contains("`optokens put apple-id --fields TOKEN`"), "{fix}");
 
     // The same lack is not installed again, tick by tick; the finding stands.
     let n = ran_so_far(&w);
@@ -130,7 +130,7 @@ async fn a_role_lacking_what_cannot_be_installed_holds_its_issues_and_is_the_wat
 
 const MISSING: &str = r#"{"error":{"kind":"failed","message":"the project lacks 2 thing(s), on this machine:","missing":[
     {"kind":"program","name":"metal","reason":"check `xcrun metal` exits 1","fix":"rolesmith tool install --project /r","from":["felix/ios"]},
-    {"kind":"entry","name":"apple","reason":"no mytokens entry","fix":"mytokens put apple --fields KEY"},
+    {"kind":"entry","name":"apple","reason":"no optokens Secret","fix":"optokens put apple --fields KEY"},
     {"kind":"program","name":"swift","reason":"check `swift` exits 127","fix":"rolesmith tool install --project /r"}]}}"#;
 
 #[test]
@@ -139,10 +139,10 @@ fn a_doctor_that_passes_lacks_nothing_and_one_that_refuses_lacks_what_it_names()
     let l = read_doctor(false, MISSING, "rolesmith: the project lacks").unwrap();
     let names: Vec<&str> = l.lacks.iter().map(|l| l.name.as_str()).collect();
     assert_eq!((names, l.failed.clone()), (vec!["metal", "apple", "swift"], None));
-    assert_eq!(l.fixes(), ["rolesmith tool install --project /r", "mytokens put apple --fields KEY"]);
+    assert_eq!(l.fixes(), ["rolesmith tool install --project /r", "optokens put apple --fields KEY"]);
     assert_eq!(
         l.what(),
-        "program `metal` (check `xcrun metal` exits 1); entry `apple` (no mytokens entry); program `swift` (check `swift` exits 127)"
+        "program `metal` (check `xcrun metal` exits 1); entry `apple` (no optokens Secret); program `swift` (check `swift` exits 127)"
     );
 }
 
