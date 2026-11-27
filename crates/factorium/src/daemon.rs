@@ -155,7 +155,7 @@ impl App {
         t.roles = self.tell_role_changes().await?;
         steps.ended("telling workers their role changed", self.now());
         // One start, if admission allows.
-        (t.started, t.held) = self.start_one(&load, &settings).await.map(|s| (s.started, s.held))?;
+        (t.started, t.held) = self.start_one(&load, &settings).await?;
         steps.ended("starting a worker", self.now());
         // Idle work, once the lines and the workers have what they need.
         t.idle.extend(self.idle_start(&checkouts, &load, &settings).await?);

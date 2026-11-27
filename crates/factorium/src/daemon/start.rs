@@ -1,9 +1,6 @@
-//! The tick's one start: which ready issue goes next, whether admission
-//! lets it, and what it went ahead of if urgent. The order (urgent, then
-//! those that start ahead, then the ordinary order of [`next::order`]),
-//! the per-checkout cap, claims, blocks, accounts and roles are all read
-//! here; the tick asks [`App::start_one`] once and records nothing else of
-//! it.
+//! The tick's one start ([`App::start_one`]): the order of the ready
+//! issues, the per-checkout cap, claims, blocks, accounts, roles and
+//! admission, urgent or not, are all read here.
 
 use factorium_domain::admission;
 use factorium_domain::issue::urgent_first;
@@ -17,19 +14,12 @@ use serde_json::json;
 use crate::load::Load;
 use crate::{Answer, App};
 
-/// What the tick's start did: the worker it started, or why the first
-/// ready issue was held; neither when nothing was ready.
-#[derive(Default)]
-pub(crate) struct Started {
-    pub started: Option<Value>,
-    pub held: Option<String>,
-}
-
 impl App {
-    /// One start, if admission allows, with what held it noted for doctor.
-    pub(crate) async fn start_one(&self, load: &Load, settings: &Settings) -> Answer<Started> {
-        let mut t = Started::default();
+    /// One start, if admission allows: the worker it started, or why the
+    /// first ready issue was held (noted for doctor); neither when none is.
+    pub(crate) async fn start_one(&self, load: &Load, settings: &Settings) -> Answer<(Option<Value>, Option<String>)> {
         if let Some(IssueRow { checkout, number, urgent, .. }) = self.next_issue().await? {
+            let mut started = None;
             let reading = load.admission();
             // Urgent, only the memory and disk floors hold it; what else held it, it went past.
             // A halt holds no start: a start not urgent is admission's as at any other time.
@@ -44,12 +34,12 @@ impl App {
             };
             let held = match held {
                 Ok(()) => match self.start_worker(&checkout, number).await {
-                    Ok(mut started) => {
+                    Ok(mut s) => {
                         if urgent {
                             let past = admission::holds(&reading, &load.queue, self.now(), settings);
-                            started["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
+                            s["urgent"] = json!({ "ahead_of": ahead_of, "past": past });
                         }
-                        t.started = Some(started);
+                        started = Some(s);
                         // An urgent start halts the host from now, not from the next tick.
                         self.note_halt().await?;
                         None
@@ -62,11 +52,10 @@ impl App {
                 Err(why) => Some(why),
             };
             self.submit::<NoteAdmission>(Held { why: held.clone() }).await?;
-            t.held = held;
-        } else {
-            self.submit::<NoteAdmission>(Held { why: None }).await?;
+            return Ok((started, held));
         }
-        Ok(t)
+        self.submit::<NoteAdmission>(Held { why: None }).await?;
+        Ok((None, None))
     }
 
     /// The ready issues no worker holds, in the ordinary order they start
