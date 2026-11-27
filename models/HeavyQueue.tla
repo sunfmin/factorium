@@ -653,7 +653,7 @@ UrgentAhead ==
 
 \* A landing's gate goes ahead of workers' and programs' waiting entries
 \* not marked urgent: none of those starts while one waits in its line.
-LandsAhead ==
+LandingAhead ==
     \A i \in Ids :
         (StartedBy(i) /\ q[i].yields /\ ~ask[i].urgent) =>
             \A r \in Res(i) : Covered(i, r) \/ ~\E j \in InLine(r, last.t) : ask[j].lands
@@ -762,7 +762,7 @@ KeptPlace ==
 \* `read`, `since`), which View and StepView leave out: whether each holds
 \* tells states apart too. Where none fails it is View, state for state; a
 \* state that breaks one is never taken for one seen that does not.
-StartView == <<View, AtOnce, LineAhead, UrgentAhead, LandsAhead, Settled, CutOnlyWithoutRoom>>
+StartView == <<View, AtOnce, LineAhead, UrgentAhead, LandingAhead, Settled, CutOnlyWithoutRoom>>
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
@@ -792,6 +792,6 @@ BrokenVariants == [
     cut_with_room    |-> "CutOnlyWithoutRoom", \* a halt cuts short with room for the urgent
     no_urgent        |-> "UrgentAhead",  \* the urgent mark is not read in the line
     urgent_first     |-> "LineAhead",    \* an urgent one goes ahead of a line move past its bound
-    no_lands         |-> "LandsAhead"    \* a landing's gate is ranked as another line move
+    no_lands         |-> "LandingAhead"    \* a landing's gate is ranked as another line move
 ]
 =============================================================================
