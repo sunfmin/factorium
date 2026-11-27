@@ -1311,19 +1311,19 @@ check = ["test"]
 [[promise]]
 name = "only-tap-signs"
 says = "the Developer ID identity and the notary key live in sunfmin/homebrew-tap only, and only its `release` workflow signs."
-source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:22"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:19"
 kept = "where the secrets live is sunfmin/homebrew-tap's settings, which no run of this repo reads or changes; release.sh holds no signing step, kept so by review of its change"
 
 [[promise]]
 name = "build-checks-cargo-version"
 says = "`build` at the tag only checks Cargo.toml says the tag's version"
-source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:32"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:26"
 check = ["test"]
 
 [[promise]]
 name = "tag-only-after-signed-run"
 says = "Only after the step passes does the daemon tag"
-source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:45"
+source = "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:32"
 check = ["test"]
 
 [[promise]]

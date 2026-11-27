@@ -258,13 +258,6 @@
       "line/cut.rs"
     ]
   },
-  "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md": {
-    "bytes": 3212,
-    "local_refs": 4,
-    "pointers": [
-      ".github/workflows/README.md"
-    ]
-  },
   "docs/adr/0005-the-tick-and-the-process-that-ticks.md": {
     "pointers": [
       "daemon.rs",
