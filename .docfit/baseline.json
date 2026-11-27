@@ -1,7 +1,4 @@
 {
-  "checks.sh": {
-    "local_refs": 1
-  },
   "crates/domain/src/admission.rs": {
     "local_refs": 1
   },
