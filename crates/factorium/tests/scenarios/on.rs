@@ -542,6 +542,48 @@ async fn a_role_change_under_seven_busy_workers_adds_no_orca_window_to_the_tick_
     }
 }
 
+/// daemon.log, 2026-11-27 01:59 JST, v0.1.134: a tick spent 20.4 s of 26.6 s watching 8 workers, its screen reads
+/// given 5 s each and read at once: the rest was the retry of what their sessions held, typed in
+/// the tick, each try waiting out Orca's window for a turn that does not start. Held messages are
+/// tried again beside the ticks, as role notes are: the tick watches its workers in about one read.
+#[tokio::test]
+async fn a_held_message_tried_again_adds_no_orca_window_to_watching_workers() {
+    let w = World::new();
+    w.kit_of(&[CLAUDE]).await;
+    w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
+    w.app.settings_set(Some("workers_per_checkout"), Some(3)).await.unwrap();
+    let ios = role_at(&w, "ios", "You are the ios-app-coder.\n", "xcode");
+    checkout_as(&w, "web", &ios).await;
+    let mut handles = Vec::new();
+    for n in 1..=3 {
+        w.app.issue_add("web", &format!("Build part {n}"), "", false, &[]).await.unwrap();
+        w.tick().await;
+    }
+    for n in 1..=3 {
+        let handle = w.worker_on("web", n).await["terminal"].as_str().unwrap().to_string();
+        w.open_dialog(&handle, &["Try the new thing?", "› Yes", "Enter to confirm"]);
+        handles.push(handle);
+    }
+    let window = std::time::Duration::from_secs(3);
+    *w.host.orca.window.lock().unwrap() = Some(window);
+    std::fs::write(w.host.home().join("roles/ios").join(SKILLS).join("xcode/SKILL.md"), "xcode 2\n").unwrap();
+    assert_eq!(w.tick().await.roles.len(), 3);
+    for n in 1..=3 {
+        assert_eq!(role_outcomes(&w, n).await, vec![json!("missed")], "worker {n}: in its dialog still");
+    }
+
+    let started = std::time::Instant::now();
+    w.tick_alone().await;
+    let took = started.elapsed();
+    eprintln!("the tick that tried 3 missed notes again took {} ms", took.as_millis());
+    assert!(took < window, "the tick waited on Orca's window: {took:?}");
+    w.app.typing_ended().await;
+    for (n, handle) in (1..=3).zip(&handles) {
+        let typed = w.terminal(handle).sent.iter().filter(|s| s.contains("your role changed")).count();
+        assert_eq!((n, typed), (n, 2), "tried again once, beside the tick");
+    }
+}
+
 /// A restart ends the process that types beside the ticks: none is due while a role note is
 /// typed, or the next daemon would type it again, its outcome never recorded (factorium#311).
 #[tokio::test]

@@ -56,8 +56,17 @@ pub struct Tick {
     pub restart: Option<String>,
     /// The upgrade of the daemon's own formula from the tap, started or ended.
     pub upgrade: Option<Value>,
+    /// When it started, ms since the epoch on the app's clock.
+    pub at: i64,
+    /// The first tick of this daemon process: logged whatever it did, so a
+    /// restart's first tick is read from daemon.log.
+    pub first: bool,
+    /// How many live workers it watched.
+    pub live: usize,
     /// How long the tick took, ms on the app's clock.
     pub took_ms: i64,
+    /// Each step it ended and its ms, in order.
+    pub steps: Vec<Step>,
     /// The step it spent most in.
     pub longest: Step,
     /// Past half the hang bound.
@@ -65,7 +74,7 @@ pub struct Tick {
 }
 
 impl Tick {
-    /// Its line in daemon.log, if daemon.log has it: it was slow, or did something (landed, moved
+    /// Its line in daemon.log, if daemon.log has it: it was slow, its process's first, or did something (landed, moved
     /// a line, saw, started, resumed or told a worker its role changed, or moved idle work).
     pub fn line(&self) -> Option<String> {
         self.logged().then(|| serde_json::to_string(self).unwrap_or_default())
@@ -73,6 +82,7 @@ impl Tick {
 
     fn logged(&self) -> bool {
         self.slow
+            || self.first
             || self.started.is_some()
             || !self.landed.is_empty()
             || !self.lines.is_empty()
@@ -97,7 +107,7 @@ impl App {
     /// One pass of the daemon, recorded: a failing one adds to the run of
     /// failures doctor reads, and the watch still looks.
     pub async fn tick(&self) -> Answer<Tick> {
-        self.memory.lock().unwrap().ticks = true;
+        let first = !std::mem::replace(&mut self.memory.lock().unwrap().ticks, true);
         let start = self.now();
         let mut steps = Steps::at(start);
         let mut done = self.pass(&mut steps).await;
@@ -106,9 +116,11 @@ impl App {
         steps.ended("proving the binary", self.now());
         let took_ms = self.now() - start;
         let every = self.settings().await.unwrap_or_default().ms(Time::TickEvery);
-        let slow = daemon::slow(took_ms, every).then(|| (took_ms, steps.longest.clone()));
+        let longest = steps.longest();
+        let slow = daemon::slow(took_ms, every).then(|| (took_ms, longest.clone()));
         if let Ok(t) = &mut done {
-            (t.took_ms, t.longest, t.slow) = (took_ms, steps.longest, slow.is_some());
+            (t.at, t.first, t.took_ms, t.slow) = (start, first, took_ms, slow.is_some());
+            (t.steps, t.longest) = (steps.all, longest);
         }
         let noted = self.submit::<NoteTick>(Ticked { error, slow }).await;
         if done.is_err() || noted.is_err() {
@@ -149,6 +161,7 @@ impl App {
         let hold = settings.ms(Time::HoldBound);
         let live = self.live_workers().await?;
         let workers: Vec<_> = live.iter().map(|w| w.worker).collect();
+        t.live = workers.len();
         self.retry_workers(&workers).await?;
         t.seen = self.workers_health(&workers, |w| load.worker(w, self.now(), hold), &settings).await?;
         steps.ended("watching workers", self.now());

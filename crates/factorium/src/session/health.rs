@@ -10,7 +10,7 @@ use std::path::Path;
 
 use factorium_domain::health::{Observation, Observe, Sight, Verdict};
 use factorium_domain::kit::{HarnessNote, LimitHarness};
-use factorium_domain::outbox::{HoldTaken, HoldTakenMessages};
+use factorium_domain::outbox::{HoldTaken, HoldTakenMessages, Message};
 use factorium_domain::settings::Settings;
 use factorium_domain::watch::Watch;
 use factorium_domain::worker::Started;
@@ -38,15 +38,21 @@ impl App {
     }
 
     /// Tries again what each live worker's session holds, the sessions at
-    /// once (factorium#279), before [`App::workers_health`] looks at them:
-    /// a brief held is tried again even while its worker waits, as it is
-    /// its brief.
+    /// once (factorium#279), beside the ticks: a try waits out Orca's
+    /// window for a turn that does not start, and the tick watching the
+    /// workers would wait on it. A brief held is tried again
+    /// even while its worker waits, as it is its brief. Only sessions that
+    /// hold something are typed at.
     pub(crate) async fn retry_workers(&self, workers: &[Uuid]) -> Answer<()> {
+        self.typed_beside().await?;
         let mut sessions = Vec::new();
         for &worker in workers {
-            sessions.extend(self.live_or_none(worker, Want::Any).await?.map(|live| live.session));
+            let Some(live) = self.live_or_none(worker, Want::Any).await? else { continue };
+            if self.outbox(&live.session).await?.messages.iter().any(Message::pending) {
+                sessions.push(live.session);
+            }
         }
-        self.retry(&sessions.iter().collect::<Vec<_>>()).await
+        self.flush_beside(&sessions)
     }
 
     /// Looks at each live worker of `workers`, with its `share` of the
