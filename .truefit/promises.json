@@ -151,6 +151,12 @@
     "source": "docs/adr/0010-admission-and-the-heavy-queue.md:22",
     "why": "the reason and measurement behind heavy_settle_idle; the rule itself is the promise settled"
   },
+  "1baeb8612f43": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check registry itself, not code that keeps a promise: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, line, line-live, line-run), name its covers, or move a model's pinned commit. The promises those fixes keep (WorkNeverLost, OneOwner, a landing at most once, ...) are registered with those model checks, whose covers name the code they stand for."
+  },
   "1da033da2bee": {
     "mark": "not",
     "sentence": "`next` (its round), `report`, `restart`, `tell`, and every owner command but `stop` (it leaves an issue to a person with `issue wait-for-human`, releases a hold with `hold --release`)",
