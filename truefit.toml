@@ -469,6 +469,12 @@ run = ["crates/factorium/tests/contract/standin", "fake"]
 real = ["crates/factorium/tests/contract/standin", "real"]
 needs = "rolesmith on PATH, with the source `felix` (sunfmin/lore) added"
 version = ["rolesmith", "--version"]
+# What factorium handles after a step took effect (fakes::ROLESMITH_FAULTS):
+# a `tool install` refused, those programs before the failing one
+# installed: it checks again and keeps why the install failed for doctor
+# beside what is still lacking, its issues wait, and the same lack is not
+# installed again.
+faults = ["install-refused"]
 
 # What factorium reads of `doctor --project` before a start: a directory
 # without `rolesmith.toml` is refused, naming no thing lacking; one whose
@@ -481,6 +487,16 @@ dir = "crates/factorium/tests/contract/rolesmith-project"
 stdin = """
 {"run": ["rolesmith", "doctor", "--project", "{dir}/no-record", "--json"], "read": ["/error/kind", "/error/missing"]}
 {"run": ["rolesmith", "doctor", "--project", "{dir}", "--json"], "read": ["/programs", "/entries", "/error/kind"]}
+"""
+
+# An install refused: the real one for a record naming a role its library
+# lacks, as no program's script can be made to fail on a host.
+[[standin.case]]
+name = "install-refused"
+fault = "install-refused"
+dir = "crates/factorium/tests/contract/rolesmith-project"
+stdin = """
+{"run": ["rolesmith", "tool", "install", "--project", "{dir}/no-role", "--json"], "read": ["/error/kind", "/tools"]}
 """
 
 [[standin]]
