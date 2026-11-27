@@ -8,7 +8,7 @@ the machine healthy. A resident watch agent deals with everything that goes
 wrong.
 
 - Its decisions and why: [docs/adr/](docs/adr/)
-- It succeeds afkconvoy; what it left behind: [docs/dropped.md](docs/dropped.md)
+- It succeeds afkconvoy; what it left behind: [ADR 0037](docs/adr/0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md)
 
 ## Install
 
