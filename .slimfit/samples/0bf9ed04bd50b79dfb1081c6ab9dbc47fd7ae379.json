@@ -1,0 +1,49 @@
+{
+  "tip": "0bf9ed04bd50b79dfb1081c6ab9dbc47fd7ae379",
+  "from": "0dc52e184b6229a309f421b716914d4dd679b60f",
+  "pool": 965,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/workdir.rs:227:30: replace match guard pid == me with true in App::sweep_work_dirs",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line/cut.rs:35:9: replace App::cut_base -> Answer<Did> with Answer::new(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/line/cut.rs:35:9: replace App::cut_base -> Answer<Did> with Answer::new()",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/line.rs:168:9: replace App::moved -> Answer<Did> with Answer::from_iter([Default::default()])",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/gate.rs:59:9: replace App::gate -> Answer<Option<Gated>> with Answer::from_iter([None])",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/line/stack.rs:317:9: replace App::unstack -> Answer<()> with Answer::new()",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/stack.rs:84:9: replace Stack::of -> Option<&Layer> with None",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon.rs:302:9: replace App::next_issue -> Answer<Option<IssueRow>> with Answer::from(None)",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/host/src/shell.rs:235:42: replace < with > in <impl Programs for System>::run_within",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/tracker.rs:181:5: replace asking -> Rows<IssueRow> with Rows::new(Default::default())",
+        "outcome": "unviable"
+      }
+    ]
+  }
+}
