@@ -501,6 +501,12 @@
     "sentence": "A checkout at its `workers_per_checkout` does not hold that issue; admission's load rules do ([ADR 0016](0016-a-checkout-runs-at-most-workers-per-checkout.md)).",
     "source": "docs/adr/0006-mutants-are-owed-at-promotion.md:25"
   },
+  "7609a3deb0ad": {
+    "mark": "not",
+    "sentence": "Before this, a cut built on the cutting host, for aarch64 only, and published from there.",
+    "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:8",
+    "why": "history and a host prerequisite, rewordings of ADR 0004 sentences already marked not"
+  },
   "768ca72f05a1": {
     "mark": "not",
     "sentence": "From this host's event log, 2026-11-17 to 2026-11-26, read-only: for factorium, each hour's average of live workers (from a worker's start to its landing or end) beside that hour's landings and red landings (a red gate or a branch that no longer merges). 215 hours, 393 workers, 349 landings.",
@@ -537,6 +543,12 @@
     "mark": "not",
     "sentence": "Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
     "source": "SPEC.md:260"
+  },
+  "813db6317158": {
+    "mark": "not",
+    "sentence": "The binary was only ad hoc signed; Intel Macs could not run it and Gatekeeper rejected a copy downloaded in a browser.",
+    "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:9",
+    "why": "history and a host prerequisite, rewordings of ADR 0004 sentences already marked not"
   },
   "82a192dbb3f5": {
     "mark": "promise",
@@ -825,6 +837,12 @@
     "mark": "promise",
     "sentence": "Proving moves, in one push requiring the tip the stack's bottom merged onto, to the deepest merge whose gate and every gate below it are green.",
     "source": "docs/adr/0019-stacked-landing-gates.md:32"
+  },
+  "c6c8885100d2": {
+    "mark": "not",
+    "sentence": "A cut needs no tap token on the host: only `gh` logged in as a user who may push factorium and dispatch the tap's workflow.",
+    "source": "docs/adr/0004-cuts-are-signed-and-notarized-by-the-taps-workflow.md:40",
+    "why": "history and a host prerequisite, rewordings of ADR 0004 sentences already marked not"
   },
   "c70957a90cc9": {
     "mark": "promise",
