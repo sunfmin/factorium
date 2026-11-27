@@ -1,0 +1,41 @@
+{
+  "tree": "f874d7ed915cd070d5573322dd62b89baf9860c8+d1fba762150c532c",
+  "picker": "codex:01a21ad1-5c40-7981-9d05-9a910883577c:default",
+  "author": "claude-code:b2905785-a62b-589c-bc34-e4ca82919bf2:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/domain/src/declared.rs:64:5: replace slow_limit -> u64 with 0",
+        "why": "Gate now takes omitted fields from its struct default, and a successful fast landing with a slow-only declaration can leave the default slow timeout unchecked.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:100:15: delete field lands from struct Job expression in Job<'a>::landing",
+        "why": "A lone landing can pass without its priority marker, while the model traces supply that marker directly and cannot catch its loss when Rust constructs the job.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/workdir.rs:155:9: replace App::work_dir_asked with ()",
+        "why": "Successful landing and cleanup can still pass without the request record that lets a later sweep recover a work directory left by an interrupted allocation.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:200:5: replace outcome -> Option<Outcome> with None",
+        "why": "A landing can still report success even if its heavy run loses the outcome that the run history should expose.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/path.rs:163: a_branch_that_does_not_merge_is_red",
+      "crates/factorium/tests/scenarios/path.rs:542: a_closed_issue_takes_no_more_commands",
+      "crates/factorium/tests/scenarios/path.rs:590: a_repo_that_declares_no_fast_gate_lands_on_none"
+    ]
+  },
+  "added_lines": 116
+}
