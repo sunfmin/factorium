@@ -51,8 +51,9 @@ pub struct Gate {
     #[serde(default = "slow_limit")]
     pub slow_limit: u64,
     /// The records the gate regenerates, as git glob pathspecs: a landing
-    /// whose only conflicts are among them takes proving's copy of each and
-    /// commits them as its fast gate rewrote them on the merge (factorium#225).
+    /// whose only conflicts are among them takes proving's copy of each, with
+    /// the branch's `kept` verdicts in it ([`with_kept`]), and commits them as
+    /// its fast gate rewrote them on the merge (factorium#225).
     #[serde(default)]
     pub regenerated: Vec<String>,
 }
@@ -177,4 +178,36 @@ impl Gate {
             (Gating::Full, Some(s)) => Some((format!("{{ {}\n}} && {{ {s}\n}}", self.fast), self.slow_limit)),
         }
     }
+}
+
+/// A regenerated record merged from proving's copy, with what the gate does
+/// not regenerate kept from the branch's: each top-level array of a JSON
+/// object whose key starts with `kept` (slimfit's `slimfit keep` verdicts)
+/// holds proving's entries, then each of the branch's it lacks. A verdict is
+/// looked up by any entry that holds, so the branch's newer entry for the
+/// same thing beside proving's older one keeps the branch's. `None`: proving's
+/// copy stands as it is, either is not a JSON object or the branch adds nothing.
+pub fn with_kept(proving: &str, branch: &str) -> Option<String> {
+    use serde_json::{Map, Value};
+    let (Ok(mut ours), Ok(theirs)) =
+        (serde_json::from_str::<Map<String, Value>>(proving), serde_json::from_str::<Map<String, Value>>(branch))
+    else {
+        return None;
+    };
+    let mut added = false;
+    for (key, value) in theirs.into_iter().filter(|(k, _)| k.starts_with("kept")) {
+        let Value::Array(entries) = value else { continue };
+        let kept = ours.entry(key).or_insert(Value::Null);
+        if kept.is_null() {
+            *kept = Value::Array(Vec::new());
+        }
+        let Value::Array(kept) = kept else { continue };
+        for entry in entries {
+            if !kept.contains(&entry) {
+                kept.push(entry);
+                added = true;
+            }
+        }
+    }
+    added.then(|| format!("{:#}\n", Value::Object(ours)))
 }

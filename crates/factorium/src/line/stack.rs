@@ -10,7 +10,7 @@
 //! when it does not.
 
 use factorium_domain::checkout::Checkout;
-use factorium_domain::declared::{Gating, Kind};
+use factorium_domain::declared::{self, Gating, Kind};
 use factorium_domain::heavy::Ends;
 use factorium_domain::line::{self, Due, Lines, Move};
 use factorium_domain::line_id;
@@ -133,6 +133,14 @@ impl App {
                 return self.not_merging(git, worker, &wk, tip, e).await.map(Some);
             }
         };
+        // A record taken from the copy below keeps the branch's verdicts the gate does not rewrite.
+        for r in &regenerated {
+            let path = here.dir.join(r);
+            let below = std::fs::read_to_string(&path).unwrap_or_default();
+            if let Some(kept) = here.shown(&head, r).and_then(|branch| declared::with_kept(&below, &branch)) {
+                std::fs::write(&path, kept).map_err(|e| fail("write")(format!("{}: {e}", path.display())))?;
+            }
+        }
         // Its merge checked, onto the tip and the landings stacked on it.
         self.submit::<w::NoteMergeChecked>(w::Checked { worker, tip: tip.to_string() }).await?;
         for r in below.iter().flat_map(|l| &l.regenerated) {

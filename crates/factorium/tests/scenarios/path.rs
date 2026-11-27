@@ -659,6 +659,35 @@ async fn a_landing_whose_only_conflicts_are_regenerated_records_takes_provings_a
 }
 
 #[tokio::test]
+async fn a_landing_that_takes_provings_copy_of_a_regenerated_record_keeps_both_sides_kept_entries() {
+    let w = World::new();
+    w.checkout("web").await;
+    w.kit().await;
+    w.push_by_hand("web", "proving", "factorium.toml", "[gate]\nregenerated = [\"rec/*.json\"]\n");
+    std::fs::create_dir_all(w.dir.join("by-hand/rec")).unwrap();
+    w.push_by_hand("web", "proving", "rec/gen.json", r#"{"kept": [], "measured": 0}"#);
+    w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
+    w.tick().await;
+    let wk = worker(&w.app).await;
+    w.commit(&worktree(&wk), "rec/gen.json", r#"{"kept": [{"test": "both"}, {"test": "mine"}], "measured": 1}"#);
+    w.push_by_hand(
+        "web",
+        "proving",
+        "rec/gen.json",
+        r#"{"kept": [{"test": "theirs"}, {"test": "both"}], "measured": 2}"#,
+    );
+    w.app.worker_done(id(&wk), None).await.unwrap();
+    let t = w.tick().await;
+    assert_eq!(t.landed[0]["landed"], "web#1", "{:?}", t.landed);
+    let landed = t.landed[0]["commit"].as_str().unwrap();
+    let remote = w.dir.join("remotes/web.git");
+    let record = w.git(&remote, &["show", &format!("{landed}:rec/gen.json")]).unwrap();
+    let record: serde_json::Value = serde_json::from_str(&record).unwrap();
+    let want = serde_json::json!({"kept": [{"test": "theirs"}, {"test": "both"}, {"test": "mine"}], "measured": 2});
+    assert_eq!(record, want, "proving's copy, with the branch's kept verdicts");
+}
+
+#[tokio::test]
 async fn a_landing_with_a_conflict_outside_the_regenerated_records_is_red_naming_it() {
     let w = World::new();
     conflicting_on_records(&w, "README").await;
