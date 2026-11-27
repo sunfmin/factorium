@@ -157,3 +157,34 @@ fn a_tag_already_on_the_commit_is_kept_and_one_on_another_is_refused_naming_both
     assert!(here.sha("refs/tags/v0.1.1").is_err(), "the tag made here that origin did not take is gone");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_branch_merges_when_every_conflict_is_in_a_regenerated_path_and_not_when_one_is_not() {
+    let (home, dir) = scratch("merges");
+    let git = Git::new(&home, dir.join("repo"));
+    git.init("one").unwrap();
+    std::fs::create_dir_all(git.dir.join("rec")).unwrap();
+    commit(&git, "rec/gen.json", "base\n");
+    commit(&git, "src.txt", "base\n");
+    git.run(&["branch", "side"]).unwrap();
+    commit(&git, "rec/gen.json", "tip\n");
+    let tip = head(&git);
+    git.run(&["checkout", "--quiet", "side"]).unwrap();
+    commit(&git, "rec/gen.json", "side\n");
+    let regenerated = vec!["rec/*.json".to_string()];
+    // Its one conflict is a regenerated record: it merges; with no records, it does not.
+    git.merges(&tip, "side", &regenerated).unwrap();
+    let no = git.merges(&tip, "side", &[]).unwrap_err();
+    assert_eq!(no.files, ["rec/gen.json"]);
+    assert!(no.git.is_none());
+    // A record that names no conflicting path does not take the conflict.
+    let no = git.merges(&tip, "side", &["other/*.json".to_string()]).unwrap_err();
+    assert_eq!(no.files, ["rec/gen.json"]);
+    // A second conflict outside the records: it does not merge, naming both.
+    commit(&git, "src.txt", "side\n");
+    git.run(&["checkout", "--quiet", &tip]).unwrap();
+    let tip = commit(&git, "src.txt", "tip\n");
+    let no = git.merges(&tip, "side", &regenerated).unwrap_err();
+    assert_eq!(no.files, ["rec/gen.json", "src.txt"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
