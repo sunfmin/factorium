@@ -264,10 +264,6 @@
       "daemon/process.rs"
     ]
   },
-  "docs/dropped.md": {
-    "local_refs": 2,
-    "rehome": 3267
-  },
   "models/HeavyQueue.tla": {
     "local_refs": 8
   },

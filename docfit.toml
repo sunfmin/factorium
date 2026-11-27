@@ -42,4 +42,5 @@ ignore = ["crates/factorium/src/**"]
 "docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md" = "adr"
 "docs/adr/0035-no-flux-scenarios-and-mutation-hold-the-rules.md" = "adr"
 "docs/adr/0036-a-landing-waits-for-no-review.md" = "adr"
+"docs/adr/0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md" = "adr"
 "GLOSSARY.md" = "glossary"

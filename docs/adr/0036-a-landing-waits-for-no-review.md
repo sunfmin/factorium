@@ -6,7 +6,7 @@ Status: accepted
 
 Workers finish at any hour, and a review before each landing would make
 every landing wait for a reviewer. Verdicts and rework are afkconvoy's,
-dropped from factorium (`docs/dropped.md`).
+dropped from factorium ([ADR 0037](0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md)).
 
 ## Decision
 
