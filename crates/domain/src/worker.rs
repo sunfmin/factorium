@@ -43,7 +43,6 @@ pub struct Started {
     /// When it started, in ms.
     pub at: i64,
     /// The role it started with; `None`: none (factorium#250).
-    #[serde(default)]
     pub role: Option<StartedRole>,
 }
 
@@ -91,7 +90,6 @@ pub struct Worker {
     pub reds: u32,
     /// The proving tip its last red did not merge onto; `None`: its last
     /// red was not that, or there was none.
-    #[serde(default)]
     pub red_tip: Option<String>,
     /// Reds in a row that did not count: each did not merge onto a proving
     /// tip that moved since the one before, which its branch holds.
@@ -104,11 +102,9 @@ pub struct Worker {
     /// The landed commit.
     pub landed: Option<String>,
     /// Since when its processes have been over their share, in ms.
-    #[serde(default)]
     pub over_since: Option<i64>,
     /// Its turn open, its processes near idle and its screen unchanged:
     /// that screen's hash, and since when, in ms.
-    #[serde(default)]
     pub quiet: Option<(u64, i64)>,
     /// Something holds its silence clock: a heavy entry of its own in
     /// flight, or its issue blocked.
@@ -116,7 +112,6 @@ pub struct Worker {
     pub heavy: bool,
     /// When what last held its silence clock let go, in ms: its silence
     /// counts from no earlier.
-    #[serde(default)]
     pub freed_at: Option<i64>,
     /// Its issue was blocked: the watch parked it behind what its issue
     /// waits for, and once it is idle (waiting, or in a wait it declared)
@@ -127,19 +122,15 @@ pub struct Worker {
     /// The tokens its session spent, as its session files said once it
     /// ended; `None`: not recorded (its harness's files do not say, or it
     /// is live).
-    #[serde(default)]
     pub spent: Option<Tokens>,
     /// The wait on a long command of its own it declared, while its status
     /// stays as it was then: no silence is found in it before its bound.
-    #[serde(default)]
     pub declared: Option<Declared>,
     /// The last limit its engine was seen at: kept past its reset, so the
     /// same words read again are not a new one.
-    #[serde(default)]
     pub limit: Option<Limit>,
     /// Its role as it was last told it changed; `None`: as it started
     /// (factorium#273).
-    #[serde(default)]
     pub role_told: Option<RoleRead>,
 }
 
@@ -216,13 +207,11 @@ pub enum WorkerEvent {
         at: i64,
         /// The proving tip its branch did not merge onto; `None`: it merged,
         /// and the gate was red.
-        #[serde(default)]
         tip: Option<String>,
         /// It does not count: proving moved since the last red.
         #[serde(default)]
         moved: bool,
         /// What kind of red; `None`: one before factorium#308.
-        #[serde(default)]
         kind: Option<RedKind>,
         /// The files it names: those that conflict, or the regenerated
         /// records its merge took proving's copy of.

@@ -83,7 +83,6 @@ pub struct WorkerRow {
     #[serde(default)]
     pub closed: bool,
     /// Why closing its terminal failed, the last time it was tried.
-    #[serde(default)]
     pub close_failed: Option<String>,
 }
 
@@ -105,11 +104,8 @@ pub struct RunRow {
     #[serde(default)]
     pub hold: bool,
     pub asked_at: i64,
-    #[serde(default)]
     pub started_at: Option<i64>,
-    #[serde(default)]
     pub ended_at: Option<i64>,
-    #[serde(default)]
     pub outcome: Option<Outcome>,
 }
 

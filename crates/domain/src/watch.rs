@@ -30,7 +30,6 @@ pub struct Episode {
     #[serde(default)]
     pub rounds: u32,
     /// How its last round ended, if one did.
-    #[serde(default)]
     pub ended: Option<RoundEnd>,
 }
 
@@ -85,11 +84,9 @@ pub struct Watch {
     pub terminal: Option<String>,
     pub harness: Option<String>,
     /// The account its session started on, if its harness takes one.
-    #[serde(default)]
     pub account: Option<String>,
     /// The hash of the rules its session was briefed with ([`Started::rules`]);
     /// `None`: briefed before rules were recorded.
-    #[serde(default)]
     pub rules: Option<String>,
     pub episodes: BTreeMap<String, Episode>,
     /// The round running now.
@@ -124,9 +121,7 @@ pub enum WatchEvent {
     WatchStarted {
         terminal: String,
         harness: String,
-        #[serde(default)]
         account: Option<String>,
-        #[serde(default)]
         rules: Option<String>,
     },
     /// Written before the outbox (#47); read and ignored.
@@ -257,7 +252,6 @@ pub struct Started {
     pub account: Option<String>,
     /// The hash of the rules its brief was written from: a binary whose
     /// rules hash otherwise restarts it between rounds.
-    #[serde(default)]
     pub rules: Option<String>,
 }
 

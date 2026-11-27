@@ -42,12 +42,7 @@ pub enum Sight {
     /// Its engine is at its limit until then (ms): the words that say so,
     /// and the window of its account it spent, as stablehand names it
     /// (`None`: the whole account).
-    Limit {
-        said: String,
-        until: i64,
-        #[serde(default)]
-        window: Option<String>,
-    },
+    Limit { said: String, until: i64, window: Option<String> },
     /// Its harness stopped: the line that says so.
     Stopped(String),
     /// Its harness is not up in its terminal (not yet, or no longer): why.

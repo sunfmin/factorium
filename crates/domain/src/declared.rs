@@ -41,41 +41,23 @@ pub struct Declared {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct Gate {
-    #[serde(default = "nothing")]
     pub fast: String,
-    #[serde(default = "fast_limit")]
     pub fast_limit: u64,
     pub slow: Option<String>,
-    #[serde(default = "slow_limit")]
     pub slow_limit: u64,
     /// The records the gate regenerates, as git glob pathspecs: a landing
     /// whose only conflicts are among them takes proving's copy of each, with
     /// the branch's `kept` verdicts in it ([`with_kept`]), and commits them as
     /// its fast gate rewrote them on the merge (factorium#225).
-    #[serde(default)]
     pub regenerated: Vec<String>,
 }
 
 impl Default for Gate {
     fn default() -> Gate {
-        Gate {
-            fast: nothing(),
-            fast_limit: fast_limit(),
-            slow: None,
-            slow_limit: slow_limit(),
-            regenerated: Vec::new(),
-        }
+        Gate { fast: "true".into(), fast_limit: 600, slow: None, slow_limit: slow_limit(), regenerated: Vec::new() }
     }
-}
-
-fn nothing() -> String {
-    "true".into()
-}
-
-fn fast_limit() -> u64 {
-    600
 }
 
 fn slow_limit() -> u64 {
@@ -189,11 +171,8 @@ impl Gate {
 /// copy stands as it is, either is not a JSON object or the branch adds nothing.
 pub fn with_kept(proving: &str, branch: &str) -> Option<String> {
     use serde_json::{Map, Value};
-    let (Ok(mut ours), Ok(theirs)) =
-        (serde_json::from_str::<Map<String, Value>>(proving), serde_json::from_str::<Map<String, Value>>(branch))
-    else {
-        return None;
-    };
+    let object = |text: &str| serde_json::from_str::<Map<String, Value>>(text).ok();
+    let (mut ours, theirs) = (object(proving)?, object(branch)?);
     let mut added = false;
     for (key, value) in theirs.into_iter().filter(|(k, _)| k.starts_with("kept")) {
         let Value::Array(entries) = value else { continue };

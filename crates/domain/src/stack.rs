@@ -42,7 +42,6 @@ pub struct Layer {
     /// regenerated records amended.
     pub green: Option<String>,
     /// Once its gate is red: why, and what kind of red; told once every gate below it is green.
-    #[serde(default)]
     pub red: Option<(String, RedKind)>,
 }
 

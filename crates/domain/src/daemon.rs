@@ -112,16 +112,12 @@ pub struct Daemon {
     pub missing: Vec<String>,
     pub failing: Option<Failing>,
     /// Its last rollback, until a binary Homebrew links ticks well.
-    #[serde(default)]
     pub rolled_back: Option<RolledBack>,
     /// Its last tick past half the hang bound.
-    #[serde(default)]
     pub slow: Option<SlowTick>,
     /// The linked binary it does not swap to, until a link names another.
-    #[serde(default)]
     pub refused: Option<Refused>,
     /// Its last upgrade from the tap.
-    #[serde(default)]
     pub upgrade: Option<Upgrade>,
     /// Each role directory whose last check before a start found it lacking
     /// what its workers need (factorium#277), by its path: its issues wait.
@@ -201,7 +197,6 @@ pub struct Ticked {
     /// Why the tick failed; `None`: it did its work.
     pub error: Option<String>,
     /// How long it took, ms, and its longest step, when that was past half the hang bound.
-    #[serde(default)]
     pub slow: Option<(i64, Step)>,
 }
 

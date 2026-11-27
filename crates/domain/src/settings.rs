@@ -146,7 +146,6 @@ pub struct Settings {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resource {
     pub slots: u64,
-    #[serde(default)]
     pub note: Option<String>,
 }
 

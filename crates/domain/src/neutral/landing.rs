@@ -22,7 +22,6 @@ pub struct Line {
     pub promoted: Option<String>,
     /// How the last promotion gated its tip, as its caller said it (none in
     /// promotions recorded before it was kept).
-    #[serde(default)]
     pub gated: Option<String>,
     /// The last promotion was asked for by hand: its cut is left to one by hand until the cut
     /// bound less the lead, so the daemon starts none in the gap between the two.
@@ -36,10 +35,8 @@ pub struct Line {
     /// Landings held, and why.
     pub held: Option<String>,
     /// When it last moved: a landing, a promotion or a cut, ms.
-    #[serde(default)]
     pub moved: Option<i64>,
     /// The last work asked for that a promotion waits for first, before its slow gate.
-    #[serde(default)]
     pub awaited: Option<Awaited>,
 }
 

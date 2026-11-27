@@ -55,7 +55,6 @@ pub struct Seen {
     pub reading: Reading,
     /// Why stablehand, the accounts' one home, cannot be asked which account
     /// a session starts on, if it cannot: no worker starts then.
-    #[serde(default)]
     pub stablehand: Option<StablehandSeen>,
     /// The kit's commands stablehand refused when they moved to it
     /// (factorium#306), of the engines it keeps no command for yet.
@@ -87,7 +86,6 @@ pub struct ReadySeen {
     pub waits: bool,
     /// Why the kit starts nothing for it now (no harness, its accounts used
     /// up), if it cannot.
-    #[serde(default)]
     pub kit: Option<String>,
 }
 
@@ -152,7 +150,6 @@ pub struct WaitingSeen {
     #[serde(default)]
     pub parked: Vec<Unmet>,
     /// Parked until its engine's limit resets, then (ms): no finding.
-    #[serde(default)]
     pub limited: Option<i64>,
 }
 
@@ -214,7 +211,6 @@ pub struct LineSeen {
     /// Whether its base declares a cut.
     pub cuts: bool,
     /// Its local base, where it cannot follow origin's.
-    #[serde(default)]
     pub stuck: Option<Stuck>,
     /// Its idle work's last run.
     #[serde(default)]
@@ -224,7 +220,6 @@ pub struct LineSeen {
     pub idle_off: bool,
     /// The mutants issue its promotion waits for, while it is open: its
     /// number, and when the wait ends (ms), `mutants_bound` after its filing.
-    #[serde(default)]
     pub mutants: Option<(u64, i64)>,
 }
 
