@@ -9,6 +9,11 @@
     "sentence": "A host may stay busy for days, so tasks have a bound: once a checkout's last run started more than `every` plus `tasks_bound` (a setting, a day by default) ago, or it never ran, its tasks line runs without an idle host, alone (not the steps), as a heavy command at background priority that yields to nothing but the hold bound; it is recorded as any run is.",
     "source": "SPEC.md:46"
   },
+  "02cafe0259e6": {
+    "mark": "promise",
+    "sentence": "The proof answers `doctor` on a copy (SQLite's `VACUUM INTO`), never the live file.",
+    "source": "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:15"
+  },
   "0349d70843ed": {
     "mark": "promise",
     "sentence": "A merge whose only conflicts are records the gate regenerates (`regenerated`, §5: slimfit's baseline, truefit's models) is not red: it takes proving's copy of each, and once the fast gate is green on that merge, the land commit holds them as the gate left them (a record the gate does not rewrite, such as slimfit's baseline, stays proving's) and its message names them.",
@@ -72,6 +77,11 @@
     "sentence": "A heavy command asks for one or more (`worker exclusive --resource <name> …`, `heavy run --resource <name> …`; none named is `host`), granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.",
     "source": "SPEC.md:39"
   },
+  "0c1b9fe42c2f": {
+    "mark": "promise",
+    "sentence": "A merge's conflicts only in the records the gate regenerates take the copy below; its gate rewrites them, with those of the merges below, and they are amended into its merge.",
+    "source": "docs/adr/0019-stacked-landing-gates.md:43"
+  },
   "0d2cacf5d06c": {
     "mark": "promise",
     "sentence": "A block made before whys were asked for reads \"(no reason given)\". Two issues that only use one device or host do not block each other: that is a resource (§1.9), which the watch turns such a block into.",
@@ -92,6 +102,11 @@
     "sentence": "It drives the tick only through `tick` and `after`.",
     "source": "docs/adr/0005-the-tick-and-the-process-that-ticks.md:30",
     "why": "ADR 0005 describes the module split (which code lives where, what a change edits); none is behaviour a run could break"
+  },
+  "0ed6859b04f7": {
+    "mark": "not",
+    "sentence": "A binary that cannot read the store would fail every tick with nobody there, and a newer one may write an event an older daemon cannot read.",
+    "source": "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:8"
   },
   "13c2c405ea81": {
     "mark": "not",
@@ -180,6 +195,16 @@
     "sentence": "The app runs them through one port (run a program, get its answer), and a scenario stands in there with answers shaped as the real programs gave them — Orca's keeping terminals and what was sent to them — so what the app makes of their answers runs in every scenario.",
     "source": "SPEC.md:312"
   },
+  "2355f720df3e": {
+    "mark": "promise",
+    "sentence": "Proving holds only commits a fast gate ran on, as before; landings come as fast as the host has room for their gates.",
+    "source": "docs/adr/0019-stacked-landing-gates.md:52"
+  },
+  "2431933dd1f1": {
+    "mark": "promise",
+    "sentence": "A promotion's gate is on the tip it read, and the base fast-forwards only to that tip, however far proving moved meanwhile.",
+    "source": "docs/adr/0018-a-checkout-s-moves-run-apart.md:33"
+  },
   "2453b743fa72": {
     "mark": "not",
     "sentence": "Before this, in one day eight watch rounds only said \"merge the new tip\" (commit 2d19b762).",
@@ -190,6 +215,11 @@
     "mark": "promise",
     "sentence": "The worker runs `factorium worker gate` (the fast gate) as often as it likes, then `factorium worker done`. What it wants kept (a measurement) it records with `factorium worker comment`, a comment on its issue by it that changes nothing else and goes to no one: not the watch, which is for decisions (`worker escalate`). A follow-up its issue asks for it files with `factorium worker file <checkout> <title> --body-file <f> [--blocked-by …]`, as `issue add` files one (never waiting for a person); on its own checkout the filed one also waits for its issue to land, which a follow-up usually builds on, unless `--independent` (factorium#184). Both keep the record as its comments: its issue says \"filed <checkout>#<n>\", the filed one which issue and worker filed it.",
     "source": "SPEC.md:73"
+  },
+  "252e7a5b44c7": {
+    "mark": "promise",
+    "sentence": "The daemon still restarts onto a new binary only once no move of any checkout runs beside the ticks.",
+    "source": "docs/adr/0018-a-checkout-s-moves-run-apart.md:42"
   },
   "275ff088ad87": {
     "mark": "promise",
@@ -254,17 +284,32 @@
     "sentence": "A cut's change (steps, tagging, the install) edits `line/cut.rs` only.",
     "source": "docs/adr/0003-the-line-is-one-pass-and-its-moves.md:43"
   },
+  "351b5894d7fe": {
+    "mark": "promise",
+    "sentence": "The next brief carries every comment.",
+    "source": "docs/adr/0028-an-issue-s-comments-are-its-one-record.md:20"
+  },
   "399c04d04bc6": {
     "mark": "not",
     "sentence": "A word used inside a concept (a role, a hold, an episode) is listed under \"Words within them\": it adds no concept.",
     "source": "docs/adr/0007-the-concepts-are-fixed.md:19",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
+  "3b0b0357f375": {
+    "mark": "not",
+    "sentence": "Measured that day on factorium: ten landings one every 3.2 min, then 17 min with none (a promotion, then two cuts) while six workers asked to land; most of a cut is the wait for the tap's remote build, the host's CPU idle.",
+    "source": "docs/adr/0018-a-checkout-s-moves-run-apart.md:14"
+  },
   "3e7d0c2902c4": {
     "mark": "not",
     "sentence": "The six harnesses: start line and brief, the hook's tool call, session files and turn lines, quota and refusal screens; where a session on an account keeps its files (the account itself is stablehand's). Moved from afkconvoy-harness, nothing GitHub in it, and only what factorium calls.",
     "source": "SPEC.md:420",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
+  },
+  "3f3220c5bac1": {
+    "mark": "promise",
+    "sentence": "Every other host upgrades from the tap each `upgrade_every`, while no line move runs; a failure is a finding (`daemon:upgrade`), as a link whose proof failed is (`daemon:refused:<version>`).",
+    "source": "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:22"
   },
   "407c91ee65b3": {
     "mark": "not",
@@ -306,6 +351,11 @@
     "source": "docs/adr/0002-binary-is-the-process-edge.md:43",
     "why": "a module-split ADR's note on its own size; the line targets themselves are ADR 0031's"
   },
+  "51c217080f97": {
+    "mark": "not",
+    "sentence": "One binary, `factorium`, its commands in three groups by who runs them: the owner's (every top-level command but `worker`, `watch` and the hidden `guard`), `factorium worker …` and `factorium watch …`.",
+    "source": "docs/adr/0026-three-groups-by-who-runs-them-and-the-help-is-the-manual.md:15"
+  },
   "51ffe0033cd4": {
     "mark": "promise",
     "sentence": "**Where a checkout's issues spent their time**: `spent <checkout> [N|FROM..TO] [--since TIME]` reads those steps of every attempt of the issues named (all, open and closed, by default) and stores nothing.",
@@ -327,6 +377,11 @@
     "mark": "promise",
     "sentence": "Every block says why (factorium#285): `--blocked-by` and `issue block --by` are refused without `--why <text>` (one why serves all the `--blocked-by` of one `add`), kept with the block; `issue show` answers each thing it waits for in `waits`, with its why and how it was met, and doctor's `parked` names each unmet one with its why.",
     "source": "SPEC.md:66"
+  },
+  "536b5012505c": {
+    "mark": "promise",
+    "sentence": "Each binary is proven once on the host, processes taking turns on its lock; a tick only starts it, beside the ticks, and swaps once it passed.",
+    "source": "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:16"
   },
   "55ad5ef6d0b6": {
     "mark": "promise",
@@ -365,6 +420,11 @@
     "source": "docs/adr/0011-resources-queue-shortest-hold-first.md:17",
     "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
   },
+  "5ebdcf1c2a18": {
+    "mark": "not",
+    "sentence": "Past 8 they fall, while a worker's time to land and its wait in the line grow, and at 11–15 every landing had a red one beside it.",
+    "source": "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:49"
+  },
   "5fe2ffcddf67": {
     "mark": "promise",
     "sentence": "So no look waits on it past Orca's window: it is given no grace after it, as other messages are (factorium#281). And no tick waits for its typing at all: the tick gives it to the outboxes of every worker it is owed and goes on, and it is typed at them at once beside the ticks, on a store connection of its own; the tick's `roles` answers each worker told, its changed files and its delivery as it stood when the tick ended (`queued` while it is typed), and the outbox records how it went.",
@@ -375,6 +435,11 @@
     "sentence": "Issues need each other's code, across checkouts too, and a tool one repo uses from another reaches it only once a cut installs it.",
     "source": "docs/adr/0016-an-issue-waits-with-a-why.md:7",
     "why": "an ADR's Context: why the decision was needed, not a promise of the system"
+  },
+  "633dd4fd5059": {
+    "mark": "not",
+    "sentence": "A line typed and lost leaves a worker waiting for word that never comes; a line typed twice makes it act twice.",
+    "source": "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:9"
   },
   "671e9481e446": {
     "mark": "promise",
@@ -431,6 +496,16 @@
     "source": "SPEC.md:39",
     "why": "a description of the design, its scope or of another system (sunfmin/homebrew-tap, afkconvoy), not a promise a run of factorium could break"
   },
+  "752e4f34555f": {
+    "mark": "promise",
+    "sentence": "A checkout at its `workers_per_checkout` does not hold that issue; admission's load rules do ([ADR 0016](0016-a-checkout-runs-at-most-workers-per-checkout.md)).",
+    "source": "docs/adr/0006-mutants-are-owed-at-promotion.md:25"
+  },
+  "768ca72f05a1": {
+    "mark": "not",
+    "sentence": "From this host's event log, 2026-11-17 to 2026-11-26, read-only: for factorium, each hour's average of live workers (from a worker's start to its landing or end) beside that hour's landings and red landings (a red gate or a branch that no longer merges). 215 hours, 393 workers, 349 landings.",
+    "source": "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:31"
+  },
   "78ef83ba2321": {
     "mark": "not",
     "sentence": "An agent looking at every finding all the time would spend its model on what fixes itself, and a session briefed once keeps rules the next cut may change.",
@@ -468,6 +543,11 @@
     "sentence": "A hold is never cut short, whatever the hold bound; past its declared until it is a finding for the watch, as a silent worker is.",
     "source": "SPEC.md:39"
   },
+  "8332bfb1b042": {
+    "mark": "not",
+    "sentence": "Any other tree a worker wants it makes with `orca worktree create --comment` and removes with `orca worktree rm`, never `git worktree add` or `git clone`.",
+    "source": "docs/adr/0017-the-line-s-jobs-run-in-work-dirs.md:38"
+  },
   "87ae7757cc5d": {
     "mark": "promise",
     "sentence": "Every message to a session — a brief, a landing's red, a round, `watch tell` and `watch restart`, a comment — goes through that session's outbox, one record of who it was from, the line typed, and how it went: `typed` (a brief), `submitted` (it started a turn), `queued` (it waits behind the running turn), `brief` (written into a brief still to be typed), `not_typed` (the harness was not up, the terminal gone, Orca refused), or `missed` (typed, it started no turn and none runs: a dialog took it). Nothing is typed before the harness is up, nor ahead of the brief.",
@@ -482,6 +562,11 @@
     "mark": "promise",
     "sentence": "`issue comment` records the comment and reaches the live worker on the issue at once, through the same outbox as `watch tell`, never stopping its running turn: a working worker gets one line typed at its session (`delivery: submitted`, `queued`, or `missed`); one whose brief is not yet handed gets it in that brief (`brief`); a waiting one is not typed at, its watch episode carries it (`watch`); with no worker, or when delivery fails (`undelivered` says why), `none`. The next brief carries every comment.",
     "source": "SPEC.md:198"
+  },
+  "89c3afb392ee": {
+    "mark": "promise",
+    "sentence": "Every message to a session (a brief, a landing's red, a round, `watch tell` and `watch restart`, a comment, word that its role changed) goes through that session's outbox: one record of who it was from, the line typed, and how it went (`factorium outbox`).",
+    "source": "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:15"
   },
   "8c3d7e463594": {
     "mark": "not",
@@ -560,6 +645,11 @@
     "sentence": "So each kind has at most one open issue, no kind waits on another, and once one closes the next run files the next of its kind.",
     "source": "SPEC.md:46"
   },
+  "9ce4ae19520c": {
+    "mark": "not",
+    "sentence": "大家都跑只要 CPU 挺得住。",
+    "source": "docs/adr/0019-stacked-landing-gates.md:8"
+  },
   "a0277da0c989": {
     "mark": "not",
     "sentence": "What would reopen it: a landing that harms before review can catch it (secrets, data loss, something externally visible), and then a finding that holds promotion (`factorium hold`), not an approval on every landing; or measured evidence that findings after landing cost more than review before it.",
@@ -582,6 +672,16 @@
     "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:18",
     "why": "ADR 0015 (urgent, rehomed from the old concepts table): the context line states the problem; the three decisions are held by tests/scenarios/urgent.rs"
   },
+  "a355d4cd8247": {
+    "mark": "promise",
+    "sentence": "The log is never rewritten; a change to what is kept is carried by the code that reads it:",
+    "source": "docs/adr/0025-everything-lives-in-one-database.md:25"
+  },
+  "a4b620d2ae6a": {
+    "mark": "promise",
+    "sentence": "Red: the worker is told why and goes on; red twice in a row goes to the watch, never to a second worker in a new worktree.",
+    "source": "docs/adr/0022-a-worker-hands-in-through-done.md:25"
+  },
   "a7685f55d299": {
     "mark": "promise",
     "sentence": "So does a line that stopped: whatever it owes is done within its bound or is a finding — a heavy queue that starts nothing past `stall_bound` (or whose oldest waits past `hold_bound` and `stall_bound` more), a landing no gate runs for past `stall_bound`, the oldest unpromoted landing past `promotion_bound` with no promotion running, the oldest uncut promotion past `cut_bound` with no cut running.",
@@ -602,6 +702,11 @@
     "sentence": "A landing over its crate's target is green; the crate's growth is filed once, by idle work, not argued at every landing.",
     "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:22",
     "why": "restates lines-never-fail and the idle tasks line's filing (ADR 0014)"
+  },
+  "a9da271a0709": {
+    "mark": "promise",
+    "sentence": "The watch runs every owner command too but `stop`: it lives under the daemon, so the guard refuses `stop` to it, as to workers.",
+    "source": "docs/adr/0026-three-groups-by-who-runs-them-and-the-help-is-the-manual.md:20"
   },
   "aa1f9f891da1": {
     "mark": "promise",
@@ -646,6 +751,11 @@
     "sentence": "One whose answer is no JSON object, or not one as asked, is asked once more in the same session (Claude Code and Grok by `--resume`, agy by `--conversation`; Codex's session is ephemeral, so it is not), told only what was wrong and the one form the answer takes; both asks' time and tokens count, and the record says it was \"answered as asked when asked again\".",
     "source": "docs/adr/0033-a-change-s-second-agent-is-a-fresh-headless-session.md:15",
     "why": "restates a registered promise beside it (pick-within-bound, never-a-pick-without-picker) or the harness crate's asked tests"
+  },
+  "b13be7f1f6af": {
+    "mark": "promise",
+    "sentence": "Each attempt answers the role it started with and `role_hash`: a hash of its rules and every file under its skills, read through the link, by path and bytes, taken at its start.",
+    "source": "docs/adr/0029-what-an-attempt-took-is-read-not-kept-twice.md:19"
   },
   "b3024e962d14": {
     "mark": "promise",
@@ -695,16 +805,36 @@
     "sentence": "Not in factorium: teams, roles kept by factorium (an issue may name a role directory, §1.3, and that is all), workflows, stages, verdicts, rework, consults, patrols, intake and flow labels; GitHub in every form (tracker, pull requests, checks, branch protection, quota, Discussions); the daybook; the panel; batched rounds and the pairing tree; several hosts (remote claims, a shared proving branch, cross-host reports); Jira deliveries; the asking session; remote refs as state; caches as state.",
     "source": "SPEC.md:401"
   },
+  "c32df6d96222": {
+    "mark": "promise",
+    "sentence": "Every worker that asks to land is stacked: its branch merged onto the merge below it, the first onto the proving tip (T+A, T+A+B, T+A+B+C). An urgent one goes to the bottom of what can still move: below every merge whose gate has not started, which is stacked again above it; a merge whose gate runs or ended keeps its place.",
+    "source": "docs/adr/0019-stacked-landing-gates.md:23"
+  },
+  "c33238f82e6f": {
+    "mark": "promise",
+    "sentence": "It holds no promotion's mutants issue ([ADR 0006](0006-mutants-are-owed-at-promotion.md)), which the promotion waits for only `mutants_bound` (the owner, 2026-11-26: 「开吧」). Admission's load still holds it; its worker counts as live.",
+    "source": "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:21"
+  },
   "c39ad7df5ff9": {
     "mark": "not",
     "sentence": "Each crate has a target for its source lines, so that one that only grows is seen and deepened.",
     "source": "docs/adr/0031-a-crate-s-line-target-is-a-trend-not-a-gate.md:7",
     "why": "the ADR's context: why a target exists and why it is not a gate"
   },
+  "c541fdc3d5dd": {
+    "mark": "promise",
+    "sentence": "Proving moves, in one push requiring the tip the stack's bottom merged onto, to the deepest merge whose gate and every gate below it are green.",
+    "source": "docs/adr/0019-stacked-landing-gates.md:32"
+  },
   "c70957a90cc9": {
     "mark": "promise",
     "sentence": "Claude Code's files say (each assistant message's `usage` once, by its id), Codex's (its last `token_count`), pi's (each assistant message's `usage`) and agy's (each `PLANNER_RESPONSE` of its `transcript.jsonl`: `input_tokens` and `cache_read_tokens` given, `output_tokens` written); DSH's, Kimi Code's and Grok's are not read, their tokens `null`. Each attempt also answers the role it started with, as `role` (`dir`, its directory, and `from`, `issue` or `checkout`, as `role_from` says, §3), and as `role_hash` a hash of what that role gave it, taken at its start: its rules and every file under its skills, read through the link, each file by its path under the skills and its bytes.",
     "source": "SPEC.md:294"
+  },
+  "c7e1b4df2671": {
+    "mark": "not",
+    "sentence": "launchd does not load it by itself after a reboot: a boot loads no Background agent from ~/Library/LaunchAgents, at boot or at a login, and only root's jobs run before a login.",
+    "source": "README.md:26"
   },
   "c85093d9125e": {
     "mark": "not",
@@ -726,6 +856,11 @@
     "mark": "promise",
     "sentence": "It is recorded as any run is, its start beginning `every` again, and its tasks are filed by the same rule, so it never files a second open issue of a kind.",
     "source": "SPEC.md:46"
+  },
+  "cf982c9b798a": {
+    "mark": "promise",
+    "sentence": "The promotion waits for that issue at most `mutants_bound` from its filing.",
+    "source": "docs/adr/0006-mutants-are-owed-at-promotion.md:28"
   },
   "d14d1e374722": {
     "mark": "promise",
@@ -834,6 +969,11 @@
     "source": "docs/adr/0034-every-checkout-has-a-proving-branch-and-factorium-alone-moves-its-base.md:14",
     "why": "structure: a checkout is registered with its proving branch; base-moved-only-by-promotion holds the rule"
   },
+  "e9184b8d3237": {
+    "mark": "promise",
+    "sentence": "The owner, 2026-11-26: every worktree factorium makes is made in Orca, saying what it is and what it is for, and removed once its job is done.",
+    "source": "docs/adr/0017-the-line-s-jobs-run-in-work-dirs.md:7"
+  },
   "e923ae7a4aa5": {
     "mark": "not",
     "sentence": "Kept, as afkconvoy decided them: the session file is the turn; the kit orders harnesses and a checkout may pin one; a login that refreshes is bound to one machine (which account a worker starts on is stablehand's pick now, §1.7); admission alone decides each start; the queue starts by the host's CPU reading, never starves, and bounds a hold; hot workers and their evidence; the disk floor and reclaiming `target/`; serial builds (cargo's fine-grain locking opted out); the gate is local, declared, fast and slow, recorded by tree; the proving branch and promotion; the fleet cuts its own versions; the watch, its look, episodes, rounds and report; guards, not identities; the help is the manual.",
@@ -876,6 +1016,16 @@
     "sentence": "It takes a heavy slot after the lines' moves and the tick's start, so it never goes ahead of a promotion, a cut, a worker's start or a waiting heavy command; it runs beside the ticks, through the heavy queue's one path (its sessions noted on its entry, so `unqueue` ends it whole as it does any running entry, unrecorded), and the first tick that finds the host no longer idle (a worker at work, anything else queued) ends it, unrecorded, to run again in the next idle window, so a worker that wants room waits at most a tick.",
     "source": "SPEC.md:46"
   },
+  "f2356ade4bd2": {
+    "mark": "not",
+    "sentence": "The owner, 2026-11-26: \"我觉得落地到 proving 上面的不应该限制只能有一个。",
+    "source": "docs/adr/0019-stacked-landing-gates.md:8"
+  },
+  "f23571ece8cd": {
+    "mark": "promise",
+    "sentence": "The halt holds no line move: other landings, promotions and cuts, on every checkout, go on through the heavy queue as usual and are never cut short by it.",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:39"
+  },
   "f473f0af0031": {
     "mark": "not",
     "sentence": "That directory's path holds only on this host.",
@@ -907,15 +1057,35 @@
     "sentence": "Those public items name no issue, worker, watch or checkout: what only the caller knows it passes in, or says through a trait it implements.",
     "source": "SPEC.md:298"
   },
+  "f9ac3333d59b": {
+    "mark": "not",
+    "sentence": "Holding starts kept every other checkout from work it could do without the CPU (reading, writing code, waiting its turn in the queue), while the queue already keeps the CPU for the urgent issue (2026-11-26: urgent issues held the host from 22:06 on, and eight issues ready since then had no worker at 22:30). The owner: 「改成加急期间不挡新的 worker。」",
+    "source": "docs/adr/0015-an-urgent-issue-halts-the-host.md:33"
+  },
+  "fabeef86b3c6": {
+    "mark": "not",
+    "sentence": "How many workers one checkout runs at once is the host's, not `factorium.toml`'s: the setting `workers_per_checkout` (`factorium settings workers_per_checkout <n>`, default 6, [ADR 0016](docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md)).",
+    "source": "README.md:66"
+  },
   "fc1bb0750517": {
     "mark": "promise",
     "sentence": "Doctor answers `decided`: every record, in any issue body or comment (a comment is one only when its first line starts `Decided (`; a line inside a fenced code block, ``` or ~~~, quotes the shape and is none) of any checkout, made since the owner last ran `decided --read`, newest first, each with its checkout and number, who, what, options, chose, undo and when.",
     "source": "SPEC.md:213"
+  },
+  "fc2f81892386": {
+    "mark": "not",
+    "sentence": "A tick that waited for the typing would hold every other step behind one slow terminal.",
+    "source": "docs/adr/0027-a-session-is-told-only-through-its-outbox.md:10"
   },
   "fc674610f666": {
     "mark": "not",
     "sentence": "`[idle]` lives in the repo, so every host with a checkout of it would file the same tasks: `checkout edit --no-idle` turns it off on this host alone.",
     "source": "docs/adr/0014-idle-work.md:23",
     "why": "where a setting is kept (the host's list or settings, not the repo); the command's --help and its refusals say it"
+  },
+  "ffabe02e356c": {
+    "mark": "promise",
+    "sentence": "doctor's `capped` names each checkout at its cap and the ready issues waiting for it, never an urgent one or one that starts ahead.",
+    "source": "docs/adr/0016-a-checkout-runs-at-most-workers-per-checkout.md:58"
   }
 }
