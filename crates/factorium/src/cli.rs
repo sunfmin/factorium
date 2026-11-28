@@ -212,10 +212,13 @@ pub enum IssueCmd {
         /// Waits for a person from the start: no worker takes it until a person readies it.
         #[arg(long, verbatim_doc_comment)]
         waiting_for_human: bool,
-        /// Why it waits: for a person, as `wait-for-human --why` gives one, shown in doctor's `asks`; and for each `--blocked-by`, required with it, kept with each block and shown in `issue show`'s `waits` and doctor's `parked`.
+        /// Why it waits, repeat for each wait. After a `--blocked-by`, that block's why, required with each: kept with it and shown in `issue show`'s `waits` and doctor's `parked` (`--blocked-by 3 --why "its schema" --blocked-by 5 --why "its API"`). Before any `--blocked-by`, the person's, as `wait-for-human --why` gives one, shown in doctor's `asks`. One `--why` with one `--blocked-by`, before or after it, is the block's, and the person's too with `--waiting-for-human`. Refused: a second `--why` for the same wait (`why_twice`), one before any `--blocked-by` without `--waiting-for-human` (`why_unbound`).
         #[arg(long, requires = "waits", verbatim_doc_comment)]
-        why: Option<String>,
-        /// An issue it waits for, repeat for each: `N` of its checkout; `<checkout>#N` of another, until it lands; `<checkout>#N@cut`, until a cut of that checkout holds its landing (and installs it). Refused without `--why`: the code it needs from that issue. Two issues that only use the same device or host do not block each other: that is a resource (`settings --resource`).
+        why: Vec<String>,
+        /// Where each `--why` stands: how many `--blocked-by` come before it.
+        #[arg(skip)]
+        after: Vec<usize>,
+        /// An issue it waits for, repeat for each: `N` of its checkout; `<checkout>#N` of another, until it lands; `<checkout>#N@cut`, until a cut of that checkout holds its landing (and installs it). Refused without a `--why` after it: the code it needs from that issue. Two issues that only use the same device or host do not block each other: that is a resource (`settings --resource`).
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]", verbatim_doc_comment)]
         blocked_by: Vec<Blocker>,
         /// No worker takes it before this time: RFC 3339 with its offset (`2026-11-23T14:34:37+09:00`, or `Z`), or ms since the epoch.
@@ -388,9 +391,12 @@ pub enum WorkerCmd {
         /// An issue it waits for, repeat for each, as for `issue add`.
         #[arg(long = "blocked-by", value_name = "[CHECKOUT#]N[@cut]", verbatim_doc_comment)]
         blocked_by: Vec<Blocker>,
-        /// Why it waits for its `--blocked-by`, required with them, as for `issue add`. The wait for your own issue says why on its own.
+        /// Why it waits for the `--blocked-by` before it, one after each, as for `issue add`. The wait for your own issue says why on its own.
         #[arg(long, requires = "blocked_by", verbatim_doc_comment)]
-        why: Option<String>,
+        why: Vec<String>,
+        /// Where each `--why` stands: how many `--blocked-by` come before it.
+        #[arg(skip)]
+        after: Vec<usize>,
         /// No worker takes it before this time, as for `issue add`.
         #[arg(long, value_name = "TIME", value_parser = when::parse, verbatim_doc_comment)]
         not_before: Option<i64>,
@@ -528,17 +534,18 @@ impl Top {
                     body_file,
                     waiting_for_human,
                     why,
-                    mut blocked_by,
+                    after,
+                    blocked_by,
                     not_before,
                     role,
                     account,
                     model,
                     urgent,
                 } => {
-                    blocked_by.extend(not_before.map(Blocker::NotBefore));
                     let body = body_text(body, body_file)?.unwrap_or_default();
                     let on = factorium_domain::issue::On { role, account, model };
-                    let (blocked_by, why) = (waits(blocked_by, why.as_deref()), why.filter(|_| waiting_for_human));
+                    let (mut blocked_by, why) = waits(blocked_by, why, &after, waiting_for_human)?;
+                    blocked_by.extend(not_before.map(|at| Wait { by: Blocker::NotBefore(at), why: None }));
                     let open = factorium_domain::issue::Open {
                         checkout,
                         title,
@@ -627,10 +634,10 @@ impl Top {
                     app.worker_comment(worker_id()?, &text).await
                 }
                 WorkerCmd::Waiting { why, until } => app.worker_waiting(worker_id()?, &why, until).await,
-                WorkerCmd::File { checkout, title, body_file, mut blocked_by, why, not_before, independent } => {
-                    blocked_by.extend(not_before.map(Blocker::NotBefore));
+                WorkerCmd::File { checkout, title, body_file, blocked_by, why, after, not_before, independent } => {
                     let body = body_text(None, Some(body_file))?.unwrap_or_default();
-                    let blocked_by = waits(blocked_by, why.as_deref());
+                    let (mut blocked_by, _) = waits(blocked_by, why, &after, false)?;
+                    blocked_by.extend(not_before.map(|at| Wait { by: Blocker::NotBefore(at), why: None }));
                     app.worker_file(worker_id()?, &checkout, &title, &body, &blocked_by, independent).await
                 }
                 WorkerCmd::Exclusive { background, resources, command } => {
@@ -668,9 +675,51 @@ fn numbers(s: &str) -> Result<(u64, u64), String> {
     Ok((from, to))
 }
 
-/// Each of `blocked_by`, waited for for the one `why` its command gives.
-fn waits(blocked_by: Vec<Blocker>, why: Option<&str>) -> Vec<Wait> {
-    blocked_by.into_iter().map(|by| Wait { by, why: why.map(String::from) }).collect()
+/// Each of `blocked_by` with the `--why` after it (`after`: how many stand
+/// before each), and the person's, the one before them all. One `--why` with
+/// one `--blocked-by` is both. A block left without one is the domain's to refuse.
+fn waits(
+    blocked_by: Vec<Blocker>,
+    why: Vec<String>,
+    after: &[usize],
+    waiting_for_human: bool,
+) -> Result<(Vec<Wait>, Option<String>), Refusal> {
+    if let ([why], 0 | 1) = (&why[..], blocked_by.len()) {
+        let waits = blocked_by.into_iter().map(|by| Wait { by, why: Some(why.clone()) }).collect();
+        return Ok((waits, waiting_for_human.then_some(why.clone())));
+    }
+    let (mut person, mut of_block) = (None, vec![None; blocked_by.len()]);
+    for (why, &k) in why.into_iter().zip(after) {
+        let slot = if k == 0 { &mut person } else { &mut of_block[k - 1] };
+        if slot.replace(why).is_some() {
+            return Err(Refusal::new("why_twice", "two `--why` for one wait: a block takes the one after it"));
+        }
+    }
+    if person.is_some() && !waiting_for_human {
+        return Err(Refusal::new("why_unbound", "a `--why` before any `--blocked-by` needs `--waiting-for-human`"));
+    }
+    Ok((blocked_by.into_iter().zip(of_block).map(|(by, why)| Wait { by, why }).collect(), person))
+}
+
+/// The command `matches` holds, each `--why` placed among the
+/// `--blocked-by` before it (`after`), which derive cannot see.
+pub fn parsed(matches: &clap::ArgMatches) -> Result<Cli, clap::Error> {
+    use clap::FromArgMatches;
+    let mut cli = Cli::from_arg_matches(matches)?;
+    let placed = |m: &clap::ArgMatches| {
+        let blocks: Vec<usize> = m.indices_of("blocked_by").map(Iterator::collect).unwrap_or_default();
+        let whys = m.indices_of("why").into_iter().flatten();
+        whys.map(|w| blocks.iter().filter(|&&b| b < w).count()).collect::<Vec<_>>()
+    };
+    let sub = |m: &clap::ArgMatches, a: &str, b: &str| {
+        m.subcommand_matches(a).and_then(|m| m.subcommand_matches(b)).map(placed).unwrap_or_default()
+    };
+    match &mut cli.command {
+        Top::Issue(IssueCmd::Add { after, .. }) => *after = sub(matches, "issue", "add"),
+        Top::Worker(WorkerCmd::File { after, .. }) => *after = sub(matches, "worker", "file"),
+        _ => {}
+    }
+    Ok(cli)
 }
 
 /// The body given by `--body`, or read as UTF-8 text from `--body-file`

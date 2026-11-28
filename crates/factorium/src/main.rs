@@ -14,7 +14,6 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use clap::FromArgMatches;
 use cli::{Cli, HeavyCmd, Top, WorkerCmd};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, Refusal, default_db};
@@ -81,7 +80,7 @@ fn main() -> ExitCode {
         }
     };
     let matches = command.get_matches();
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let cli = cli::parsed(&matches).unwrap_or_else(|e| e.exit());
     if let Top::Guard { harness } = &cli.command {
         // The guard hook: the tool call on stdin, refused with the code its harness reads.
         let mut payload = String::new();

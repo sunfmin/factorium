@@ -17,6 +17,7 @@ nobody can tell whether it still holds.
   them.
 - One of another checkout is met once it is closed (landed); `<checkout>#N@cut` is met only once a cut of that checkout holds its landing, and installed it where its `[cut]` names a formula, for a tool used from another repo.
 - Every block says why: `--blocked-by` and `issue block --by` are refused without `--why <text>`, kept with the block.
+  Each `--blocked-by` takes the `--why` after it, so an issue filed with several blocks keeps a reason for each; one `--why` with one `--blocked-by` is its reason wherever it stands.
   A block made before whys were asked for reads "(no reason given)".
 - Two issues that only use one device or host do not block each other:
   that is a resource ([ADR 0011](0011-resources-queue-shortest-hold-first.md)), which the watch turns such a block into.
