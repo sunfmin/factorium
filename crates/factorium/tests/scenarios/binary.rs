@@ -132,6 +132,8 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!((list[0]["title"].clone(), list[0]["urgent"].clone()), (json!("Fix it"), json!(false)));
     let (_, checkouts) = run(&dir, &["checkout", "list"]);
     assert_eq!(checkouts[0]["proving"], "proving");
+    let (ok, shown) = run(&dir, &["checkout", "show", "web"]);
+    assert_eq!((ok, shown["name"].clone(), shown["fits"].clone()), (true, json!("web"), json!([])), "{shown}");
     // A default role named, then taken away, through the CLI.
     let dirs = dir.0.to_str().unwrap();
     assert_eq!(run(&dir, &["checkout", "edit", "web", "--role", dirs]).1["role"], json!(dirs));
