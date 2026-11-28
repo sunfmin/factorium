@@ -43,7 +43,19 @@ async fn shown(w: &World, n: u64) -> Value {
 async fn a_promotion_files_its_mutants_issue_waits_for_its_landing_then_promotes_a_tip_that_holds_the_record() {
     let w = World::new();
     let main = held(&w).await;
-    let t = w.tick().await;
+    // slimfit's listing runs beside the ticks: asked once, by a tick before the one that files.
+    let listed = |w: &World| w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--mutants")).count();
+    let (mut t, mut before) = (factorium::Tick::default(), 0);
+    for _ in 0..10 {
+        if t.lines.iter().any(|l| l["mutants"].is_string()) {
+            break;
+        }
+        bounded("its line move ending", w.app.moves_ended()).await;
+        before = listed(&w);
+        let n = w.tick_alone().await;
+        (t.lines, _) = (n.lines, t.landed.extend(n.landed));
+    }
+    assert_eq!((before, listed(&w)), (1, 1), "{:?}", t.lines);
     // The landing waits for its fast gate alone, though what it adds owes a record.
     assert_eq!(t.landed[0]["landed"], "web#1", "{:?}", t.landed);
     let filed = t.lines.iter().find(|l| l["mutants"].is_string()).unwrap_or_else(|| panic!("{:?}", t.lines));
@@ -89,25 +101,6 @@ async fn a_promotion_files_its_mutants_issue_waits_for_its_landing_then_promotes
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     assert!(brief(&w, "web-3-1").contains(NO_MUTANTS), "{}", brief(&w, "web-3-1"));
-}
-
-/// slimfit's listing of a promotion's mutants takes most of a minute: it runs
-/// beside the ticks, and a later tick files the issue it owes.
-#[tokio::test]
-async fn a_promotion_lists_its_mutants_beside_the_ticks_and_a_later_tick_files_their_issue() {
-    let w = World::new();
-    held(&w).await;
-    let listed = |w: &World| w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--mutants")).count();
-    for _ in 0..10 {
-        let before = listed(&w);
-        let t = w.tick_alone().await;
-        if t.lines.iter().any(|l| l["mutants"].is_string()) {
-            assert_eq!((before, listed(&w)), (1, 1), "asked once, by a tick before the one that files");
-            return;
-        }
-        bounded("its line move ending", w.app.moves_ended()).await;
-    }
-    panic!("no tick filed the mutants issue");
 }
 
 #[tokio::test]

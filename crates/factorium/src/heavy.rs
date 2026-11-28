@@ -480,10 +480,10 @@ impl App {
     /// Whether a line move runs beside the ticks: its steps, a cut's proof, or a promotion's
     /// mutants listed, until the next pass over the lines reads it.
     pub fn moves_run(&self) -> bool {
-        let m = self.memory.lock().unwrap();
-        let runs = !m.proving.is_empty() || !m.listings.is_empty();
-        drop(m);
-        runs || self.beside_runs(|f| matches!(f, For::Line(_)))
+        self.beside_runs(|f| matches!(f, For::Line(_))) || {
+            let m = self.memory.lock().unwrap();
+            !m.proving.is_empty() || !m.listings.is_empty()
+        }
     }
 
     async fn ended_beside(&self, pick: impl Fn(&For) -> bool) {

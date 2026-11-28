@@ -22,22 +22,12 @@ use serde_json::{Value, json};
 use super::Did;
 use crate::{Answer, App, LineDir};
 
-/// Why a promotion does not go on while its mutants are listed.
-const LISTS: &str = "lists its mutants beside the ticks";
-
 /// slimfit's listing of a promotion's mutants, running beside the ticks: of which proving tip,
 /// in which work dir, and what it says once it ends.
 pub(crate) struct Listing {
     tip: String,
     pub(crate) dir: PathBuf,
     said: tokio::task::JoinHandle<Said>,
-}
-
-impl Listing {
-    /// Whether it runs on.
-    pub(crate) fn runs(&self) -> bool {
-        !self.said.is_finished()
-    }
 }
 
 impl App {
@@ -68,7 +58,9 @@ impl App {
         if self.memory.lock().unwrap().owes_none.get(&c.name).is_some_and(|t| t == tip) {
             return Ok(None);
         }
-        let Some((said, dir)) = self.mutants_listed(c, tip, &target).await? else { return Ok(Some(Err(LISTS.into()))) };
+        let Some((said, dir)) = self.mutants_listed(c, tip, &target).await? else {
+            return Ok(Some(Err("lists its mutants beside the ticks".into())));
+        };
         let Some(listing) = serde_json::from_str::<Value>(&said.out).ok().filter(|_| said.ok) else {
             return Ok(None);
         };
@@ -89,7 +81,7 @@ impl App {
     /// The checkouts whose mutants' listing had ended as the pass over the lines began.
     pub(super) fn mutants_ended(&self) -> Vec<String> {
         let m = self.memory.lock().unwrap();
-        m.listings.iter().filter(|(_, l)| !l.runs()).map(|(c, _)| c.clone()).collect()
+        m.listings.iter().filter(|(_, l)| l.said.is_finished()).map(|(c, _)| c.clone()).collect()
     }
 
     /// Lets go each listing of `ended` that the pass did not read: its promotion is no longer
@@ -105,7 +97,7 @@ impl App {
         let ended = {
             let mut m = self.memory.lock().unwrap();
             match m.listings.get(&c.name) {
-                Some(l) if l.runs() => return Ok(None),
+                Some(l) if !l.said.is_finished() => return Ok(None),
                 _ => m.listings.remove(&c.name),
             }
         };

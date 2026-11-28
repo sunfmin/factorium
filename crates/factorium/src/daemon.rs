@@ -151,8 +151,7 @@ impl App {
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
-        let pass = self.asking_once(self.lines(&checkouts)).await?;
-        (t.landed, t.lines, t.fetched, t.moves) = (pass.landed, pass.lines, pass.fetched, pass.moves);
+        self.asking_once(self.lines(&checkouts, &mut t)).await?;
         steps.ended("the lines' moves", self.now());
         t.bumped = self.bumps(&checkouts).await?;
         steps.ended("bumps", self.now());

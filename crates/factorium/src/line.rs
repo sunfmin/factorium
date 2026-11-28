@@ -29,7 +29,7 @@ pub(crate) use fetch::Fetched;
 pub(crate) use mutants::Listing;
 
 use factorium_domain::checkout::Checkout;
-use factorium_domain::daemon::{Step, Steps};
+use factorium_domain::daemon::Steps;
 use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::doctor::Stuck;
 use factorium_domain::heavy::Ends;
@@ -43,6 +43,7 @@ use factorium_host::{Git, Lag, NoMerge, Ran};
 use factum::Uuid;
 use serde_json::{Value, json};
 
+use crate::daemon::Tick;
 use crate::gate::{At, Gated};
 use crate::heavy::For;
 use crate::lock::{self, Taken};
@@ -71,14 +72,6 @@ pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
 /// A move that took this long, ms, or longer is named in the tick's `moves`: a slow tick names
 /// its cause.
 const MOVE_KEPT_MS: i64 = 100;
-
-/// The tick's pass over the lines ([`App::lines`]).
-pub(crate) struct Pass {
-    pub(crate) landed: Vec<Value>,
-    pub(crate) lines: Vec<Value>,
-    pub(crate) fetched: Vec<Fetched>,
-    pub(crate) moves: Vec<Step>,
-}
 
 /// What one move did, or why it did not run now.
 pub(crate) type Did = Result<Value, String>;
@@ -146,15 +139,15 @@ impl App {
     /// and ended, finished; each checkout's landing stack, then each one's
     /// promotion and cut as its line says each is due, but none of a kind
     /// whose move of that checkout runs on ([`App::runs`]); then its local base following origin's
-    /// as last fetched, whatever left it behind. Answers what landed, what else moved, each
+    /// as last fetched, whatever left it behind. Keeps in `t` what landed, what else moved, each
     /// fetch, and each move that took [`MOVE_KEPT_MS`] or more.
-    pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<Pass> {
-        let fetched = self.fetch_lines(checkouts).await?;
+    pub(crate) async fn lines(&self, checkouts: &[Checkout], t: &mut Tick) -> Answer<()> {
+        t.fetched = self.fetch_lines(checkouts).await?;
         let listed = self.mutants_ended();
-        let (mut landed, mut lines, mut moves) = (Vec::new(), Vec::new(), Steps::at(self.now()));
+        let (landed, lines, mut moves) = (&mut t.landed, &mut t.lines, Steps::at(self.now()));
         for (of, ended) in self.beside(|f| matches!(f, For::Line(_)), false, false).await? {
             let For::Line(moving) = of else { continue };
-            let into = if matches!(moving.then, Then::Land { .. }) { &mut landed } else { &mut lines };
+            let into = if matches!(moving.then, Then::Land { .. }) { &mut *landed } else { &mut *lines };
             let what = format!("finishing the {} of {}", moving.kind().name(), moving.checkout);
             into.extend(self.moved(*moving, ended).await?.ok());
             moves.ended(&what, self.now());
@@ -179,8 +172,8 @@ impl App {
             lines.extend(follow_base(c, &self.host.git(&c.path), &c.fetched_base()));
         }
         self.mutants_unread(&listed);
-        let moves = moves.all.into_iter().filter(|m| m.ms >= MOVE_KEPT_MS).collect();
-        Ok(Pass { landed, lines, fetched, moves })
+        t.moves = moves.all.into_iter().filter(|m| m.ms >= MOVE_KEPT_MS).collect();
+        Ok(())
     }
 
     /// Whether a promotion or a cut of `c`, `mv`, runs on: its steps beside the ticks, or for a
