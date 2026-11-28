@@ -361,7 +361,7 @@ pub enum IssueCmd {
     /// Adds a comment: it reaches the live worker on the issue at once (typed at its session, or in its brief not yet handed; a waiting worker's through its watch episode, and typed with the line that sends it back to work), never stopping its running turn, and the next worker's brief carries it. Answers `delivery`: `submitted`, `queued` or `missed` (typed at its session), `brief`, `watch`, or `none` (no worker, or delivery failed: `undelivered` says why).
     #[command(verbatim_doc_comment)]
     Comment { checkout: String, number: u64, text: String },
-    /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, or in a wait it declared), back to work as soon as all it waits for is met.
+    /// Makes an issue wait for another, of its checkout or of another, for `--why`, or until a time (`--undo`: stop). Its worker is parked: once idle (waiting, in a wait it declared, or at its prompt with its turn ended), back to work as soon as all it waits for is met.
     #[command(group = clap::ArgGroup::new("what").required(true).args(["by", "until"]), verbatim_doc_comment)]
     Block {
         checkout: String,

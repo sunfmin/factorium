@@ -245,8 +245,9 @@ impl App {
     }
 
     /// Each worker the watch parked behind what its issue waits for, idle
-    /// (waiting, or in a wait it declared), sent back to work once all of
-    /// it is met, told what was met and how, and to merge the proving tip;
+    /// (waiting, in a wait it declared, or at its prompt, its turn ended),
+    /// sent back to work once all of it is met, told what was met and how,
+    /// and to merge the proving tip;
     /// and each parked on its engine's limit, once it reset. Unparked
     /// first, so a restart that does not reach it leaves it to the watch.
     async fn resume_parked(&self) -> Answer<Vec<Value>> {
@@ -255,7 +256,7 @@ impl App {
             let wk = self.state::<Workers>(w.worker).await?;
             let idle = match wk.status {
                 WorkerStatus::Waiting => true,
-                WorkerStatus::Working => wk.declared.is_some(),
+                WorkerStatus::Working => wk.declared.is_some() || (wk.parked && self.at_prompt(w.worker).await?),
                 _ => false,
             };
             if !idle {
