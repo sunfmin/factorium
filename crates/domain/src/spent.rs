@@ -38,7 +38,38 @@ pub struct Spent {
     pub totals: Totals,
     pub split: Split,
     pub reds: Reds,
+    pub landings: Landings,
     pub issues: Vec<Row>,
+}
+
+/// How fast the issues landed, in one row: what `factorium spent` answers
+/// for each checkout when asked for all of them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Landings {
+    /// The issues with a landing that landed in the time asked.
+    pub issues_landed: usize,
+    /// The landings that came back red, and how many of each kind.
+    pub reds: usize,
+    pub reds_by_kind: BTreeMap<String, usize>,
+    /// A landed issue's time from `done` to its landing (its
+    /// `split.landing.green`): the median and the most; none: none landed.
+    pub to_land_median_ms: Option<i64>,
+    pub to_land_max_ms: Option<i64>,
+    /// Heavy commands waiting in the queue (`split.heavy_queued.ms`).
+    pub heavy_queued_ms: i64,
+    /// The median of the issues' own time (each row's `ms`); none: no issue.
+    pub issue_median_ms: Option<i64>,
+}
+
+/// The middle of `v`, or the mean of its middle two; none: `v` is empty.
+fn median(mut v: Vec<i64>) -> Option<i64> {
+    v.sort_unstable();
+    let n = v.len();
+    match n {
+        0 => None,
+        _ if n % 2 == 1 => Some(v[n / 2]),
+        _ => Some((v[n / 2 - 1] + v[n / 2]) / 2),
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -139,6 +170,7 @@ enum Took {
 /// Where `issues`' time went.
 pub fn spent(issues: &[Issue]) -> Spent {
     let mut all = Spent::default();
+    let mut to_land = Vec::new();
     for i in issues {
         let mut row = Row {
             number: i.number,
@@ -149,6 +181,7 @@ pub fn spent(issues: &[Issue]) -> Spent {
             split: Split::default(),
             reds: Reds::default(),
         };
+        let mut landed = false;
         for a in &i.attempts {
             row.ms += a.to - a.from;
             row.tokens = Tokens::summed(row.tokens, a.tokens);
@@ -163,6 +196,7 @@ pub fn spent(issues: &[Issue]) -> Spent {
                     }
                 }
                 if l.outcome.as_deref() == Some("landed") {
+                    landed = true;
                     all.totals.last_landing = all.totals.last_landing.max(l.ended_at);
                 }
             }
@@ -172,6 +206,7 @@ pub fn spent(issues: &[Issue]) -> Spent {
         let t = &mut all.totals;
         (t.issues, t.attempts, t.ms, t.tokens) =
             (t.issues + 1, t.attempts + row.attempts, t.ms + row.ms, Tokens::summed(t.tokens, row.tokens));
+        to_land.extend(landed.then_some(row.split.landing.green));
         all.issues.push(row);
     }
     let t = &mut all.totals;
@@ -179,6 +214,15 @@ pub fn spent(issues: &[Issue]) -> Spent {
     for r in std::iter::once(&mut all.reds).chain(all.issues.iter_mut().map(|i| &mut i.reds)) {
         r.files.sort_by(|a, b| b.landings.cmp(&a.landings).then_with(|| a.file.cmp(&b.file)));
     }
+    all.landings = Landings {
+        issues_landed: to_land.len(),
+        reds: all.reds.count,
+        reds_by_kind: all.reds.by_kind.clone(),
+        to_land_max_ms: to_land.iter().copied().max(),
+        to_land_median_ms: median(to_land),
+        heavy_queued_ms: all.split.heavy_queued.ms,
+        issue_median_ms: median(all.issues.iter().map(|r| r.ms).collect()),
+    };
     all
 }
 

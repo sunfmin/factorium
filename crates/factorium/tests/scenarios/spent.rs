@@ -3,6 +3,7 @@
 //! files that conflicted.
 
 use factorium_domain::settings::Resource;
+use factorium_domain::when::Since;
 use serde_json::{Value, json};
 
 use crate::fixture::{CLAUDE, LOOK, POLL, STUCK, World, id, until_file};
@@ -56,15 +57,34 @@ async fn two_issues_one_green_after_a_wait_one_red_twice_on_a_conflict_answer_ea
     assert_eq!(s["split"]["landing"]["ms"], 7 * MIN, "{s}");
 
     // One issue, and the time since #2's first `done` alone.
-    let one_only = w.app.spent_of("web", Some((2, 2)), Some(start + 6 * MIN)).await.unwrap();
+    let one_only = w.app.spent_of("web", Some((2, 2)), Some(Since::At(start + 6 * MIN))).await.unwrap();
     assert_eq!(one_only["totals"]["ms"], 7 * MIN, "{one_only}");
     assert_eq!(one_only["split"]["landing"]["red"]["ms"], 5 * MIN, "{one_only}");
     // Since 10: #1 ended before it, and #2's first red came before it.
-    let late = w.app.spent_of("web", None, Some(start + 10 * MIN)).await.unwrap();
+    let late = w.app.spent_of("web", None, Some(Since::At(start + 10 * MIN))).await.unwrap();
     assert_eq!((late["totals"]["issues"].clone(), late["reds"]["count"].clone()), (json!(1), json!(1)), "{late}");
     assert_eq!(late["totals"]["wall_ms"], Value::Null, "nothing landed since: {late}");
     let no = w.app.spent_of("web", Some((9, 9)), None).await.unwrap_err();
     assert_eq!(no.code, "no_issue", "{no:?}");
+
+    // Every checkout, the last 13 minutes: a row each, its numbers its own answer's.
+    w.checkout("api").await;
+    let all = w.app.spent_all(Some(Since::Ago(13 * MIN))).await.unwrap();
+    assert_eq!(all["since"], start, "{all}");
+    let rows = all["checkouts"].as_array().unwrap();
+    let web = rows.iter().find(|r| r["checkout"] == "web").unwrap();
+    let mut own = w.app.spent_of("web", None, Some(Since::At(start))).await.unwrap()["landings"].clone();
+    own["checkout"] = json!("web");
+    assert_eq!(web, &own, "{all}");
+    assert_eq!(web["issues_landed"], 1, "{web}");
+    assert_eq!((web["reds"].clone(), web["reds_by_kind"].clone()), (json!(2), json!({ "no_merge": 2 })), "{web}");
+    assert_eq!((web["to_land_median_ms"].clone(), web["to_land_max_ms"].clone()), (json!(2 * MIN), json!(2 * MIN)));
+    assert_eq!(web["heavy_queued_ms"], s["split"]["heavy_queued"]["ms"], "{web}");
+    let issue_ms: Vec<i64> = s["issues"].as_array().unwrap().iter().map(|r| r["ms"].as_i64().unwrap()).collect();
+    assert_eq!(web["issue_median_ms"], (issue_ms[0] + issue_ms[1]) / 2, "the mean of the middle two: {web}");
+    let api = rows.iter().find(|r| r["checkout"] == "api").unwrap();
+    assert_eq!(api["issues_landed"], 0, "{api}");
+    assert_eq!(api["to_land_median_ms"], Value::Null, "nothing landed: {api}");
 }
 
 #[tokio::test]

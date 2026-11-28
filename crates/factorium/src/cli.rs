@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
 use factorium_domain::issue::{Blocker, Wait};
-use factorium_domain::when;
+use factorium_domain::when::{self, Since};
 use factum::Uuid;
 
 /// Who runs a command, its group in the manual: the person who owns the
@@ -74,16 +74,18 @@ pub enum Top {
         #[arg(long, conflicts_with = "id")]
         read: bool,
     },
-    /// Answers where a checkout's issues spent their time, read from each attempt's steps (`issue show --steps`): all its issues, open and closed, or one (`12`), or a range (`198..222`); with `--since`, only each attempt's time from then on, one that ended before it left out. Each attempt's time is cut into parts that do not overlap, summing to its time: a moment two steps share goes to the first of waiting for a landing, a heavy command running, one queued, a park, a declared wait; the rest is the session's own (the engine and its tools). It answers `checkout`, `since`; `totals`: `issues`, `attempts`, `ms` (the attempts' time), `tokens` (`in`, `out`, summed over attempts whose harness says; all of an attempt's, whatever `--since`), `first_start`, `last_landing` and `wall_ms` between them (null: nothing landed); `split`: `heavy_queued` and `heavy_ran` (`ms`, and `by` command: `gate`, `exclusive`, `hold`), `landing` (`ms`, `green`, `red` with `ms` and `by` kind: `no_merge`, `gate_red`, `past_limit`, `regenerated`, `unknown` for one before its kind was kept; `other`: one that ended otherwise, or still lands), `waits` and `parks` (`ms`, `by` why), `rest`; `reds`: `count`, `by_kind`, and `files` that conflicted (`file`, `landings` it broke), most first; and `issues`: one row each, `number`, `title`, `attempts`, `ms`, `tokens`, and its own `split` and `reds`. All times are ms.
+    /// Answers where a checkout's issues spent their time, read from each attempt's steps (`issue show --steps`): all its issues, open and closed, or one (`12`), or a range (`198..222`); with `--since`, only each attempt's time from then on, one that ended before it left out. Each attempt's time is cut into parts that do not overlap, summing to its time: a moment two steps share goes to the first of waiting for a landing, a heavy command running, one queued, a park, a declared wait; the rest is the session's own (the engine and its tools). It answers `checkout`, `since`; `totals`: `issues`, `attempts`, `ms` (the attempts' time), `tokens` (`in`, `out`, summed over attempts whose harness says; all of an attempt's, whatever `--since`), `first_start`, `last_landing` and `wall_ms` between them (null: nothing landed); `split`: `heavy_queued` and `heavy_ran` (`ms`, and `by` command: `gate`, `exclusive`, `hold`), `landing` (`ms`, `green`, `red` with `ms` and `by` kind: `no_merge`, `gate_red`, `past_limit`, `regenerated`, `unknown` for one before its kind was kept; `other`: one that ended otherwise, or still lands), `waits` and `parks` (`ms`, `by` why), `rest`; `reds`: `count`, `by_kind`, and `files` that conflicted (`file`, `landings` it broke), most first; `landings`: how fast its issues landed, `issues_landed` (those with a landing that landed), `reds` and `reds_by_kind`, `to_land_median_ms` and `to_land_max_ms` (a landed issue's `split.landing.green`, its time from `done` to its landing; null: none landed), `heavy_queued_ms` (`split.heavy_queued.ms`), `issue_median_ms` (the median of the issues' `ms`; of an even count, the mean of the middle two); and `issues`: one row each, `number`, `title`, `attempts`, `ms`, `tokens`, and its own `split` and `reds`. All times are ms. With no checkout, it answers every checkout: `since`, and `checkouts`, a row each, its `checkout` and the fields of its `landings`, the same numbers its own `spent` gives for that `--since`.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Spent {
-        checkout: String,
+        /// The checkout; none: every checkout, its `landings` alone.
+        #[arg(verbatim_doc_comment)]
+        checkout: Option<String>,
         /// One issue's number (`12`), or a range of them, both ends in (`198..222`).
-        #[arg(value_name = "N|FROM..TO", value_parser = numbers, verbatim_doc_comment)]
+        #[arg(value_name = "N|FROM..TO", value_parser = numbers, requires = "checkout", verbatim_doc_comment)]
         numbers: Option<(u64, u64)>,
-        /// Only the time from then: RFC 3339 with its offset (`2026-11-25T00:00:00+09:00`, or `Z`), or ms since the epoch.
-        #[arg(long, value_name = "TIME", value_parser = when::parse, verbatim_doc_comment)]
-        since: Option<i64>,
+        /// Only the time from then: RFC 3339 with its offset (`2026-11-25T00:00:00+09:00`, or `Z`), ms since the epoch, or a span back from now (`24h`, `90m`, `30s`).
+        #[arg(long, value_name = "TIME|SPAN", value_parser = Since::parse, verbatim_doc_comment)]
+        since: Option<Since>,
     },
     /// Removes a worker's worktree that no open issue's attempt owns, as doctor names it, with its terminals: what it holds that is nowhere else (commits, and changes, committed first) is kept on `<branch>-abandoned`, named in a comment on its issue. Refused for any other path.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
@@ -602,7 +604,8 @@ impl Top {
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
             Top::Idle { checkout } => app.idle_now(&checkout).await,
-            Top::Spent { checkout, numbers, since } => app.spent_of(&checkout, numbers, since).await,
+            Top::Spent { checkout: Some(checkout), numbers, since } => app.spent_of(&checkout, numbers, since).await,
+            Top::Spent { checkout: None, since, .. } => app.spent_all(since).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
             Top::Heavy(h) => match h {
                 HeavyCmd::Run { background, resources, command } => {

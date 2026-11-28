@@ -50,3 +50,31 @@ pub fn window(s: &str) -> Result<(u32, u32), String> {
         _ => Err(bad()),
     }
 }
+
+/// A `--since` as the owner names one: a time ([`parse`]), or a span back
+/// from now (`24h`, `90m`, `30s`: [`duration_ms`] with its unit, as a bare
+/// number is ms).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Since {
+    At(i64),
+    Ago(i64),
+}
+
+impl Since {
+    /// `s` as a span when it ends in a unit, otherwise as a time.
+    pub fn parse(s: &str) -> Result<Since, String> {
+        let span = s.trim().ends_with(['s', 'm', 'h']);
+        if span {
+            return duration_ms(s).map(Since::Ago);
+        }
+        parse(s).map(Since::At).map_err(|e| format!("{e}, or as a span back from now (`24h`)"))
+    }
+
+    /// The time it names, ms since the epoch, `now` being now.
+    pub fn at(self, now: i64) -> i64 {
+        match self {
+            Since::At(at) => at,
+            Since::Ago(span) => now.saturating_sub(span),
+        }
+    }
+}

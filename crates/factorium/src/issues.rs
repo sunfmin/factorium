@@ -7,7 +7,7 @@ use factorium_domain::issue::*;
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
 use factorium_domain::tracker::{self, shown};
-use factorium_domain::when;
+use factorium_domain::when::{self, Since};
 use factorium_domain::worker::{Started, Status as WorkerStatus, Tokens, Worker, Workers};
 use factorium_domain::{checkout_id, issue_id};
 use factum::{Aggregate, Command};
@@ -626,7 +626,33 @@ impl App {
     /// within `numbers` (none: all of them), each attempt's from `since` on
     /// (none: from its start); an attempt that ended before `since` is left
     /// out, and an issue with no attempt left.
-    pub async fn spent_of(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<i64>) -> Answer {
+    pub async fn spent_of(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<Since>) -> Answer {
+        let since = since.map(|s| s.at(self.now()));
+        let mut answer = json!(self.spent_in(checkout, numbers, since).await?);
+        answer["checkout"] = json!(checkout);
+        answer["since"] = json!(since);
+        Ok(answer)
+    }
+
+    /// `spent` of no checkout: each checkout's `landings`, a row each with
+    /// its `checkout`, the numbers its own `spent` gives from `since`.
+    pub async fn spent_all(&self, since: Option<Since>) -> Answer {
+        let since = since.map(|s| s.at(self.now()));
+        let mut rows = Vec::new();
+        for c in self.listed().await? {
+            let mut row = json!(self.spent_in(&c.name, None, since).await?.landings);
+            row["checkout"] = json!(c.name);
+            rows.push(row);
+        }
+        Ok(json!({ "since": since, "checkouts": rows }))
+    }
+
+    async fn spent_in(
+        &self,
+        checkout: &str,
+        numbers: Option<(u64, u64)>,
+        since: Option<i64>,
+    ) -> Answer<factorium_domain::spent::Spent> {
         use factorium_domain::spent;
         self.checkout(checkout).await?;
         if let Some((n, _)) = numbers.filter(|(from, to)| from == to) {
@@ -650,10 +676,7 @@ impl App {
                 issues.push(spent::Issue { number: i.number, title: i.title.clone(), attempts });
             }
         }
-        let mut answer = json!(spent::spent(&issues));
-        answer["checkout"] = json!(checkout);
-        answer["since"] = json!(since);
-        Ok(answer)
+        Ok(spent::spent(&issues))
     }
 
     /// What issue `i` took: each attempt's time, from its start to its end
