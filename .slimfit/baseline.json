@@ -2,8 +2,8 @@
   "suites": {
     "rust": {
       "prod_lines": 17590,
-      "test_lines": 18508,
-      "tests": 606,
+      "test_lines": 18495,
+      "tests": 605,
       "failures": 0,
       "test_seconds": 186.755,
       "covered_lines": 10725,
@@ -258,6 +258,72 @@
       "test": "factorium::scenarios::path::stop_with_no_live_daemon_says_so_and_forgets_its_pid_file",
       "hash": "02bcc271306b4522",
       "reason": "it checks stop removes a dead daemon's pid file; daemon's test checks it is kept while its lock is held: the setups conflict"
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_cut_that_runs_long_is_no_stall_and_a_landing_beside_it_is_one",
+      "hash": "820ef0651877ac15",
+      "reason": "Asserts the cut's stall finding stays absent while its long command runs and that a landing beside it is one; daemon's tick-failure test asserts nothing about cuts or landings, and the slow-gate twin needs a different factorium.toml and bound in its own World."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_promotion_whose_slow_gate_runs_long_is_no_stall_and_a_landing_beside_it_is_one",
+      "hash": "2b63ded3e5912717",
+      "reason": "Asserts the promotion's unpromoted finding stays absent while its slow gate runs and the landing beside it is one; queue's test runs a fast gate for a lone landing, a setup that cannot also hold a promotion."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_promotion_uncut_past_the_cut_bound_is_a_finding_and_is_cut_once_the_queue_moves",
+      "hash": "13177818ae4f3412",
+      "reason": "Asserts the uncut finding past the cut bound behind a forgotten entry and its fix text; queue's busy-checkout test cuts within the bound and asserts no finding, so folding the forgotten entry in would change what it checks."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_landing_no_gate_runs_for_past_the_stall_bound_is_a_finding_and_lands_once_the_queue_moves",
+      "hash": "c97359c87327c193",
+      "reason": "Asserts the landing finding naming the forgotten entry, its hold clearing it, and the landing once unqueued; the unpromoted test needs #1 landed first, which removes the landing this one stalls."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_worker_hung_in_an_open_turn_past_the_silent_bound_goes_to_the_watch_and_lands_once_restarted",
+      "hash": "ef5c5be6dd34d6a7",
+      "reason": "Asserts hung status, the worker finding and watch_restart clearing it; the watch test's waiting worker never crosses the silent bound, so its CPU/screen setup cannot be folded without changing what it checks."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_landing_unpromoted_past_the_promotion_bound_is_a_finding_and_is_promoted_once_the_queue_moves",
+      "hash": "51a7fd1404812b71",
+      "reason": "Asserts the unpromoted finding past the promotion bound behind a forgotten entry; the falls-due test needs a live queue of worker entries that ends, conflicting with a stuck forgotten head."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_promotion_past_when_it_falls_due_goes_ahead_of_workers_waiting_entries_and_one_just_due_keeps_its_place",
+      "hash": "ca2aef06a7c017bd",
+      "reason": "Asserts FIFO place of a just-due slow gate and that past due it goes ahead of a worker's entry; queue's busy-checkout test has no worker entries waiting, so neither ordering assertion maps."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_line_snapshot_this_code_kept_is_read_and_one_older_code_kept_is_folded_again",
+      "hash": "32e67d0d5223661a",
+      "reason": "Asserts how kept line snapshots are folded (older code) or read (this code); landing_first's test asserts gate start order and nothing about snapshots."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_heavy_queue_that_starts_nothing_past_the_stall_bound_is_a_finding_until_its_head_is_taken_off",
+      "hash": "e0f2ba10571ad92f",
+      "reason": "Asserts the queue stall finding, its text and fix, and that unqueue clears it; unqueue.rs asserts unqueue answers and asserts no finding."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_heavy_queue_held_by_what_runs_is_a_finding_only_past_the_hold_bound_and_the_stall_bound",
+      "hash": "5773c66136f0241c",
+      "reason": "Asserts the queue finding only past hold+stall bounds while something runs at full CPU; the nothing-runs test's setup conflicts (its finding fires at 11 min)."
+    },
+    {
+      "suite": "rust",
+      "test": "factorium::scenarios::stall::a_line_job_started_within_the_stall_bound_moves_the_line_and_one_started_before_does_not",
+      "hash": "d24d6416fe57ce20",
+      "reason": "Pure domain check of findings() for a slow gate started 5 vs 0 min in; no scenario asserts that boundary, and it costs 5 ms."
     }
   ],
   "kept_files": [
@@ -333,7 +399,7 @@
   "measured": {
     "rust": {
       "uncovered_lines": 221,
-      "test_seconds": 365.221
+      "test_seconds": 366.528
     }
   }
 }

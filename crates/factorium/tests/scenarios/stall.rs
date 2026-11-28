@@ -341,39 +341,19 @@ async fn places(w: &World) -> Vec<(String, String, u64, u64)> {
 }
 
 #[tokio::test]
-async fn a_landing_waiting_its_turn_behind_a_line_that_moves_is_no_stall_and_doctor_shows_its_place() {
+async fn a_line_unmoved_past_the_stall_bound_goes_to_the_watch_for_each_landing_and_doctor_shows_each_place() {
     let w = World::new();
     three_wait_their_turn(&w).await;
     let order = places(&w).await;
     let seen: Vec<_> = order.iter().map(|(.., place, of)| (*place, *of)).collect();
     assert_eq!(seen, vec![(1, 3), (2, 3), (3, 3)], "each in its place: {order:?}");
-    // The queue busy, the three are stacked and their gates wait their turn: the line moves
-    // once they start.
-    w.while_busy(async {
-        w.advance(6);
-        assert!(w.tick().await.landed.is_empty());
-        let keys = w.finding_keys().await;
-        assert!(keys.iter().all(|k| !k.starts_with("landing:")), "within the stall bound: {keys:?}");
-    })
-    .await;
-    let t = w.tick().await;
-    let landed: Vec<_> = t.landed.iter().map(|l| l["landed"].as_str().unwrap().to_string()).collect();
-    let issues: Vec<_> = order.iter().map(|(issue, ..)| issue.clone()).collect();
-    assert_eq!(landed, issues, "stacked in their places, they land in one push: {:?}", t.landed);
-    assert_eq!(places(&w).await, vec![]);
-}
-
-#[tokio::test]
-async fn a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_for_each_landing_in_it() {
-    let w = World::new();
-    three_wait_their_turn(&w).await;
-    let order = places(&w).await;
-    // The queue busy, no gate of the line starts.
+    // The queue busy, the three are stacked and no gate of the line starts.
     w.while_busy(async {
         w.advance(1);
         assert!(w.tick().await.landed.is_empty());
         w.advance(9);
-        assert_eq!(w.finding(&order[1].1).await, None, "at the stall bound, not past it");
+        let keys = w.finding_keys().await;
+        assert!(keys.iter().all(|k| !k.starts_with("landing:")), "at the stall bound, not past it: {keys:?}");
         w.advance(1);
         for (issue, key, ..) in &order {
             let found = w.finding(key).await.expect("its line has not moved for 11 min");
@@ -383,8 +363,12 @@ async fn a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_f
         }
     })
     .await;
-    assert_eq!(w.tick().await.landed.len(), 3, "the line moves");
+    let t = w.tick().await;
+    let landed: Vec<_> = t.landed.iter().map(|l| l["landed"].as_str().unwrap().to_string()).collect();
+    let issues: Vec<_> = order.iter().map(|(issue, ..)| issue.clone()).collect();
+    assert_eq!(landed, issues, "stacked in their places, the line moves in one push: {:?}", t.landed);
     assert_eq!(w.finding(&order[2].1).await, None, "it landed");
+    assert_eq!(places(&w).await, vec![]);
 }
 
 #[tokio::test]
