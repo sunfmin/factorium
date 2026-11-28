@@ -470,7 +470,7 @@ Look(i) ==
     /\ waiter[i].phase = "runs" /\ waiter[i].stop = ""
     /\ \E t \in Times, busy \in BOOLEAN, room \in BOOLEAN :
         LET why == IF ~q[i].in THEN "unqueued"
-                   ELSE IF Halted(i, room) THEN "halted"
+                   ELSE IF Halted(i, room) /\ Bug # "no_halt" THEN "halted"
                    ELSE IF Overheld(i, t) /\ Bug # "no_held" THEN "held"
                    ELSE IF waiter[i].kind = "beside" /\ (busy \/ \E j \in Present \ {i} : "host" \in Res(j)) THEN "gaveway"
                    ELSE IF Bug = "line_cuts_short" /\ \E j \in Waiting : Overdue(j, t) THEN "gaveway"
@@ -708,6 +708,17 @@ CutOnlyWithoutRoom ==
             \E u \in Waiting : UrgentOf(u) /\ \E r \in Res(u) \cap Res(i) :
                 IF r = "host" THEN ~last.room ELSE ~Covered(u, r) /\ Cardinality(Holders(r)) >= Slots
 
+\* The halt: while urgent issues halt the queue, a running worker's or
+\* program's command not urgent (no line move, no hold) is cut short once
+\* an urgent entry waits for a resource it holds and finds no room there,
+\* by the reading the look read: its waiter's look ends it.
+Halt ==
+    \A i \in Ids :
+        (/\ Looked(i) /\ q[i].in /\ halt /\ q[i].yields /\ ~UrgentOf(i) /\ ~IsHold(i)
+         /\ \E u \in Waiting : UrgentOf(u) /\ \E r \in Res(u) \cap Res(i) :
+                IF r = "host" THEN ~last.room ELSE ~Covered(u, r) /\ Cardinality(Holders(r)) >= Slots)
+        => waiter[i].stop # ""
+
 \* One holding "host" that holds others in its line up past the hold
 \* bound is ended: its waiter's next look ends it.
 HeldEnded ==
@@ -762,7 +773,7 @@ KeptPlace ==
 \* `read`, `since`), which View and StepView leave out: whether each holds
 \* tells states apart too. Where none fails it is View, state for state; a
 \* state that breaks one is never taken for one seen that does not.
-StartView == <<View, AtOnce, LineAhead, UrgentAhead, LandingAhead, Settled, CutOnlyWithoutRoom>>
+StartView == <<View, AtOnce, LineAhead, UrgentAhead, LandingAhead, Settled, CutOnlyWithoutRoom, Halt>>
 
 \* The broken variants, each of the code as it could break, and the
 \* property it breaks (`./models/heavy.sh broken`).
@@ -790,6 +801,7 @@ BrokenVariants == [
     no_starve        |-> "InOrder",      \* none goes ahead for waiting past the starve bound
     halt_holds       |-> "AtOnce",       \* a halt passes over those not urgent (before #393)
     cut_with_room    |-> "CutOnlyWithoutRoom", \* a halt cuts short with room for the urgent
+    no_halt          |-> "Halt",         \* a halt never cuts short
     no_urgent        |-> "UrgentAhead",  \* the urgent mark is not read in the line
     urgent_first     |-> "LineAhead",    \* an urgent one goes ahead of a line move past its bound
     no_lands         |-> "LandingAhead"    \* a landing's gate is ranked as another line move
