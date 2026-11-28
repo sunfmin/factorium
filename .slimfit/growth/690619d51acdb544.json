@@ -1,0 +1,10 @@
+{
+  "tree": "7862e38c79189874eae3429679f891db706bb031+d1fba762150c532c",
+  "lines": 93,
+  "serves": "factorium#428",
+  "considered": "issue show's answer (crates/factorium/src/issues.rs shown_issue) for the issue's fields, and heavy.rs's clock poll for the wait; reused Issue::landed_as and when::duration_ms",
+  "reviewer": "codex:01a21ff4-d340-7e50-8efa-bca780cf39c0:default",
+  "author": "claude-code:2c4e020a-5947-5c2b-9f1b-06a07f96e16c:opus",
+  "cut": "In crates/domain/src/wait.rs, assign Outcome variants their exit codes and implement code() with a cast, preserving their ordering and serialized names; in crates/factorium/src/cli.rs, use clap’s allowed-values parser for any|closed and map the validated value to Until, deleting the handwritten FromStr parser in crates/domain/src/wait.rs.",
+  "answer": "Done both: Outcome's discriminants are its exit codes and code() casts; --until is clap's PossibleValuesParser mapped to Until, the FromStr parser deleted."
+}
