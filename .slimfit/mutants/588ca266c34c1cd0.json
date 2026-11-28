@@ -1,0 +1,40 @@
+{
+  "tree": "9207470743c113fb25971b21706fe0f37f6dfb5a+d1fba762150c532c",
+  "picker": "codex:01a220c9-bc45-7193-8882-46602ef8061f:default",
+  "author": "claude-code:aa4585de-3551-5961-9953-cf342f4edbe6:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/line.rs:169:34: replace == with != in App::lines",
+        "why": "This swaps the cut and promotion timing labels, while the new tick test checks only the checkout suffix and elapsed time.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line/fetch.rs:44:81: replace || with && in App::fetch_lines",
+        "why": "A checkout with only an unpromoted commit or only an uncut commit can miss its fetch, while the new tick test exercises a landing.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line/mutants.rs:100:28: replace match guard !l.said.is_finished() with false in App::mutants_listed",
+        "why": "A tick can block on a listing still in progress, which a fast stub can hide while preserving the once-only call count.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/line/mutants.rs:90:9: replace App::mutants_unread with ()",
+        "why": "A completed listing can remain tracked after its promotion stops being due, while the promotion scenario consumes its listing normally.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:485:35: replace || with && in App::moves_run",
+        "why": "A listing alone stops counting as an active move, while the promotion scenario checks when the issue is filed and how often slimfit runs.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "added_lines": 171
+}
