@@ -127,6 +127,8 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let (ok, issue) = run(&dir, &["issue", "add", "web", "Fix it", "--body", "how"]);
     assert!(ok);
     assert_eq!((issue["number"].clone(), issue["body"].clone()), (json!(1), json!("how")));
+    let (ok, brief) = run(&dir, &["issue", "show", "web", "1", "--brief"]);
+    assert_eq!((ok, brief.get("body"), brief["title"].clone()), (true, None, json!("Fix it")), "{brief}");
     let (ok, list) = run(&dir, &["issue", "list", "web"]);
     assert!(ok);
     assert_eq!((list[0]["title"].clone(), list[0]["urgent"].clone()), (json!("Fix it"), json!(false)));
@@ -223,12 +225,35 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!(issue(&["start-over", "web", "1", "--why", "again"])["discarded"], false, "it had no worker");
     let closed = issue(&["close", "web", "2", "--reason", "dup"]);
     assert_eq!((closed["status"].clone(), closed["reason"].clone()), (json!("closed"), json!("dup")));
-    assert_eq!(run(&dir, &["workers"]), (true, json!([])));
+    assert_eq!(run(&dir, &["workers"]), (true, json!({ "workers": [] })));
     assert_eq!(run(&dir, &["outbox"]).1["error"]["code"], "no_session", "the watch has no session yet");
 }
 
 /// A worker's id, as its session's environment holds it.
 const WORKER: &str = "00000000-0000-0000-0000-000000000001";
+
+#[test]
+fn issue_wait_exits_with_where_its_issues_ended() {
+    let dir = Dir::new();
+    sh(
+        &dir.0,
+        "git init -q -b main seed && cd seed && git commit -q --allow-empty -m start && cd .. && git clone -q seed web",
+    );
+    assert!(run(&dir, &["checkout", "add", "web", dir.0.join("web").to_str().unwrap()]).0);
+    assert!(run(&dir, &["issue", "add", "web", "Ask", "--waiting-for-human", "--why", "which?"]).0);
+    assert!(run(&dir, &["issue", "add", "web", "Drop"]).0);
+    assert!(run(&dir, &["issue", "close", "web", "2", "--reason", "not needed"]).0);
+    assert!(run(&dir, &["issue", "add", "web", "Open"]).0);
+    let waited = |args: &[&str]| {
+        let out = bin(&dir).args(["issue", "wait", "web"]).args(args).output().unwrap();
+        let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+        (out.status.code(), answer["outcome"].as_str().unwrap_or_default().to_string())
+    };
+    assert_eq!(waited(&["1"]), (Some(4), "waiting_for_human".into()));
+    assert_eq!(waited(&["2"]), (Some(3), "closed".into()));
+    assert_eq!(waited(&["3", "--timeout", "0s"]), (Some(5), "timeout".into()));
+    assert_eq!(waited(&["1", "--until", "closed", "--timeout", "0s"]), (Some(5), "timeout".into()));
+}
 
 #[test]
 fn a_refusal_exits_one_with_its_code() {

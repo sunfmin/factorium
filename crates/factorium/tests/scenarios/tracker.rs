@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::fixture::{World, findings, refused};
+use crate::fixture::{CLAUDE, World, findings, refused};
 
 fn numbers(list: &Value) -> Vec<(String, u64)> {
     list.as_array()
@@ -129,6 +129,28 @@ async fn closed_issues_leave_the_list_unless_asked_for_and_their_numbers_are_not
         vec![("web".into(), 1), ("web".into(), 2)]
     );
     assert_eq!(w.app.issue_add("web", "four", "", false, &[]).await.unwrap()["number"], 3);
+}
+
+#[tokio::test]
+async fn the_list_of_every_checkout_answers_each_issue_s_live_worker_and_unmet_waits() {
+    use factorium_domain::issue::{Across, Blocker};
+    let w = World::new();
+    let worker = w.working(CLAUDE, "a").await;
+    w.checkout("api").await;
+    for title in ["b", "c", "d"] {
+        w.app.issue_add("api", title, "", false, &[]).await.unwrap();
+    }
+    let web1 = Across { checkout: "web".into(), number: 1, cut: false, why: None };
+    w.app.issue_block("api", 1, Blocker::Across(web1), Some("needs web's parser"), false).await.unwrap();
+    w.app.issue_block("api", 2, 3, Some("needs d's lexer"), false).await.unwrap();
+    w.app.issue_close("api", 3, "done elsewhere").await.unwrap();
+
+    let list = w.app.issue_list(None, false).await.unwrap();
+    assert_eq!(numbers(&list), vec![("api".into(), 1), ("api".into(), 2), ("web".into(), 1)]);
+    assert_eq!(list[0]["waits"], json!([{ "on": "web#1", "why": "needs web's parser" }]), "{list}");
+    assert_eq!(list[0]["worker"], Value::Null, "{list}");
+    assert_eq!(list[1]["waits"], json!([]), "a met wait is not shown: {list}");
+    assert_eq!((list[2]["worker"].clone(), list[2]["waits"].clone()), (worker["worker"].clone(), json!([])), "{list}");
 }
 
 #[tokio::test]

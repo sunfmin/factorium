@@ -547,7 +547,7 @@ async fn stopped_during_a_start(stop: &'static str) -> (World, serde_json::Value
     let during = during.lock().unwrap().clone();
     assert_eq!(during.len(), 1, "a {stop} ran during the start");
     let answered = during[0].clone().expect("never refused for a start");
-    assert!(w.app.workers(false).await.unwrap().as_array().unwrap().is_empty(), "no worker of it is live");
+    assert!(w.app.workers(false).await.unwrap()["workers"].as_array().unwrap().is_empty(), "no worker of it is live");
     let tree = PathBuf::from(started["worktree"].as_str().unwrap());
     assert!(tree.exists(), "its worktree is kept");
     (w, answered, started, tree)

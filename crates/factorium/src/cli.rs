@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
 use factorium_domain::issue::{Blocker, Wait};
+use factorium_domain::wait::Until;
 use factorium_domain::when::{self, Since};
 use factum::Uuid;
 
@@ -17,9 +18,34 @@ use factum::Uuid;
 const OWNER: &str = "Run by the owner";
 
 /// The manual: clap's command tree, each command's text read from its doc
-/// comment as written.
+/// comment as written, a group's (`issue`) ended by its [`commands`].
 pub fn manual() -> agent_help::Help {
-    agent_help::Help::new(Cli::command())
+    let cli = Cli::command();
+    let name = cli.get_name().to_owned();
+    let groups = cli.get_subcommands().map(|c| c.get_name().to_owned()).collect::<Vec<_>>();
+    let cli = groups.iter().fold(cli, |cli, group| cli.mut_subcommand(group, |c| commands(c, &name)));
+    agent_help::Help::new(cli)
+}
+
+/// `command`, under `parent`, with each group in it, itself among them,
+/// its text ended by a `## Commands` list of its visible subcommands, each
+/// with its summary, the line the top level's index gives it: agent-help
+/// lists only the top level's, so `issue --help` would name none of its own.
+fn commands(command: clap::Command, parent: &str) -> clap::Command {
+    let title = format!("{parent} {}", command.get_name());
+    let subs = command.get_subcommands().map(|c| c.get_name().to_owned()).collect::<Vec<_>>();
+    let mut list = String::new();
+    for sub in command.get_subcommands().filter(|c| !c.is_hide_set()) {
+        let about = sub.get_about().or(sub.get_long_about()).map(|a| a.to_string()).unwrap_or_default();
+        let summary = about.lines().next().unwrap_or_default().trim().to_owned();
+        list.push_str(&format!("- `{title} {}`: {summary}\n", sub.get_name()));
+    }
+    let mut command = subs.iter().fold(command, |c, sub| c.mut_subcommand(sub, |s| commands(s, &title)));
+    if !list.is_empty() {
+        let text = command.get_long_about().or(command.get_about()).map(|a| a.to_string()).unwrap_or_default();
+        command = command.long_about(format!("{}\n\n## Commands\n\n{list}", text.trim_end()));
+    }
+    command
 }
 
 /// Runs AI coding agents on one machine while nobody watches: issues from a local tracker go to workers in their own worktrees, green work lands on a proving branch, the proving branch is promoted to the base, versions are cut, and a resident watch deals with what goes wrong. Every answer is JSON.
@@ -50,7 +76,7 @@ pub enum Top {
     /// The host's issues.
     #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Issue(IssueCmd),
-    /// Answers the live workers (`--all`: the ended ones too), each with `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
+    /// Answers `{"workers": [...]}`, always an object, whatever the number of workers: the live workers (`--all`: the ended ones too), each with its `worker` id, the `checkout` and issue `number` it works, its `status` (`working`, `landing`, `finishing`, `waiting`, `ended`), `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Workers {
         #[arg(long)]
@@ -241,7 +267,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all.
+    /// Answers the open issues (with `--closed`, the closed too), of one checkout or, with none named, of every checkout, by checkout then number: what every checkout is doing and waiting on, in one call. Each row answers `issue show --brief`'s fields (among them `waits`, only those not met; `issue show` answers them all), and `ready_at` (ms: filed, or readied from waiting for a person) and `ahead` (a promotion's mutants issue, started before the ordinary ones). Its `status` (as `issue show`'s, with or without `--brief`) says what it is doing now: `ready` (no live worker holds it; it starts when what it waits for is met), `working` (a live worker is on it, waiting for the watch among it), `landing` (its worker ran `done`: its landing waits in line or its gate runs), `parked` (its worker is parked, behind what the issue waits for or until its engine's limit resets), `waiting_for_human` (it waits for the owner's answer: `issue ready` or `issue close`), `closed` (landed, or closed with its `reason`).
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
@@ -255,6 +281,22 @@ pub enum IssueCmd {
         number: u64,
         #[arg(long)]
         steps: bool,
+        /// Answers only where it stands: `checkout`, `number`, `title`, `status`, `urgent`, `reason`, `worker`, as the full answer has them; `doing`, its live worker's `status` (`working`, `landing`, `waiting`…), `why` and `since` (ms), or null; `waits`, only those not met, each `on` and `why`; `comments`, only the last, its `text` cut to its first 300 characters (then `cut`: true); and `spent`, its `ms` alone. No body, no steps. `issue list` answers each row with these fields too.
+        #[arg(long, conflicts_with = "steps", verbatim_doc_comment)]
+        brief: bool,
+    },
+    /// Waits until each issue named has ended, then answers: it landed, it closed, or (`--until any`, the default) it waits for a person; or until `--timeout`. Watches the database, looking at each issue once a second; no other work. Answers `outcome` and `code` (its exit code), and `issues`: each one's `checkout`, `number`, `title`, `status`, `reason` (why it closed, or why it waits for a person), `commit` (the commit it landed as; null: it did not land) and `outcome`: `landed` (exit 0), `closed` without landing (3), `waiting_for_human` (4), or `timeout` (5: it had not ended then; its status is as it was). With several issues it ends once all have, and `outcome` and `code` are the last of theirs in that order. One that has ended already answers at once; one not there is refused (`no_issue`).
+    #[command(verbatim_doc_comment)]
+    Wait {
+        checkout: String,
+        #[arg(required = true)]
+        numbers: Vec<u64>,
+        /// `any`: it lands, closes or waits for a person. `closed`: it lands or closes; a wait for a person is waited past (a closed issue never opens again, so this is also "until it lands").
+        #[arg(long, default_value = "any", value_parser = until(), verbatim_doc_comment)]
+        until: Until,
+        /// Ends the wait then, answering each issue as it is: `45m`, `2h`.
+        #[arg(long, value_name = "DURATION", value_parser = when::duration_ms, verbatim_doc_comment)]
+        timeout: Option<i64>,
     },
     /// Changes an issue's title, body, role or urgent mark. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
     #[command(verbatim_doc_comment)]
@@ -565,8 +607,12 @@ impl Top {
                     app.issue_file(open).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
-                IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
-                IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
+                IssueCmd::Show { checkout, number, brief: true, .. } => app.issue_show_brief(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: false, .. } => app.issue_show(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: true, .. } => app.issue_show_steps(&checkout, number).await,
+                IssueCmd::Wait { checkout, numbers, until, timeout } => {
+                    app.issue_wait(&checkout, &numbers, until, timeout).await
+                }
                 IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role, urgent, no_urgent } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {
@@ -664,6 +710,13 @@ impl Top {
             Top::Run | Top::Guard { .. } => unreachable!("main.rs answers it"),
         }
     }
+}
+
+/// What `issue wait --until` reads: `any` or `closed`.
+fn until() -> impl clap::builder::TypedValueParser<Value = Until> {
+    use clap::builder::TypedValueParser;
+    clap::builder::PossibleValuesParser::new(["any", "closed"])
+        .map(|s| if s == "closed" { Until::Closed } else { Until::Any })
 }
 
 /// An issue's number, `12`, or a range of them, `198..222`, as its ends.

@@ -16,7 +16,7 @@ fn rows(list: &Value) -> &[Value] {
 
 /// A live worker, as the CLI lists it.
 pub async fn worker(app: &App) -> Value {
-    rows(&app.workers(false).await.unwrap()).first().cloned().expect("a worker")
+    rows(&app.workers(false).await.unwrap()["workers"]).first().cloned().expect("a worker")
 }
 
 /// A worker's worktree, as the CLI lists it.
@@ -58,7 +58,7 @@ pub fn comments(issue: &Value) -> Vec<Value> {
 /// worker it was opened for, if one was, shows it `closed` in `workers
 /// --all`, and doctor names it neither an orphan nor unclosed.
 pub async fn closed(app: &App, handle: &str) -> bool {
-    let all = app.workers(true).await.unwrap();
+    let all = app.workers(true).await.unwrap()["workers"].take();
     let row = rows(&all).iter().find(|r| r["terminal"] == handle);
     let keys = finding_keys(&app.doctor().await.unwrap());
     let named = keys.iter().any(|k| *k == format!("orphan:{handle}") || *k == format!("unclosed:{handle}"));
@@ -81,7 +81,7 @@ pub fn quoted_word(line: &str, at: usize) -> String {
 impl World {
     /// The live workers, as `workers` lists them.
     pub async fn workers(&self) -> Vec<Value> {
-        rows(&self.app.workers(false).await.unwrap()).to_vec()
+        rows(&self.app.workers(false).await.unwrap()["workers"]).to_vec()
     }
 
     /// The live worker on `checkout`#`number`.

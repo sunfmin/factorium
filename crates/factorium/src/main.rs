@@ -1,7 +1,8 @@
 //! The `factorium` binary, the process edge: the command line ([`cli`]) in,
 //! the guard hook answered before any database, the caller's permission,
 //! the daemon's signals, the one [`App`] call's answer out as JSON. A
-//! refusal prints `{"error": {"code", "message"}}` and exits 1.
+//! refusal prints `{"error": {"code", "message"}}` and exits 1; a heavy
+//! command run by hand and `issue wait` exit with the `code` they answer.
 //!
 //! Who runs a command, and what each may run, is [`Caller`]'s to say.
 
@@ -14,7 +15,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use cli::{Cli, HeavyCmd, Top, WorkerCmd};
+use cli::{Cli, HeavyCmd, IssueCmd, Top, WorkerCmd};
 use factorium::host::Machine;
 use factorium::{Answer, App, Caller, Refusal, default_db};
 use serde_json::json;
@@ -89,7 +90,11 @@ fn main() -> ExitCode {
         eprintln!("factorium refuses this: {why}");
         return ExitCode::from(code);
     }
-    let exclusive = matches!(cli.command, Top::Worker(WorkerCmd::Exclusive { .. }) | Top::Heavy(HeavyCmd::Run { .. }));
+    // These exit with the `code` they answer: the command's, or where the issues waited on ended.
+    let exclusive = matches!(
+        cli.command,
+        Top::Worker(WorkerCmd::Exclusive { .. }) | Top::Heavy(HeavyCmd::Run { .. }) | Top::Issue(IssueCmd::Wait { .. })
+    );
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a tokio runtime");
     let caller = Caller::here();
     let answer = caller.may_run(matches.subcommand_name().unwrap_or(""));
