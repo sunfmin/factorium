@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 17568,
-      "test_lines": 18405,
-      "tests": 602,
+      "prod_lines": 17590,
+      "test_lines": 18508,
+      "tests": 606,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 10703,
+      "covered_lines": 10725,
       "uncovered_lines": 107
     }
   },
@@ -45,6 +45,13 @@
       "from": 0.0,
       "to": 1.0,
       "reason": "replace < with <= in System::run_within's poll: the two differ only when elapsed equals limit to the nanosecond, after which one more 5 ms poll runs; no test or caller can observe that"
+    },
+    {
+      "suite": "rust",
+      "metric": "survived_mutants",
+      "from": 0.0,
+      "to": 1.0,
+      "reason": "doctor's bottom-layer 'green' (at == 0) is never observable: a tick that records a layer green lands the stack in the same tick or unstacks it, so no doctor read sees a green bottom layer (factorium#436)"
     }
   ],
   "kept": [
@@ -325,8 +332,8 @@
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 222,
-      "test_seconds": 344.191
+      "uncovered_lines": 221,
+      "test_seconds": 365.221
     }
   }
 }
