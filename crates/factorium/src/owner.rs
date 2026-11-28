@@ -128,7 +128,7 @@ impl App {
                 row["urgent"] = json!(self.urgent_worker(me).await?);
             }
         }
-        Ok(v)
+        Ok(json!({ "workers": v }))
     }
 
     // ---- the kit and the accounts ----

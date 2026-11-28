@@ -138,7 +138,21 @@ impl App {
     /// The issues of a checkout, or of every checkout; open ones unless
     /// `closed` says to list the closed ones too.
     pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
-        Ok(shown(&self.rows(tracker::issues(checkout, closed)).await?))
+        let rows = self.rows(tracker::issues(checkout, closed)).await?;
+        let mut v = shown(&rows);
+        for (row, r) in v.as_array_mut().into_iter().flatten().zip(&rows) {
+            row["status"] = json!(self.doing(r.standing.status, r.holder.worker).await?);
+        }
+        Ok(v)
+    }
+
+    /// What an issue in `status` held by `worker` is doing ([`Doing`]).
+    async fn doing(&self, status: Status, worker: Option<factum::Uuid>) -> Answer<Doing> {
+        let held = match worker {
+            Some(w) => Some(self.state::<Workers>(w).await?),
+            None => None,
+        };
+        Ok(Doing::of(status, held.as_ref()))
     }
 
     pub(crate) async fn issue(&self, checkout: &str, number: u64) -> Answer<Issue> {
@@ -166,7 +180,7 @@ impl App {
             "number": i.number,
             "title": i.title,
             "body": i.body,
-            "status": i.status,
+            "status": self.doing(i.status, i.worker).await?,
             "urgent": i.urgent,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),

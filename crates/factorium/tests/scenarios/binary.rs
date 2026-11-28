@@ -218,7 +218,7 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!(issue(&["start-over", "web", "1", "--why", "again"])["discarded"], false, "it had no worker");
     let closed = issue(&["close", "web", "2", "--reason", "dup"]);
     assert_eq!((closed["status"].clone(), closed["reason"].clone()), (json!("closed"), json!("dup")));
-    assert_eq!(run(&dir, &["workers"]), (true, json!([])));
+    assert_eq!(run(&dir, &["workers"]), (true, json!({ "workers": [] })));
     assert_eq!(run(&dir, &["outbox"]).1["error"]["code"], "no_session", "the watch has no session yet");
 }
 

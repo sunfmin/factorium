@@ -50,7 +50,7 @@ pub enum Top {
     /// The host's issues.
     #[command(subcommand, next_help_heading = OWNER, verbatim_doc_comment)]
     Issue(IssueCmd),
-    /// Answers the live workers (`--all`: the ended ones too), each with `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
+    /// Answers `{"workers": [...]}`, always an object, whatever the number of workers: the live workers (`--all`: the ended ones too), each with its `worker` id, the `checkout` and issue `number` it works, its `status` (`working`, `landing`, `finishing`, `waiting`, `ended`), `urgent`, its issue's mark, and the resources it `holds` and `waits_for`: each one's rule, who holds it, since, until, and who waits in line, in the order they start, each with its declared hold, its window, `urgent` when its issue is, and why it is not next (`behind `hold of FMGG`, a 5 min hold`, `waits for its window from 22:00`, `behind `fast gate of web#2`, an urgent issue's`). doctor's `resources` shows the same of every resource.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Workers {
         #[arg(long)]
@@ -240,7 +240,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all.
+    /// Answers the open issues, of one checkout or of all (`--closed`: the closed ones too), each with its `status`, what it is doing now: `ready` (no live worker holds it; it starts when what it waits for is met), `working` (a live worker is on it, waiting for the watch among it), `landing` (its worker ran `done`: its landing waits in line or its gate runs), `parked` (its worker is parked, behind what the issue waits for or until its engine's limit resets), `waiting_for_human` (it waits for the owner's answer: `issue ready` or `issue close`), `closed` (landed, or closed with its `reason`). `issue show` answers the same `status`.
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,

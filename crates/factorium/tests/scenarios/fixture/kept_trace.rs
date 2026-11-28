@@ -39,9 +39,11 @@ impl KeptTrace {
             |id: &Value| (1..=ATTEMPTS).find(|a| json!(worker_id("web", 1, *a)) == *id).map_or(0, |a| a as u64);
         let status = match issue["status"].as_str().unwrap() {
             "waiting_for_human" => "human",
+            // The model keeps the issue's own status; a live worker's is shown over it.
+            "working" | "landing" | "parked" => "ready",
             s => s,
         };
-        let workers = w.app.workers(true).await.unwrap();
+        let workers = w.app.workers(true).await.unwrap()["workers"].take();
         let row = |a: u32| workers.as_array().unwrap().iter().find(|r| r["attempt"] == json!(a)).cloned();
         let tree_of = |r: &Value| {
             let name = Path::new(r["worktree"].as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned();
