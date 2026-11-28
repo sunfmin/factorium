@@ -227,6 +227,12 @@
     "sentence": "The daemon still restarts onto a new binary only once no move of any checkout runs beside the ticks.",
     "source": "docs/adr/0018-a-checkout-s-moves-run-apart.md:42"
   },
+  "25b8ac1c99b1": {
+    "kind": "fixed-often",
+    "mark": "not",
+    "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
+    "why": "truefit.toml is the check registry itself, not code that keeps a promise: each fix (factorium#186-189) changed it only to register a [[model]] (worktrees, worktrees-run, line, line-live), name its covers (the claim's Over/Clear among them), or move a model's pinned commit. The promises those fixes keep (one owner, work never lost, a landing at most once, one claim at a time) are registered with those model checks, whose covers name the code they stand for."
+  },
   "275ff088ad87": {
     "mark": "promise",
     "sentence": "A piece of work in the host's tracker: title, body, the files it names, what blocks it, comments, and whether it is ready, waiting for a human (only a person's `issue ready` moves it again) or closed.",
