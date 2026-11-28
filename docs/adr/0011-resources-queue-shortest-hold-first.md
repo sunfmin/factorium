@@ -22,6 +22,7 @@ knows how long it holds when it asks.
   else.
 - A command asking for several is granted all at once or not at all: one waiting for a resource whose slots are all held is passed over in every queue, as a stale one is, so it holds none up and never holds one while it waits for another.
 - A worker's hold across commands (`worker hold`) waits as a command does; with `--between 22:00-07:00` (the host's local time, every day; an overnight run on the charger) it is passed over outside its window, joining the line only inside it, its starve bound counted from the window's opening; granted, it outlives its waiter until `worker release <name>` or its worker ends, and the worker's own commands asking for what it holds run inside it, taking no slot of their own.
+- A repo's gate may name the resources each of its gates holds besides `host` (`factorium.toml`'s `[gate] resources`): a device one gate run may use at a time, such as a Mac a repo's screen tests run on. Its stacked landings' gates then take it in turn through the queue, each gate's limit starting once it holds it, so none is ended by its limit while it waits behind another; a lock of the repo's own, which the queue cannot see, would count that wait in the limit. The name is the host's settings', as any resource's: one they do not declare makes the gate red, naming the fix.
 - A hold is never cut short, whatever the hold bound; past its declared until it is a finding for the watch, as a silent worker is.
 
 ## Consequences

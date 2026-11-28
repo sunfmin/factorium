@@ -65,9 +65,10 @@ pub struct Exclusive {
 }
 
 impl<'a> Job<'a> {
-    /// A gate's `steps` in `dir`, each within `limit` s: what a gate compares, at normal priority.
-    pub(crate) fn gate(what: String, dir: &'a Path, steps: &'a [String], limit: u64) -> Self {
-        Job::new(what, dir, steps, Duration::from_secs(limit), Priority::Normal)
+    /// A gate's `steps` in `dir`, each within `limit` s from its start, holding `resources` (none:
+    /// the host): what a gate compares, at normal priority.
+    pub(crate) fn gate(what: String, dir: &'a Path, steps: &'a [String], limit: u64, resources: Vec<String>) -> Self {
+        Job { resources, ..Job::new(what, dir, steps, Duration::from_secs(limit), Priority::Normal) }
     }
     /// A cut's `steps` of `version` in its clone `dir`, each within `limit` s: in the background.
     pub(crate) fn cut(what: String, dir: &'a Path, steps: &'a [String], version: &str, limit: u64) -> Self {

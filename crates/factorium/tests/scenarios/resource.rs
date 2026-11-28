@@ -380,3 +380,14 @@ async fn a_hold_with_a_window_waits_for_it_and_starts_inside_it() {
     let (held, ()) = tokio::time::timeout(STUCK, async { tokio::join!(night, looks) }).await.expect("it starts inside");
     assert_eq!(held.unwrap()["held"]["window"].as_str().map(|s| s.len()), Some(11));
 }
+
+#[tokio::test]
+async fn a_gate_naming_a_resource_the_host_does_not_declare_is_red_with_the_fix() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "a").await;
+    w.done(&wk, "factorium.toml", "[gate]\nfast = \"true\"\nresources = [\"MAC\"]\n").await;
+    let t = w.tick().await;
+    let red = t.landed[0]["red"].as_str().unwrap_or_else(|| panic!("red: {t:?}"));
+    assert!(red.contains("[gate] resources: the host declares no resource MAC"), "{red}");
+    assert!(red.contains("factorium settings --resource MAC --slots 1"), "{red}");
+}
