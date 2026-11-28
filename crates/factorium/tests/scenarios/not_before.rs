@@ -125,3 +125,31 @@ async fn a_waiting_worker_parked_until_a_time_goes_back_to_work_once_it_comes() 
         .collect();
     assert!(said.iter().any(|s| s.contains(&format!("{name} (its time came)"))), "{said:?}");
 }
+
+#[tokio::test]
+async fn a_worker_parked_until_a_time_at_its_prompt_with_no_declared_wait_goes_back_once_it_comes() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "measure").await;
+    w.watch_session(false);
+    // Its turn ended with no wait declared and no done: idle at its prompt.
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
+    let at = after(&w, 30);
+    w.app.issue_block("web", 1, Blocker::NotBefore(at), None, false).await.unwrap();
+    for _ in 0..2 {
+        w.advance(10);
+        assert!(w.tick().await.resumed.is_empty(), "its time has not come");
+    }
+    w.advance(10);
+    let t = w.tick().await;
+    assert_eq!(t.resumed.len(), 1, "{t:?}");
+    assert_eq!(t.resumed[0]["resumed"], true, "{t:?}");
+    assert!(t.seen.is_empty(), "no silence first: {t:?}");
+    let name = format!("not before {}", when::utc(at));
+    let said: Vec<String> = (w.comments("web", 1).await.iter())
+        .filter(|c| c["by"] == "factorium")
+        .map(|c| c["text"].as_str().unwrap().to_string())
+        .collect();
+    assert!(said.iter().any(|s| s.contains(&format!("{name} (its time came)"))), "{said:?}");
+    assert_eq!(w.run().doctor().await.unwrap()["parked"], json!([]));
+}

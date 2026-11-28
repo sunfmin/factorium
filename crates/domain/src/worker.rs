@@ -114,8 +114,8 @@ pub struct Worker {
     /// counts from no earlier.
     pub freed_at: Option<i64>,
     /// Its issue was blocked: the watch parked it behind what its issue
-    /// waits for, and once it is idle (waiting, or in a wait it declared)
-    /// it goes back to work as soon as all of that is met; or, waiting, its
+    /// waits for, and once it is idle (waiting, in a wait it declared, or
+    /// at its prompt, its turn ended) it goes back to work as soon as all of that is met; or, waiting, its
     /// engine is at its limit, and it goes back at the reset.
     #[serde(default)]
     pub parked: bool,
@@ -544,8 +544,9 @@ on_worker!(Resume, "worker.resume", Of, |s, p, now| {
 });
 
 // Its issue was blocked: its worker is parked behind what its issue waits
-// for, waiting now or working, to go back once it is idle (it waits, or is
-// in a wait it declared) and all of that is met.
+// for, waiting now or working, to go back once it is idle (it waits, is in
+// a wait it declared, or sits at its prompt, its turn ended) and all of that
+// is met.
 on_worker!(Park, "worker.park", Because, |s, p, now| {
     let why = p.why.clone();
     only(s.started.is_some() && s.status != Status::Ended && !s.parked, WorkerEvent::ParkedBehind { why })

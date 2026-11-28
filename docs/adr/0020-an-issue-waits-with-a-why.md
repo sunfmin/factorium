@@ -26,7 +26,7 @@ nobody can tell whether it still holds.
 - A tick admits one start per reading, of the ready issues unblocked and
   untaken: urgent first; then the fewest live workers in its checkout,
   ready longest, checkout, number.
-- A worker whose issue the watch blocks (on issues, or until a time) is parked: once it is idle (it waits, for any reason, or is in a wait it declared), the first tick that finds everything its issue waits for met, before it went idle or after, sends it back to work as `watch restart` does, told which blockers were met at which landing, and to merge the proving tip before it gates again.
+- A worker whose issue the watch blocks (on issues, or until a time) is parked: once it is idle (it waits, for any reason, is in a wait it declared, or sits at its prompt, its turn ended), the first tick that finds everything its issue waits for met, before it went idle or after, sends it back to work as `watch restart` does, told which blockers were met at which landing, and to merge the proving tip before it gates again.
 
 ## Consequences
 

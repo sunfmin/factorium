@@ -236,3 +236,27 @@ async fn a_worker_whose_issue_waits_for_a_time_is_not_silent_before_it() {
     assert_eq!(status(&w, &wk).await, "working");
     assert!(!doctor(&w, &wk).await.1, "no finding for it");
 }
+
+#[tokio::test]
+async fn a_worker_parked_at_its_prompt_with_no_declared_wait_goes_back_once_the_blocker_lands() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "blocked").await;
+    w.watch_session(false);
+    w.app.issue_add("web", "dep", "", false, &[]).await.unwrap();
+    w.tick().await;
+    // Its turn ended with no wait declared and no done: idle at its prompt.
+    let cwd = wk["worktree"].as_str().unwrap().to_string();
+    w.claude_session(&cwd, false, (w.app_now() / 1000) as u64);
+    w.app.issue_block("web", 1, 2, Some("needs its change"), false).await.unwrap();
+    idle_for(&w, 20).await;
+    assert_eq!(status(&w, &wk).await, "working");
+    assert!(!doctor(&w, &wk).await.1, "parked, not silent");
+
+    let t = w.lands("web", 2, "web2").await.tick;
+    assert_eq!(t.resumed.len(), 1, "{t:?}");
+    assert_eq!(t.resumed[0]["resumed"], true, "{t:?}");
+    assert!(t.seen.is_empty(), "no silence first: {t:?}");
+    let told = said(&w, "web", 1).await;
+    assert!(told.last().unwrap().contains("#2 (landed as "), "{told:?}");
+    assert_eq!(doctor(&w, &wk).await, (json!([]), false));
+}

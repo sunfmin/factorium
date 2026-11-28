@@ -148,6 +148,13 @@ impl App {
         Some(w::Tokens { input, output })
     }
 
+    /// Whether worker `worker`'s session files say its turn ended: idle at
+    /// its prompt. No live session, or no file that says: not.
+    pub(crate) async fn at_prompt(&self, worker: Uuid) -> Answer<bool> {
+        let Some(live) = self.live_or_none(worker, crate::Want::Any).await? else { return Ok(false) };
+        Ok(matches!(self.turn(&live.session), Some(Turn::Closed { .. })))
+    }
+
     /// The turn a session's files say it is in.
     fn turn(&self, s: &Session) -> Option<Turn> {
         s.harness.turn(&self.session_home(s.harness, s.account.as_deref()), &s.cwd, &s.brief)
