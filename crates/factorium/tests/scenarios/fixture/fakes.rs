@@ -1071,6 +1071,9 @@ pub struct FakeHost {
     pub slimfit: Mutex<BTreeMap<String, String>>,
     /// While set, a `--function` listing is refused (`function-refused`).
     pub slimfit_function_refused: Mutex<bool>,
+    /// Runs, once, inside the next `check --mutants` listing, before it answers: a listing that
+    /// takes as long as this does.
+    pub while_listing: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// rolesmith: what each project's roles lack of this host.
     pub rolesmith: Mutex<FakeRolesmith>,
     /// Programs not found on PATH.
@@ -1110,7 +1113,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (stablehand, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
-        let (sleeps_take, ssh_runs_left) = Default::default();
+        let (sleeps_take, ssh_runs_left, while_listing) = Default::default();
         let (lingers, dropping, hosts, rolesmith, slimfit_function_refused) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
@@ -1122,6 +1125,7 @@ impl FakeHost {
             stablehand,
             slimfit,
             slimfit_function_refused,
+            while_listing,
             rolesmith,
             missing,
             hosts,
@@ -1203,6 +1207,10 @@ impl Programs for FakeHost {
             "slimfit" => {
                 if args.contains(&"--function") && *self.slimfit_function_refused.lock().unwrap() {
                     return Said { ok: false, out: SLIMFIT_FUNCTION_REFUSED.into(), err: String::new() };
+                }
+                let during = args.contains(&"--mutants").then(|| self.while_listing.lock().unwrap().take());
+                if let Some(during) = during.flatten() {
+                    during();
                 }
                 let said = self.slimfit.lock().unwrap();
                 // A refusal is printed as slimfit prints one: `{"error": …}`, exit 2.

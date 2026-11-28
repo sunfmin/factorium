@@ -103,6 +103,45 @@ async fn a_promotion_files_its_mutants_issue_waits_for_its_landing_then_promotes
     assert!(brief(&w, "web-3-1").contains(NO_MUTANTS), "{}", brief(&w, "web-3-1"));
 }
 
+/// A tick does not wait for a listing of the mutants still running beside it: the promotion
+/// files its issue on a tick after the listing ended.
+#[tokio::test]
+async fn a_tick_goes_on_while_the_mutants_listing_runs() {
+    let w = World::new();
+    held(&w).await;
+    // The listing runs until the scenario lets it end, or drops its end while unwinding.
+    let (end, ends) = std::sync::mpsc::channel::<()>();
+    *w.host.while_listing.lock().unwrap() = Some(Box::new(move || {
+        let _ = ends.recv();
+    }));
+    let listed = |w: &World| w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--mutants")).count();
+    let quick = std::time::Duration::from_secs(20);
+    let mut lines = Vec::new();
+    for _ in 0..10 {
+        bounded("its line move ending", w.app.moves_ended()).await;
+        let ran = listed(&w);
+        let t = tokio::time::timeout(quick, w.tick_alone()).await.expect("a tick while the listing runs");
+        lines.extend(t.lines);
+        if ran == 1 {
+            break;
+        }
+    }
+    assert_eq!(listed(&w), 1, "{lines:?}");
+    assert!(!lines.iter().any(|l| l["mutants"].is_string()), "filed before its listing ended: {lines:?}");
+    end.send(()).unwrap();
+    // Each tick until it has ended, a moment apart.
+    for _ in 0..500 {
+        if lines.iter().any(|l| l["mutants"].is_string()) {
+            break;
+        }
+        bounded("its line move ending", w.app.moves_ended()).await;
+        tokio::time::sleep(crate::fixture::LOOK).await;
+        lines.extend(w.tick_alone().await.lines);
+    }
+    assert!(lines.iter().any(|l| l["mutants"] == "web#2"), "{lines:?}");
+    assert_eq!(listed(&w), 1, "the one listing it waited for");
+}
+
 #[tokio::test]
 async fn past_mutants_bound_or_with_no_worker_to_start_it_the_promotion_goes_on_and_the_issue_stays_open() {
     for how in ["past the bound", "no worker can start it"] {
