@@ -108,6 +108,12 @@
     "sentence": "A binary that cannot read the store would fail every tick with nobody there, and a newer one may write an event an older daemon cannot read.",
     "source": "docs/adr/0030-the-daemon-runs-only-a-binary-proven-on-this-host.md:8"
   },
+  "13b6ab869185": {
+    "mark": "not",
+    "sentence": "Verdicts and rework are afkconvoy's, dropped from factorium ([ADR 0037](0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md)).",
+    "source": "docs/adr/0036-a-landing-waits-for-no-review.md:8",
+    "why": "a description of what factorium took from afkconvoy and dropped, a scope of its design, not a behaviour a run could break"
+  },
   "13c2c405ea81": {
     "mark": "not",
     "sentence": "What a repo declares**, in `factorium.toml` at its root (§3); every table may be left out:",
@@ -351,6 +357,12 @@
     "source": "docs/adr/0010-admission-and-the-heavy-queue.md:9",
     "why": "an ADR's context: why the decision was needed, no behaviour of factorium's"
   },
+  "4f16e01184cf": {
+    "mark": "not",
+    "sentence": "One kind of worker works one issue; the watch is the only other session.",
+    "source": "docs/adr/0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md:14",
+    "why": "a description of what factorium took from afkconvoy and dropped, a scope of its design, not a behaviour a run could break"
+  },
   "4f5b6739494e": {
     "mark": "not",
     "sentence": "The crate stays within its budget (its target in `lines.sh`, ADR 0031): no step adds more than a module's header.",
@@ -495,6 +507,12 @@
     "mark": "not",
     "summary": "truefit.toml was changed by 4 fixes in 180 days, and no registered promise's check covers it",
     "why": "truefit.toml is truefit's own configuration, not code that keeps a promise: the fixes (factorium#186-189) only registered the line and worktrees models, named their covers, and moved each model's pinned commit. The promises those fixes keep are already registered with model checks (model line, line-live, worktrees) whose covers name the code they stand for."
+  },
+  "722eadd94f06": {
+    "mark": "not",
+    "sentence": "A worker's health is its session file, its terminal and the readings, never an external judge's.",
+    "source": "docs/adr/0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md:26",
+    "why": "a description of what factorium took from afkconvoy and dropped, a scope of its design, not a behaviour a run could break"
   },
   "74a0f7cd0c23": {
     "mark": "not",
@@ -752,6 +770,12 @@
     "mark": "promise",
     "sentence": "One host-wide queue starts each when the host has room — by the same readings as admission, nothing else — never starves the oldest (it starts at once when nothing runs), starts one beside what runs only on a reading taken `heavy_settle` after the last start (so the load a start brings is read before the next), and ends one that holds others up past the hold bound.",
     "source": "SPEC.md:39"
+  },
+  "acf7e5e0ee29": {
+    "mark": "not",
+    "sentence": "It succeeds afkconvoy; what it left behind: [ADR 0037](docs/adr/0037-factorium-takes-from-afkconvoy-only-what-one-host-uses.md)",
+    "source": "README.md:11",
+    "why": "a description of what factorium took from afkconvoy and dropped, a scope of its design, not a behaviour a run could break"
   },
   "af5afe10a864": {
     "kind": "fixed-often",
