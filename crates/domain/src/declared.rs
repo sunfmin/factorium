@@ -11,6 +11,9 @@
 //! slow_limit = 3600
 //! regenerated = [".truefit/models/*.json"]  # records the gate rewrites (git globs)
 //!
+//! [gate.left_out]         # a fit configured at the root that the gate leaves out, and why
+//! truefit = "no real system to tie to yet"
+//!
 //! [cut]                   # how a version is made from the base branch
 //! steps = ["./release.sh $FACTORIUM_VERSION"]
 //! formula = "factorium"   # the Homebrew formula to upgrade once cut
@@ -21,6 +24,8 @@
 //! every = 86400           # at most once per this many seconds
 //! limit = 14400           # seconds, for all the steps together
 //! ```
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -52,11 +57,16 @@ pub struct Gate {
     /// the branch's `kept` verdicts in it ([`with_kept`]), and commits them as
     /// its fast gate rewrote them on the merge (factorium#225).
     pub regenerated: Vec<String>,
+    /// Each fit (`crate::fits::FITS`) whose config is at the repo root and
+    /// that the gate leaves out on purpose, by name, with why: doctor finds
+    /// no fault in its absence, and `checkout show` shows why.
+    pub left_out: BTreeMap<String, String>,
 }
 
 impl Default for Gate {
     fn default() -> Gate {
-        Gate { fast: "true".into(), fast_limit: 600, slow: None, slow_limit: slow_limit(), regenerated: Vec::new() }
+        let (regenerated, left_out) = (Vec::new(), BTreeMap::new());
+        Gate { fast: "true".into(), fast_limit: 600, slow: None, slow_limit: slow_limit(), regenerated, left_out }
     }
 }
 
@@ -103,7 +113,16 @@ fn every() -> u64 {
 pub fn read(text: Option<&str>) -> Result<Declared, String> {
     match text {
         None => Ok(Declared::default()),
-        Some(t) => toml::from_str(t).map_err(|e| format!("{FILE}: {e}")),
+        Some(t) => {
+            let d: Declared = toml::from_str(t).map_err(|e| format!("{FILE}: {e}"))?;
+            let fits = crate::fits::FITS.map(|f| f.name);
+            match d.gate.left_out.keys().find(|k| !fits.contains(&k.as_str())) {
+                Some(k) => {
+                    Err(format!("{FILE}: [gate.left_out] names `{k}`, not a fit: name one of {}", fits.join(", ")))
+                }
+                None => Ok(d),
+            }
+        }
     }
 }
 

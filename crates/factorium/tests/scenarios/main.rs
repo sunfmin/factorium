@@ -32,6 +32,7 @@ mod bump;
 mod comment;
 mod daemon;
 mod decided;
+mod fits;
 mod fixtures;
 mod harnesses;
 mod heavy;
