@@ -12,6 +12,7 @@ pub mod daemon;
 pub mod decided;
 pub mod declared;
 pub mod doctor;
+pub mod fits;
 pub mod gate;
 pub mod health;
 pub mod heavy;

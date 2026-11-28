@@ -61,7 +61,9 @@ impl App {
             let line = self.state::<Lines>(line_id(&c.name)).await?;
             // What the base declares, as last fetched: doctor fetches nothing.
             let git = self.host.git(&c.path);
-            let cuts = self.declared(&git, &c.fetched_base()).is_ok_and(|d| d.cut.is_some());
+            let declared = self.declared(&git, &c.fetched_base());
+            let cuts = declared.as_ref().is_ok_and(|d| d.cut.is_some());
+            let fits = declared.map(|d| self.fits(&git, &c.fetched_base(), &d)).unwrap_or_default();
             let stuck = crate::line::stuck_base(&c, &git);
             let idle = self.state::<Idles>(idle_id(&c.name)).await?;
             let idle_off = c.idle_off;
@@ -71,7 +73,7 @@ impl App {
                 }
                 _ => None,
             };
-            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off, mutants });
+            seen.lines.push(doctor::LineSeen { checkout: c.name, line, cuts, stuck, idle, idle_off, mutants, fits });
         }
         seen.ready = self.ready_seen().await?;
         seen.stablehand = self.stablehand_seen().await?;

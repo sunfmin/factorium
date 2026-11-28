@@ -7,12 +7,12 @@ use std::path::Path;
 use factorium_domain::checkout::{
     Add, AddCheckout, NameCheckoutRole, NameRole, Named, RemoveCheckout, TurnCheckoutIdle, TurnIdle,
 };
-use factorium_domain::heavy;
 use factorium_domain::kit::*;
 use factorium_domain::line::{Hold, HoldLandings, Lines};
 use factorium_domain::line_id;
 use factorium_domain::settings::{Declare, DeclareResource, Resource, Set, SetSetting, Setting};
 use factorium_domain::tracker::{self, shown};
+use factorium_domain::{fits, heavy};
 use factorium_harness::Harness;
 use factum::Uuid;
 use serde_json::json;
@@ -49,7 +49,25 @@ impl App {
         self.submit::<AddCheckout>(&add).await?;
         let mut added = json!(add);
         added["role"] = json!(add.role);
+        // Its base as just fetched; no warnings where its declaration does
+        // not read, which its gate and `checkout show` refuse.
+        let base = self.checkout(name).await?.fetched_base();
+        let fits = self.declared(&git, &base).map(|d| self.fits(&git, &base, &d)).unwrap_or_default();
+        added["warnings"] = json!(fits::unrun(name, &fits).collect::<Vec<_>>());
         Ok(added)
+    }
+
+    /// `checkout show`: the checkout, and each fit configured at its base's
+    /// root as last fetched, with whether its gate runs it (`run`, `in` which
+    /// file), leaves it out (`left_out`, `why`) or never runs it (`unrun`,
+    /// `add_to` which file).
+    pub async fn checkout_show(&self, name: &str) -> Answer {
+        let c = self.checkout(name).await?;
+        let (git, base) = (self.host.git(&c.path), c.fetched_base());
+        let fits = self.fits(&git, &base, &self.declared(&git, &base)?);
+        let mut shown = json!(c);
+        shown["fits"] = json!(fits);
+        Ok(shown)
     }
 
     /// `checkout edit --role`/`--no-role`: names `role`, a directory by its

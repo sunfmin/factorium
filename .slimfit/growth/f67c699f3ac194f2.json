@@ -1,0 +1,10 @@
+{
+  "tree": "7708328974068d4dc0ea44216df94391b36a9e48+d1fba762150c532c",
+  "lines": 111,
+  "serves": "factorium#425",
+  "considered": "declared::read and App::declared (reused to read factorium.toml at the base), doctor's Found and its findings loop (reused for the finding and checkout add's warning), Git::shown (reused to read the gate's scripts and the fits' configs); no existing code parses gate commands or lists the fits, so fits.rs holds both once",
+  "reviewer": "codex:01a21fe4-dce3-7c80-9997-17c2c1cacbdc:default",
+  "author": "claude-code:58d2b139-1e53-561c-92f4-25a3c84d1026:opus",
+  "cut": "In crates/domain/src/fits.rs, iterate fast and optional slow directly, yield borrowed script paths, and capture the first readable fast script during the existing lookup to remove the second parse and scan. In crates/domain/src/declared.rs, return the default early when text is absent, then validate the parsed declaration with an early error and a single success return.",
+  "answer": "Made both cuts: scripts() yields borrowed &str, of() walks fast then slow once and takes add_to from the first readable fast script in that walk (no second parse or scan); declared::read returns the default early and validates left_out with one early error and one Ok"
+}

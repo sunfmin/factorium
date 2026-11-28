@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::admission::{self, Reading};
 use crate::daemon::Daemon;
 use crate::declared::Kind;
+use crate::fits::{self, Fitted};
 use crate::heavy::{HOST, LineJob, Queue};
 use crate::idle::{Idle, Run};
 use crate::line::{self, Line, Move};
@@ -221,6 +222,9 @@ pub struct LineSeen {
     /// The mutants issue its promotion waits for, while it is open: its
     /// number, and when the wait ends (ms), `mutants_bound` after its filing.
     pub mutants: Option<(u64, i64)>,
+    /// The fits configured at its base's root, and whether its gate runs each.
+    #[serde(default)]
+    pub fits: Vec<Fitted>,
 }
 
 /// A checkout's local base behind origin's that is not fast-forwarded,
@@ -254,7 +258,10 @@ pub fn findings(seen: &Seen, s: &Settings, now: i64) -> Vec<Found> {
     }
     let mut add =
         |key: String, what: String, fix: &str| f.push(Found { key, what, fix: fix.into(), heard: Vec::new() });
-    for LineSeen { checkout, line, stuck, idle, idle_off, .. } in &seen.lines {
+    for LineSeen { checkout, line, stuck, idle, idle_off, fits, .. } in &seen.lines {
+        for Found { key, what, fix, .. } in fits::unrun(checkout, fits) {
+            add(key, what, &fix);
+        }
         if let Some(Stuck { base, path, behind, ours, dirty }) = stuck {
             let why = if *dirty {
                 "it is checked out over changes not committed".to_string()

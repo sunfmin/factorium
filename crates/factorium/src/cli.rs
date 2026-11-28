@@ -161,7 +161,7 @@ pub enum ServiceCmd {
 
 #[derive(Subcommand)]
 pub enum CheckoutCmd {
-    /// Puts a repo on the list. It needs an `origin` holding the base; a proving branch origin lacks is made at the base.
+    /// Puts a repo on the list. It needs an `origin` holding the base; a proving branch origin lacks is made at the base. Answers it, with `warnings`: each fit configured at the base's root that its gate never runs, as doctor finds it (`checkout show`).
     #[command(verbatim_doc_comment)]
     Add {
         name: String,
@@ -196,6 +196,9 @@ pub enum CheckoutCmd {
     /// Answers the checkouts on the list.
     #[command(verbatim_doc_comment)]
     List,
+    /// Answers one checkout, and each fit configured at its base's root as last fetched (`slimfit.toml`, `truefit.toml`, `docfit.toml`): its `state` is `run` (`in`: the file of the gate that calls its check), `left_out` (`why`: the reason `[gate.left_out]` in its factorium.toml gives) or `unrun` (`add_to`: the file its check belongs in; doctor finds it). Refused `bad_declaration` where its factorium.toml does not read: fix what the message names.
+    #[command(verbatim_doc_comment)]
+    Show { name: String },
 }
 
 #[derive(Subcommand)]
@@ -238,7 +241,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all.
+    /// Answers the open issues (with `--closed`, the closed too), of one checkout or, with none named, of every checkout, by checkout then number: what every checkout is doing and waiting on, in one call. Each row answers `issue show --brief`'s fields (among them `waits`, only those not met; `issue show` answers them all), and `ready_at` (ms: filed, or readied from waiting for a person) and `ahead` (a promotion's mutants issue, started before the ordinary ones).
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
@@ -252,6 +255,9 @@ pub enum IssueCmd {
         number: u64,
         #[arg(long)]
         steps: bool,
+        /// Answers only where it stands: `checkout`, `number`, `title`, `status`, `urgent`, `reason`, `worker`, as the full answer has them; `doing`, its live worker's `status` (`working`, `landing`, `waiting`…), `why` and `since` (ms), or null; `waits`, only those not met, each `on` and `why`; `comments`, only the last, its `text` cut to its first 300 characters (then `cut`: true); and `spent`, its `ms` alone. No body, no steps. `issue list` answers each row with these fields too.
+        #[arg(long, conflicts_with = "steps", verbatim_doc_comment)]
+        brief: bool,
     },
     /// Waits until each issue named has ended, then answers: it landed, it closed, or (`--until any`, the default) it waits for a person; or until `--timeout`. Watches the database, looking at each issue once a second; no other work. Answers `outcome` and `code` (its exit code), and `issues`: each one's `checkout`, `number`, `title`, `status`, `reason` (why it closed, or why it waits for a person), `commit` (the commit it landed as; null: it did not land) and `outcome`: `landed` (exit 0), `closed` without landing (3), `waiting_for_human` (4), or `timeout` (5: it had not ended then; its status is as it was). With several issues it ends once all have, and `outcome` and `code` are the last of theirs in that order. One that has ended already answers at once; one not there is refused (`no_issue`).
     #[command(verbatim_doc_comment)]
@@ -539,6 +545,7 @@ impl Top {
                 }
                 CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
                 CheckoutCmd::List => app.checkout_list().await,
+                CheckoutCmd::Show { name } => app.checkout_show(&name).await,
             },
             Top::Issue(i) => match i {
                 IssueCmd::Add {
@@ -574,8 +581,9 @@ impl Top {
                     app.issue_file(open).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
-                IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
-                IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
+                IssueCmd::Show { checkout, number, brief: true, .. } => app.issue_show_brief(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: false, .. } => app.issue_show(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: true, .. } => app.issue_show_steps(&checkout, number).await,
                 IssueCmd::Wait { checkout, numbers, until, timeout } => {
                     app.issue_wait(&checkout, &numbers, until, timeout).await
                 }
