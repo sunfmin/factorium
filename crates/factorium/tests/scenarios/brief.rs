@@ -67,4 +67,10 @@ async fn the_brief_answers_where_an_issue_stands_and_the_list_rows_answer_the_sa
         }
         assert!(row.get("ready_at").is_some() && row.get("body").is_none(), "{row}");
     }
+
+    // A comment of just the brief's length is shown whole, not cut.
+    let even = "y".repeat(300);
+    w.app.issue_comment("web", 1, &even).await.unwrap();
+    let shown = w.app.issue_show_brief("web", 1).await.unwrap()["comments"][0].clone();
+    assert_eq!((shown["text"].as_str().unwrap(), &shown["cut"]), (&even[..], &json!(null)), "{shown}");
 }

@@ -284,6 +284,10 @@ fn a_worker_runs_only_worker_commands_and_only_the_watch_runs_watch_commands() {
     let (ok, answer) = run_with(&dir, &worker, &file);
     assert!(!ok);
     assert_eq!(answer["error"]["code"], "no_worker", "{answer}");
+    // Each `--why` of `worker file` is placed after its `--blocked-by`, as for `issue add`.
+    let twice = [&file[..], &["--blocked-by", "2", "--why", "b", "--why", "c"]].concat();
+    let (ok, answer) = run_with(&dir, &worker, &twice);
+    assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("why_twice")), "{answer}");
     let done_unlanded: &[&str] = &["worker", "done", "--no-landing", "published"];
     for command in [&["worker", "done"][..], done_unlanded, &["worker", "pick-mutants"], &["worker", "review-growth"]] {
         let (ok, answer) = run_with(&dir, &worker, command);
