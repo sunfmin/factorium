@@ -50,7 +50,7 @@ pub fn idle(r: &Reading, s: &Settings) -> bool {
 /// queue's to bound, and the queue starts beside them only while the host
 /// has room, so it holds the host near the busy limit; a command waiting
 /// that long is the load the reading cannot show, and another worker's
-/// would only wait behind it (factorium#194).
+/// would only wait behind it.
 pub fn admit(r: &Reading, queue: &Queue, now: i64, s: &Settings) -> Result<(), String> {
     holds(r, queue, now, s).into_iter().next().map_or(Ok(()), Err)
 }

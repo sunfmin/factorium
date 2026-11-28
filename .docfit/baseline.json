@@ -1,7 +1,4 @@
 {
-  "crates/domain/src/admission.rs": {
-    "local_refs": 1
-  },
   "crates/domain/src/bump.rs": {
     "local_refs": 1
   },
