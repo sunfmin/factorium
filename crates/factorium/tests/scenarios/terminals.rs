@@ -54,7 +54,7 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     w.app.issue_add("web", "t", "", false, &[]).await.unwrap();
     w.host.orca.fault("send-refused", true);
     assert!(w.app.tick().await.is_err());
-    let rows = w.app.workers(true).await.unwrap();
+    let rows = w.app.workers(true).await.unwrap()["workers"].take();
     let rows = rows.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert!(closed(&w, &rows[0]).await, "{rows:?}");
@@ -63,7 +63,7 @@ async fn a_session_that_cannot_be_handed_its_brief_has_its_terminal_closed() {
     // refusal names the terminal left open.
     *w.host.orca.refuse_close.lock().unwrap() = true;
     let refused = format!("{:?}", w.app.tick().await.unwrap_err());
-    let rows = w.app.workers(true).await.unwrap();
+    let rows = w.app.workers(true).await.unwrap()["workers"].take();
     let open = rows.as_array().unwrap().iter().find(|r| r["closed"] == false).expect("one left open");
     assert!(refused.contains(&format!("its terminal {} is not closed", handle(open))), "{refused}");
 }
@@ -88,7 +88,7 @@ async fn a_start_that_fails_after_its_session_opened_closes_it_and_frees_its_iss
         assert!(opened[0].1.closed, "{kind}: what the start opened is closed");
         let issue = w.app.issue_show("web", 1).await.unwrap();
         assert_eq!((&issue["status"], &issue["worker"]), (&json!("ready"), &Value::Null), "{kind}: {issue}");
-        assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "{kind}");
+        assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]), "{kind}");
 
         w.disk_refuses(kind, false);
         w.tick().await;
@@ -179,7 +179,7 @@ async fn a_close_orca_ignores_is_recorded_and_named_by_doctor() {
     w.done(&wk, "a.txt", "a\n").await;
     assert!(!w.tick().await.landed.is_empty(), "it lands all the same");
     assert!(!closed(&w, &wk).await);
-    let row = w.app.workers(true).await.unwrap()[0].clone();
+    let row = w.app.workers(true).await.unwrap()["workers"][0].clone();
     assert_eq!((row["status"].clone(), row["closed"].clone()), (json!("ended"), json!(false)));
     assert!(row["close_failed"].as_str().unwrap().contains("lists it still"), "{row}");
     let found = w.app.doctor().await.unwrap();
@@ -201,7 +201,7 @@ async fn a_close_orca_refuses_is_recorded_and_named_by_doctor() {
     let wk = w.working(CLAUDE, "t").await;
     *w.host.orca.refuse_close.lock().unwrap() = true;
     w.app.issue_close("web", 1, "not needed").await.unwrap();
-    let row = w.app.workers(true).await.unwrap()[0].clone();
+    let row = w.app.workers(true).await.unwrap()["workers"][0].clone();
     assert_eq!(row["closed"], false);
     assert!(row["close_failed"].as_str().unwrap().contains("refused"), "{row}");
     let named = unclosed(&w.app.doctor().await.unwrap());
@@ -234,7 +234,7 @@ async fn a_landed_worker_whose_issue_close_the_store_refused_has_it_closed_on_th
     assert!(w.app.tick().await.is_err(), "the tick stops at the close");
     let issue = w.app.issue_show("web", 1).await.unwrap();
     assert_eq!((&issue["status"], &issue["worker"]), (&json!("ready"), &wk["worker"]), "open, held: {issue}");
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "the worker ended landed");
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]), "the worker ended landed");
 
     w.disk_refuses("IssueClosed", false);
     let t = w.app.tick().await.expect("the next tick closes it");

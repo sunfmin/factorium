@@ -166,7 +166,7 @@ async fn a_declared_long_hold_is_not_cut_short_at_the_hold_bound_and_past_its_un
         w.until(async || w.clock.asleep() == 1).await;
         assert!(!dir.join("started").exists(), "FMGG is held still");
         assert!(!finding_keys(&w.doctor().await).contains(&format!("resource:{entry}")));
-        let workers = w.app.workers(false).await.unwrap();
+        let workers = w.app.workers(false).await.unwrap()["workers"].take();
         assert!(workers.as_array().unwrap().is_empty(), "no live worker in this world: {workers}");
         // Past its until: a finding for the watch, and still held.
         w.advance(130);

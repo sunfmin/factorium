@@ -49,7 +49,7 @@ async fn an_issue_goes_from_ready_to_landed_promoted_and_cut() {
     let issue = w.app.issue_show("web", 1).await.unwrap();
     assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
     assert!(issue["reason"].as_str().unwrap().contains(&landed));
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]));
     assert!(crate::fixture::closed(&w.app, "term-1").await, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
     let left = w.git(&web, &["branch", "--list", &branch]).unwrap();
@@ -112,7 +112,7 @@ async fn done_without_landing_closes_an_issue_whose_work_changes_no_code() {
     let issue = w.app.issue_show("web", 1).await.unwrap();
     assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("closed"), json!(null)));
     assert!(issue["reason"].as_str().unwrap().contains(evidence), "{issue}");
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]));
     assert!(crate::fixture::closed(&w.app, "term-1").await, "its session ends");
     assert!(!tree.exists(), "its worktree goes");
 }
@@ -134,7 +134,7 @@ async fn a_red_landing_tells_the_worker_why_and_the_second_red_goes_to_the_watch
     assert_eq!(again["status"], "working");
     let told = w.terminal(wk["terminal"].as_str().unwrap()).sent;
     assert!(told.last().unwrap().contains("landing was red"), "{told:?}");
-    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "ready");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], "working", "its worker is back on it");
 
     w.app.worker_done(id(&wk), None).await.unwrap();
     w.tick().await;
@@ -303,12 +303,12 @@ async fn closing_an_issue_or_leaving_it_to_a_human_ends_its_worker() {
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     w.tick().await;
-    let ws = w.app.workers(false).await.unwrap();
+    let ws = w.app.workers(false).await.unwrap()["workers"].take();
     let (a, b) = (ws[0].clone(), ws[1].clone());
     let b_tree = worktree(&b);
     w.app.issue_close("web", a["number"].as_u64().unwrap(), "not needed").await.unwrap();
     w.app.issue_wait_for_human("web", b["number"].as_u64().unwrap(), "later").await.unwrap();
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]));
     assert!(crate::fixture::closed(&w.app, a["terminal"].as_str().unwrap()).await);
     assert!(crate::fixture::closed(&w.app, b["terminal"].as_str().unwrap()).await);
     assert!(b_tree.exists(), "the worktree of an issue waiting for a human stays");
@@ -500,7 +500,7 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
     let row = |v: &serde_json::Value| (v["status"].clone(), v["why"].clone(), v["since"].clone());
     assert_eq!(row(&wk), (json!("working"), json!(null), json!(start)));
     let issue = w.app.issue_list(None, false).await.unwrap()[0].clone();
-    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("ready"), wk["worker"].clone()));
+    assert_eq!((issue["status"].clone(), issue["worker"].clone()), (json!("working"), wk["worker"].clone()));
 
     w.advance(2);
     w.app.worker_escalate(id(&wk), "which API version?").await.unwrap();
@@ -519,8 +519,8 @@ async fn the_tracker_rows_follow_each_event_and_doctor_names_a_waiting_worker_by
         (issue["status"].clone(), issue["reason"].clone(), issue["worker"].clone()),
         (json!("closed"), json!("not needed"), json!(null))
     );
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]));
-    let ended = w.app.workers(true).await.unwrap()[0].clone();
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]));
+    let ended = w.app.workers(true).await.unwrap()["workers"][0].clone();
     assert_eq!(row(&ended), (json!("ended"), json!("its issue closed: not needed"), json!(at + 60_000)));
     // A closed issue takes no more commands.
     assert_eq!(w.app.issue_show("web", 1).await.unwrap()["checkout"], "web");

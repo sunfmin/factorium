@@ -20,6 +20,38 @@ pub enum Status {
     Closed,
 }
 
+/// What an issue is doing, as `issue list` and `issue show` answer its
+/// `status`: its own [`Status`], or, held by a live worker, what that
+/// worker does. Never kept: derived on each answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Doing {
+    Ready,
+    Working,
+    Landing,
+    Parked,
+    WaitingForHuman,
+    Closed,
+}
+
+impl Doing {
+    /// An issue in `status` held by `worker` (its state), if one holds it.
+    pub fn of(status: Status, worker: Option<&crate::worker::Worker>) -> Doing {
+        use crate::worker::Status as W;
+        match (status, worker) {
+            (Status::Closed, _) => Doing::Closed,
+            (Status::WaitingForHuman, _) => Doing::WaitingForHuman,
+            (Status::Ready, None) => Doing::Ready,
+            (Status::Ready, Some(w)) => match w.status {
+                W::Ended => Doing::Ready,
+                _ if w.parked => Doing::Parked,
+                W::Landing | W::Finishing => Doing::Landing,
+                W::Working | W::Waiting => Doing::Working,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Issue {
     pub checkout: String,

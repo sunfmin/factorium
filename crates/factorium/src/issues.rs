@@ -163,6 +163,15 @@ impl App {
         Ok(list)
     }
 
+    /// What an issue in `status` held by `worker` is doing ([`Doing`]).
+    async fn doing(&self, status: Status, worker: Option<factum::Uuid>) -> Answer<Doing> {
+        let held = match worker {
+            Some(w) => Some(self.state::<Workers>(w).await?),
+            None => None,
+        };
+        Ok(Doing::of(status, held.as_ref()))
+    }
+
     pub(crate) async fn issue(&self, checkout: &str, number: u64) -> Answer<Issue> {
         let i = self.state::<Issues>(issue_id(checkout, number)).await?;
         if i.opened() { Ok(i) } else { Err(Refusal::new("no_issue", format!("{checkout}#{number} does not exist"))) }
@@ -188,13 +197,11 @@ impl App {
     /// first [`BRIEF_TEXT`] characters (`cut`: true); and `spent`, its `ms`
     /// alone. `doing`: its live worker's status, why and since.
     async fn brief(&self, i: &Issue) -> Answer<serde_json::Value> {
-        let doing = match i.worker {
-            Some(w) => {
-                let wk = self.state::<Workers>(w).await?;
-                json!({ "status": wk.status, "why": wk.why, "since": wk.since })
-            }
-            None => serde_json::Value::Null,
+        let held = match i.worker {
+            Some(w) => Some(self.state::<Workers>(w).await?),
+            None => None,
         };
+        let doing = held.as_ref().map(|wk| json!({ "status": wk.status, "why": wk.why, "since": wk.since }));
         let waits = self.blockers(i).await?.into_iter().filter(|w| w.met.is_none());
         let waits: Vec<_> = waits.map(|w| json!({ "on": w.on, "why": w.why })).collect();
         let last = i.comments.last().map(|c| {
@@ -209,7 +216,7 @@ impl App {
             "checkout": i.checkout,
             "number": i.number,
             "title": i.title,
-            "status": i.status,
+            "status": Doing::of(i.status, held.as_ref()),
             "urgent": i.urgent,
             "reason": i.reason,
             "worker": i.worker,
@@ -230,7 +237,7 @@ impl App {
             "number": i.number,
             "title": i.title,
             "body": i.body,
-            "status": i.status,
+            "status": self.doing(i.status, i.worker).await?,
             "urgent": i.urgent,
             "blocked_by": i.blocked_by(),
             "blocked_across": i.blocked_across(),

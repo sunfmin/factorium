@@ -112,7 +112,8 @@ async fn past_mutants_bound_or_with_no_worker_to_start_it_the_promotion_goes_on_
         let t = w.tick().await;
         assert!(t.lines.iter().any(|l| l["promoted"] == "web"), "{how}: {:?}", t.lines);
         assert_eq!(w.remote_tip("web", "main"), w.remote_tip("web", "proving"), "{how}");
-        assert_eq!(shown(&w, 2).await["status"], "ready", "{how}: it stays open");
+        let open = if how == "past the bound" { "working" } else { "ready" };
+        assert_eq!(shown(&w, 2).await["status"], open, "{how}: it stays open, its worker on it if one started");
         // A later promotion still owing for its range files none while it is open.
         w.stablehand_keeps(&["claude-code"]);
         w.app.issue_add("web", "b", "", false, &[]).await.unwrap();

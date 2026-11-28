@@ -55,7 +55,7 @@ async fn a_worker_moves_with_its_commits_and_its_changes_and_goes_on_there() {
     assert_eq!(at("done.txt").as_deref(), Ok("committed here"), "it holds the commits");
     assert_eq!(at("wip.txt").as_deref(), Ok("not committed"), "and the changes not committed");
 
-    assert_eq!(w.app.workers(false).await.unwrap(), json!([]), "its worker ended");
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]), "its worker ended");
     assert!(tree.join("wip.txt").exists(), "its worktree is kept");
     let status = w.git(&tree, &["status", "--porcelain"]).unwrap();
     assert_eq!(status, "?? wip.txt", "as it was: nothing committed in it");
