@@ -287,14 +287,6 @@
     },
     {
       "suite": "rust",
-      "file": "crates/factorium/src/heavy.rs",
-      "prod_lines": 293,
-      "commits_90d": 33,
-      "commits_total": 33,
-      "reason": "Deep already: callers (gate.rs, line/cut.rs, idle.rs, daemon.rs) use one entry, heavy(Job, Turn), plus Job's per-kind constructors and the tick hooks asking_once/beside/adopt_queued/note_rules; behind it sit queueing, place-keeping, stale-rules exec, dead-pid cleanup, session noting, hold-bound and give-way ending. Deletion test: removing it would spread that protocol over its four callers. Rules already live in factorium_domain::heavy; no unit tests reach past the interface (covered by queue/admission scenarios). Churn is feature work on the queue (factorium#193/#194), not interface friction. factorium#206"
-    },
-    {
-      "suite": "rust",
       "file": "crates/domain/src/issue.rs",
       "prod_lines": 608,
       "commits_90d": 24,
@@ -316,6 +308,14 @@
       "commits_90d": 59,
       "commits_total": 59,
       "reason": "Already deep: it is the clap command tree (the manual, docs/adr/0026, as agent-help reads it) and the one App call each command makes; docs/adr/0002 settles that the manual and its dispatch are one concept with one home. Its churn is commands and flags being added, which land here by design; each arm is a one-line reading of arguments into an App call whose behaviour lives in the library. Splitting it per command group would spread one concept over many files and leave each piece a pass-through."
+    },
+    {
+      "suite": "rust",
+      "file": "crates/factorium/src/heavy.rs",
+      "prod_lines": 489,
+      "commits_90d": 58,
+      "commits_total": 58,
+      "reason": "Deep still (kept before at 293 lines, factorium#206): callers (gate.rs, line/cut.rs, line/stack.rs, idle.rs, work.rs, daemon, doctor) use one runner, heavy(Job, Turn), Job's per-kind constructors (gate, cut, exclusive, hold, idle), the beside hooks keyed by a pick over For (beside, beside_runs, unqueue_beside, beside_ended) and the tick hooks (asking_once, adopt_queued, note_rules, give_back). Behind them sit queueing, place-keeping, stale-rules exec, dead-pid cleanup, session noting, hold-bound/give-way/halt ending, runs beside the ticks and resource holds. Growth to 489 is feature work on the queue (resources and holds factorium#284/#286, urgent #393, stacked landing gates #383, work dirs #377, gate resources #435), each landing its rules in factorium_domain::heavy and only its use here. Splitting holds or the beside bookkeeping into files would move private helpers of the same runner, not deepen it; no test reaches past the interface (queue/admission/stall scenarios). factorium#442"
     }
   ],
   "kept_spans": [
