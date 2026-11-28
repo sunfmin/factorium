@@ -17,9 +17,34 @@ use factum::Uuid;
 const OWNER: &str = "Run by the owner";
 
 /// The manual: clap's command tree, each command's text read from its doc
-/// comment as written.
+/// comment as written, a group's (`issue`) ended by its [`commands`].
 pub fn manual() -> agent_help::Help {
-    agent_help::Help::new(Cli::command())
+    let cli = Cli::command();
+    let name = cli.get_name().to_owned();
+    let groups = cli.get_subcommands().map(|c| c.get_name().to_owned()).collect::<Vec<_>>();
+    let cli = groups.iter().fold(cli, |cli, group| cli.mut_subcommand(group, |c| commands(c, &name)));
+    agent_help::Help::new(cli)
+}
+
+/// `command`, under `parent`, with each group in it, itself among them,
+/// its text ended by a `## Commands` list of its visible subcommands, each
+/// with its summary, the line the top level's index gives it: agent-help
+/// lists only the top level's, so `issue --help` would name none of its own.
+fn commands(command: clap::Command, parent: &str) -> clap::Command {
+    let title = format!("{parent} {}", command.get_name());
+    let subs = command.get_subcommands().map(|c| c.get_name().to_owned()).collect::<Vec<_>>();
+    let mut list = String::new();
+    for sub in command.get_subcommands().filter(|c| !c.is_hide_set()) {
+        let about = sub.get_about().or(sub.get_long_about()).map(|a| a.to_string()).unwrap_or_default();
+        let summary = about.lines().next().unwrap_or_default().trim().to_owned();
+        list.push_str(&format!("- `{title} {}`: {summary}\n", sub.get_name()));
+    }
+    let mut command = subs.iter().fold(command, |c, sub| c.mut_subcommand(sub, |s| commands(s, &title)));
+    if !list.is_empty() {
+        let text = command.get_long_about().or(command.get_about()).map(|a| a.to_string()).unwrap_or_default();
+        command = command.long_about(format!("{}\n\n## Commands\n\n{list}", text.trim_end()));
+    }
+    command
 }
 
 /// Runs AI coding agents on one machine while nobody watches: issues from a local tracker go to workers in their own worktrees, green work lands on a proving branch, the proving branch is promoted to the base, versions are cut, and a resident watch deals with what goes wrong. Every answer is JSON.
