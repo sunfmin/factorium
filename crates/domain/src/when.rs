@@ -63,11 +63,7 @@ pub enum Since {
 impl Since {
     /// `s` as a span when it ends in a unit, otherwise as a time.
     pub fn parse(s: &str) -> Result<Since, String> {
-        let span = s.trim().ends_with(['s', 'm', 'h']);
-        if span {
-            return duration_ms(s).map(Since::Ago);
-        }
-        parse(s).map(Since::At).map_err(|e| format!("{e}, or as a span back from now (`24h`)"))
+        if s.trim().ends_with(['s', 'm', 'h']) { duration_ms(s).map(Since::Ago) } else { parse(s).map(Since::At) }
     }
 
     /// The time it names, ms since the epoch, `now` being now.

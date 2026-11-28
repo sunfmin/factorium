@@ -78,7 +78,6 @@ pub enum Top {
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Spent {
         /// The checkout; none: every checkout, its `landings` alone.
-        #[arg(verbatim_doc_comment)]
         checkout: Option<String>,
         /// One issue's number (`12`), or a range of them, both ends in (`198..222`).
         #[arg(value_name = "N|FROM..TO", value_parser = numbers, requires = "checkout", verbatim_doc_comment)]

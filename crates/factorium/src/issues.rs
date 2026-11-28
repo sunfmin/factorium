@@ -6,6 +6,7 @@ use factorium_domain::decided;
 use factorium_domain::issue::*;
 use factorium_domain::line::Lines;
 use factorium_domain::line_id;
+use factorium_domain::spent;
 use factorium_domain::tracker::{self, shown};
 use factorium_domain::when::{self, Since};
 use factorium_domain::worker::{Started, Status as WorkerStatus, Tokens, Worker, Workers};
@@ -647,13 +648,7 @@ impl App {
         Ok(json!({ "since": since, "checkouts": rows }))
     }
 
-    async fn spent_in(
-        &self,
-        checkout: &str,
-        numbers: Option<(u64, u64)>,
-        since: Option<i64>,
-    ) -> Answer<factorium_domain::spent::Spent> {
-        use factorium_domain::spent;
+    async fn spent_in(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<i64>) -> Answer<spent::Spent> {
         self.checkout(checkout).await?;
         if let Some((n, _)) = numbers.filter(|(from, to)| from == to) {
             self.issue(checkout, n).await?;

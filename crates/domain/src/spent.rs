@@ -65,11 +65,7 @@ pub struct Landings {
 fn median(mut v: Vec<i64>) -> Option<i64> {
     v.sort_unstable();
     let n = v.len();
-    match n {
-        0 => None,
-        _ if n % 2 == 1 => Some(v[n / 2]),
-        _ => Some((v[n / 2 - 1] + v[n / 2]) / 2),
-    }
+    (n > 0).then(|| (v[(n - 1) / 2] + v[n / 2]) / 2)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
