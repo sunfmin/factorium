@@ -34,6 +34,7 @@ use std::sync::Arc;
 
 use factorium_domain::checkout::Checkout;
 use factorium_domain::declared::{self, Declared};
+use factorium_domain::fits;
 use factorium_domain::settings::{HostSettings, Settings, settings_id};
 use factorium_domain::tracker::{Rows, TRACKER};
 use factorium_domain::{checkout::Checkouts, checkout_id};
@@ -361,6 +362,12 @@ impl App {
     fn declared(&self, git: &Git, rev: &str) -> Answer<Declared> {
         let text = git.shown(rev, declared::FILE);
         declared::read(text.as_deref()).map_err(fail("bad_declaration"))
+    }
+
+    /// The fits configured at the repo's root at `rev`, and whether the gate
+    /// `declared` there runs each ([`fits::of`]).
+    fn fits(&self, git: &Git, rev: &str, declared: &Declared) -> Vec<fits::Fitted> {
+        fits::of(declared, |file| git.shown(rev, file))
     }
 
     fn data(&self) -> Data {

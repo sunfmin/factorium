@@ -160,7 +160,7 @@ pub enum ServiceCmd {
 
 #[derive(Subcommand)]
 pub enum CheckoutCmd {
-    /// Puts a repo on the list. It needs an `origin` holding the base; a proving branch origin lacks is made at the base.
+    /// Puts a repo on the list. It needs an `origin` holding the base; a proving branch origin lacks is made at the base. Answers it, with `warnings`: each fit configured at the base's root that its gate never runs, as doctor finds it (`checkout show`).
     #[command(verbatim_doc_comment)]
     Add {
         name: String,
@@ -195,6 +195,9 @@ pub enum CheckoutCmd {
     /// Answers the checkouts on the list.
     #[command(verbatim_doc_comment)]
     List,
+    /// Answers one checkout, and each fit configured at its base's root as last fetched (`slimfit.toml`, `truefit.toml`, `docfit.toml`): its `state` is `run` (`in`: the file of the gate that calls its check), `left_out` (`why`: the reason `[gate.left_out]` in its factorium.toml gives) or `unrun` (`add_to`: the file its check belongs in; doctor finds it). Refused `bad_declaration` where its factorium.toml does not read: fix what the message names.
+    #[command(verbatim_doc_comment)]
+    Show { name: String },
 }
 
 #[derive(Subcommand)]
@@ -525,6 +528,7 @@ impl Top {
                 }
                 CheckoutCmd::Remove { name } => app.checkout_remove(&name).await,
                 CheckoutCmd::List => app.checkout_list().await,
+                CheckoutCmd::Show { name } => app.checkout_show(&name).await,
             },
             Top::Issue(i) => match i {
                 IssueCmd::Add {
