@@ -36,7 +36,7 @@ async fn two_issues_one_green_after_a_wait_one_red_twice_on_a_conflict_answer_ea
     w.tick().await;
     w.advance(1);
 
-    let s = w.app.spent_of("web", None, None).await.unwrap();
+    let s = w.app.spent_of(Some("web"), None, None).await.unwrap();
     let row = |n: u64| s["issues"].as_array().unwrap().iter().find(|r| r["number"] == n).cloned().unwrap();
     let (r1, r2) = (row(1), row(2));
     assert_eq!(r1["split"]["waits"], json!({ "ms": 4 * MIN, "by": { "a download": 4 * MIN } }), "{r1}");
@@ -57,23 +57,23 @@ async fn two_issues_one_green_after_a_wait_one_red_twice_on_a_conflict_answer_ea
     assert_eq!(s["split"]["landing"]["ms"], 7 * MIN, "{s}");
 
     // One issue, and the time since #2's first `done` alone.
-    let one_only = w.app.spent_of("web", Some((2, 2)), Some(Since::At(start + 6 * MIN))).await.unwrap();
+    let one_only = w.app.spent_of(Some("web"), Some((2, 2)), Some(Since::At(start + 6 * MIN))).await.unwrap();
     assert_eq!(one_only["totals"]["ms"], 7 * MIN, "{one_only}");
     assert_eq!(one_only["split"]["landing"]["red"]["ms"], 5 * MIN, "{one_only}");
     // Since 10: #1 ended before it, and #2's first red came before it.
-    let late = w.app.spent_of("web", None, Some(Since::At(start + 10 * MIN))).await.unwrap();
+    let late = w.app.spent_of(Some("web"), None, Some(Since::At(start + 10 * MIN))).await.unwrap();
     assert_eq!((late["totals"]["issues"].clone(), late["reds"]["count"].clone()), (json!(1), json!(1)), "{late}");
     assert_eq!(late["totals"]["wall_ms"], Value::Null, "nothing landed since: {late}");
-    let no = w.app.spent_of("web", Some((9, 9)), None).await.unwrap_err();
+    let no = w.app.spent_of(Some("web"), Some((9, 9)), None).await.unwrap_err();
     assert_eq!(no.code, "no_issue", "{no:?}");
 
     // Every checkout, the last 13 minutes: a row each, its numbers its own answer's.
     w.checkout("api").await;
-    let all = w.app.spent_all(Some(Since::Ago(13 * MIN))).await.unwrap();
+    let all = w.app.spent_of(None, None, Some(Since::Ago(13 * MIN))).await.unwrap();
     assert_eq!(all["since"], start, "{all}");
     let rows = all["checkouts"].as_array().unwrap();
     let web = rows.iter().find(|r| r["checkout"] == "web").unwrap();
-    let mut own = w.app.spent_of("web", None, Some(Since::At(start))).await.unwrap()["landings"].clone();
+    let mut own = w.app.spent_of(Some("web"), None, Some(Since::At(start))).await.unwrap()["landings"].clone();
     own["checkout"] = json!("web");
     assert_eq!(web, &own, "{all}");
     assert_eq!(web["issues_landed"], 1, "{web}");
@@ -112,7 +112,7 @@ async fn a_worker_gate_queued_behind_another_run_is_a_gate_s_wait() {
     let (gated, ()) = tokio::time::timeout(STUCK, async { tokio::join!(gated, busy) }).await.expect("the gate runs");
     assert_eq!(gated.unwrap()["green"], true);
 
-    let queued = w.app.spent_of("web", Some((1, 1)), None).await.unwrap()["split"]["heavy_queued"].clone();
+    let queued = w.app.spent_of(Some("web"), Some((1, 1)), None).await.unwrap()["split"]["heavy_queued"].clone();
     let by = queued["by"].as_object().unwrap();
     assert_eq!(by.keys().collect::<Vec<_>>(), ["gate"], "{queued}");
     assert!(ms(&queued) >= 5 * MIN, "it waited out the other's run: {queued}");
@@ -148,7 +148,7 @@ async fn a_hold_then_a_command_by_hand_then_a_park_are_each_its_own_part() {
     w.app.issue_block("web", 1, 2, Some("needs b's parser"), false).await.unwrap();
     w.advance(4);
 
-    let split = w.app.spent_of("web", Some((1, 1)), None).await.unwrap()["split"].clone();
+    let split = w.app.spent_of(Some("web"), Some((1, 1)), None).await.unwrap()["split"].clone();
     assert_eq!(
         split["heavy_ran"],
         json!({ "ms": 5 * MIN, "by": { "hold": 2 * MIN, "exclusive": 3 * MIN } }),
@@ -168,7 +168,7 @@ async fn a_landing_still_open_is_neither_green_nor_red() {
     w.done(&wk, "a", "x").await;
     w.advance(2);
 
-    let landing = w.app.spent_of("web", Some((1, 1)), None).await.unwrap()["split"]["landing"].clone();
+    let landing = w.app.spent_of(Some("web"), Some((1, 1)), None).await.unwrap()["split"]["landing"].clone();
     assert_eq!(
         landing,
         json!({ "ms": 2 * MIN, "green": 0, "red": { "ms": 0, "by": {} }, "other": 2 * MIN }),

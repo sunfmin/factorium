@@ -603,8 +603,7 @@ impl Top {
             Top::Promote { checkout } => app.promote(&checkout).await,
             Top::Cut { checkout } => app.cut(&checkout).await,
             Top::Idle { checkout } => app.idle_now(&checkout).await,
-            Top::Spent { checkout: Some(checkout), numbers, since } => app.spent_of(&checkout, numbers, since).await,
-            Top::Spent { checkout: None, since, .. } => app.spent_all(since).await,
+            Top::Spent { checkout, numbers, since } => app.spent_of(checkout.as_deref(), numbers, since).await,
             Top::Unqueue { entry } => app.unqueue(entry).await,
             Top::Heavy(h) => match h {
                 HeavyCmd::Run { background, resources, command } => {

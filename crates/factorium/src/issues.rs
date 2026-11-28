@@ -626,26 +626,23 @@ impl App {
     /// `spent`: where the time of `checkout`'s issues went, those numbered
     /// within `numbers` (none: all of them), each attempt's from `since` on
     /// (none: from its start); an attempt that ended before `since` is left
-    /// out, and an issue with no attempt left.
-    pub async fn spent_of(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<Since>) -> Answer {
+    /// out, and an issue with no attempt left. With no checkout: each
+    /// checkout's `landings`, a row each with its `checkout`, the numbers its
+    /// own `spent` gives from `since`.
+    pub async fn spent_of(&self, checkout: Option<&str>, numbers: Option<(u64, u64)>, since: Option<Since>) -> Answer {
         let since = since.map(|s| s.at(self.now()));
+        let Some(checkout) = checkout else {
+            let mut rows = Vec::new();
+            for c in self.listed().await? {
+                let mut row = json!(self.spent_in(&c.name, None, since).await?.landings);
+                row["checkout"] = json!(c.name);
+                rows.push(row);
+            }
+            return Ok(json!({ "since": since, "checkouts": rows }));
+        };
         let mut answer = json!(self.spent_in(checkout, numbers, since).await?);
-        answer["checkout"] = json!(checkout);
-        answer["since"] = json!(since);
+        (answer["checkout"], answer["since"]) = (json!(checkout), json!(since));
         Ok(answer)
-    }
-
-    /// `spent` of no checkout: each checkout's `landings`, a row each with
-    /// its `checkout`, the numbers its own `spent` gives from `since`.
-    pub async fn spent_all(&self, since: Option<Since>) -> Answer {
-        let since = since.map(|s| s.at(self.now()));
-        let mut rows = Vec::new();
-        for c in self.listed().await? {
-            let mut row = json!(self.spent_in(&c.name, None, since).await?.landings);
-            row["checkout"] = json!(c.name);
-            rows.push(row);
-        }
-        Ok(json!({ "since": since, "checkouts": rows }))
     }
 
     async fn spent_in(&self, checkout: &str, numbers: Option<(u64, u64)>, since: Option<i64>) -> Answer<spent::Spent> {
