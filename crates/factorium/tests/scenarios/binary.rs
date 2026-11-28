@@ -171,6 +171,10 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert!(answer["error"]["message"].as_str().unwrap().contains("#2"), "{answer}");
     let (ok, answer) = run(&dir, &["issue", "add", "web", "x", "--blocked-by", "1", "--why", "a", "--why", "b"]);
     assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("why_twice")), "{answer}");
+    // A `--why` before every `--blocked-by` is the person's: refused without `--waiting-for-human`.
+    let lead = ["issue", "add", "web", "x", "--why", "a", "--blocked-by", "1", "--why", "b", "--blocked-by", "2"];
+    let (ok, answer) = run(&dir, &lead);
+    assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("why_unbound")), "{answer}");
     // One `--why` with one `--blocked-by`, before or after it, is the block's, and the person's too.
     let one = issue(&["add", "web", "x", "--why", "its schema", "--blocked-by", "1", "--waiting-for-human"]);
     assert_eq!(

@@ -675,11 +675,9 @@ fn numbers(s: &str) -> Result<(u64, u64), String> {
     Ok((from, to))
 }
 
-/// Each of `blocked_by` with its `--why`, the one after it (`after` says
-/// how many `--blocked-by` stand before each), and the person's, the one
-/// before them all, kept only `waiting_for_human`. One `--why` with one
-/// `--blocked-by` is both, wherever it stands. A block left without one is
-/// the domain's to refuse, by its name.
+/// Each of `blocked_by` with the `--why` after it (`after`: how many stand
+/// before each), and the person's, the one before them all. One `--why` with
+/// one `--blocked-by` is both. A block left without one is the domain's to refuse.
 fn waits(
     blocked_by: Vec<Blocker>,
     why: Vec<String>,
@@ -690,28 +688,17 @@ fn waits(
         let waits = blocked_by.into_iter().map(|by| Wait { by, why: Some(why.clone()) }).collect();
         return Ok((waits, waiting_for_human.then_some(why.clone())));
     }
-    let mut person = None;
-    let mut of_block = vec![None; blocked_by.len()];
+    let (mut person, mut of_block) = (None, vec![None; blocked_by.len()]);
     for (why, &k) in why.into_iter().zip(after) {
-        let slot = match k {
-            0 => &mut person,
-            k => &mut of_block[k - 1],
-        };
+        let slot = if k == 0 { &mut person } else { &mut of_block[k - 1] };
         if slot.replace(why).is_some() {
-            let whose = match k {
-                0 => "the person's wait, before any `--blocked-by`".to_string(),
-                k => format!("`--blocked-by` number {k}"),
-            };
-            return Err(Refusal::new("why_twice", format!("two `--why` for {whose}: give each wait one")));
+            return Err(Refusal::new("why_twice", "two `--why` for one wait: a block takes the one after it"));
         }
     }
     if person.is_some() && !waiting_for_human {
-        let why = "a `--why` before any `--blocked-by` is the person's, with `--waiting-for-human`; \
-                   a block's `--why` follows its `--blocked-by`";
-        return Err(Refusal::new("why_unbound", why));
+        return Err(Refusal::new("why_unbound", "a `--why` before any `--blocked-by` needs `--waiting-for-human`"));
     }
-    let waits = blocked_by.into_iter().zip(of_block).map(|(by, why)| Wait { by, why }).collect();
-    Ok((waits, person))
+    Ok((blocked_by.into_iter().zip(of_block).map(|(by, why)| Wait { by, why }).collect(), person))
 }
 
 /// The command `matches` holds, each `--why` placed among the
