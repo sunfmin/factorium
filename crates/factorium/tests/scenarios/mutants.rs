@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 
-use crate::fixture::{CLAUDE, World, id};
+use crate::fixture::{CLAUDE, World, bounded, id};
 
 /// slimfit.toml holding the record at the base.
 const HELD: &str = "[[suite]]\nname = \"rust\"\npreset = \"rust\"\n\n[check]\nmutants_target = \"origin/main\"\n";
@@ -89,6 +89,25 @@ async fn a_promotion_files_its_mutants_issue_waits_for_its_landing_then_promotes
     w.app.issue_add("web", "b", "", false, &[]).await.unwrap();
     w.tick().await;
     assert!(brief(&w, "web-3-1").contains(NO_MUTANTS), "{}", brief(&w, "web-3-1"));
+}
+
+/// slimfit's listing of a promotion's mutants takes most of a minute: it runs
+/// beside the ticks, and a later tick files the issue it owes.
+#[tokio::test]
+async fn a_promotion_lists_its_mutants_beside_the_ticks_and_a_later_tick_files_their_issue() {
+    let w = World::new();
+    held(&w).await;
+    let listed = |w: &World| w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--mutants")).count();
+    for _ in 0..10 {
+        let before = listed(&w);
+        let t = w.tick_alone().await;
+        if t.lines.iter().any(|l| l["mutants"].is_string()) {
+            assert_eq!((before, listed(&w)), (1, 1), "asked once, by a tick before the one that files");
+            return;
+        }
+        bounded("its line move ending", w.app.moves_ended()).await;
+    }
+    panic!("no tick filed the mutants issue");
 }
 
 #[tokio::test]

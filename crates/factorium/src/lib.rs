@@ -247,6 +247,11 @@ struct Memory {
     /// Each checkout's proving tip slimfit found owes no record of its mutants: a promotion
     /// waiting its turn does not ask again of the same tip.
     owes_none: std::collections::BTreeMap<String, String>,
+    /// Each checkout's promotion's mutants, as slimfit lists them beside the ticks.
+    listings: std::collections::BTreeMap<String, line::Listing>,
+    /// Each checkout whose fetch by the lines' pass failed, and why: its moves that read a tip
+    /// are refused so.
+    unfetched: std::collections::BTreeMap<String, String>,
     /// The sessions whose messages are typed beside the ticks (factorium#311).
     typing: Vec<session::Typing>,
     /// The upgrade of the daemon's own formula from the tap, running beside the ticks.

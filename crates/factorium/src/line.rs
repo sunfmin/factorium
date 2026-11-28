@@ -20,12 +20,16 @@
 //! its branch or the tip moves: one that does not merge is red then, not at its turn
 //! (factorium#307).
 mod cut;
+mod fetch;
 mod mutants;
 mod stack;
 
 pub(crate) use cut::Proving;
+pub(crate) use fetch::Fetched;
+pub(crate) use mutants::Listing;
 
 use factorium_domain::checkout::Checkout;
+use factorium_domain::daemon::{Step, Steps};
 use factorium_domain::declared::{Gating, Kind};
 use factorium_domain::doctor::Stuck;
 use factorium_domain::heavy::Ends;
@@ -62,6 +66,18 @@ pub(crate) fn stuck_base(c: &Checkout, git: &Git) -> Option<Stuck> {
         Lag::Even | Lag::Behind(_) => return None,
     };
     Some(Stuck { base: c.base.clone(), path: c.path.clone(), behind, ours, dirty })
+}
+
+/// A move that took this long, ms, or longer is named in the tick's `moves`: a slow tick names
+/// its cause.
+const MOVE_KEPT_MS: i64 = 100;
+
+/// The tick's pass over the lines ([`App::lines`]).
+pub(crate) struct Pass {
+    pub(crate) landed: Vec<Value>,
+    pub(crate) lines: Vec<Value>,
+    pub(crate) fetched: Vec<Fetched>,
+    pub(crate) moves: Vec<Step>,
 }
 
 /// What one move did, or why it did not run now.
@@ -125,34 +141,46 @@ enum Then {
 }
 
 impl App {
-    /// The tick's pass over the lines: each move that ran beside the ticks
+    /// The tick's pass over the lines: first the fetch of each checkout whose line has work, all
+    /// at once ([`fetch`]); then each move that ran beside the ticks
     /// and ended, finished; each checkout's landing stack, then each one's
     /// promotion and cut as its line says each is due, but none of a kind
     /// whose move of that checkout runs on ([`App::runs`]); then its local base following origin's
-    /// as last fetched, whatever left it behind. Answers what landed, and
-    /// what else moved.
-    pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<(Vec<Value>, Vec<Value>)> {
-        let (mut landed, mut lines) = (Vec::new(), Vec::new());
+    /// as last fetched, whatever left it behind. Answers what landed, what else moved, each
+    /// fetch, and each move that took [`MOVE_KEPT_MS`] or more.
+    pub(crate) async fn lines(&self, checkouts: &[Checkout]) -> Answer<Pass> {
+        let fetched = self.fetch_lines(checkouts).await?;
+        let listed = self.mutants_ended();
+        let (mut landed, mut lines, mut moves) = (Vec::new(), Vec::new(), Steps::at(self.now()));
         for (of, ended) in self.beside(|f| matches!(f, For::Line(_)), false, false).await? {
             let For::Line(moving) = of else { continue };
             let into = if matches!(moving.then, Then::Land { .. }) { &mut landed } else { &mut lines };
+            let what = format!("finishing the {} of {}", moving.kind().name(), moving.checkout);
             into.extend(self.moved(*moving, ended).await?.ok());
+            moves.ended(&what, self.now());
         }
         lines.extend(self.cuts_proven().await?);
+        moves.ended("proven cuts", self.now());
         for c in checkouts {
             landed.extend(self.landings(c).await?);
+            moves.ended(&format!("the landings of {}", c.name), self.now());
         }
         // Once proving moved: a landing not stacked that no longer merges onto the tip leaves the line.
         landed.extend(self.check_waiting(checkouts).await?);
+        moves.ended("the landings waiting their turn", self.now());
         for c in checkouts {
             for mv in [Move::Promote, Move::Cut] {
                 if !self.runs(c, mv) {
                     lines.extend(self.carry(c, mv, false).await?.ok());
                 }
+                let what = if mv == Move::Cut { "cut" } else { "promotion" };
+                moves.ended(&format!("the {what} of {}", c.name), self.now());
             }
             lines.extend(follow_base(c, &self.host.git(&c.path), &c.fetched_base()));
         }
-        Ok((landed, lines))
+        self.mutants_unread(&listed);
+        let moves = moves.all.into_iter().filter(|m| m.ms >= MOVE_KEPT_MS).collect();
+        Ok(Pass { landed, lines, fetched, moves })
     }
 
     /// Whether a promotion or a cut of `c`, `mv`, runs on: its steps beside the ticks, or for a
@@ -209,11 +237,15 @@ impl App {
             _ => None,
         };
         // An urgent issue's halt (docs/adr/0015-an-urgent-issue-halts-the-host.md) holds no line move: its gate waits in the queue as usual.
+        // By hand, a fetch of its own; the daemon's pass fetched before its moves.
+        if by_hand {
+            self.fetch_now(std::slice::from_ref(c));
+        }
         let (l, look) = self.line_look(c, by_hand).await?;
         let git = self.host.git(&c.path);
         // Past when it falls due, the move goes ahead of workers' waiting heavy entries.
         let bound_at = l.owed(mv, look.now, &look.bounds).map(|o| o.due_at);
-        match l.due(mv, &look, || git.fetch(&c.proving).map_err(fail("git")))? {
+        match l.due(mv, &look, || self.fetched(c, &git, &c.proving))? {
             // A failed cut whose steps hold now is made, without a new cut.
             Err(NotDue::CutFailed { version, why }) => match self.cut_read_back(c, &version).await? {
                 Some(did) => Ok(Ok(did)),
@@ -241,7 +273,7 @@ impl App {
                 continue;
             }
             let git = self.host.git(&c.path);
-            let tip = git.fetch(&c.proving).map_err(fail("git"))?;
+            let tip = self.fetched(c, &git, &c.proving)?;
             let records = self.declared(&git, &tip)?.gate.regenerated;
             for worker in waiting.map(|a| a.worker) {
                 let wk = self.state::<Workers>(worker).await?;
@@ -321,23 +353,17 @@ impl App {
             Ok(running) => running,
             Err(why) => return Ok(Err(why)),
         };
-        let base = git.fetch(&c.base).map_err(fail("git"))?;
+        let base = self.fetched(c, git, &c.base)?;
+        // Its mutants first, where slimfit holds them at the base; by hand, whatever they owe.
+        if !by_hand && let Some(did) = self.mutants_first(c, git, &tip).await? {
+            return Ok(did);
+        }
         let line = self.state::<Lines>(line_id(&c.name)).await?;
         let gating = match line.unpromoted.iter().find(|l| l.commit == tip) {
             Some(l) => Gating::SlowOnly { by: format!("{}#{}", c.name, l.number) },
             None => Gating::Full,
         };
-        let short = &tip[..tip.len().min(7)];
-        let about = format!(
-            "factorium's promotion of {}: its gate run on the proving tip {short}, the base {} moved to it once green.",
-            c.name, c.base
-        );
-        let here = self.work_dir(c, LineDir::Promotion, 0, &format!("{} {short}", c.name), &about, &tip)?;
-        // Its mutants first, where slimfit holds them at the base; by hand, whatever they owe.
-        if !by_hand && let Some(did) = self.mutants_first(c, &here, &tip).await? {
-            let _ = self.work_dir_done(LineDir::Promotion, &c.name, &here.dir);
-            return Ok(did);
-        }
+        let here = self.promotion_dir(c, &tip)?;
         let at = if by_hand {
             At::Commit { rev: &tip, bound_at }
         } else {
@@ -350,6 +376,17 @@ impl App {
         let did = self.promote_gated(c, by_hand, tip, base, &gating, gated).await;
         let _ = self.work_dir_done(LineDir::Promotion, &c.name, &here.dir);
         did
+    }
+
+    /// The work dir of the promotion of `c`'s proving `tip`: its mutants' listing runs there, then
+    /// its gate.
+    pub(super) fn promotion_dir(&self, c: &Checkout, tip: &str) -> Answer<Git> {
+        let short = &tip[..tip.len().min(7)];
+        let about = format!(
+            "factorium's promotion of {}: its gate run on the proving tip {short}, the base {} moved to it once green.",
+            c.name, c.base
+        );
+        self.work_dir(c, LineDir::Promotion, 0, &format!("{} {short}", c.name), &about, tip)
     }
 
     /// Promotes the proving `tip` of `c` over `base` as its gate, run as `gating`, says:
