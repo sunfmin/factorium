@@ -6,8 +6,6 @@
 //! another; a checkout whose fetch failed refuses each move that reads a tip, as that move's own
 //! fetch did.
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use factorium_domain::checkout::Checkout;
@@ -53,25 +51,20 @@ impl App {
     /// Fetches the base and proving of each of `checkouts`, [`AT_ONCE`] at a time; answers
     /// each, in their order, and keeps which failed for [`App::fetched`].
     pub(super) fn fetch_now(&self, checkouts: &[Checkout]) -> Vec<Fetched> {
-        let (host, next) = (&*self.host, AtomicUsize::new(0));
-        let each: Mutex<Vec<(usize, Fetched)>> = Mutex::default();
-        std::thread::scope(|s| {
-            for _ in 0..AT_ONCE.min(checkouts.len()) {
-                s.spawn(|| {
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(c) = checkouts.get(i) else { break };
-                        let start = Instant::now();
-                        let error = host.git(&c.path).fetch_all(&[&c.base, &c.proving]).err();
-                        let ms = start.elapsed().as_millis() as u64;
-                        each.lock().unwrap().push((i, Fetched { checkout: c.name.clone(), ms, error }));
-                    }
-                });
-            }
-        });
-        let mut each = each.into_inner().unwrap();
-        each.sort_by_key(|(i, _)| *i);
-        let fetched: Vec<Fetched> = each.into_iter().map(|(_, f)| f).collect();
+        let host = &*self.host;
+        let fetch = move |c: &Checkout| {
+            let start = Instant::now();
+            let error = host.git(&c.path).fetch_all(&[&c.base, &c.proving]).err();
+            Fetched { checkout: c.name.clone(), ms: start.elapsed().as_millis() as u64, error }
+        };
+        let fetched: Vec<Fetched> = (checkouts.chunks(AT_ONCE))
+            .flat_map(|at_once| {
+                std::thread::scope(|s| {
+                    let each: Vec<_> = at_once.iter().map(|c| s.spawn(move || fetch(c))).collect();
+                    each.into_iter().map(|f| f.join().expect("a fetch does not panic")).collect::<Vec<_>>()
+                })
+            })
+            .collect();
         self.memory.lock().unwrap().unfetched =
             fetched.iter().filter_map(|f| Some((f.checkout.clone(), f.error.clone()?))).collect();
         fetched

@@ -111,8 +111,7 @@ impl App {
         };
         if let Some(l) = ended {
             if l.tip == tip {
-                let said = l.said.await.unwrap_or_else(|e| Said { ok: false, out: String::new(), err: e.to_string() });
-                return Ok(Some((said, l.dir)));
+                return Ok(Some((l.said.await.unwrap_or_default(), l.dir)));
             }
             let _ = self.work_dir_done(LineDir::Promotion, &c.name, &l.dir);
         }

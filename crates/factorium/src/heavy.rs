@@ -474,10 +474,7 @@ impl App {
     /// proof its own.
     pub async fn moves_ended(&self) {
         self.ended_beside(|f| matches!(f, For::Line(_))).await;
-        self.cuts_proofs_ended().await;
-        while self.listing() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        self.cuts_proofs_ended().await
     }
 
     /// Whether a line move runs beside the ticks: its steps, a cut's proof, or a promotion's
@@ -487,11 +484,6 @@ impl App {
         let runs = !m.proving.is_empty() || !m.listings.is_empty();
         drop(m);
         runs || self.beside_runs(|f| matches!(f, For::Line(_)))
-    }
-
-    /// Whether a promotion's mutants are listed beside the ticks.
-    fn listing(&self) -> bool {
-        self.memory.lock().unwrap().listings.values().any(crate::line::Listing::runs)
     }
 
     async fn ended_beside(&self, pick: impl Fn(&For) -> bool) {
