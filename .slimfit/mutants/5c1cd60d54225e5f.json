@@ -1,0 +1,28 @@
+{
+  "tree": "cc741f543ce7df1ac52f0c3f4f552e500b2f4f49+e0da3cb47b1a9f32",
+  "picker": "codex:01a22001-82b7-7742-9e71-da37afa215fe:default",
+  "author": "claude-code:3cde8450-d4f5-5ecc-8769-c2170e4cd5f2:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/issues.rs:209:39: replace > with >= in App::brief",
+        "why": "A 300-character comment would incorrectly get cut: true, while the test exercises a 400-character comment.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/factorium/src/cli.rs:752:9: delete match arm Top::Worker(WorkerCmd::File{after, ..}) in parsed",
+        "why": "Worker filing would lose per-block reason placement, while the new multi-block CLI cases exercise issue add.",
+        "outcome": "killed",
+        "first_outcome": "survived"
+      },
+      {
+        "name": "crates/domain/src/fits.rs:55:66: replace && with || in scripts",
+        "why": "An option such as --config=./gate.sh could be read as a script if a matching file exists, while the scenarios use ordinary script arguments.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "added_lines": 284
+}
