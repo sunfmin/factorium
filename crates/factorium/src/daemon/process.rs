@@ -80,7 +80,9 @@ impl App {
         }
         let mut ticks = 0u64;
         self.note_ticked();
-        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+        let opened = self.db_file();
+        let mut gone = None;
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) && gone.is_none() {
             let ticked = self.tick().await;
             self.note_ticked();
             match &ticked {
@@ -99,14 +101,37 @@ impl App {
             // On the app's clock, in slices, so a stop between ticks ends the wait.
             let until = self.now() + every;
             while !stop.load(std::sync::atomic::Ordering::Relaxed) && self.now() < until {
+                gone = self.db_gone(opened);
+                if gone.is_some() {
+                    break;
+                }
                 self.clock.sleep(STOP_POLL).await;
             }
+        }
+        if let Some(why) = gone {
+            return Ok(json!({ "stopped": true, "ticks": ticks, "why": why }));
         }
         let _ = self.beside(|_| true, false, true).await;
         self.typing_ended().await;
         let _ = std::fs::remove_file(self.data().ticked());
         let _ = std::fs::remove_file(&pid);
         Ok(json!({ "stopped": true, "ticks": ticks }))
+    }
+
+    /// The file the database is, as the file system knows it (device and
+    /// inode), if it is there.
+    fn db_file(&self) -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(&self.db).ok().map(|m| (m.dev(), m.ino()))
+    }
+
+    /// Why the daemon ends by itself, if it must: the database it opened as
+    /// `opened` ([`Self::db_file`]) is no longer at its path, its data
+    /// directory deleted (a test's, with nothing left to end its daemon). It
+    /// would work on a store no one reads; a tick in progress may make the
+    /// directory again, never that file.
+    fn db_gone(&self, opened: Option<(u64, u64)>) -> Option<String> {
+        (self.db_file() != opened).then(|| format!("its database {} is gone", self.db.display()))
     }
 
     /// The daemon is alive and ticking, now: what [`Self::daemon_down`]
