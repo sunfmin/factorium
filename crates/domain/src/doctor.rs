@@ -16,6 +16,7 @@ use crate::watch::Found;
 
 /// What doctor reads.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Seen {
     /// Workers that wait for the watch.
     pub waiting: Vec<WaitingSeen>,
@@ -32,38 +33,30 @@ pub struct Seen {
     /// The owner's part of the watch's reports not yet seen.
     pub human: Vec<String>,
     /// The daemon: what it could not find at start, its failing ticks.
-    #[serde(default)]
     pub daemon: Daemon,
     /// Orca terminals titled as factorium's that no live worker or the
     /// watch holds.
     pub orphans: Vec<Terminal>,
     /// Terminals factorium closed that Orca refused to close or lists
     /// still.
-    #[serde(default)]
     pub unclosed: Vec<Unclosed>,
     /// Workers' worktrees that no open issue's attempt owns.
-    #[serde(default)]
     pub orphaned: Vec<Orphaned>,
     /// The line's work dirs whose job is gone, kept as they hold commits
     /// found nowhere else.
-    #[serde(default)]
     pub kept_dirs: Vec<KeptDir>,
     /// Ready issues no worker holds, of listed checkouts, oldest first.
-    #[serde(default)]
     pub ready: Vec<ReadySeen>,
     /// Admission's reading, as the tick reads it.
-    #[serde(default)]
     pub reading: Reading,
     /// Why stablehand, the accounts' one home, cannot be asked which account
     /// a session starts on, if it cannot: no worker starts then.
     pub stablehand: Option<StablehandSeen>,
     /// The kit's commands stablehand refused when they moved to it
     /// (factorium#306), of the engines it keeps no command for yet.
-    #[serde(default)]
     pub unmoved: Vec<(String, crate::kit::Refused)>,
     /// The running entries holding a named resource whose holder is gone,
     /// and why: a command's waiter died, or its worker ended.
-    #[serde(default)]
     pub holders_gone: Vec<(factum_core::Uuid, String)>,
 }
 
@@ -206,6 +199,7 @@ pub struct Unclosed {
 
 /// A checkout's proving line as doctor reads it.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LineSeen {
     pub checkout: String,
     pub line: Line,
@@ -214,16 +208,13 @@ pub struct LineSeen {
     /// Its local base, where it cannot follow origin's.
     pub stuck: Option<Stuck>,
     /// Its idle work's last run.
-    #[serde(default)]
     pub idle: Idle,
     /// Its idle work is off on this host: a red last run is no finding.
-    #[serde(default)]
     pub idle_off: bool,
     /// The mutants issue its promotion waits for, while it is open: its
     /// number, and when the wait ends (ms), `mutants_bound` after its filing.
     pub mutants: Option<(u64, i64)>,
     /// The fits configured at its base's root, and whether its gate runs each.
-    #[serde(default)]
     pub fits: Vec<Fitted>,
 }
 

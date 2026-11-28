@@ -16,6 +16,7 @@ pub fn watch_id() -> factum_core::Uuid {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Episode {
     pub what: String,
     pub fix: String,
@@ -24,10 +25,8 @@ pub struct Episode {
     pub round: Option<u64>,
     /// What was said about it since it opened: comments on a waiting
     /// worker's issue.
-    #[serde(default)]
     pub heard: Vec<String>,
     /// How many rounds it started.
-    #[serde(default)]
     pub rounds: u32,
     /// How its last round ended, if one did.
     pub ended: Option<RoundEnd>,
@@ -80,6 +79,7 @@ pub struct Report {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Watch {
     pub terminal: Option<String>,
     pub harness: Option<String>,
@@ -100,15 +100,12 @@ pub struct Watch {
     /// The report whose owner's part the owner has seen.
     pub seen: u64,
     /// Until when (ms) the owner has read the Decided records (`decided --read`).
-    #[serde(default)]
     pub decided_read: i64,
     /// The terminals its sessions were started in, the latest `KEPT`: the
     /// only watch terminals this database's factorium calls its own.
-    #[serde(default)]
     pub opened: Vec<String>,
     /// Terminals of its sessions whose close failed, with why: Orca
     /// refused, or lists them still.
-    #[serde(default)]
     pub unclosed: Vec<(String, String)>,
 }
 

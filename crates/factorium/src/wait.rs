@@ -1,8 +1,7 @@
 //! `issue wait`: looks at the issues it names on the host's clock until each
 //! has ended as it waits for, or its timeout.
 
-use factorium_domain::issue::Issue;
-use factorium_domain::wait::{Outcome, Until, ended};
+use factorium_domain::issue::{Issue, Outcome, Until};
 use serde_json::json;
 
 use crate::{Answer, App};
@@ -25,7 +24,7 @@ impl App {
             }
             let now = self.now();
             let timed_out = deadline.is_some_and(|d| now >= d);
-            if timed_out || issues.iter().all(|i| ended(i, until).is_some()) {
+            if timed_out || issues.iter().all(|i| i.ended(until).is_some()) {
                 return Ok(answer(&issues, until));
             }
             let left = deadline.map_or(LOOK, |d| (d - now).min(LOOK));
@@ -36,7 +35,7 @@ impl App {
 
 /// What the waiter answers of `issues`: one not ended as `until` says timed out.
 fn answer(issues: &[Issue], until: Until) -> serde_json::Value {
-    let outcome = |i: &Issue| ended(i, until).unwrap_or(Outcome::Timeout);
+    let outcome = |i: &Issue| i.ended(until).unwrap_or(Outcome::Timeout);
     let worst = issues.iter().map(outcome).max().unwrap_or(Outcome::Landed);
     json!({
         "outcome": worst,

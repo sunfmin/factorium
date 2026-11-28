@@ -53,6 +53,7 @@ impl Doing {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Issue {
     pub checkout: String,
     pub number: u64,
@@ -74,7 +75,6 @@ pub struct Issue {
     /// The one record of what was said about it, oldest first.
     pub comments: Vec<Note>,
     /// The numbers of the Decided records its body holds (ADR 0024).
-    #[serde(default)]
     pub decided: Vec<Mark>,
     /// The task it was filed for, by idle work (§1.16).
     pub task: Option<Task>,
@@ -82,7 +82,6 @@ pub struct Issue {
     /// decided: none, the kit's and the host's choice.
     pub on: On,
     /// The owner's urgent mark ([`urgent_first`]): kept after it closes, as a record.
-    #[serde(default)]
     pub urgent: bool,
 }
 
@@ -265,6 +264,37 @@ pub fn landed_as(commit: &str) -> String {
     format!("{LANDED_AS}{commit}")
 }
 
+/// What `issue wait` waits for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Until {
+    /// The issue lands, closes, or waits for a person.
+    #[default]
+    Any,
+    /// The issue closes, landed or not: a wait for a person is waited past.
+    /// A closed issue never opens again, so this is also "until it lands".
+    Closed,
+}
+
+/// Where an issue leaves its waiter, the better first: a wait on several
+/// issues answers the last of theirs. Each one's exit code is its
+/// discriminant: 1 is a refusal's and 2 a command line's clap refused, so
+/// the others start at 3.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Landed = 0,
+    Closed = 3,
+    WaitingForHuman = 4,
+    Timeout = 5,
+}
+
+impl Outcome {
+    /// The waiter's exit code.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+}
+
 impl Issue {
     pub fn opened(&self) -> bool {
         self.number > 0
@@ -273,6 +303,16 @@ impl Issue {
     /// The commit it landed as, if it closed so.
     pub fn landed_as(&self) -> Option<&str> {
         self.reason.as_deref().filter(|_| self.status == Status::Closed)?.strip_prefix(LANDED_AS)
+    }
+
+    /// Where it leaves a waiter waiting `until` (`issue wait`): none while it waits on.
+    pub fn ended(&self, until: Until) -> Option<Outcome> {
+        match (self.status, until) {
+            (Status::Closed, _) if self.landed_as().is_some() => Some(Outcome::Landed),
+            (Status::Closed, _) => Some(Outcome::Closed),
+            (Status::WaitingForHuman, Until::Any) => Some(Outcome::WaitingForHuman),
+            _ => None,
+        }
     }
 
     /// Why a worker on it ends, once it holds none to work: it waits for a
@@ -558,30 +598,25 @@ pub struct Ref {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Open {
     pub checkout: String,
     pub number: u64,
     pub title: String,
-    #[serde(default)]
     pub body: String,
-    #[serde(default)]
     pub waiting_for_human: bool,
     /// Why it waits for a person from the start; read only with `waiting_for_human`.
     pub why: Option<String>,
     /// What it waits for from the start, each with why: issues, of its
     /// checkout or others, and a time.
-    #[serde(default)]
     pub blocked_by: Vec<Wait>,
     /// The task it is filed for, by idle work.
     pub task: Option<Task>,
     /// The role and account its worker is to start with.
-    #[serde(default)]
     pub on: On,
     /// The numbers for the Decided records its body holds, in order.
-    #[serde(default)]
     pub decided: Vec<u64>,
     /// The owner's urgent mark, from the start (`issue add --urgent`).
-    #[serde(default)]
     pub urgent: bool,
 }
 

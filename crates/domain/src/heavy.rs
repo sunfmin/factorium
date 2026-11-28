@@ -135,22 +135,19 @@ pub enum Rule {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Queue {
     pub entries: Vec<Entry>,
     /// When the last one asking for [`HOST`] started: one start per reading.
     pub last_start: i64,
     /// The rules of the daemon that runs: older ones may not start.
-    #[serde(default)]
     pub rules: String,
     /// The places of entries that left unstarted, kept for their askers.
-    #[serde(default)]
     pub left: Vec<Left>,
     /// The slots of each named resource, as the host's settings declared it
     /// when an entry last asked for it.
-    #[serde(default)]
     pub slots: BTreeMap<String, u64>,
     /// The named resources given back because their holder died or its worker ended.
-    #[serde(default)]
     pub given_back: Vec<GivenBack>,
     /// The urgent issues that halt it (`web#3`), as the tick last found
     /// them ([`crate::issue::halts`]): while any does, a worker's or a
@@ -159,10 +156,10 @@ pub struct Queue {
     /// is passed over for it: the line puts the urgent first. A line
     /// move's is never cut short: it delivers work already done, and its
     /// gate is short.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub halt: Vec<String>,
     /// The live workers of those issues: their entries are urgent however they were queued.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub halt_for: Vec<Uuid>,
 }
 
@@ -513,6 +510,7 @@ impl Queue {
 /// When a start's reading was taken and how the line is ordered: what
 /// [`Queue::may_start`] reads besides the queue.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Reading {
     /// When the host's reading was taken, ms: before the host was read.
     pub read_at: i64,
@@ -520,14 +518,11 @@ pub struct Reading {
     pub settle: i64,
     /// How long after the last start a reading well under the busy limit
     /// shows it, ms.
-    #[serde(default)]
     pub settle_idle: i64,
     /// Whether the reading was well under the busy limit
     /// ([`crate::admission::idle`]).
-    #[serde(default)]
     pub idle: bool,
     /// How the line is ordered: none, the oldest first.
-    #[serde(default)]
     pub order: queue::Order,
 }
 
@@ -705,6 +700,7 @@ impl Aggregate for Heavy {
 /// What an entry asks of the queue: as its asker queues it, and as the
 /// queue records it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Ask {
     pub id: Uuid,
     pub what: String,
@@ -713,7 +709,6 @@ pub struct Ask {
     pub worker: Option<Uuid>,
     /// Queued by a program of the owner's that is not a worker (`heavy
     /// run`): it yields to a line move past its bound as a worker's does.
-    #[serde(default)]
     pub program: bool,
     /// When the line move it is for falls due however busy its checkout is
     /// (a hold bound before its bound), ms: past then, it goes ahead of
@@ -723,15 +718,13 @@ pub struct Ask {
     /// again under other rules (a binary that execed in its place), it
     /// keeps its place, and takes these; waiting under rules older than the
     /// queue's, it is passed over.
-    #[serde(default)]
     pub rules: String,
     /// The resources it asks for, granted all at once: none named is
     /// [`HOST`] alone, as every entry before resources asked.
-    #[serde(default)]
     pub resources: Vec<String>,
     /// The slots of each named one, as the host's settings declare them:
     /// the queue keeps them, not the entry.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, u64>,
     /// How long a worker's hold across commands (`worker hold`) declared
     /// it holds, ms: an entry with one is a hold, which once granted
@@ -743,13 +736,13 @@ pub struct Ask {
     /// The worker whose landing this gate is: a line's fast gate, which is
     /// no worker's entry (it holds no worker's silence clock), names the
     /// worker it lands so its record finds it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lands: Option<Uuid>,
     /// The issue of its worker, or of the landing it gates, is marked
     /// urgent: it goes ahead of workers' and programs' waiting entries that
     /// are not, behind a line move past its bound. Asked again, it takes
     /// the issue's mark as it is then.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub urgent: bool,
 }
 

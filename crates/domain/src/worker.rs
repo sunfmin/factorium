@@ -83,6 +83,7 @@ impl RoleRead {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Worker {
     pub started: Option<Started>,
     pub status: Status,
@@ -93,7 +94,6 @@ pub struct Worker {
     pub red_tip: Option<String>,
     /// Reds in a row that did not count: each did not merge onto a proving
     /// tip that moved since the one before, which its branch holds.
-    #[serde(default)]
     pub moved_reds: u32,
     /// Why it waits, or why it ended.
     pub why: Option<String>,
@@ -108,7 +108,6 @@ pub struct Worker {
     pub quiet: Option<(u64, i64)>,
     /// Something holds its silence clock: a heavy entry of its own in
     /// flight, or its issue blocked.
-    #[serde(default)]
     pub heavy: bool,
     /// When what last held its silence clock let go, in ms: its silence
     /// counts from no earlier.
@@ -117,7 +116,6 @@ pub struct Worker {
     /// waits for, and once it is idle (waiting, in a wait it declared, or
     /// at its prompt, its turn ended) it goes back to work as soon as all of that is met; or, waiting, its
     /// engine is at its limit, and it goes back at the reset.
-    #[serde(default)]
     pub parked: bool,
     /// The tokens its session spent, as its session files said once it
     /// ended; `None`: not recorded (its harness's files do not say, or it
