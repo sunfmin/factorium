@@ -81,5 +81,6 @@ mod tracker;
 mod unqueue;
 mod upgrade;
 mod urgent;
+mod wait;
 mod watch;
 mod work_dirs;
