@@ -111,19 +111,13 @@ fn every() -> u64 {
 
 /// Reads a `factorium.toml`; a repo without one declares the defaults.
 pub fn read(text: Option<&str>) -> Result<Declared, String> {
-    match text {
-        None => Ok(Declared::default()),
-        Some(t) => {
-            let d: Declared = toml::from_str(t).map_err(|e| format!("{FILE}: {e}"))?;
-            let fits = crate::fits::FITS.map(|f| f.name);
-            match d.gate.left_out.keys().find(|k| !fits.contains(&k.as_str())) {
-                Some(k) => {
-                    Err(format!("{FILE}: [gate.left_out] names `{k}`, not a fit: name one of {}", fits.join(", ")))
-                }
-                None => Ok(d),
-            }
-        }
+    let Some(t) = text else { return Ok(Declared::default()) };
+    let d: Declared = toml::from_str(t).map_err(|e| format!("{FILE}: {e}"))?;
+    let fits = crate::fits::FITS.map(|f| f.name);
+    if let Some(k) = d.gate.left_out.keys().find(|k| !fits.contains(&k.as_str())) {
+        return Err(format!("{FILE}: [gate.left_out] names `{k}`, not a fit: name one of {}", fits.join(", ")));
     }
+    Ok(d)
 }
 
 /// Which gate.

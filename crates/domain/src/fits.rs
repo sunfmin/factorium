@@ -49,11 +49,10 @@ pub enum State {
 
 /// The files a gate command executes: each of its words that names a path
 /// (holds a `/` or a `.`), without a leading `./` or quotes.
-fn scripts(command: &str) -> Vec<String> {
+fn scripts(command: &str) -> impl Iterator<Item = &str> {
     let words = command.split(|c: char| c.is_whitespace() || ";&|(){}".contains(c));
-    let path = |w: &str| w.trim_matches(|c| c == '"' || c == '\'').trim_start_matches("./").to_string();
-    let named = |w: &String| !w.is_empty() && !w.starts_with(['-', '$']) && w.contains(['/', '.']);
-    words.map(path).filter(named).collect()
+    let paths = words.map(|w| w.trim_matches(['"', '\'']).trim_start_matches("./"));
+    paths.filter(|w| !w.is_empty() && !w.starts_with(['-', '$']) && w.contains(['/', '.']))
 }
 
 /// Whether `text` calls `call` on a line that is not a shell comment.
@@ -66,22 +65,23 @@ fn calls(text: &str, call: &str) -> bool {
 /// they execute, one level (`read` answers a file of the repo by its path).
 pub fn of(declared: &Declared, read: impl Fn(&str) -> Option<String>) -> Vec<Fitted> {
     let gate = &declared.gate;
-    let commands: Vec<&String> = std::iter::once(&gate.fast).chain(gate.slow.as_ref()).collect();
-    let mut texts: Vec<(String, String)> = Vec::new();
-    for command in &commands {
-        texts.push((GATE.into(), command.to_string()));
-        texts.extend(scripts(command).into_iter().filter_map(|s| Some((s.clone(), read(&s)?))));
+    let (mut texts, mut add_to) = (Vec::new(), None);
+    for (fast, command) in std::iter::once((true, &gate.fast)).chain(gate.slow.iter().map(|s| (false, s))) {
+        texts.push((GATE, command.clone()));
+        for (script, text) in scripts(command).filter_map(|s| Some((s, read(s)?))) {
+            add_to = add_to.or(fast.then_some(script));
+            texts.push((script, text));
+        }
     }
-    let add_to = scripts(&gate.fast).into_iter().find(|s| texts.iter().any(|(f, _)| f == s));
-    let add_to = add_to.unwrap_or_else(|| GATE.into());
+    let add_to = add_to.unwrap_or(GATE);
     let configured = FITS.iter().filter(|f| read(f.config).is_some());
     configured
         .map(|f| {
             let found = texts.iter().find(|(_, t)| calls(t, f.call));
             let state = match (found, gate.left_out.get(f.name)) {
-                (Some((file, _)), _) => State::Run { r#in: file.clone() },
+                (Some((file, _)), _) => State::Run { r#in: file.to_string() },
                 (None, Some(why)) => State::LeftOut { why: why.clone() },
-                (None, None) => State::Unrun { add_to: add_to.clone() },
+                (None, None) => State::Unrun { add_to: add_to.into() },
             };
             Fitted { fit: f.name.into(), config: f.config.into(), call: f.call.into(), state }
         })
