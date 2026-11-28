@@ -1,10 +1,24 @@
 {
-  "commit": "5aa1f67f1d2aab8800ddd61a918a5ae2f29977e9",
-  "date": "2026-11-27",
-  "inputs": "6bd20780473913fb0dbfe3fbba958e5d2f32b602b13c71c167a9795f180d70e0",
+  "commit": "1a402d5e5f7edcfa4876e922d4cef88297b99443",
+  "date": "2026-11-28",
+  "inputs": "5e76eb88b661be6a4b1a332c7ec2a50a5366d5652800c3246cff8fab2255b363",
   "result": "passes",
   "traces": {
-    "accept": [],
-    "reject": []
+    "accept": [
+      {
+        "breaks": null,
+        "file": ".truefit/traces/heavy-urgent/accept/marked-goes-ahead.jsonl",
+        "result": "allowed",
+        "step": null
+      }
+    ],
+    "reject": [
+      {
+        "breaks": "UrgentAhead",
+        "file": ".truefit/traces/heavy-urgent/reject/older-before-urgent.jsonl",
+        "result": "disallowed",
+        "step": 3
+      }
+    ]
   }
 }
