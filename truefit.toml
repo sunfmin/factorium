@@ -573,9 +573,9 @@ name = "heavy-starts"
 spec = "models/HeavyQueue.tla"
 config = "models/HeavyStarts.cfg"
 limit = 120
-commit = "d9d22cfeff3a36c5d2d7c38f78e897012379cc33"
+commit = "73f7e8991af8bdb6964d8d235ec8d9ce75a81b56"
 covers = [
-  { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy)" },
+  { action = "Arrives", file = "crates/factorium/src/heavy.rs", function = "App::take_turn (EnqueueHeavy), Job::gate" },
   { action = "Arrives", file = "crates/domain/src/heavy.rs", function = "EnqueueHeavy" },
   { action = "Ask", file = "crates/factorium/src/heavy.rs", function = "App::heavy, App::take_turn (StartHeavy), App::as_installed" },
   { action = "Ask", file = "crates/domain/src/heavy.rs", function = "StartHeavy, older, Queue::may_start, Queue::queue_of, Queue::passed_over" },
