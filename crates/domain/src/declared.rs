@@ -10,6 +10,7 @@
 //! slow = "./slow.sh"      # what the fast gate lacks, on the proving tip before a promotion
 //! slow_limit = 3600
 //! regenerated = [".truefit/models/*.json"]  # records the gate rewrites (git globs)
+//! resources = ["web-mac"]  # host resources each gate holds besides `host` (`settings --resource`)
 //!
 //! [gate.left_out]         # a fit configured at the root that the gate leaves out, and why
 //! truefit = "no real system to tie to yet"
@@ -61,12 +62,19 @@ pub struct Gate {
     /// that the gate leaves out on purpose, by name, with why: doctor finds
     /// no fault in its absence, and `checkout show` shows why.
     pub left_out: BTreeMap<String, String>,
+    /// The named resources of the host's settings (`settings --resource`)
+    /// each of its gates holds besides `host`, all at once: a device one run
+    /// may use at a time. A gate waits for them in the heavy queue, and its
+    /// limit starts only once it holds them, so gates of one checkout that
+    /// run at once (stacked landings) take the device in turn.
+    pub resources: Vec<String>,
 }
 
 impl Default for Gate {
     fn default() -> Gate {
-        let (regenerated, left_out) = (Vec::new(), BTreeMap::new());
-        Gate { fast: "true".into(), fast_limit: 600, slow: None, slow_limit: slow_limit(), regenerated, left_out }
+        let (regenerated, left_out, resources) = (Vec::new(), BTreeMap::new(), Vec::new());
+        let slow_limit = slow_limit();
+        Gate { fast: "true".into(), fast_limit: 600, slow: None, slow_limit, regenerated, left_out, resources }
     }
 }
 
@@ -159,6 +167,13 @@ impl Gating {
 }
 
 impl Gate {
+    /// What each of its gates asks the heavy queue for, all at once: `host`
+    /// and its `resources`; none named is `host` alone.
+    pub fn holds(&self) -> Vec<String> {
+        let host = (!self.resources.is_empty()).then(|| crate::heavy::HOST.to_string());
+        host.into_iter().chain(self.resources.iter().cloned()).collect()
+    }
+
     /// The command and limit `gating` runs. The slow steps are what `slow`
     /// holds the fast gate lacks: none when it is absent or `fast`'s command,
     /// and then the slow steps alone are nothing: `None`. A promotion's

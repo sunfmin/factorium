@@ -5,7 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use std::time::{Duration, Instant};
+
+use factorium_domain::settings::Resource;
+use serde_json::{Value, json};
 
 use crate::fixture::{LOOK, STUCK, World};
 
@@ -14,6 +17,11 @@ use crate::fixture::{LOOK, STUCK, World};
 /// and, on a tree of `k` such files (the `k`th of a stack), holds while [`hold`] holds it. A worker for each of `extra`, #1 up, each commits `f<n>` (and `extra[n-1]`, if any)
 /// and is done. Answers the log.
 async fn all_done(w: &World, dir: &Path, extra: &[Option<&str>]) -> PathBuf {
+    all_done_with(w, dir, extra, "").await
+}
+
+/// [`all_done`], `more` added to its `[gate]`.
+async fn all_done_with(w: &World, dir: &Path, extra: &[Option<&str>], more: &str) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let (log, d) = (dir.join("log"), dir.display());
     let log = log.display();
@@ -26,7 +34,7 @@ async fn all_done(w: &World, dir: &Path, extra: &[Option<&str>]) -> PathBuf {
     w.checkout("web").await;
     w.kit().await;
     w.app.settings_set(Some("silent_bound"), Some(1_000_000)).await.unwrap();
-    w.push_by_hand("web", "proving", "factorium.toml", &format!("[gate]\nfast = \"{gate}\"\n"));
+    w.push_by_hand("web", "proving", "factorium.toml", &format!("[gate]\nfast = \"{gate}\"\n{more}"));
     for n in 1..=extra.len() {
         w.app.issue_add("web", &format!("t{n}"), "", false, &[]).await.unwrap();
     }
@@ -244,4 +252,41 @@ async fn a_host_with_room_for_one_gate_runs_one_stacked_gate_at_a_time_and_lands
         assert!(pair[0].starts_with("start") && pair[1].starts_with("end"), "one at a time: {lines:?}");
     }
     assert_eq!(w.remote_tip("web", "proving"), landed[2]["commit"].as_str().unwrap());
+}
+
+#[tokio::test]
+async fn stacked_gates_holding_a_one_slot_resource_run_in_turn_and_the_wait_is_not_their_limit() {
+    let w = World::new();
+    w.app.resource_declare("MAC", Some(Resource { slots: 1, note: None }), false).await.unwrap();
+    let dir = w.dir.join("gates");
+    hold(&dir, 1, true);
+    let limit = Duration::from_secs(3);
+    let more = format!("fast_limit = {}\nresources = [\"MAC\"]\n", limit.as_secs());
+    let log = all_done_with(&w, &dir, &[None, None], &more).await;
+    until_started(&w, &log, 1).await;
+    // #2 stacked on #1, its gate asked: it waits for MAC, which #1's gate holds.
+    let waits = tokio::time::timeout(STUCK, async {
+        loop {
+            w.advance(1);
+            w.tick_alone().await;
+            let doctor = w.doctor().await;
+            let waiting = doctor["heavy"].as_array().unwrap().iter().find(|e| e["waits_for"] == "MAC").cloned();
+            if let Some(e) = waiting {
+                return (Instant::now(), e, doctor);
+            }
+            tokio::time::sleep(LOOK).await;
+        }
+    });
+    let (since, entry, doctor) = waits.await.expect("#2's gate waits for MAC");
+    assert_eq!((entry["started_at"].clone(), entry["resources"].clone()), (Value::Null, json!(["host", "MAC"])));
+    let gates: Vec<_> = doctor["landing"].as_array().unwrap().iter().map(|l| l["stack"]["gate"].clone()).collect();
+    assert_eq!(gates, [json!("its gate runs"), json!("its gate waits for MAC")], "{doctor}");
+    assert_eq!(logged(&log), ["start f1 "], "the second has not started");
+    hold(&dir, 1, false);
+    tokio::time::timeout(STUCK, w.app.moves_ended()).await.expect("#1's gate ends");
+    // #2's gate has waited longer than its limit before it may start.
+    tokio::time::sleep((since + limit + Duration::from_millis(500)).saturating_duration_since(Instant::now())).await;
+    let landed: Vec<Value> = ticks_until(&w, 2).await.concat();
+    assert_eq!(issues(&landed), ["web#1", "web#2"], "neither ended by its limit");
+    assert_eq!(logged(&log), ["start f1 ", "end f1 ", "start f1 f2 ", "end f1 f2 "], "one after the other");
 }

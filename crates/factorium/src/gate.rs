@@ -65,11 +65,19 @@ impl App {
         if !dirty && self.state::<Gates>(record_id(checkout, &tree, kind)).await?.green {
             return Ok(Some(Gated { green: true, tree, recorded: true, ran: None, kept: String::new() }));
         }
-        let Some((cmd, limit)) = self.declared(here, rev)?.gate.of(&gating) else {
+        let gate = self.declared(here, rev)?.gate;
+        let Some((cmd, limit)) = gate.of(&gating) else {
             return Ok(Some(Gated { green: true, tree, recorded: false, ran: None, kept: String::new() }));
         };
+        let holds = gate.holds();
+        // A resource the host does not declare: red, the fix named, before it is queued.
+        if let Err(m) = self.settings().await?.slots(&holds) {
+            let tail = format!("factorium.toml's [gate] resources: {m}");
+            let ran = Ran { ok: false, code: None, said: tail.clone(), tail, took_ms: 0, timed_out: false };
+            return Ok(Some(Gated { green: false, tree, recorded: false, ran: Some(ran), kept: String::new() }));
+        }
         let steps = [cmd];
-        let job = |what| Job::gate(what, &here.dir, &steps, limit);
+        let job = |what| Job::gate(what, &here.dir, &steps, limit, holds.clone());
         let (job, turn) = match at {
             At::Commit { bound_at, .. } => {
                 (job(heavy::LineJob::Gate(kind).of(checkout)).of(None, bound_at), Turn::Wait)

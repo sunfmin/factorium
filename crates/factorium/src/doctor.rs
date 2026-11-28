@@ -23,11 +23,12 @@ impl App {
         let layer = &stack.layers[at];
         let entry = queue.entries.iter().find(|e| e.ask.lands == Some(layer.worker));
         let gate = match (&layer.green, &layer.red, entry) {
-            (Some(_), _, _) if at == 0 => "green",
-            (Some(_), _, _) => "green, waits for the gates below it",
-            (_, Some(_), _) => "red, told once the gates below it are green",
-            (None, None, Some(e)) if e.started_at.is_some() => "its gate runs",
-            (None, None, _) => "its gate waits its turn in the heavy queue",
+            (Some(_), _, _) if at == 0 => "green".to_string(),
+            (Some(_), _, _) => "green, waits for the gates below it".into(),
+            (_, Some(_), _) => "red, told once the gates below it are green".into(),
+            (None, None, Some(e)) if e.started_at.is_some() => "its gate runs".into(),
+            (None, None, Some(e)) if let Some(r) = queue.full_for(e) => format!("its gate waits for {r}"),
+            (None, None, _) => "its gate waits its turn in the heavy queue".into(),
         };
         Ok(json!({ "depth": at + 1, "on": layer.on, "merge": layer.merged, "gate": gate }))
     }
@@ -283,7 +284,12 @@ impl App {
             .map(|l| json!({ "checkout": l.checkout, "tip": l.line.promoted, "gated": l.line.gated }))
             .collect();
         let mut view = json!({
-            "heavy": seen.queue.entries,
+            // Each entry, and the resource it waits for whose slots are all held, if one is.
+            "heavy": seen.queue.entries.iter().map(|e| {
+                let mut v = json!(e);
+                v["waits_for"] = json!(seen.queue.full_for(e));
+                v
+            }).collect::<Vec<_>>(),
             // Each resource a heavy entry holds or waits for: its holder (since, until it
             // declared) and those waiting for it, in the order they start: each one's declared hold, its
             // window, and why it is not next.
