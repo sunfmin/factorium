@@ -136,9 +136,18 @@ impl App {
     }
 
     /// The issues of a checkout, or of every checkout; open ones unless
-    /// `closed` says to list the closed ones too.
+    /// `closed` says to list the closed ones too. Each answers `waits`, what
+    /// it waits for not yet met, and its live `worker`, so one call says
+    /// what every checkout is doing and waiting on.
     pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
-        Ok(shown(&self.rows(tracker::issues(checkout, closed)).await?))
+        let rows = self.rows(tracker::issues(checkout, closed)).await?;
+        let mut listed = shown(&rows);
+        for (shown, r) in listed.as_array_mut().into_iter().flatten().zip(&rows) {
+            let waits = self.blockers(&self.issue(&r.checkout, r.number).await?).await?;
+            let unmet = waits.into_iter().filter(|w| w.met.is_none());
+            shown["waits"] = json!(unmet.map(|w| json!({ "on": w.on, "why": w.why })).collect::<Vec<_>>());
+        }
+        Ok(listed)
     }
 
     pub(crate) async fn issue(&self, checkout: &str, number: u64) -> Answer<Issue> {

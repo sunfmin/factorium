@@ -240,7 +240,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all.
+    /// Answers the open issues (with `--closed`, the closed too), of one checkout or, with none named, of every checkout, by checkout then number: what every checkout is doing and waiting on, in one call. Each row answers its `status`, its live `worker` (null: none), `waits`, each thing it waits for not yet met, with `on` and `why` (met ones are left out; `[]`: none; `issue show` answers them all), and its `title`.
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
