@@ -161,6 +161,26 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
         let (ok, answer) = run(&dir, bare);
         assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("no_why")), "{bare:?}: {answer}");
     }
+    // Each `--why` is its `--blocked-by`'s, the one before it; one left without is named.
+    let two = ["add", "web", "x", "--blocked-by", "1", "--why", "its schema", "--blocked-by", "2", "--why", "its API"];
+    let both = issue(&two);
+    let whys: Vec<_> = both["waits"].as_array().unwrap().iter().map(|w| w["why"].clone()).collect();
+    assert_eq!(whys, [json!("its schema"), json!("its API")], "{both}");
+    let (ok, answer) = run(&dir, &["issue", "add", "web", "x", "--blocked-by", "1", "--why", "a", "--blocked-by", "2"]);
+    assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("no_why")), "{answer}");
+    assert!(answer["error"]["message"].as_str().unwrap().contains("#2"), "{answer}");
+    let (ok, answer) = run(&dir, &["issue", "add", "web", "x", "--blocked-by", "1", "--why", "a", "--why", "b"]);
+    assert_eq!((ok, answer["error"]["code"].clone()), (false, json!("why_twice")), "{answer}");
+    // One `--why` with one `--blocked-by`, before or after it, is the block's, and the person's too.
+    let one = issue(&["add", "web", "x", "--why", "its schema", "--blocked-by", "1", "--waiting-for-human"]);
+    assert_eq!(
+        (one["waits"][0]["why"].clone(), one["reason"].clone()),
+        (json!("its schema"), json!("its schema")),
+        "{one}"
+    );
+    let mixed = ["add", "web", "x", "--waiting-for-human", "--why", "ask", "--blocked-by", "1", "--why", "schema"];
+    let mixed = issue(&mixed);
+    assert_eq!((mixed["waits"][0]["why"].clone(), mixed["reason"].clone()), (json!("schema"), json!("ask")), "{mixed}");
     let alone = bin(&dir).args(["issue", "add", "web", "x", "--why", "nothing to wait for"]).output().unwrap();
     assert!(!alone.status.success(), "a why names a wait");
     let blocked = issue(&["block", "web", "2", "--by", "1", "--why", "needs its schema"]);
