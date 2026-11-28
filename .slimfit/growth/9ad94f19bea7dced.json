@@ -1,0 +1,10 @@
+{
+  "tree": "c31fb1b7b3d6407ad047a3a34990bea5b0e7c211+d1fba762150c532c",
+  "lines": 57,
+  "serves": "factorium#429",
+  "considered": "reusing Spent's reds and split for the summary row (kept as Landings so one checkout's answer and the all-checkouts row are one computation); folding Since into when::parse (it needs now, which only the app's clock has)",
+  "reviewer": "codex:01a21ffd-188d-7761-81e7-316b370511e8:default",
+  "author": "claude-code:312da450-d37a-5fe3-8eee-a84a4dfe2bea:opus",
+  "cut": "In crates/factorium/src/issues.rs, fold spent_of and spent_all into one command handler that resolves --since once and selects the detailed response or checkout rows; in crates/factorium/src/cli.rs, use one Spent arm to pass the optional checkout to that handler.",
+  "answer": "done: spent_of takes an optional checkout and resolves --since once; cli.rs has one Spent arm"
+}
