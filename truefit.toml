@@ -506,6 +506,12 @@ real = ["crates/factorium/tests/contract/standin", "real"]
 needs = "ssh to localhost with no password asked (Remote Login on, a key it takes, its host key known)"
 ready = ["ssh", "-o", "BatchMode=yes", "localhost", "true"]
 version = ["sh", "-c", "ssh -V 2>&1"]
+# What factorium handles after a step took effect (fakes::SSH_FAULTS): the
+# connection to the other host dropped once the check there passed, its
+# worker here ended and its work pushed, so `issue add` there never ran:
+# the move stops, naming what was done, the issue open here and waiting for
+# a person, and the move tried again files it there once.
+faults = ["dropped"]
 
 # `issue move` (`issue move --help`): each command runs in the target user's login
 # shell, as `exec "$SHELL" -lc '<command>'`, a quote in it as `'\''`;
@@ -518,6 +524,17 @@ stdin = """
 {"run": ["ssh", "-o", "BatchMode=yes", "localhost", "exec \\"$SHELL\\" -lc 'echo \\"it'\\\\''s there\\"'"], "read": "out"}
 {"run": ["ssh", "-o", "BatchMode=yes", "localhost", "exec \\"$SHELL\\" -lc 'echo refused; exit 1'"], "read": "out"}
 {"run": ["ssh", "-o", "BatchMode=yes", "no-such-host.invalid", "exec \\"$SHELL\\" -lc true"], "read": "ok"}
+"""
+
+# A connection dropped before the command runs there: the real one that
+# the other side's session process, killed, closes, as no network can be
+# made to fail here between two commands.
+[[standin.case]]
+name = "dropped"
+fault = "dropped"
+stdin = """
+{"world": {"ssh": {"localhost": {"SHELL": "/bin/sh", "PATH": "/usr/bin:/bin", "HOME": "{dir}"}}}}
+{"run": ["ssh", "-o", "BatchMode=yes", "localhost", "exec \\"$SHELL\\" -lc 'kill -9 $PPID; echo ran'"], "read": "out"}
 """
 
 [[standin]]

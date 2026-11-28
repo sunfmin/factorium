@@ -1046,6 +1046,13 @@ impl FakeStablehand {
 /// its mutation tool cannot parse.
 pub const SLIMFIT_FAULTS: [&str; 1] = ["function-refused"];
 
+/// The failures the stand-in ssh answers when asked (truefit.toml's ssh
+/// `faults`, named by `TRUEFIT_FAULT` to `standin fake`): `dropped`, the
+/// connection to a host it reached lost before the command runs there
+/// (exit 255, nothing printed on stdout), as real ssh answers when the
+/// other side closes it.
+pub const SSH_FAULTS: [&str; 1] = ["dropped"];
+
 /// slimfit's refusal of a `--function` listing (`function-refused`).
 const SLIMFIT_FUNCTION_REFUSED: &str = r#"{"error": [{"fault": "suite rust: its mutation tool listed no mutants of the change; the command's log ends:\nError: failed to parse src/lib.rs", "fix": "fix the command's failure in its log .slimfit/out/rust/mutants-list.log"}]}"#;
 
@@ -1072,6 +1079,9 @@ pub struct FakeHost {
     /// in, as sshd gives it (`SHELL`, the user's login shell; `PATH`, the
     /// one a shell that is not a login one has).
     pub hosts: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+    /// While set, how many more commands ssh runs before its connections
+    /// drop (`dropped`; [`FakeHost::ssh_drops_after`]).
+    ssh_runs_left: Mutex<Option<usize>>,
     /// The agents launchd has loaded, as `<domain>/<uid>/<label>`.
     pub service: Mutex<Vec<String>>,
     /// How many prints after its bootout still find an agent, as launchd
@@ -1100,7 +1110,7 @@ impl FakeHost {
         make_home(root);
         let (orca, brew, procs, reading_procs) = Default::default();
         let (stablehand, slimfit, missing, service, ran, while_sleeping, gone) = Default::default();
-        let sleeps_take = Default::default();
+        let (sleeps_take, ssh_runs_left) = Default::default();
         let (lingers, dropping, hosts, rolesmith, slimfit_function_refused) = Default::default();
         let reading = Mutex::new(reading);
         FakeHost {
@@ -1115,6 +1125,7 @@ impl FakeHost {
             rolesmith,
             missing,
             hosts,
+            ssh_runs_left,
             service,
             lingers,
             dropping,
@@ -1133,6 +1144,21 @@ impl FakeHost {
             "function-refused" => *self.slimfit_function_refused.lock().unwrap() = on,
             _ => panic!("no slimfit fault {name}: {SLIMFIT_FAULTS:?}"),
         }
+    }
+
+    /// Sets, or clears, ssh's failure `name` (one of [`SSH_FAULTS`]): set,
+    /// every connection drops.
+    pub fn ssh_fault(&self, name: &str, on: bool) {
+        match name {
+            "dropped" => *self.ssh_runs_left.lock().unwrap() = on.then_some(0),
+            _ => panic!("no ssh fault {name}: {SSH_FAULTS:?}"),
+        }
+    }
+
+    /// ssh runs `runs` more commands, then its connections drop (`dropped`):
+    /// a host lost part way through what the app does there.
+    pub fn ssh_drops_after(&self, runs: usize) {
+        *self.ssh_runs_left.lock().unwrap() = Some(runs);
     }
 
     /// Whether launchd has factorium's agent loaded in this user's domain.
@@ -1254,7 +1280,8 @@ impl FakeHost {
     /// on a host it knows, `<command>` runs as sshd runs one, with `sh -c`
     /// in that host's environment alone (and a test build's coverage file),
     /// from its home, and answers as it exits; any other is not reached
-    /// (exit 255), as one whose name does not resolve.
+    /// (exit 255), as one whose name does not resolve. Once its runs left
+    /// are spent (`dropped`), a host it knows drops the connection first.
     fn ssh(&self, args: &[&str]) -> Said {
         let ["-o", "BatchMode=yes", target, command] = args else {
             return Said { ok: false, err: format!("ssh: no stand-in for {args:?}"), ..Said::default() };
@@ -1264,6 +1291,13 @@ impl FakeHost {
                 format!("ssh: Could not resolve hostname {target}: nodename nor servname provided, or not known\n");
             return Said { ok: false, out: String::new(), err };
         };
+        if let Some(left) = self.ssh_runs_left.lock().unwrap().as_mut() {
+            if *left == 0 {
+                let err = format!("Connection to {target} closed by remote host.\n");
+                return Said { ok: false, out: String::new(), err };
+            }
+            *left -= 1;
+        }
         let mut sh = Command::new("/bin/sh");
         sh.arg("-c").arg(command).env_clear().current_dir(env.get("HOME").map_or("/", String::as_str));
         let profile = std::env::var_os("LLVM_PROFILE_FILE").map(|p| ("LLVM_PROFILE_FILE", p));

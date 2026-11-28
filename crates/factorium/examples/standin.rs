@@ -32,7 +32,8 @@
 //!
 //! `TRUEFIT_FAULT`, if set, names a failure the fake answers throughout
 //! (`fakes::ORCA_FAULTS`, `fakes::BREW_FAULTS`,
-//! `fakes::STABLEHAND_FAULTS`, `fakes::SLIMFIT_FAULTS`); `real` never
+//! `fakes::STABLEHAND_FAULTS`, `fakes::SLIMFIT_FAULTS`,
+//! `fakes::ROLESMITH_FAULTS`, `fakes::SSH_FAULTS`); `real` never
 //! reads it.
 
 #[allow(dead_code)]
@@ -216,6 +217,7 @@ fn main() {
                     host.rolesmith.lock().unwrap().fault(&f, true)
                 }
                 Ok(f) if fakes::SLIMFIT_FAULTS.contains(&f.as_str()) => host.slimfit_fault(&f, true),
+                Ok(f) if fakes::SSH_FAULTS.contains(&f.as_str()) => host.ssh_fault(&f, true),
                 Ok(f) => host.orca.fault(&f, true),
                 Err(_) => {}
             }
