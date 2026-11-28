@@ -148,8 +148,9 @@ impl App {
     }
 
     /// The issues of a checkout, or of every checkout; open ones unless
-    /// `closed` says to list the closed ones too.
-    /// Each row as the tracker keeps it, with its issue's brief.
+    /// `closed` says to list the closed ones too: each row as the tracker
+    /// keeps it, with its issue's brief, so one call says what every
+    /// checkout is doing and waiting on.
     pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
         let rows = self.rows(tracker::issues(checkout, closed)).await?;
         let mut list = shown(&rows);
@@ -183,7 +184,7 @@ impl App {
     }
 
     /// Where `i` stands, each field as the full answer has it but `waits`,
-    /// only those not met; `comments`, only the last, its text cut to its
+    /// only those not met, each `on` and `why`; `comments`, only the last, its text cut to its
     /// first [`BRIEF_TEXT`] characters (`cut`: true); and `spent`, its `ms`
     /// alone. `doing`: its live worker's status, why and since.
     async fn brief(&self, i: &Issue) -> Answer<serde_json::Value> {
@@ -194,7 +195,8 @@ impl App {
             }
             None => serde_json::Value::Null,
         };
-        let waits: Vec<_> = self.blockers(i).await?.into_iter().filter(|w| w.met.is_none()).collect();
+        let waits = self.blockers(i).await?.into_iter().filter(|w| w.met.is_none());
+        let waits: Vec<_> = waits.map(|w| json!({ "on": w.on, "why": w.why })).collect();
         let last = i.comments.last().map(|c| {
             let mut shown = note(c);
             if c.text.chars().count() > BRIEF_TEXT {

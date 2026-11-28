@@ -51,7 +51,8 @@ async fn the_brief_answers_where_an_issue_stands_and_the_list_rows_answer_the_sa
 
     let (three, full3) = (w.app.issue_show_brief("web", 3).await.unwrap(), w.app.issue_show("web", 3).await.unwrap());
     same_as_full(&three, &full3);
-    let unmet: Vec<_> = full3["waits"].as_array().unwrap().iter().filter(|w| w["met"].is_null()).cloned().collect();
+    let unmet = full3["waits"].as_array().unwrap().iter().filter(|w| w["met"].is_null());
+    let unmet: Vec<_> = unmet.map(|w| json!({ "on": w["on"], "why": w["why"] })).collect();
     assert_eq!((three["waits"].clone(), unmet.len()), (json!(unmet), 1), "only the unmet waits: {three}");
     assert_eq!(
         (three["worker"].clone(), three["doing"].clone(), three["comments"].clone()),

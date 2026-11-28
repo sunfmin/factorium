@@ -240,7 +240,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all: each row with `issue show --brief`'s fields, and `ready_at` (ms: filed, or readied from waiting for a person) and `ahead` (a promotion's mutants issue, started before the ordinary ones).
+    /// Answers the open issues (with `--closed`, the closed too), of one checkout or, with none named, of every checkout, by checkout then number: what every checkout is doing and waiting on, in one call. Each row answers `issue show --brief`'s fields (among them `waits`, only those not met; `issue show` answers them all), and `ready_at` (ms: filed, or readied from waiting for a person) and `ahead` (a promotion's mutants issue, started before the ordinary ones).
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
@@ -254,7 +254,7 @@ pub enum IssueCmd {
         number: u64,
         #[arg(long)]
         steps: bool,
-        /// Answers only where it stands: `checkout`, `number`, `title`, `status`, `urgent`, `reason`, `worker`, as the full answer has them; `doing`, its live worker's `status` (`working`, `landing`, `waiting`…), `why` and `since` (ms), or null; `waits`, only those not met; `comments`, only the last, its `text` cut to its first 300 characters (then `cut`: true); and `spent`, its `ms` alone. No body, no steps. `issue list` answers each row with these fields too.
+        /// Answers only where it stands: `checkout`, `number`, `title`, `status`, `urgent`, `reason`, `worker`, as the full answer has them; `doing`, its live worker's `status` (`working`, `landing`, `waiting`…), `why` and `since` (ms), or null; `waits`, only those not met, each `on` and `why`; `comments`, only the last, its `text` cut to its first 300 characters (then `cut`: true); and `spent`, its `ms` alone. No body, no steps. `issue list` answers each row with these fields too.
         #[arg(long, conflicts_with = "steps", verbatim_doc_comment)]
         brief: bool,
     },
