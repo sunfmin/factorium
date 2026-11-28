@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
 use factorium_domain::issue::{Blocker, Wait};
+use factorium_domain::wait::Until;
 use factorium_domain::when;
 use factum::Uuid;
 
@@ -251,6 +252,19 @@ pub enum IssueCmd {
         number: u64,
         #[arg(long)]
         steps: bool,
+    },
+    /// Waits until each issue named has ended, then answers: it landed, it closed, or (`--until any`, the default) it waits for a person; or until `--timeout`. Watches the database, looking at each issue once a second; no other work. Answers `outcome` and `code` (its exit code), and `issues`: each one's `checkout`, `number`, `title`, `status`, `reason` (why it closed, or why it waits for a person), `commit` (the commit it landed as; null: it did not land) and `outcome`: `landed` (exit 0), `closed` without landing (3), `waiting_for_human` (4), or `timeout` (5: it had not ended then; its status is as it was). With several issues it ends once all have, and `outcome` and `code` are the last of theirs in that order. One that has ended already answers at once; one not there is refused (`no_issue`).
+    #[command(verbatim_doc_comment)]
+    Wait {
+        checkout: String,
+        #[arg(required = true)]
+        numbers: Vec<u64>,
+        /// `any`: it lands, closes or waits for a person. `closed`: it lands or closes; a wait for a person is waited past (a closed issue never opens again, so this is also "until it lands").
+        #[arg(long, value_name = "any|closed", default_value = "any", verbatim_doc_comment)]
+        until: Until,
+        /// Ends the wait then, answering each issue as it is: `45m`, `2h`.
+        #[arg(long, value_name = "DURATION", value_parser = when::duration_ms, verbatim_doc_comment)]
+        timeout: Option<i64>,
     },
     /// Changes an issue's title, body, role or urgent mark. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
     #[command(verbatim_doc_comment)]
@@ -562,6 +576,9 @@ impl Top {
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
                 IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
                 IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
+                IssueCmd::Wait { checkout, numbers, until, timeout } => {
+                    app.issue_wait(&checkout, &numbers, until, timeout).await
+                }
                 IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role, urgent, no_urgent } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {

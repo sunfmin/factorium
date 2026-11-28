@@ -33,6 +33,7 @@ pub mod spent;
 pub mod stack;
 pub mod steps;
 pub mod tracker;
+pub mod wait;
 pub mod watch;
 pub mod when;
 pub mod worker;

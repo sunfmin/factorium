@@ -25,6 +25,7 @@ mod service;
 mod session;
 mod swap;
 mod upgrade;
+mod wait;
 mod watch;
 mod work;
 mod workdir;
