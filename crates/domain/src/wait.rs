@@ -15,38 +15,23 @@ pub enum Until {
     Closed,
 }
 
-impl std::str::FromStr for Until {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "any" => Ok(Until::Any),
-            "closed" => Ok(Until::Closed),
-            _ => Err(format!("`{s}`: wait until `any` or `closed`")),
-        }
-    }
-}
-
 /// Where an issue leaves its waiter, the better first: a wait on several
-/// issues answers the last of theirs.
+/// issues answers the last of theirs. Each one's exit code is its
+/// discriminant: 1 is a refusal's and 2 a command line's clap refused, so
+/// the others start at 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
-    Landed,
-    Closed,
-    WaitingForHuman,
-    Timeout,
+    Landed = 0,
+    Closed = 3,
+    WaitingForHuman = 4,
+    Timeout = 5,
 }
 
 impl Outcome {
-    /// The waiter's exit code. 1 is a refusal's and 2 a command line's
-    /// clap refused, so the others start at 3.
+    /// The waiter's exit code.
     pub fn code(self) -> u8 {
-        match self {
-            Outcome::Landed => 0,
-            Outcome::Closed => 3,
-            Outcome::WaitingForHuman => 4,
-            Outcome::Timeout => 5,
-        }
+        self as u8
     }
 }
 

@@ -260,7 +260,7 @@ pub enum IssueCmd {
         #[arg(required = true)]
         numbers: Vec<u64>,
         /// `any`: it lands, closes or waits for a person. `closed`: it lands or closes; a wait for a person is waited past (a closed issue never opens again, so this is also "until it lands").
-        #[arg(long, value_name = "any|closed", default_value = "any", verbatim_doc_comment)]
+        #[arg(long, default_value = "any", value_parser = until(), verbatim_doc_comment)]
         until: Until,
         /// Ends the wait then, answering each issue as it is: `45m`, `2h`.
         #[arg(long, value_name = "DURATION", value_parser = when::duration_ms, verbatim_doc_comment)]
@@ -676,6 +676,13 @@ impl Top {
             Top::Run | Top::Guard { .. } => unreachable!("main.rs answers it"),
         }
     }
+}
+
+/// What `issue wait --until` reads: `any` or `closed`.
+fn until() -> impl clap::builder::TypedValueParser<Value = Until> {
+    use clap::builder::TypedValueParser;
+    clap::builder::PossibleValuesParser::new(["any", "closed"])
+        .map(|s| if s == "closed" { Until::Closed } else { Until::Any })
 }
 
 /// An issue's number, `12`, or a range of them, `198..222`, as its ends.
