@@ -1,12 +1,12 @@
 {
   "suites": {
     "rust": {
-      "prod_lines": 17590,
-      "test_lines": 18495,
-      "tests": 605,
+      "prod_lines": 17549,
+      "test_lines": 18546,
+      "tests": 606,
       "failures": 0,
       "test_seconds": 186.755,
-      "covered_lines": 10725,
+      "covered_lines": 10727,
       "uncovered_lines": 107
     }
   },
@@ -384,22 +384,11 @@
       "reason": "Deep still (kept before at 293 lines, factorium#206): callers (gate.rs, line/cut.rs, line/stack.rs, idle.rs, work.rs, daemon, doctor) use one runner, heavy(Job, Turn), Job's per-kind constructors (gate, cut, exclusive, hold, idle), the beside hooks keyed by a pick over For (beside, beside_runs, unqueue_beside, beside_ended) and the tick hooks (asking_once, adopt_queued, note_rules, give_back). Behind them sit queueing, place-keeping, stale-rules exec, dead-pid cleanup, session noting, hold-bound/give-way/halt ending, runs beside the ticks and resource holds. Growth to 489 is feature work on the queue (resources and holds factorium#284/#286, urgent #393, stacked landing gates #383, work dirs #377, gate resources #435), each landing its rules in factorium_domain::heavy and only its use here. Splitting holds or the beside bookkeeping into files would move private helpers of the same runner, not deepen it; no test reaches past the interface (queue/admission/stall scenarios). factorium#442"
     }
   ],
-  "kept_spans": [
-    {
-      "suite": "rust",
-      "file": "crates/factorium/src/moved.rs",
-      "start": 39,
-      "end": 39,
-      "function": "App::issue_move (closure)",
-      "hash": "69fc1f82dfca2844",
-      "reason": "Only wiring left: the closure hands a failed step's refusal to factorium_domain::moved::stopped, whose wording is tested in milliseconds (moved::a_move_that_stops_part_way_says_where_and_what_it_had_done). It runs only when a step fails after the other host was checked over ssh, which only a minutes-long scenario reaches, so a fast test could not reach it at all."
-    }
-  ],
   "mutants_from": "aecedfe95ea64c2ffd1051647d481738087a510c",
   "measured": {
     "rust": {
-      "uncovered_lines": 221,
-      "test_seconds": 366.528
+      "uncovered_lines": 211,
+      "test_seconds": 366.109
     }
   }
 }

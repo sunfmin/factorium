@@ -1,0 +1,40 @@
+{
+  "tree": "24c643c3f8312af47c15050d59e80f85b2052e1b+d1fba762150c532c",
+  "picker": "codex:01a220b7-0f76-7043-bfe4-b324ac3072e4:default",
+  "author": "claude-code:2e768c5d-1140-5aa8-8baa-780720b3e676:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/heavy.rs:71:15: delete field resources from struct Job expression in Job<'a>::gate",
+        "why": "A gate can still run on the host after losing its named resource requests, so a test needs contention on one of those resources to see the difference.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/heavy.rs:101:15: delete field lands from struct Job expression in Job<'a>::landing",
+        "why": "The merged stall scenario checks order among landings, so it may miss a landing gate losing its priority when it shares the queue with another kind of line move.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/line/stack.rs:359:5: replace of_layer -> bool with true",
+        "why": "The revised red-stack scenario checks that a discarded layer's gate stops, but may miss a layer match that also selects a gate belonging to another stack.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/domain/src/daemon.rs:299:5: replace slow -> bool with true",
+        "why": "Marking every tick slow can put quiet ticks in the daemon log while leaving assertions about the contents of emitted lines green.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      }
+    ]
+  },
+  "removed_tests": {
+    "rust": [
+      "crates/factorium/tests/scenarios/stall.rs:344: a_landing_waiting_its_turn_behind_a_line_that_moves_is_no_stall_and_doctor_shows_its_place",
+      "crates/factorium/tests/scenarios/stall.rs:367: a_line_that_has_not_moved_for_the_stall_bound_still_goes_to_the_watch_for_each_landing_in_it"
+    ]
+  },
+  "added_lines": 49
+}
