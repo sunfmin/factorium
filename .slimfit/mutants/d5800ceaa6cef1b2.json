@@ -1,0 +1,22 @@
+{
+  "tree": "fd822cfe8d583e2213357baaa757554b98aae818+d1fba762150c532c",
+  "picker": "codex:01a22034-efba-7a61-af17-c92a64b70743:default",
+  "author": "claude-code:960f82d3-7536-5173-9a33-0d3831fb45f1:opus",
+  "picks": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/daemon.rs:259:78: replace && with || in App::resume_parked",
+        "why": "The new scenarios close the session turn before unblocking, so they may miss a parked worker being resumed while its turn is still active.",
+        "outcome": "killed",
+        "first_outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/doctor.rs:26:32: replace match guard at == 0 with false in App::stacked",
+        "why": "The resource scenario checks running and waiting labels, so it may miss the bottom layer briefly reporting that its green gate waits for gates below it.",
+        "outcome": "survived",
+        "first_outcome": "survived"
+      }
+    ]
+  },
+  "added_lines": 35
+}
