@@ -138,6 +138,37 @@ async fn a_move_the_other_host_cannot_take_is_refused_with_nothing_changed_here(
 }
 
 #[tokio::test]
+async fn a_connection_dropped_after_the_check_stops_the_move_open_here_and_a_retry_files_it_once() {
+    let (w, there) = (World::new(), World::new());
+    issue(&w, true).await;
+    let tree = worktree(&worker(&w.app).await);
+    w.commit(&tree, "done.txt", "committed here");
+    there.checkout_of(&w, "web").await;
+    there.reached_by(&w, THERE);
+    // The check's two commands reach it; `issue add` there finds it gone.
+    w.host.ssh_drops_after(2);
+
+    let r = w.app.issue_move("web", 1, THERE).await.unwrap_err();
+    assert_eq!(r.code, "ssh", "{r}");
+    for part in ["closed by remote host", "web#1 open here", "its worker ended", &format!("origin's `{BRANCH}`")] {
+        assert!(r.message.contains(part), "it says {part:?}: {r}");
+    }
+    let here = w.app.issue_show("web", 1).await.unwrap();
+    assert_eq!(here["status"], json!("waiting_for_human"), "{here:#}");
+    assert_eq!(w.app.workers(false).await.unwrap()["workers"], json!([]), "its worker stays ended");
+    let tip = w.remote_tip("web", BRANCH);
+    assert_eq!(there.app.issue_list(None, true).await.unwrap(), json!([]), "nothing was filed there");
+
+    w.host.ssh_fault("dropped", false);
+    let moved = w.app.issue_move("web", 1, THERE).await.unwrap();
+    assert_eq!(moved["moved_to"], json!("felix@there web#1"), "{moved:#}");
+    assert_eq!(moved["commit"], json!(tip), "the same work, pushed again");
+    let filed = there.app.issue_list(None, true).await.unwrap();
+    assert_eq!(filed.as_array().map(Vec::len), Some(1), "filed there once: {filed:#}");
+    assert_eq!(w.app.issue_show("web", 1).await.unwrap()["status"], json!("closed"));
+}
+
+#[tokio::test]
 async fn origins_that_name_one_repo_in_other_forms_are_one_and_others_are_not() {
     // Here's origin as stored, the `insteadOf` this host's ~/.gitconfig
     // rewrites it with, and there's: no issue is worked, so nothing is
