@@ -1141,3 +1141,28 @@ fn a_test_killed_outright_leaves_no_daemon_behind() {
         std::thread::sleep(crate::fixture::LOOK);
     }
 }
+
+/// A daemon whose data directory is deleted (its test's `Dir` dropped while
+/// it runs, its watch gone with it) ends by itself, between ticks: it has
+/// no store left to work on, and nothing else would end it.
+#[test]
+fn a_daemon_whose_data_directory_is_deleted_ends_by_itself() {
+    let dir = Dir::new();
+    // A long wait between ticks: the deletion ends it, not its next tick.
+    assert!(run(&dir, &["settings", "tick_every", "600"]).0);
+    let mut daemon = ticking(&dir);
+    until_tick(&dir, &mut daemon, 1);
+    let data = dir.0.join("data/factorium");
+    std::fs::remove_dir_all(&data).unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(std::time::Instant::now() < until, "the daemon runs 30s after {} was deleted", data.display());
+        std::thread::sleep(crate::fixture::LOOK);
+    }
+    let out = daemon.wait_with_output();
+    assert!(out.status.success(), "{:?}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+    let said: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(said["stopped"], true, "{said}");
+    let db = data.join("factorium.db");
+    assert!(said["why"].as_str().is_some_and(|w| w.contains(&*db.to_string_lossy())), "{said}");
+}

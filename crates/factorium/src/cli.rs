@@ -61,7 +61,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Top {
-    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. A failing tick is recorded, and `tick_failures_max` of them in a row is a finding; the watch still looks when a tick fails. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. As a service, launchd runs it.
+    /// Runs the daemon in the foreground until `factorium stop`; refused while another runs. At start it moves the kit's commands to stablehand, once, and looks for git, orca and the programs of the commands stablehand keeps on its PATH; what is missing is a finding. A failing tick is recorded, and `tick_failures_max` of them in a row is a finding; the watch still looks when a tick fails. When a cut installs the formula it runs from, it runs the new binary in its place between ticks, as the same pid. When its database file is deleted (its data directory removed), it ends by itself between ticks, exit 0, answering `stopped` true and `why`. As a service, launchd runs it.
     #[command(next_help_heading = OWNER, verbatim_doc_comment)]
     Run,
     /// Stops the daemon; run as the service, unloads the service, and no command loads it back until `service install`.
