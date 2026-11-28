@@ -240,7 +240,7 @@ pub enum IssueCmd {
         #[arg(long, verbatim_doc_comment)]
         urgent: bool,
     },
-    /// Answers the open issues, of one checkout or of all (`--closed`: the closed ones too), each with its `status`, what it is doing now: `ready` (no live worker holds it; it starts when what it waits for is met), `working` (a live worker is on it, waiting for the watch among it), `landing` (its worker ran `done`: its landing waits in line or its gate runs), `parked` (its worker is parked, behind what the issue waits for or until its engine's limit resets), `waiting_for_human` (it waits for the owner's answer: `issue ready` or `issue close`), `closed` (landed, or closed with its `reason`). `issue show` answers the same `status`.
+    /// Answers the open issues (with `--closed`, the closed too), of one checkout or, with none named, of every checkout, by checkout then number: what every checkout is doing and waiting on, in one call. Each row answers `issue show --brief`'s fields (among them `waits`, only those not met; `issue show` answers them all), and `ready_at` (ms: filed, or readied from waiting for a person) and `ahead` (a promotion's mutants issue, started before the ordinary ones). Its `status` (as `issue show`'s, with or without `--brief`) says what it is doing now: `ready` (no live worker holds it; it starts when what it waits for is met), `working` (a live worker is on it, waiting for the watch among it), `landing` (its worker ran `done`: its landing waits in line or its gate runs), `parked` (its worker is parked, behind what the issue waits for or until its engine's limit resets), `waiting_for_human` (it waits for the owner's answer: `issue ready` or `issue close`), `closed` (landed, or closed with its `reason`).
     #[command(verbatim_doc_comment)]
     List {
         checkout: Option<String>,
@@ -254,6 +254,9 @@ pub enum IssueCmd {
         number: u64,
         #[arg(long)]
         steps: bool,
+        /// Answers only where it stands: `checkout`, `number`, `title`, `status`, `urgent`, `reason`, `worker`, as the full answer has them; `doing`, its live worker's `status` (`working`, `landing`, `waiting`…), `why` and `since` (ms), or null; `waits`, only those not met, each `on` and `why`; `comments`, only the last, its `text` cut to its first 300 characters (then `cut`: true); and `spent`, its `ms` alone. No body, no steps. `issue list` answers each row with these fields too.
+        #[arg(long, conflicts_with = "steps", verbatim_doc_comment)]
+        brief: bool,
     },
     /// Changes an issue's title, body, role or urgent mark. A live worker on it gets the edit at once: its brief is rewritten to the title and body as they are now, and a body changed is typed at its session as a comment is, telling it to read its brief again (a waiting worker's brief is rewritten, and it is not typed at). The answer's `delivery` says how a changed body reached it (`brief`: only its brief), `undelivered` why it did not.
     #[command(verbatim_doc_comment)]
@@ -564,8 +567,9 @@ impl Top {
                     app.issue_file(open).await
                 }
                 IssueCmd::List { checkout, closed } => app.issue_list(checkout.as_deref(), closed).await,
-                IssueCmd::Show { checkout, number, steps: false } => app.issue_show(&checkout, number).await,
-                IssueCmd::Show { checkout, number, steps: true } => app.issue_show_steps(&checkout, number).await,
+                IssueCmd::Show { checkout, number, brief: true, .. } => app.issue_show_brief(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: false, .. } => app.issue_show(&checkout, number).await,
+                IssueCmd::Show { checkout, number, steps: true, .. } => app.issue_show_steps(&checkout, number).await,
                 IssueCmd::Edit { checkout, number, title, body, body_file, role, no_role, urgent, no_urgent } => {
                     let body = body_text(body, body_file)?;
                     if role.is_some() || no_role {

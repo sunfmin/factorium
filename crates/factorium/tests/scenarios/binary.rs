@@ -127,6 +127,8 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     let (ok, issue) = run(&dir, &["issue", "add", "web", "Fix it", "--body", "how"]);
     assert!(ok);
     assert_eq!((issue["number"].clone(), issue["body"].clone()), (json!(1), json!("how")));
+    let (ok, brief) = run(&dir, &["issue", "show", "web", "1", "--brief"]);
+    assert_eq!((ok, brief.get("body"), brief["title"].clone()), (true, None, json!("Fix it")), "{brief}");
     let (ok, list) = run(&dir, &["issue", "list", "web"]);
     assert!(ok);
     assert_eq!((list[0]["title"].clone(), list[0]["urgent"].clone()), (json!("Fix it"), json!(false)));

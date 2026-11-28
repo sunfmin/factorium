@@ -36,6 +36,18 @@ pub(crate) struct Waited {
     pub met: Option<String>,
 }
 
+/// The characters of the last comment's text a brief answers.
+const BRIEF_TEXT: usize = 300;
+
+/// A comment as an issue's answer shows it.
+fn note(c: &Note) -> serde_json::Value {
+    let mut shown = json!({ "text": c.text, "by": c.by.to_string(), "at": c.at });
+    if let Some(id) = c.decided {
+        shown["decided"] = json!(decided::name(id));
+    }
+    shown
+}
+
 impl App {
     /// Makes an issue numbered one past the checkout's last, waiting from
     /// the start for the issues in `blocked_by`, of its checkout or of
@@ -136,14 +148,19 @@ impl App {
     }
 
     /// The issues of a checkout, or of every checkout; open ones unless
-    /// `closed` says to list the closed ones too.
+    /// `closed` says to list the closed ones too: each row as the tracker
+    /// keeps it, with its issue's brief, so one call says what every
+    /// checkout is doing and waiting on.
     pub async fn issue_list(&self, checkout: Option<&str>, closed: bool) -> Answer {
         let rows = self.rows(tracker::issues(checkout, closed)).await?;
-        let mut v = shown(&rows);
-        for (row, r) in v.as_array_mut().into_iter().flatten().zip(&rows) {
-            row["status"] = json!(self.doing(r.standing.status, r.holder.worker).await?);
+        let mut list = shown(&rows);
+        for (row, r) in list.as_array_mut().into_iter().flatten().zip(&rows) {
+            let brief = self.brief(&self.issue(&r.checkout, r.number).await?).await?;
+            for (k, v) in brief.as_object().into_iter().flatten() {
+                row[k] = v.clone();
+            }
         }
-        Ok(v)
+        Ok(list)
     }
 
     /// What an issue in `status` held by `worker` is doing ([`Doing`]).
@@ -168,6 +185,46 @@ impl App {
     /// `steps`, where its time went (factorium#308).
     pub async fn issue_show_steps(&self, checkout: &str, number: u64) -> Answer {
         self.shown_issue(checkout, number, true).await
+    }
+
+    /// `issue show --brief`.
+    pub async fn issue_show_brief(&self, checkout: &str, number: u64) -> Answer {
+        self.brief(&self.issue(checkout, number).await?).await
+    }
+
+    /// Where `i` stands, each field as the full answer has it but `waits`,
+    /// only those not met, each `on` and `why`; `comments`, only the last, its text cut to its
+    /// first [`BRIEF_TEXT`] characters (`cut`: true); and `spent`, its `ms`
+    /// alone. `doing`: its live worker's status, why and since.
+    async fn brief(&self, i: &Issue) -> Answer<serde_json::Value> {
+        let held = match i.worker {
+            Some(w) => Some(self.state::<Workers>(w).await?),
+            None => None,
+        };
+        let doing = held.as_ref().map(|wk| json!({ "status": wk.status, "why": wk.why, "since": wk.since }));
+        let waits = self.blockers(i).await?.into_iter().filter(|w| w.met.is_none());
+        let waits: Vec<_> = waits.map(|w| json!({ "on": w.on, "why": w.why })).collect();
+        let last = i.comments.last().map(|c| {
+            let mut shown = note(c);
+            if c.text.chars().count() > BRIEF_TEXT {
+                (shown["text"], shown["cut"]) =
+                    (json!(c.text.chars().take(BRIEF_TEXT).collect::<String>()), json!(true));
+            }
+            shown
+        });
+        Ok(json!({
+            "checkout": i.checkout,
+            "number": i.number,
+            "title": i.title,
+            "status": Doing::of(i.status, held.as_ref()),
+            "urgent": i.urgent,
+            "reason": i.reason,
+            "worker": i.worker,
+            "doing": doing,
+            "waits": waits,
+            "comments": last.into_iter().collect::<Vec<_>>(),
+            "spent": { "ms": self.issue_spent(i, false).await?["ms"] },
+        }))
     }
 
     async fn shown_issue(&self, checkout: &str, number: u64, steps: bool) -> Answer {
@@ -196,13 +253,7 @@ impl App {
             "model": i.on.model,
             "spent": self.issue_spent(&i, steps).await?,
             "decided": i.decided.iter().map(|m| decided::name(m.id)).collect::<Vec<_>>(),
-            "comments": i.comments.iter().map(|c| {
-                let mut shown = json!({ "text": c.text, "by": c.by.to_string(), "at": c.at });
-                if let Some(id) = c.decided {
-                    shown["decided"] = json!(decided::name(id));
-                }
-                shown
-            }).collect::<Vec<_>>(),
+            "comments": i.comments.iter().map(note).collect::<Vec<_>>(),
         }))
     }
 
