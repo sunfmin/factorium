@@ -13,8 +13,8 @@ use serde_json::{Value, json};
 use crate::fixture::{LOOK, STUCK, World};
 
 /// `web`, whose proving declares a fast gate that logs `start <files>` and `end <files>` (the
-/// `f<n>` files of the tree it runs on) to `dir/log`; is red at once on a tree that holds `RED`;
-/// and, on a tree of `k` such files (the `k`th of a stack), holds while [`hold`] holds it. A worker for each of `extra`, #1 up, each commits `f<n>` (and `extra[n-1]`, if any)
+/// `f<n>` files of the tree it runs on) to `dir/log`; on a tree of `k` such files (the `k`th of a
+/// stack), holds while [`hold`] holds it; and is red then on a tree that holds `RED`. A worker for each of `extra`, #1 up, each commits `f<n>` (and `extra[n-1]`, if any)
 /// and is done. Answers the log.
 async fn all_done(w: &World, dir: &Path, extra: &[Option<&str>]) -> PathBuf {
     all_done_with(w, dir, extra, "").await
@@ -29,7 +29,7 @@ async fn all_done_with(w: &World, dir: &Path, extra: &[Option<&str>], more: &str
     let held = w.holds(&dir.join("h$k"));
     let gate = format!(
         "k=$(ls f[0-9]* | wc -l | tr -d ' '); f=$(ls f[0-9]* | tr '\\\\n' ' '); echo \\\"start $f\\\" >> {log}; \
-         [ -e RED ] && exit 1; if [ -d {d}/h$k ]; then ({held}) || exit 1; fi; echo \\\"end $f\\\" >> {log}"
+         if [ -d {d}/h$k ]; then ({held}) || exit 1; fi; [ -e RED ] && exit 1; echo \\\"end $f\\\" >> {log}"
     );
     w.checkout("web").await;
     w.kit().await;
@@ -143,9 +143,10 @@ async fn the_second_of_three_red_the_first_lands_and_the_third_is_gated_again_wi
     let w = World::new();
     let dir = w.dir.join("gates");
     hold(&dir, 1, true);
+    hold(&dir, 3, true);
     let log = all_done(&w, &dir, &[None, Some("RED"), None]).await;
     until_started(&w, &log, 3).await;
-    // #2's gate is red at once, and #3's, stacked on it: neither is told while #1's runs.
+    // #2's gate is red at once; #3's, stacked on it, still runs: neither is told while #1's runs.
     for _ in 0..3 {
         w.advance(1);
         assert!(w.tick_alone().await.landed.is_empty(), "nothing is told before #1's gate ends");
@@ -153,9 +154,11 @@ async fn the_second_of_three_red_the_first_lands_and_the_third_is_gated_again_wi
     let doctor = w.doctor().await;
     let gates: Vec<_> = doctor["landing"].as_array().unwrap().iter().map(|l| l["stack"]["gate"].clone()).collect();
     let red = Value::from("red, told once the gates below it are green");
-    assert_eq!(gates, [Value::from("its gate runs"), red.clone(), red], "{doctor}");
+    let runs = Value::from("its gate runs");
+    assert_eq!(gates, [runs.clone(), red, runs], "{doctor}");
     hold(&dir, 1, false);
-    // #1 lands; #2 is told red; #3, red only on #2, is stacked again.
+    // #1 lands; #2 is told red; #3, red only on #2, leaves the stack, its gate that runs ended,
+    // and is stacked again.
     let mut red = Vec::new();
     tokio::time::timeout(STUCK, async {
         while red.is_empty() {
@@ -181,6 +184,9 @@ async fn the_second_of_three_red_the_first_lands_and_the_third_is_gated_again_wi
     assert!(files(&w, &one).contains("f1"), "{}", files(&w, &one));
     assert!(!files(&w, three).contains("RED") && !files(&w, three).contains("f2"), "{}", files(&w, three));
     assert!(logged(&log).contains(&"start f1 f3 ".to_string()), "gated again on T+A+C: {:?}", logged(&log));
+    // Held still, #3's first gate ran on only were it not ended as #3 left the stack.
+    assert!(!w.app.moves_run(), "#3's first gate is ended with its layer");
+    assert!(!logged(&log).contains(&"end f1 f2 f3 ".to_string()), "{:?}", logged(&log));
 }
 
 #[tokio::test]
