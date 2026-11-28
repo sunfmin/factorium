@@ -1,0 +1,49 @@
+{
+  "tip": "73f7e8991af8bdb6964d8d235ec8d9ce75a81b56",
+  "from": "0bf9ed04bd50b79dfb1081c6ab9dbc47fd7ae379",
+  "pool": 237,
+  "drawn": {
+    "rust": [
+      {
+        "name": "crates/factorium/src/session/health.rs:47:9: replace App::retry_workers -> Answer<()> with Answer::new()",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/issues.rs:45:5: replace note -> serde_json::Value with Default::default()",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/start.rs:92:9: replace App::next_issue -> Answer<Option<IssueRow>> with Answer::from(None)",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/daemon/start.rs:78:26: replace && with || in App::ahead_of",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/start.rs:74:48: replace == with != in App::ahead_of",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/daemon/start.rs:21:9: replace App::start_one -> Answer<(Option<Value>, Option<String>)> with Answer::from((Some(Default::default()), Some(\"xyzzy\".into())))",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/issue.rs:47:22: replace match guard w.parked with true in Doing::of",
+        "outcome": "killed"
+      },
+      {
+        "name": "crates/factorium/src/doctor.rs:21:9: replace App::stacked -> Answer<Value> with Answer::new()",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/factorium/src/issues.rs:169:9: replace App::doing -> Answer<Doing> with Answer::from(Default::default())",
+        "outcome": "unviable"
+      },
+      {
+        "name": "crates/domain/src/declared.rs:201:5: replace with_kept -> Option<String> with Some(String::new())",
+        "outcome": "killed"
+      }
+    ]
+  }
+}
