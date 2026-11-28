@@ -313,7 +313,8 @@ Entry(t, yields, bound) == [Absent EXCEPT !.in = TRUE, !.queued_at = t,
 \* (heavy.queue): a waiter (kind "wait") or idle work ("beside"), under
 \* rules r; a worker's or a program's entry yields; a line move's (a gate,
 \* a cut) has a bound or none. It asks for `a`: its resources, all at once
-\* (idle work and a line move ask for "host"); a worker's hold (`worker
+\* (idle work and a line move ask for "host", a gate with the resources its
+\* [gate] names besides); a worker's hold (`worker
 \* hold`) declares how long it holds, asks for named ones alone, and may
 \* name its window. A line move may be a landing's gate (`lands`). A
 \* worker's entry (one that yields) or a landing's gate is marked urgent
@@ -323,7 +324,7 @@ Arrive(i, kind, r, yields, bound, a) ==
     /\ kind = "beside" => ~yields /\ bound = None
     /\ yields => bound = None
     /\ a.worker # NoWorker => yields /\ kind = "wait"
-    /\ (kind = "beside" \/ bound # None) => a.res = {"host"}
+    /\ (kind = "beside" \/ bound # None) => "host" \in a.res
     /\ a.hold # None => a.worker # NoWorker /\ "host" \notin a.res
     /\ a.win # None => a.hold # None
     /\ a.lands => Urgent /\ kind = "wait" /\ ~yields
