@@ -134,6 +134,11 @@ fn the_cli_records_in_the_xdg_database_and_answers_json() {
     assert_eq!((list[0]["title"].clone(), list[0]["urgent"].clone()), (json!("Fix it"), json!(false)));
     let (_, checkouts) = run(&dir, &["checkout", "list"]);
     assert_eq!(checkouts[0]["proving"], "proving");
+    // Every checkout's landings, the last day.
+    let (ok, spent) = run(&dir, &["spent", "--since", "24h"]);
+    assert_eq!((ok, spent["checkouts"][0]["checkout"].clone()), (true, json!("web")), "{spent}");
+    assert_eq!(spent["checkouts"][0]["issues_landed"], 0, "{spent}");
+    assert!(spent["since"].as_i64().is_some(), "a span is read back from now: {spent}");
     let (ok, shown) = run(&dir, &["checkout", "show", "web"]);
     assert_eq!((ok, shown["name"].clone(), shown["fits"].clone()), (true, json!("web"), json!([])), "{shown}");
     // A default role named, then taken away, through the CLI.
