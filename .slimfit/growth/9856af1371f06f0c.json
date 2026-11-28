@@ -1,0 +1,10 @@
+{
+  "tree": "ad4980d269663fff0a3cb8906bffa94832697322+d1fba762150c532c",
+  "lines": 126,
+  "serves": "factorium#454",
+  "considered": "a fetcher across ticks (refs one tick stale; rejected: scenario traces need fresh tips); keeping each move's own fetch with a per-repo lock; reusing the heavy queue's beside jobs for the mutants listing (it is not a heavy job and would wait for room)",
+  "reviewer": "codex:01a220c4-cc39-7700-ab84-95d5dcecc68c:default",
+  "author": "claude-code:a25377ba-37ab-5e05-b674-8e8de195c59b:opus",
+  "cut": "In crates/factorium/src/line.rs and daemon.rs, have the line pass fill the existing Tick and delete the duplicate Pass fields and copy-back assignment. In crates/factorium/src/line/mutants.rs, use JoinHandle::is_finished directly and inline the single-use LISTS message. In crates/factorium/src/heavy.rs, check beside_runs before taking the memory lock and return the proving/listings predicate directly. In crates/factorium/tests/scenarios/mutants.rs, add the once-only and later-tick assertions to the existing promotion scenario and reuse its setup and issue assertions.",
+  "answer": "Made all four: lines() fills &mut Tick and Pass is gone; Listing::runs and LISTS are gone (is_finished used directly, message inlined); moves_run checks beside_runs first and returns the memory predicate; the separate mutants scenario is folded into the first promotion scenario, reusing its setup and issue assertions."
+}

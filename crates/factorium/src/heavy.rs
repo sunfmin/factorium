@@ -477,9 +477,13 @@ impl App {
         self.cuts_proofs_ended().await
     }
 
-    /// Whether a line move runs beside the ticks: its steps, or a cut's proof.
+    /// Whether a line move runs beside the ticks: its steps, a cut's proof, or a promotion's
+    /// mutants listed, until the next pass over the lines reads it.
     pub fn moves_run(&self) -> bool {
-        self.beside_runs(|f| matches!(f, For::Line(_))) || !self.memory.lock().unwrap().proving.is_empty()
+        self.beside_runs(|f| matches!(f, For::Line(_))) || {
+            let m = self.memory.lock().unwrap();
+            !m.proving.is_empty() || !m.listings.is_empty()
+        }
     }
 
     async fn ended_beside(&self, pick: impl Fn(&For) -> bool) {

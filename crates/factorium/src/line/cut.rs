@@ -33,7 +33,7 @@ impl App {
     /// until the cut is recorded: the daemon's, beside the ticks, holds it on.
     pub(super) async fn cut_base(&self, c: &Checkout, by_hand: bool, bound_at: Option<i64>, lock: Held) -> Answer<Did> {
         let git = self.host.git(&c.path);
-        let base = git.fetch(&c.base).map_err(fail("git"))?;
+        let base = self.fetched(c, &git, &c.base)?;
         let declared = self.declared(&git, &base)?;
         let Some(cut) = declared.cut else { return Ok(Err("the repo declares no cut".into())) };
         let version = next_version(git.version_tags().map_err(fail("git"))?.first().map(String::as_str));
@@ -178,8 +178,8 @@ impl App {
     /// is pushed only once they pass.
     pub(super) async fn cut_read_back(&self, c: &Checkout, version: &str) -> Answer<Option<Value>> {
         let git = self.host.git(&c.path);
-        // The checkout's tags are origin's, as fetched with its base.
-        git.fetch(&c.base).map_err(fail("git"))?;
+        // The checkout's tags are origin's, as fetched with its base by the lines' pass.
+        self.fetched(c, &git, &c.base)?;
         let Ok(tagged) = git.sha(&format!("refs/tags/{version}")) else { return Ok(None) };
         let Some(cut) = self.declared(&git, &tagged).ok().and_then(|d| d.cut) else { return Ok(None) };
         if let Some(formula) = &cut.formula {

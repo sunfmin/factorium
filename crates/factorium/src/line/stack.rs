@@ -56,7 +56,7 @@ impl App {
         }
         if let Some(asks) = asks {
             let stacked = self.state::<Stacks>(stack_id(&c.name)).await?;
-            let tip = git.fetch(&c.proving).map_err(fail("git"))?;
+            let tip = self.fetched(c, &git, &c.proving)?;
             for worker in asks.into_iter().filter(|a| stacked.of(*a).is_none()) {
                 did.extend(Box::pin(self.stack_on(c, &git, &tip, worker)).await?);
             }

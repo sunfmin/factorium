@@ -5,7 +5,7 @@
 
 use serde_json::{Value, json};
 
-use crate::fixture::{CLAUDE, World, id};
+use crate::fixture::{CLAUDE, World, bounded, id};
 
 /// slimfit.toml holding the record at the base.
 const HELD: &str = "[[suite]]\nname = \"rust\"\npreset = \"rust\"\n\n[check]\nmutants_target = \"origin/main\"\n";
@@ -43,7 +43,19 @@ async fn shown(w: &World, n: u64) -> Value {
 async fn a_promotion_files_its_mutants_issue_waits_for_its_landing_then_promotes_a_tip_that_holds_the_record() {
     let w = World::new();
     let main = held(&w).await;
-    let t = w.tick().await;
+    // slimfit's listing runs beside the ticks: asked once, by a tick before the one that files.
+    let listed = |w: &World| w.host.ran.lock().unwrap().iter().filter(|r| r.contains("--mutants")).count();
+    let (mut t, mut before) = (factorium::Tick::default(), 0);
+    for _ in 0..10 {
+        if t.lines.iter().any(|l| l["mutants"].is_string()) {
+            break;
+        }
+        bounded("its line move ending", w.app.moves_ended()).await;
+        before = listed(&w);
+        let n = w.tick_alone().await;
+        (t.lines, _) = (n.lines, t.landed.extend(n.landed));
+    }
+    assert_eq!((before, listed(&w)), (1, 1), "{:?}", t.lines);
     // The landing waits for its fast gate alone, though what it adds owes a record.
     assert_eq!(t.landed[0]["landed"], "web#1", "{:?}", t.landed);
     let filed = t.lines.iter().find(|l| l["mutants"].is_string()).unwrap_or_else(|| panic!("{:?}", t.lines));

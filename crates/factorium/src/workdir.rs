@@ -212,6 +212,7 @@ impl App {
             let mut m = self.memory.lock().unwrap();
             let mut used = std::mem::take(&mut m.work_dirs);
             used.extend(m.beside.iter().map(|b| b.dir().to_path_buf()));
+            used.extend(m.listings.values().map(|l| l.dir.clone()));
             used.extend(HELD.lock().unwrap().iter().cloned());
             used
         };

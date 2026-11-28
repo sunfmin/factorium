@@ -65,6 +65,10 @@ pub struct Tick {
     pub live: usize,
     /// How long the tick took, ms on the app's clock.
     pub took_ms: i64,
+    /// Each checkout's fetch by the lines' pass, with its ms.
+    pub fetched: Vec<crate::line::Fetched>,
+    /// Each line move that took 100 ms or more, with its ms, in order.
+    pub moves: Vec<Step>,
     /// Each step it ended and its ms, in order.
     pub steps: Vec<Step>,
     /// The step it spent most in.
@@ -147,7 +151,7 @@ impl App {
         steps.ended("idle work's check and closing landed and finished issues", self.now());
         // The lines, as each says what is due.
         let checkouts = self.listed().await?;
-        (t.landed, t.lines) = self.asking_once(self.lines(&checkouts)).await?;
+        self.asking_once(self.lines(&checkouts, &mut t)).await?;
         steps.ended("the lines' moves", self.now());
         t.bumped = self.bumps(&checkouts).await?;
         steps.ended("bumps", self.now());

@@ -512,6 +512,25 @@ async fn stop_leaves_the_file_of_a_daemon_that_holds_its_lock_and_has_not_writte
     drop(held);
 }
 
+/// The lines' pass fetches the origin of each checkout whose line has work, all
+/// at once, before its moves: a tick names each fetch, and each move that took 100 ms or more.
+#[tokio::test]
+async fn a_tick_names_each_fetch_of_a_line_with_work_and_each_slow_move() {
+    let w = World::new();
+    let wk = w.working(CLAUDE, "t").await;
+    let t = w.tick_alone().await;
+    assert!(t.fetched.is_empty() && t.moves.is_empty(), "no line has work: {:?} {:?}", t.fetched, t.moves);
+    // The landing's tick ends the worker: its terminal's close takes 2 s.
+    let clock = w.clock.clone();
+    *w.host.orca.while_closing.lock().unwrap() = Some(Box::new(move |_: &str| clock.advance(2_000)));
+    w.done(&wk, "a.txt", "a\n").await;
+    let t = w.tick().await;
+    assert!(!t.landed.is_empty(), "{t:?}");
+    assert!(t.fetched.iter().any(|f| f.checkout == "web" && f.error.is_none()), "{:?}", t.fetched);
+    assert!(t.moves.iter().any(|m| m.step.ends_with(" of web") && m.ms >= 2_000), "{:?}", t.moves);
+    assert!(t.moves.iter().all(|m| m.ms >= 100), "{:?}", t.moves);
+}
+
 /// factorium#231: each tick is timed by its steps. One past half the hang
 /// bound is a finding naming the step it spent most in. It
 /// stands while ticks are slow, resolved by five quick ones in a row and
