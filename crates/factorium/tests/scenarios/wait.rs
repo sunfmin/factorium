@@ -1,7 +1,7 @@
 //! `issue wait`: a run that returns once the issues it names land, close,
 //! or wait for a person, or at its timeout, each with its own exit code.
 
-use factorium_domain::wait::Until;
+use factorium_domain::issue::Until;
 use serde_json::{Value, json};
 
 use crate::fixture::{World, bounded, refused};

@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use factorium::{Answer, App, Caller, DB_ENV, Refusal};
+use factorium_domain::issue::Until;
 use factorium_domain::issue::{Blocker, Wait};
-use factorium_domain::wait::Until;
 use factorium_domain::when::{self, Since};
 use factum::Uuid;
 

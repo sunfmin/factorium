@@ -142,7 +142,7 @@ pub struct Broke {
 }
 
 /// One issue's row.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Row {
     pub number: u64,
     pub title: String,
@@ -168,15 +168,7 @@ pub fn spent(issues: &[Issue]) -> Spent {
     let mut all = Spent::default();
     let mut to_land = Vec::new();
     for i in issues {
-        let mut row = Row {
-            number: i.number,
-            title: i.title.clone(),
-            attempts: i.attempts.len(),
-            ms: 0,
-            tokens: None,
-            split: Split::default(),
-            reds: Reds::default(),
-        };
+        let mut row = Row { number: i.number, title: i.title.clone(), attempts: i.attempts.len(), ..Row::default() };
         let mut landed = false;
         for a in &i.attempts {
             row.ms += a.to - a.from;

@@ -18,21 +18,19 @@ pub fn kit_id() -> factum_core::Uuid {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Kit {
     /// Engine (a harness's key) → the command the kit kept for it before
     /// stablehand kept them (factorium#306): moved to stablehand once
     /// ([`KitEvent::CommandsMoved`]), then empty. No start reads it.
-    #[serde(default)]
     pub commands: BTreeMap<String, String>,
     /// Engine → the command the move found and stablehand refused, and why:
     /// a finding of doctor until stablehand keeps one for that engine.
-    #[serde(default)]
     pub refused: BTreeMap<String, Refused>,
     /// Checkout name → the engine it is pinned to.
     pub pins: BTreeMap<String, String>,
     /// Engine → until when (ms) the host's own login of it is at its
     /// engine's limit: what a session without stablehand starts on.
-    #[serde(default)]
     pub limits: BTreeMap<String, i64>,
 }
 
